@@ -12,6 +12,7 @@ from qtpy.QtWidgets import (
     QAbstractSpinBox,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -126,6 +127,10 @@ class PositionTable(QGroupBox):
         self.add_button = QPushButton(text="Add")
         self.add_button.setMinimumWidth(min_size)
         self.add_button.setSizePolicy(btn_sizepolicy)
+        self.replace_button = QPushButton(text="Replace")
+        self.replace_button.setEnabled(False)
+        self.replace_button.setMinimumWidth(min_size)
+        self.replace_button.setSizePolicy(btn_sizepolicy)
         self.remove_button = QPushButton(text="Remove")
         self.remove_button.setEnabled(False)
         self.remove_button.setMinimumWidth(min_size)
@@ -140,30 +145,42 @@ class PositionTable(QGroupBox):
         self.go_button.setEnabled(False)
         self.go_button.setMinimumWidth(min_size)
         self.go_button.setSizePolicy(btn_sizepolicy)
+        self.save_positions_button = QPushButton(text="Save")
+        self.save_positions_button.setMinimumWidth(min_size)
+        self.save_positions_button.setSizePolicy(btn_sizepolicy)
+        self.load_positions_button = QPushButton(text="Load")
+        self.load_positions_button.setMinimumWidth(min_size)
+        self.load_positions_button.setSizePolicy(btn_sizepolicy)
 
         spacer = QSpacerItem(
             10, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding
         )
 
         buttons_layout.addWidget(self.add_button)
+        buttons_layout.addWidget(self.replace_button)
         buttons_layout.addWidget(self.remove_button)
         buttons_layout.addWidget(self.clear_button)
         buttons_layout.addWidget(self.go_button)
         buttons_layout.addWidget(self.grid_button)
+        buttons_layout.addWidget(self.save_positions_button)
+        buttons_layout.addWidget(self.load_positions_button)
         buttons_layout.addItem(spacer)
 
         group_layout.addWidget(buttons_wdg, 0, 1)
 
         self.add_button.clicked.connect(self._add_position)
+        self.replace_button.clicked.connect(self._replace_position)
         self.remove_button.clicked.connect(self._remove_position)
         self.clear_button.clicked.connect(self.clear)
         self.grid_button.clicked.connect(self._grid_widget)
         self.go_button.clicked.connect(self._move_to_position)
+        self.save_positions_button.clicked.connect(self._save_positions)
+        self.load_positions_button.clicked.connect(self._load_positions)
 
-        self._table.selectionModel().selectionChanged.connect(self._enable_go_button)
-        self._table.selectionModel().selectionChanged.connect(
-            self._enable_remove_button
-        )
+        self._table.setMinimumHeight(buttons_wdg.sizeHint().height() + 10)
+        self._table.selectionModel().selectionChanged.connect(self._enable_button)
+        self._table.selectionModel().selectionChanged.connect(self._enable_button)
+        self._table.selectionModel().selectionChanged.connect(self._enable_button)
 
         self._table.itemChanged.connect(self._rename_positions)
 
@@ -202,13 +219,11 @@ class PositionTable(QGroupBox):
         layout.addWidget(combo)
         return wdg
 
-    def _enable_go_button(self) -> None:
+    def _enable_button(self) -> None:
         rows = {r.row() for r in self._table.selectedIndexes()}
         self.go_button.setEnabled(len(rows) == 1)
-
-    def _enable_remove_button(self) -> None:
-        rows = {r.row() for r in self._table.selectedIndexes()}
         self.remove_button.setEnabled(len(rows) >= 1)
+        self.replace_button.setEnabled(len(rows) == 1)
 
     def _add_position(self) -> None:
         if not self._mmc.getXYStageDevice() and not self._mmc.getFocusDevice():
@@ -227,11 +242,13 @@ class PositionTable(QGroupBox):
         xpos: float | None,
         ypos: float | None,
         zpos: float | None,
+        row: int | None = None,
     ) -> None:
         if not self._mmc.getXYStageDevice() and not self._mmc.getFocusDevice():
             raise ValueError("No XY and Z Stage devices loaded.")
 
-        row = self._add_position_row()
+        if row is None:
+            row = self._add_position_row()
 
         self._add_table_item(name, row, 0)
         self._add_table_value(xpos, row, 1)
@@ -265,6 +282,17 @@ class PositionTable(QGroupBox):
         spin.setValue(value)
         spin.wheelEvent = lambda event: None  # block mouse scroll
         self._table.setCellWidget(row, col, spin)
+
+    def _replace_position(self) -> None:
+        rows = [r.row() for r in self._table.selectedIndexes()]
+        if len(set(rows)) > 1:
+            return
+        item = self._table.item(rows[0], 0)
+        name = item.text()
+        xpos = self._mmc.getXPosition() if self._mmc.getXYStageDevice() else None
+        ypos = self._mmc.getYPosition() if self._mmc.getXYStageDevice() else None
+        zpos = self._mmc.getZPosition() if self._mmc.getFocusDevice() else None
+        self._add_table_row(name, xpos, ypos, zpos, rows[0])
 
     def _remove_position(self) -> None:
         rows = {r.row() for r in self._table.selectedIndexes()}
@@ -517,6 +545,31 @@ class PositionTable(QGroupBox):
                 self._add_table_row(name or f"{POS}000", x, y, z)
 
             self.valueChanged.emit()
+
+    def _save_positions(self) -> None:
+        if not self._table.rowCount() or not self.value():
+            return
+
+        (dir_file, _) = QFileDialog.getSaveFileName(
+            self, "Saving directory and filename.", "", "json(*.json)"
+        )
+        if not dir_file:
+            return
+
+        import json
+
+        with open(str(dir_file), "w") as file:
+            json.dump(self.value(), file)
+
+    def _load_positions(self) -> None:
+        (filename, _) = QFileDialog.getOpenFileName(
+            self, "Select a position list file", "", "json(*.json)"
+        )
+        if filename:
+            import json
+
+            with open(filename) as file:
+                self.set_state(json.load(file))
 
     def _disconnect(self) -> None:
         self._mmc.events.systemConfigurationLoaded.disconnect(self.clear)
