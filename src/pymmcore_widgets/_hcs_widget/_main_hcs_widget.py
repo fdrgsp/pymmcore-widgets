@@ -5,7 +5,7 @@ import random
 import string
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import numpy as np
 from pymmcore_plus import CMMCorePlus
@@ -37,13 +37,13 @@ from pymmcore_widgets._hcs_widget._update_plate_dialog import _PlateDatabaseWidg
 from pymmcore_widgets._hcs_widget._well_plate_database import PLATE_DB, WellPlate
 from pymmcore_widgets._mda._mda_widget import MDAWidget
 from pymmcore_widgets._util import (
+    FOV_GRAPHICS_VIEW_SIZE,
     GRAPHICS_VIEW_HEIGHT,
     GRAPHICS_VIEW_WIDTH,
     PLATE_FROM_CALIBRATION,
 )
 
-if TYPE_CHECKING:
-    from ._graphics_items import _Well
+from ._graphics_items import _Well
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 
@@ -327,13 +327,12 @@ class HCSWidget(QWidget):
         if not self._calibration.is_calibrated:
             warnings.warn("Plate not calibrated! Calibrate it first.", stacklevel=2)
             return
-
         if not self._mmc.getPixelSizeUm():
             warnings.warn("Pixel Size not defined! Set pixel size first.", stacklevel=2)
             return
 
+        # get list of selected wells
         well_list = self._plate_and_fov_tab.scene.get_wells_positions()
-
         if not well_list:
             warnings.warn(
                 "No Well selected! Select at least one well first.", stacklevel=2
@@ -342,13 +341,15 @@ class HCSWidget(QWidget):
 
         self._mda.position_widget.clear()
 
-        ordered_wells_list = self._get_wells_stage_coords(well_list)
-
-        ordered_wells_and_fovs_list = self._get_well_and_fovs_position_list(
-            ordered_wells_list
+        wells_in_stage_coords = self._get_wells_stage_coords(well_list)
+        wells_and_fovs_in_stage_coords = self._get_fovs_stage_coords(
+            wells_in_stage_coords
         )
 
-        for well_name, stage_coord_x, stage_coord_y in ordered_wells_and_fovs_list:
+        if wells_and_fovs_in_stage_coords is None:
+            return
+
+        for well_name, stage_coord_x, stage_coord_y in wells_and_fovs_in_stage_coords:
             zpos = self._mmc.getPosition() if self._mmc.getFocusDevice() else None
             # TODO: fix autofocus
             self._mda.position_widget._add_table_row(
@@ -357,62 +358,54 @@ class HCSWidget(QWidget):
 
     def _get_wells_stage_coords(
         self, well_list: list[tuple[str, int, int]]
-    ) -> list[tuple[str, float, float]]:
+    ) -> list[tuple[str, float, float]] | None:
+        """Get the calibrated stage coords of the selected wells."""
         if self.wp is None or self._calibration.A1_well is None:
-            return []
+            return None
 
         calculated_spacing_x = self._calibration._calculated_well_spacing_x
         calculated_spacing_y = self._calibration._calculated_well_spacing_x
 
         if calculated_spacing_x is None or calculated_spacing_y is None:
-            return []
+            return None
 
         # center stage coords of calibrated well a1
         a1_x = self._calibration.A1_well[1]
         a1_y = self._calibration.A1_well[2]
         center = np.array([[a1_x], [a1_y]])
+        # rotation matrix from calibration
         r_matrix = self._calibration.plate_rotation_matrix
 
-        # distance between wells from plate database (mm)
-        ordered_well_list = []
-        original_pos_list = []
+        ordered_well_list: list[tuple[str, float, float]] = []
+        # original_pos_list = []
         for pos in well_list:
             well, row, col = pos
             # find center stage coords for all the selected wells
-            if well == "A1":
-                x = a1_x
-                y = a1_y
-                original_pos_list.append((x, y))
-
-            else:
-                x = a1_x + (calculated_spacing_x * col)
-                y = a1_y - (calculated_spacing_y * row)
-                original_pos_list.append((x, y))
-
-                if r_matrix is not None:
-                    coords = [[x], [y]]
-
-                    transformed = np.linalg.inv(r_matrix).dot(coords - center) + center
-
-                    x_rotated, y_rotated = transformed
-                    x = x_rotated[0]
-                    y = y_rotated[0]
-
+            x = a1_x if well == "A1" else a1_x + (calculated_spacing_x * col)
+            y = a1_y if well == "A1" else a1_y - (calculated_spacing_y * row)
+            # apply rotation matrix
+            if well != "A1" and r_matrix is not None:
+                coords = [[x], [y]]
+                transformed = np.linalg.inv(r_matrix).dot(coords - center) + center
+                x_rotated, y_rotated = transformed
+                x = x_rotated[0]
+                y = y_rotated[0]
             ordered_well_list.append((well, x, y))
 
         return ordered_well_list
 
-    def _get_well_and_fovs_position_list(
-        self, ordered_wells_list: list[tuple[str, float, float]]
-    ) -> list[tuple[str, float, float]]:
-        if self.wp is None:
-            return []
+    def _get_fovs_stage_coords(
+        self, ordered_wells_list: list[tuple[str, float, float]] | None
+    ) -> list[tuple[str, float, float]] | None:
+        """Get the calibrated stage coords of each FOV of the selected wells."""
+        if self.wp is None or ordered_wells_list is None:
+            return None
 
         calculated_size_x = self._calibration._calculated_well_size_x
         calculated_size_y = self._calibration._calculated_well_size_y
 
         if calculated_size_x is None or calculated_size_y is None:
-            return []
+            return None
 
         fovs = [
             item.get_center_and_size()
@@ -421,45 +414,32 @@ class HCSWidget(QWidget):
         ]
         fovs.reverse()
 
-        # center coord in px (of QGraphicsView))
-        cx = 100
-        cy = 100
-
-        pos_list = []
-
+        # center coord in px of _SelectFOV QGraphicsView
+        cx = FOV_GRAPHICS_VIEW_SIZE / 2
+        cy = FOV_GRAPHICS_VIEW_SIZE / 2
+        # rotation matrix from calibration
         r_matrix = self._calibration.plate_rotation_matrix
 
+        pos_list: list[tuple[str, float, float]] = []
         for pos in ordered_wells_list:
             well_name, center_stage_x, center_stage_y = pos
-
             for idx, fov in enumerate(fovs):
                 # center fov scene x, y coord fx and fov scene width and height
-                (
-                    center_fov_scene_x,
-                    center_fov_scene_y,
-                    w_fov_scene,
-                    h_fov_scene,
-                ) = fov
-
+                center_fov_scene_x, center_fov_scene_y, w_fov_scene, h_fov_scene = fov
                 # find 1 px value in um depending on well dimension
                 px_val_x = calculated_size_x / w_fov_scene  # µm
                 px_val_y = calculated_size_y / h_fov_scene  # µm
-
                 # shift point coords in scene when center is (0, 0)
                 new_fx = center_fov_scene_x - cx
                 new_fy = center_fov_scene_y - cy
-
                 # find stage coords of fov point
                 stage_coord_x = center_stage_x + (new_fx * px_val_x)
                 stage_coord_y = center_stage_y + (new_fy * px_val_y)
-
+                # apply rotation matrix
                 if r_matrix is not None:
                     center = np.array([[center_stage_x], [center_stage_y]])
-
                     coords = [[stage_coord_x], [stage_coord_y]]
-
                     transformed = np.linalg.inv(r_matrix).dot(coords - center) + center
-
                     x_rotated, y_rotated = transformed
                     stage_coord_x = x_rotated[0]
                     stage_coord_y = y_rotated[0]
@@ -471,32 +451,37 @@ class HCSWidget(QWidget):
         return pos_list
 
     def _test_calibration(self) -> None:
+        """Move to the edge of the selected well to test the calibratiion."""
         if not self._calibration.plate:
             return
 
+        # well name, row and col
         well_letter = self._calibration._well_letter_combo.currentText()
         well_number = self._calibration._well_number_combo.currentText()
+        row = self._calibration._well_letter_combo.currentIndex()
+        col = self._calibration._well_number_combo.currentIndex()
 
-        center = self._get_well_and_fovs_position_list(
-            self._get_wells_stage_coords(
-                [
-                    (
-                        f"{well_letter}{well_number}",
-                        self._calibration._well_letter_combo.currentIndex(),
-                        self._calibration._well_number_combo.currentIndex(),
-                    )
-                ]
-            )
+        test_well_in_stage_coords = self._get_wells_stage_coords(
+            [(f"{well_letter}{well_number}", row, col)]
         )
-        _, xc, yc = center[0]
+        wells_and_fovs_in_stage_coords = self._get_fovs_stage_coords(
+            test_well_in_stage_coords
+        )
+
+        if wells_and_fovs_in_stage_coords is None:
+            return
+        _, center_x, center_y = wells_and_fovs_in_stage_coords[0]
 
         self._mmc.waitForDevice(self._mmc.getXYStageDevice())
+
         if self._calibration.plate.circular:
-            self._move_to_circle_edge(xc, yc, self._calibration.plate.well_size_x / 2)
+            self._move_to_circle_edge(
+                center_x, center_y, self._calibration.plate.well_size_x / 2
+            )
         else:
             self._move_to_rectangle_edge(
-                xc,
-                yc,
+                center_x,
+                center_y,
                 self._calibration.plate.well_size_x,
                 self._calibration.plate.well_size_y,
             )
@@ -514,40 +499,18 @@ class HCSWidget(QWidget):
     ) -> None:
         """Move to the edge of a rectangle.
 
-        ...with center (xc, yc) andsize (well_size_x, well_size_y).
+        ...with center (xc, yc) and size (well_size_x, well_size_y).
         """
-        x_top_left = xc - (well_size_x / 2)
-        y_top_left = yc + (well_size_y / 2)
-
-        x_bottom_right = xc + (well_size_x / 2)
-        y_bottom_right = yc - (well_size_y / 2)
-
-        x = np.random.uniform(x_top_left, x_bottom_right)
-        y = np.random.uniform(y_top_left, y_bottom_right)
-
-        if x <= xc:
-            if y >= yc:
-                move_x, move_y = (
-                    (x_top_left, y)  # quad 1 - LEFT
-                    if abs(x_top_left - x) < abs(y_top_left - y)
-                    else (x, y_top_left)  # quad 1 - TOP
-                )
-            elif abs(x_top_left - x) < abs(y_bottom_right - y):
-                move_x, move_y = (x_top_left, y)  # quad 3 - LEFT
-            else:
-                move_x, move_y = (x, y_bottom_right)  # quad 3 - BOTTOM
-        elif y >= yc:
-            move_x, move_y = (
-                (x_bottom_right, y)  # quad 2 - RIGHT
-                if abs(x_bottom_right - x) < abs(y_top_left - y)
-                else (x, y_top_left)  # quad 2 - TOP
-            )
-        elif abs(x_bottom_right - x) < abs(y_bottom_right - y):
-            move_x, move_y = (x_bottom_right, y)  # quad 4 - RIGHT
-        else:
-            move_x, move_y = (x, y_bottom_right)  # quad 4 - BOTTOM
-
-        self._mmc.setXYPosition(move_x, move_y)
+        x_top_left, y_top_left = xc - (well_size_x / 2), yc + (well_size_y / 2)
+        x_bottom_right, y_bottom_right = xc + (well_size_x / 2), yc - (well_size_y / 2)
+        # random 4 edge points
+        edge_points = [
+            (x_top_left, np.random.uniform(y_top_left, y_bottom_right)),  # left
+            (np.random.uniform(x_top_left, x_bottom_right), y_top_left),  # top
+            (x_bottom_right, np.random.uniform(y_top_left, y_bottom_right)),  # righ
+            (np.random.uniform(x_top_left, x_bottom_right), y_bottom_right),  # bottom
+        ]
+        self._mmc.setXYPosition(*edge_points[np.random.randint(0, 4)])
 
     def _save_positions(self) -> None:
         if not self._mda.position_widget._table.rowCount():
