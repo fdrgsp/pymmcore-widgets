@@ -16,6 +16,11 @@ from qtpy.QtWidgets import (
 from superqt.utils import signals_blocked
 from useq import AnyGridPlan, MDASequence
 
+PLATE_FROM_CALIBRATION = "custom_from_calibration"
+GRAPHICS_VIEW_WIDTH = 500
+GRAPHICS_VIEW_HEIGHT = 300
+FOV_GRAPHICS_VIEW_SIZE = 200
+
 
 class ComboMessageBox(QDialog):
     """Dialog that presents a combo box of `items`."""
