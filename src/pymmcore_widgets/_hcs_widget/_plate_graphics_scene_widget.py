@@ -86,8 +86,8 @@ class _HCSGraphicsScene(QGraphicsScene):
                 item.set_well_color(UNSELECTED_COLOR)
 
     def _draw_plate_wells(self, plate: WellPlate) -> None:
-        """Draw the well plate."""
-        start_x, start_y, size_x, size_y, text_size = self._calculate_plate_info(plate)
+        """Draw all wells of the plate."""
+        start_x, start_y, size_x, size_y, text_size = self._plate_sizes_in_pixel(plate)
         x = start_x
         y = start_y
         for row, col in product(range(plate.rows), range(plate.cols)):
@@ -97,10 +97,24 @@ class _HCSGraphicsScene(QGraphicsScene):
                 _Well(_x, _y, size_x, size_y, row, col, text_size, plate.circular)
             )
 
-    def _calculate_plate_info(
+    def _plate_sizes_in_pixel(
         self, plate: WellPlate
     ) -> tuple[float, float, float, float, float]:
-        """Calculate the size of the plate and the size of the wells to then draw it."""
+        """Calculate the size of the plate and the size of the wells to then draw it.
+
+        The sizes are not the real plate/well dimensions (mm) but are the size in
+        pixels for the QGraphicsView.
+
+        Returns
+        -------
+            start_x: the starting pixel x coordinate of the well
+            (with start_y is the top left corner).
+            start_y: the starting pixel y coordinate of the well
+            (with start_x is the top left corner).
+            size_x: the width of the wells.
+            size_y: the height of the wells.
+            text_size: the size of the text used to write the name inside the wells.
+        """
         max_w = GRAPHICS_VIEW_WIDTH - 10
         max_h = GRAPHICS_VIEW_HEIGHT - 10
 
