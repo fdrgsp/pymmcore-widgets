@@ -332,7 +332,7 @@ class HCSWidget(QWidget):
             warnings.warn("Pixel Size not defined! Set pixel size first.", stacklevel=2)
             return
 
-        well_list = self._plate_and_fov_tab.scene._get_plate_positions()
+        well_list = self._plate_and_fov_tab.scene.get_wells_positions()
 
         if not well_list:
             warnings.warn(
