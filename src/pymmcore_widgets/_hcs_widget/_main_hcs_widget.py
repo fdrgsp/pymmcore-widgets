@@ -5,6 +5,7 @@ import random
 import string
 import warnings
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 from pymmcore_plus import CMMCorePlus
@@ -40,6 +41,9 @@ from pymmcore_widgets._util import (
     GRAPHICS_VIEW_WIDTH,
     PLATE_FROM_CALIBRATION,
 )
+
+if TYPE_CHECKING:
+    from ._graphics_items import _Well
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 
@@ -289,9 +293,9 @@ class HCSWidget(QWidget):
         # select the plate area if is not a multi well
         items = self._plate_and_fov_tab.scene.items()
         if len(items) == 1:
-            item = items[0]
+            item = cast(_Well, items[0])
             item.setSelected(True)
-            item._setBrush(QBrush(Qt.magenta))
+            item.set_well_color(QBrush(Qt.magenta))
         # load plate info in the FOV selector widget
         self._plate_and_fov_tab.FOV_selector._load_plate_info(
             self.wp.well_size_x, self.wp.well_size_y, self.wp.circular
@@ -411,7 +415,7 @@ class HCSWidget(QWidget):
             return []
 
         fovs = [
-            item._getPositionsInfo()
+            item.get_center_and_size()
             for item in self._plate_and_fov_tab.FOV_selector.scene.items()
             if isinstance(item, _FOVPoints)
         ]

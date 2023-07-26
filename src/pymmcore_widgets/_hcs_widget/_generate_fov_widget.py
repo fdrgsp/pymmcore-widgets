@@ -427,23 +427,25 @@ class _SelectFOV(QWidget):
         dx = (dx / 1000) / scene_px_mm_x
 
         if rows == 1 and cols == 1:
-            x = cr
-            y = cc
+            canter_x = cr
+            center_y = cc
         else:
-            x = cc - ((cols - 1) * (self._x_size / 2)) - ((dx / 2) * (cols - 1))
-            y = cr + ((rows - 1) * (self._y_size / 2)) - ((dy / 2) * (rows - 1))
+            canter_x = cc - ((cols - 1) * (self._x_size / 2)) - ((dx / 2) * (cols - 1))
+            center_y = cr + ((rows - 1) * (self._y_size / 2)) - ((dy / 2) * (rows - 1))
 
         move_x = self._x_size + dx
         move_y = self._y_size - dy
 
-        points = self._create_grid_of_points(rows, cols, x, y, move_x, move_y)
+        points = self._create_grid_of_points(
+            rows, cols, canter_x, center_y, move_x, move_y
+        )
 
         for p in points:
-            x, y, fov_row, fov_col = p
+            canter_x, center_y, fov_row, fov_col = p
             self.scene.addItem(
                 _FOVPoints(
-                    x,
-                    y,
+                    canter_x,
+                    center_y,
                     self._scene_size_x,
                     self._scene_size_y,
                     self._plate_size_x,
@@ -545,11 +547,11 @@ class _SelectFOV(QWidget):
                 nFOV, diameter, center, min_dist_x, min_dist_y
             )
             for p in points:
-                x, y = p
+                center_x, center_y = p
                 self.scene.addItem(
                     _FOVPoints(
-                        x,
-                        y,
+                        center_x,
+                        center_y,
                         self._scene_size_x,
                         self._scene_size_y,
                         self._plate_size_x,
@@ -609,11 +611,11 @@ class _SelectFOV(QWidget):
                 min_dist_y,
             )
             for p in points:
-                x, y = p
+                center_x, center_y = p
                 self.scene.addItem(
                     _FOVPoints(
-                        x,
-                        y,
+                        center_x,
+                        center_y,
                         self._scene_size_x,
                         self._scene_size_y,
                         self._plate_size_x,

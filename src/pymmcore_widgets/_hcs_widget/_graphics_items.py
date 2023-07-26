@@ -60,12 +60,12 @@ class _Well(QGraphicsItem):
         well_name = f"{ALPHABET[self._row]}{self._col + 1}"
         painter.drawText(self.well_shape, well_name, QTextOption(Qt.AlignCenter))
 
-    def setBrush(self, brush: QBrush) -> None:
+    def set_well_color(self, brush: QBrush) -> None:
         """Set the QBrush of the well to change the well color."""
         self.brush = brush
         self.update()
 
-    def _getPos(self) -> Tuple[str, int, int]:
+    def get_name_row_col(self) -> Tuple[str, int, int]:
         """Return the well name, row and column."""
         row = self._row
         col = self._col
@@ -114,8 +114,8 @@ class _FOVPoints(QGraphicsItem):
 
     def __init__(
         self,
-        x: float,
-        y: float,
+        center_x: float,
+        center_y: float,
         scene_size_x: int,
         scene_size_y: int,
         plate_size_x: float,
@@ -129,8 +129,8 @@ class _FOVPoints(QGraphicsItem):
 
         self._view_size = FOV_GRAPHICS_VIEW_SIZE  # size of _SelectFOV QGraphicsView
 
-        self._x = x
-        self._y = y
+        self.center_x = center_x
+        self.center_y = center_y
         self.fov_row = fov_row
         self.fov_col = fov_col
 
@@ -149,9 +149,10 @@ class _FOVPoints(QGraphicsItem):
         pen.setWidth(2)
         painter.setPen(pen)
 
-        start_x = self._x - (self._x_size / 2)
-        start_y = self._y - (self._y_size / 2)
+        start_x = self.center_x - (self._x_size / 2)
+        start_y = self.center_y - (self._y_size / 2)
         painter.drawRect(QRectF(start_x, start_y, self._x_size, self._y_size))
 
-    def _getPositionsInfo(self) -> Tuple[float, float, int, int]:
-        return self._x, self._y, self.scene_width, self.scene_width
+    def get_center_and_size(self) -> Tuple[float, float, int, int]:
+        """Return the center and size of the FOV."""
+        return self.center_x, self.center_y, self.scene_width, self.scene_width

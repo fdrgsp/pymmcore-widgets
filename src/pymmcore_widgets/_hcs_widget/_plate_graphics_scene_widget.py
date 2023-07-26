@@ -43,15 +43,15 @@ class _HCSGraphicsScene(QGraphicsScene):
 
         for item in self._selected_wells:
             item = cast("_Well", item)
-            item.setBrush(SELECTED_COLOR)
+            item.set_well_color(SELECTED_COLOR)
 
         if well := self.itemAt(self.originCropPoint, QTransform()):
             well = cast("_Well", well)
             if well.isSelected():
-                well.setBrush(UNSELECTED_COLOR)
+                well.set_well_color(UNSELECTED_COLOR)
                 well.setSelected(False)
             else:
-                well.setBrush(SELECTED_COLOR)
+                well.set_well_color(SELECTED_COLOR)
                 well.setSelected(True)
 
     def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent) -> None:
@@ -71,7 +71,7 @@ class _HCSGraphicsScene(QGraphicsScene):
                 self._select(item, False)
 
     def _select(self, item: _Well, state: bool) -> None:
-        item.setBrush(SELECTED_COLOR if state else UNSELECTED_COLOR)
+        item.set_well_color(SELECTED_COLOR if state else UNSELECTED_COLOR)
         item.setSelected(state)
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
@@ -83,7 +83,7 @@ class _HCSGraphicsScene(QGraphicsScene):
             item = cast("_Well", item)
             if item.isSelected():
                 item.setSelected(False)
-                item.setBrush(UNSELECTED_COLOR)
+                item.set_well_color(UNSELECTED_COLOR)
 
     def _draw_plate_wells(self, plate: WellPlate) -> None:
         """Draw the well plate."""
@@ -138,8 +138,14 @@ class _HCSGraphicsScene(QGraphicsScene):
             return None
 
         well_list_to_order = [
-            item._getPos() for item in reversed(self.items()) if item.isSelected()
+            item.get_name_row_col() for item in self.items() if item.isSelected()
         ]
+
+        # well_list_to_order = [
+        #     item.get_name_row_col()
+        #     for item in reversed(self.items())
+        #     if item.isSelected()
+        # ]
 
         correct_order = []
         to_add = []
