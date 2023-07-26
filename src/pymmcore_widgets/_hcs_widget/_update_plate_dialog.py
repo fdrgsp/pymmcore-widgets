@@ -22,30 +22,33 @@ from ._well_plate_database import PLATE_DB, WellPlate
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 
 
+class _Table(QTableWidget):
+    """QTableWidget setup."""
+
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.horizontalHeader().setStretchLastSection(True)
+        self.verticalHeader().setVisible(False)
+        self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.setRowCount(1)
+        self.setColumnCount(1)
+        self.setHorizontalHeaderLabels(["Plate"])
+
+        self.itemSelectionChanged.connect(self._update)
+
+    def _update(self) -> None:
+        self.cellClicked.emit(self.currentRow(), 0)
+
+
 class _PlateDatabaseWidget(QDialog):
     """Class to create or edit a well plate in the database."""
 
-    plate_updated = Signal(object)
+    valueChanged = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        self._create_gui()
-        self.setMinimumSize(450, 250)
-
-        self._update_table()
-
-        if self.plate_table.rowCount():
-            self._update_values(1, 0)
-
-        self.setWindowFlags(
-            Qt.WindowType.Window
-            | Qt.WindowType.WindowTitleHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.WindowCloseButtonHint
-        )
-
-    def _create_gui(self) -> None:
         main_layout = QGridLayout()
         main_layout.setContentsMargins(5, 5, 5, 5)
         main_layout.setSpacing(5)
@@ -129,6 +132,13 @@ class _PlateDatabaseWidget(QDialog):
 
         self.setLayout(main_layout)
 
+        self.setMinimumSize(450, 250)
+
+        self._update_table()
+
+        if self.plate_table.rowCount():
+            self._update_values(1, 0)
+
     def _update_table(self) -> None:
         self.plate_table.setRowCount(len(PLATE_DB))
         for row, plate_name in enumerate(PLATE_DB):
@@ -165,12 +175,14 @@ class _PlateDatabaseWidget(QDialog):
             well_spacing_y=self._well_spacing_y.value(),
         )
         PLATE_DB[new.id] = new
-        self.plate_updated.emit(new)
+        self.valueChanged.emit(new)
 
         self._update_table()
 
         match = self.plate_table.findItems(self._id.text(), Qt.MatchExactly)
         self.plate_table.item(match[0].row(), 0).setSelected(True)
+
+        self.close()
 
     def _delete_plate(self) -> None:
         selected_rows = {r.row() for r in self.plate_table.selectedIndexes()}
@@ -183,7 +195,7 @@ class _PlateDatabaseWidget(QDialog):
             match = self.plate_table.findItems(plate_name, Qt.MatchExactly)
             self.plate_table.removeRow(match[0].row())
 
-        self.plate_updated.emit(None)
+        self.valueChanged.emit(None)
 
         if self.plate_table.rowCount():
             self.plate_table.setCurrentCell(0, 0)
@@ -200,22 +212,3 @@ class _PlateDatabaseWidget(QDialog):
         self._well_size_x.setValue(0.0)
         self._well_size_y.setValue(0.0)
         self._circular_checkbox.setChecked(False)
-
-
-class _Table(QTableWidget):
-    """QTableWidget setup."""
-
-    def __init__(self) -> None:
-        super().__init__()
-
-        self.horizontalHeader().setStretchLastSection(True)
-        self.verticalHeader().setVisible(False)
-        self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.setRowCount(1)
-        self.setColumnCount(1)
-        self.setHorizontalHeaderLabels(["Plate"])
-
-        self.itemSelectionChanged.connect(self._update)
-
-    def _update(self) -> None:
-        self.cellClicked.emit(self.currentRow(), 0)

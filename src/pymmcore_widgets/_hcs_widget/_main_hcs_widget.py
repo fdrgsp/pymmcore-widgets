@@ -181,9 +181,8 @@ class HCSWidget(QWidget):
         By default, None. If not specified, the widget will use the active
         (or create a new) `CMMCorePlus.instance()`.
 
-    The `HCSWidget` provides a GUI to construct a `useq.MDASequence` object.
-    It can be used to automate the acquisition of multi-well plate
-    or custom defined areas.
+    The `HCSWidget` provides a GUI to construct a `useq.MDASequence` object that
+    can be used to automate the acquisition of multi-well plate or custom defined areas.
     """
 
     def __init__(
@@ -205,6 +204,10 @@ class HCSWidget(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setAlignment(AlignCenter)
         layout.addWidget(scroll)
+
+        # plate database widget
+        self._plate = _PlateDatabaseWidget(parent=self)
+        self._plate.valueChanged.connect(self._update_well_plate_combo)
 
         # tabwidget
         # plate and fov selection tab
@@ -268,6 +271,7 @@ class HCSWidget(QWidget):
         )
 
     def _on_plate_from_calibration(self, coords: tuple) -> None:
+        """Update the graphics scene with a plate defined form calibration."""
         global CALIBRATED_PLATE
 
         x_list, y_list = zip(*coords)
@@ -303,9 +307,10 @@ class HCSWidget(QWidget):
 
     def _show_custom_plate_dialog(self) -> None:
         """Show the custom plate Qdialog widget."""
-        self._plate = _PlateDatabaseWidget(parent=self)
-        self._plate.plate_updated.connect(self._update_well_plate_combo)
+        if hasattr(self, "_plate"):
+            self._plate.close()
         self._plate.show()
+        self._plate.plate_table.clearSelection()
         self._plate._clear_values()
 
     def _update_well_plate_combo(self, new_plate: WellPlate | None) -> None:
