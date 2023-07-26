@@ -44,7 +44,7 @@ class _Table(QTableWidget):
 
 
 class _PlateDatabaseWidget(QDialog):
-    """Class to create or edit a well plate in the database."""
+    """Widget to create or edit a well plate in the database."""
 
     valueChanged = Signal(object)
 
@@ -168,7 +168,7 @@ class _PlateDatabaseWidget(QDialog):
         if not self._id.text():
             return
 
-        new = WellPlate(
+        new_plate = WellPlate(
             circular=self._circular_checkbox.isChecked(),
             id=self._id.text(),
             cols=self._cols.value(),
@@ -182,18 +182,15 @@ class _PlateDatabaseWidget(QDialog):
         # save custom plate in database (read, append and overwrite)
         with open(Path(__file__).parent / "well_plate_database.json") as file:
             db = json.load(file)
-            db.append(new.dict())
+            db.append(new_plate.dict())
         with open(Path(__file__).parent / "well_plate_database.json", "w") as file:
             json.dump(db, file)
 
         # update PLATE_DB for the current session
-        PLATE_DB[new.id] = new
+        PLATE_DB[new_plate.id] = new_plate
 
-        self.valueChanged.emit(new)
+        self.valueChanged.emit(new_plate)
         self._update_table()
-
-        # match = self.plate_table.findItems(self._id.text(), Qt.MatchExactly)
-        # self.plate_table.item(match[0].row(), 0).setSelected(True)
 
         self.close()
 
@@ -206,6 +203,7 @@ class _PlateDatabaseWidget(QDialog):
 
         plate_names = [self.plate_table.item(r, 0).text() for r in selected_rows]
         for plate_name in plate_names:
+            # update PLATE_DB for the current session
             PLATE_DB.pop(plate_name, None)
             match = self.plate_table.findItems(plate_name, Qt.MatchExactly)
             self.plate_table.removeRow(match[0].row())
