@@ -31,7 +31,7 @@ from superqt.fonticon import icon
 from superqt.utils import signals_blocked
 
 from .._util import PLATE_FROM_CALIBRATION
-from ._well_plate_database import PLATE_DB, WellPlate
+from ._well_plate_model import PLATE_DB, WellPlate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 

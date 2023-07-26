@@ -30,6 +30,7 @@ dependencies = [
     'superqt[quantity] >=0.3.1',
     'fonticon-materialdesignicons6',
     'qtpy',
+    "pydantic<2.0"
 ]
 
 # extras

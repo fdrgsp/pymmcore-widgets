@@ -34,7 +34,7 @@ from pymmcore_widgets._hcs_widget._generate_fov_widget import _SelectFOV
 from pymmcore_widgets._hcs_widget._graphics_items import _FOVPoints
 from pymmcore_widgets._hcs_widget._plate_graphics_scene_widget import _HCSGraphicsScene
 from pymmcore_widgets._hcs_widget._update_plate_dialog import _PlateDatabaseWidget
-from pymmcore_widgets._hcs_widget._well_plate_database import PLATE_DB, WellPlate
+from pymmcore_widgets._hcs_widget._well_plate_model import PLATE_DB, WellPlate
 from pymmcore_widgets._mda._mda_widget import MDAWidget
 from pymmcore_widgets._util import (
     FOV_GRAPHICS_VIEW_SIZE,
