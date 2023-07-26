@@ -100,7 +100,7 @@ class _HCSGraphicsScene(QGraphicsScene):
     def _calculate_plate_info(
         self, plate: WellPlate
     ) -> tuple[float, float, float, float, float]:
-        """Calculate the size of the plate and the size of the wells to draw it."""
+        """Calculate the size of the plate and the size of the wells to then draw it."""
         max_w = GRAPHICS_VIEW_WIDTH - 10
         max_h = GRAPHICS_VIEW_HEIGHT - 10
 
@@ -140,9 +140,9 @@ class _HCSGraphicsScene(QGraphicsScene):
         well_list_to_order = [
             item.get_name_row_col() for item in self.items() if item.isSelected()
         ]
-        return self.arrange_in_snake_order(well_list_to_order)
+        return self._arrange_in_snake_order(well_list_to_order)
 
-    def arrange_in_snake_order(
+    def _arrange_in_snake_order(
         self, well_list_to_order: list[tuple[str, int, int]]
     ) -> list[tuple[str, int, int]]:
         """Reorder the list of tuples in a snake-like order."""
