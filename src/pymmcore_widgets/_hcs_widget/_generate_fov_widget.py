@@ -227,8 +227,9 @@ class _SelectFOV(QWidget):
         self.center_wdg = _CenterWidget()
         # random fov widget
         self.random_wdg = _RandomWidget()
-        self.random_wdg.plate_area_x.valueChanged.connect(self._on_area_changed)
-        self.random_wdg.plate_area_y.valueChanged.connect(self._on_area_changed)
+        self.random_wdg.plate_area_x.valueChanged.connect(self._on_random_area_changed)
+        self.random_wdg.plate_area_x.valueChanged.connect(self._update_plate_area_y)
+        self.random_wdg.plate_area_y.valueChanged.connect(self._on_random_area_changed)
         self.random_wdg.number_of_FOV.valueChanged.connect(
             self._on_number_of_FOV_changed
         )
@@ -268,141 +269,268 @@ class _SelectFOV(QWidget):
                     self.scene.removeItem(item)
             mode = self.tab_wdg.tabText(self.tab_wdg.currentIndex())
             if mode in ["Center", "Random"]:
-                self._reset_center_random_scene(mode)
+                self._update_center_or_random_scene(mode)
             else:  # Grid
-                self._reset_grid_scene()
+                self._update_grid_scene()
 
-    def _reset_center_random_scene(self, mode: str) -> None:
-        """Reset the _RandomWidget scene."""
-        nFOV = self.random_wdg.number_of_FOV.value()
-        area_x = self.random_wdg.plate_area_x.value()
-        area_y = self.random_wdg.plate_area_y.value()
-        self._update_FOV_center_random(nFOV, mode, area_x, area_y)
-
-    def _reset_grid_scene(self) -> None:
-        """Reset the _GridWidget scene."""
-        rows = self.grid_wdg.rows.value()
-        cols = self.grid_wdg.cols.value()
-        dx = self.grid_wdg.spacing_x.value()
-        dy = -(self.grid_wdg.spacing_y.value())
-        self._update_FOV_grid(rows, cols, dx, dy)
+    def _update_plate_area_y(self, value: float) -> None:
+        """Update the plate area y value if the plate has circular wells."""
+        if not self._is_circular:
+            return
+        with signals_blocked(self.random_wdg.plate_area_y):
+            self.random_wdg.plate_area_y.setValue(value)
 
     def _on_tab_changed(self, tab_index: int) -> None:
-        """Reset the scene when the tab is changed."""
+        """Update the scene when the tab is changed."""
         for item in self.scene.items():
             if isinstance(item, (_WellArea, _FOVPoints)):
                 self.scene.removeItem(item)
-        if tab_index != 2:  # Center or Random
+        if tab_index == 2:  # Grid
+            self._update_grid_scene()
+        else:  # Center or Random
             mode = "Center" if tab_index == 0 else "Random"
-            self._reset_center_random_scene(mode)
-        else:  # Grid
-            self._reset_grid_scene()
+            self._update_center_or_random_scene(mode)
 
-    def _on_area_changed(self) -> None:
-        """Reset the _RandomWidget scene when the usable plate area is changed."""
+    def _on_random_area_changed(self) -> None:
+        """Update the _RandomWidget scene when the usable plate area is changed."""
         for item in self.scene.items():
             if isinstance(item, (_WellArea, _FOVPoints)):
                 self.scene.removeItem(item)
-        self._reset_center_random_scene("Random")
+        self._update_center_or_random_scene("Random")
 
     def _on_number_of_FOV_changed(self) -> None:
-        """Reset the _RandomWidget scene when the number of FOVs is changed."""
+        """Update the _RandomWidget scene when the number of FOVs is changed."""
         for item in self.scene.items():
             if isinstance(item, _FOVPoints):
                 self.scene.removeItem(item)
-        self._reset_center_random_scene("Random")
+        self._update_center_or_random_scene("Random")
 
     def _on_grid_changed(self) -> None:
         for item in self.scene.items():
             if isinstance(item, _FOVPoints):
                 self.scene.removeItem(item)
-        self._reset_grid_scene()
+        self._update_grid_scene()
 
-    def _load_plate_info(self, size_x: float, size_y: float, is_circular: bool) -> None:
-        self.scene.clear()
+    def _update_center_or_random_scene(self, mode: str) -> None:
+        """Update the _CenterWidget or the _RandomWidget scene."""
+        nFOV = self.random_wdg.number_of_FOV.value()
+        area_x = self.random_wdg.plate_area_x.value()
+        area_y = self.random_wdg.plate_area_y.value()
+        self._update_center_or_random_fovs(nFOV, mode, area_x, area_y)
 
-        self._plate_size_x = round(size_x, 3)
-        self._plate_size_y = round(size_y, 3)
-        self._is_circular = is_circular
+    def _update_grid_scene(self) -> None:
+        """Update the _GridWidget scene."""
+        rows = self.grid_wdg.rows.value()
+        cols = self.grid_wdg.cols.value()
+        dx = self.grid_wdg.spacing_x.value()
+        dy = -(self.grid_wdg.spacing_y.value())
+        self._update_grid_fovs(rows, cols, dx, dy)
 
-        if (
-            self._plate_size_x == self._plate_size_y
-            or self._plate_size_x < self._plate_size_y
-        ):
-            self._scene_size_x = 160
-        else:
-            self._scene_size_x = 180
+    def _update_center_or_random_fovs(
+        self, nFOV: int, mode: str, area_x: float, area_y: float
+    ) -> None:
+        """Update the _CenterWidget or the _RandomWidget scene.
 
-        if (
-            self._plate_size_y == self._plate_size_x
-            or self._plate_size_y < self._plate_size_x
-        ):
-            self._scene_size_y = 160
-        else:
-            self._scene_size_y = 180
+        Draw the center fov in case of a _CenterWidget, draw `nFOV` fovs in random
+        positions in case of a _RandomWidget.
+        """
+        if not self._mmc.getCameraDevice():
+            return
 
-        self._scene_start_x = (self._view_size - self._scene_size_x) / 2
-        self._scene_start_y = (self._view_size - self._scene_size_y) / 2
+        if not self._mmc.getPixelSizeUm():
+            warnings.warn("Pixel Size not defined! Set pixel size first.", stacklevel=2)
+            return
 
-        pen = QPen(Qt.green)
-        pen.setWidth(4)
+        _cam_x = self._mmc.getImageWidth()
+        _cam_y = self._mmc.getImageHeight()
+        _image_size_mm_x = (_cam_x * self._mmc.getPixelSizeUm()) / 1000
+        _image_size_mm_y = (_cam_y * self._mmc.getPixelSizeUm()) / 1000
+
+        if mode == "Center":
+            points = [(self._view_size / 2, self._view_size / 2)]  # center x and y
+
+        elif mode == "Random":
+            area_pen = QPen(Qt.magenta)
+            area_pen.setWidth(4)
+            points = self._points_for_random_scene(
+                nFOV, area_x, area_y, _image_size_mm_x, _image_size_mm_y, area_pen
+            )
+
+        # draw fov(s)
+        for center_x, center_y in points:
+            self.scene.addItem(
+                _FOVPoints(
+                    center_x,
+                    center_y,
+                    self._scene_size_x,
+                    self._scene_size_y,
+                    self._plate_size_x,
+                    self._plate_size_y,
+                    _image_size_mm_x,
+                    _image_size_mm_y,
+                )
+            )
+
+    def _points_for_random_scene(
+        self,
+        nFOV: int,
+        area_x: float,
+        area_y: float,
+        _image_size_mm_x: float,
+        _image_size_mm_y: float,
+        area_pen: QPen,
+    ) -> list[tuple[float, float]]:
+        """Create the points for the _RandomWidget scene.
+
+        They can be either random points in a circle or in a square/rectangle depending
+        on the well shape.
+        """
+        size_x = (self._scene_size_x * area_x) / self._plate_size_x
+        size_y = (self._scene_size_y * area_y) / self._plate_size_y
+        center_x = (self._view_size - size_x) / 2
+        center_y = (self._view_size - size_y) / 2
+
+        self.scene.addItem(
+            _WellArea(self._is_circular, center_x, center_y, size_x, size_y, area_pen)
+        )
+
+        min_dist_x = (self._scene_size_x * _image_size_mm_x) / area_x
+        min_dist_y = (self._scene_size_y * _image_size_mm_y) / area_y
 
         if self._is_circular:
-            self.scene.addEllipse(
-                self._scene_start_x,
-                self._scene_start_y,
-                self._scene_size_x,
-                self._scene_size_y,
-                pen,
-            )
-        else:
-            self.scene.addRect(
-                self._scene_start_x,
-                self._scene_start_y,
-                self._scene_size_x,
-                self._scene_size_y,
-                pen,
+            return self._random_points_in_circle(
+                nFOV, size_x, center_x, center_y, min_dist_x, min_dist_y
             )
 
-        self._set_spinboxes_values(
-            self.random_wdg.plate_area_x, self.random_wdg.plate_area_y
+        area_x = (self._scene_size_x * area_x) / self._plate_size_x
+        area_y = (self._scene_size_y * area_y) / self._plate_size_y
+        return self._random_points_in_rectangle(
+            nFOV,
+            area_x,
+            area_y,
+            self._view_size,
+            self._view_size,
+            min_dist_x,
+            min_dist_y,
         )
-        self._set_spinboxes_values(
-            self.center_wdg.plate_area_x_c, self.center_wdg.plate_area_y_c
-        )
-        self.random_wdg.plate_area_y.setEnabled(not self._is_circular)
-        self.random_wdg.plate_area_y.setButtonSymbols(
-            QAbstractSpinBox.NoButtons
-            if self._is_circular
-            else QAbstractSpinBox.UpDownArrows
-        )
-        self.random_wdg.plate_area_x.setEnabled(True)
 
-        mode = self.tab_wdg.tabText(self.tab_wdg.currentIndex())
-        if mode in ["Center", "Random"]:
-            self._reset_center_random_scene(mode)
-        else:  # Grid
-            self._reset_grid_scene()
+    def _random_points_in_circle(
+        self,
+        nFOV: int,
+        diameter: float,
+        center_x: float,
+        center_y: float,
+        min_dist_x: float,
+        min_dist_y: float,
+    ) -> list[tuple[float, float]]:
+        """Create a list of random points in a specified circle.
 
-    def _set_spinboxes_values(
-        self, spin_x: QDoubleSpinBox, spin_y: QDoubleSpinBox
-    ) -> None:
-        with signals_blocked(spin_x):
-            spin_x.setMaximum(self._plate_size_x)
-            spin_x.setValue(self._plate_size_x)
-        with signals_blocked(spin_y):
-            spin_y.setMaximum(self._plate_size_y)
-            spin_y.setValue(self._plate_size_y)
+        The points have a minimum distance from each other defined by `min_dist_x` and
+        `min_dist_y`.
+        """
+        radius = diameter / 2
+        points: list[tuple[float, float]] = []
+        _t = time.time()
+        while len(points) < nFOV:
+            angle = random.uniform(0, 2 * math.pi)
+            x = center_x + radius + random.uniform(0, radius) * math.cos(angle)
+            y = center_y + radius + random.uniform(0, radius) * math.sin(angle)
+            new_point = (x, y)
+            if self.is_a_valid_point(new_point, points, min_dist_x, min_dist_y):
+                points.append(new_point)
+            # raise a warning if it takes longer than 200ms to generate the points.
+            if time.time() - _t > 0.2:
+                warnings.warn(
+                    f"Area too small to generate {nFOV} fovs. "
+                    f"Only {len(points)} were generated.",
+                    stacklevel=2,
+                )
+                with signals_blocked(self.random_wdg.number_of_FOV):
+                    self.random_wdg.number_of_FOV.setValue(len(points) or 1)
+                return points
+        return points
 
-    def _on_random_button_pressed(self) -> None:
-        for item in self.scene.items():
-            if isinstance(item, _FOVPoints):
-                self.scene.removeItem(item)
+    def is_a_valid_point(
+        self,
+        new_point: tuple[float, float],
+        existing_points: list[tuple[float, float]],
+        min_dist_x: float,
+        min_dist_y: float,
+    ) -> bool:
+        """Check if the distance between the `new point` and the `existing_points` is
+        greater than the minimum disrtance required.
+        """  # noqa: D205
 
-        mode = self.tab_wdg.tabText(self.tab_wdg.currentIndex())
-        self._reset_center_random_scene(mode)
+        def distance(point1: tuple[float, float], point2: tuple[float, float]) -> float:
+            x1, y1 = point1
+            x2, y2 = point2
+            return math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
 
-    def _update_FOV_grid(self, rows: int, cols: int, dx: float, dy: float) -> None:
+        for point in existing_points:
+            if (
+                distance(new_point, point) < min_dist_x
+                or distance(new_point, point) < min_dist_y
+            ):
+                return False
+        return True
+
+    def _random_points_in_rectangle(
+        self,
+        nFOV: int,
+        size_x: float,
+        size_y: float,
+        max_size_x: int,
+        max_size_y: int,
+        min_dist_x: float,
+        min_dist_y: float,
+    ) -> list[tuple[float, float]]:
+        """Create a list of random points in a square/rectangle.
+
+        The points have a minimum distance from each other defined by `min_dist_x` and
+        `min_dist_y`.
+        """
+        x_left = (max_size_x - size_x) / 2  # left bound
+        x_right = x_left + size_x  # right bound
+        y_up = (max_size_y - size_y) / 2  # upper bound
+        y_down = y_up + size_y  # lower bound
+
+        points: list[tuple[float, float]] = []
+
+        t = time.time()
+        while len(points) < nFOV:
+            x = np.random.uniform(x_left, x_right)
+            y = np.random.uniform(y_up, y_down)
+            if self._distance((x, y), points, (min_dist_x, min_dist_y)):
+                points.append((x, y))
+            t1 = time.time()
+            if t1 - t > 0.5:
+                warnings.warn(
+                    f"Area too small to generate {nFOV} fovs. "
+                    f"Only {len(points)} were generated.",
+                    stacklevel=2,
+                )
+                with signals_blocked(self.random_wdg.number_of_FOV):
+                    self.random_wdg.number_of_FOV.setValue(len(points))
+                return points
+        return points
+
+    def _distance(
+        self,
+        new_point: tuple[float, float],
+        points: list[tuple[float, float]],
+        min_distance: tuple[float, float],
+    ) -> bool:
+        x_new, y_new = new_point[0], new_point[1]
+        min_distance_x, min_distance_y = min_distance[0], min_distance[1]
+        for point in points:
+            x, y = point[0], point[1]
+            x_max, x_min = max(x, x_new), min(x, x_new)
+            y_max, y_min = max(y, y_new), min(y, y_new)
+            if x_max - x_min < min_distance_x and y_max - y_min < min_distance_y:
+                return False
+        return True
+
+    def _update_grid_fovs(self, rows: int, cols: int, dx: float, dy: float) -> None:
         if not self._mmc.getCameraDevice():
             return
 
@@ -479,231 +607,88 @@ class _SelectFOV(QWidget):
                         x += move_x
         return points
 
-    def _update_FOV_center_random(
-        self, nFOV: int, mode: str, area_x: float, area_y: float
-    ) -> None:
-        if not self._mmc.getCameraDevice():
-            return
+    def _load_plate_info(self, size_x: float, size_y: float, is_circular: bool) -> None:
+        self.scene.clear()
 
-        if not self._mmc.getPixelSizeUm():
-            warnings.warn("Pixel Size not defined! Set pixel size first.", stacklevel=2)
-            return
+        self._plate_size_x = round(size_x, 3)
+        self._plate_size_y = round(size_y, 3)
+        self._is_circular = is_circular
 
-        _cam_x = self._mmc.getROI(self._mmc.getCameraDevice())[-2]
-        _cam_y = self._mmc.getROI(self._mmc.getCameraDevice())[-1]
-        _image_size_mm_x = (_cam_x * self._mmc.getPixelSizeUm()) / 1000
-        _image_size_mm_y = (_cam_y * self._mmc.getPixelSizeUm()) / 1000
+        if (
+            self._plate_size_x == self._plate_size_y
+            or self._plate_size_x < self._plate_size_y
+        ):
+            self._scene_size_x = 160
+        else:
+            self._scene_size_x = 180
 
-        area_pen = QPen(Qt.magenta)
-        area_pen.setWidth(4)
+        if (
+            self._plate_size_y == self._plate_size_x
+            or self._plate_size_y < self._plate_size_x
+        ):
+            self._scene_size_y = 160
+        else:
+            self._scene_size_y = 180
+
+        self._scene_start_x = (self._view_size - self._scene_size_x) / 2
+        self._scene_start_y = (self._view_size - self._scene_size_y) / 2
+
+        pen = QPen(Qt.green)
+        pen.setWidth(4)
 
         if self._is_circular:
-            self._update_scene_if_circular(
-                nFOV, mode, area_x, _image_size_mm_x, _image_size_mm_y, area_pen
+            self.scene.addEllipse(
+                self._scene_start_x,
+                self._scene_start_y,
+                self._scene_size_x,
+                self._scene_size_y,
+                pen,
             )
         else:
-            self._update_scene_if_rectangular(
-                nFOV, mode, area_x, area_y, _image_size_mm_x, _image_size_mm_y, area_pen
+            self.scene.addRect(
+                self._scene_start_x,
+                self._scene_start_y,
+                self._scene_size_x,
+                self._scene_size_y,
+                pen,
             )
 
-    def _update_scene_if_circular(
-        self,
-        nFOV: int,
-        mode: str,
-        area_x: float,
-        _image_size_mm_x: float,
-        _image_size_mm_y: float,
-        area_pen: QPen,
+        self._set_spinboxes_values(
+            self.random_wdg.plate_area_x, self.random_wdg.plate_area_y
+        )
+        self._set_spinboxes_values(
+            self.center_wdg.plate_area_x_c, self.center_wdg.plate_area_y_c
+        )
+
+        self.random_wdg.plate_area_y.setEnabled(not self._is_circular)
+        self.random_wdg.plate_area_y.setButtonSymbols(
+            QAbstractSpinBox.NoButtons
+            if self._is_circular
+            else QAbstractSpinBox.UpDownArrows
+        )
+
+        self.random_wdg.plate_area_x.setEnabled(True)
+
+        mode = self.tab_wdg.tabText(self.tab_wdg.currentIndex())
+        if mode in ["Center", "Random"]:
+            self._update_center_or_random_scene(mode)
+        else:  # Grid
+            self._update_grid_scene()
+
+    def _set_spinboxes_values(
+        self, spin_x: QDoubleSpinBox, spin_y: QDoubleSpinBox
     ) -> None:
-        if mode == "Center":
-            center_x, center_y = (self._view_size / 2, self._view_size / 2)
-            self.scene.addItem(
-                _FOVPoints(
-                    center_x,
-                    center_y,
-                    self._scene_size_x,
-                    self._scene_size_y,
-                    self._plate_size_x,
-                    self._plate_size_y,
-                    _image_size_mm_x,
-                    _image_size_mm_y,
-                )
-            )
+        with signals_blocked(spin_x):
+            spin_x.setMaximum(self._plate_size_x)
+            spin_x.setValue(self._plate_size_x)
+        with signals_blocked(spin_y):
+            spin_y.setMaximum(self._plate_size_y)
+            spin_y.setValue(self._plate_size_y)
 
-        elif mode == "Random":
-            diameter = (self._scene_size_x * area_x) / self._plate_size_x
-            center = (self._view_size - diameter) / 2
+    def _on_random_button_pressed(self) -> None:
+        for item in self.scene.items():
+            if isinstance(item, _FOVPoints):
+                self.scene.removeItem(item)
 
-            self.scene.addItem(
-                _WellArea(True, center, center, diameter, diameter, area_pen)
-            )
-
-            min_dist_x = (self._scene_size_x * _image_size_mm_x) / area_x
-            min_dist_y = (self._scene_size_y * _image_size_mm_y) / area_x
-
-            points = self._random_points_in_circle(
-                nFOV, diameter, center, min_dist_x, min_dist_y
-            )
-            for p in points:
-                center_x, center_y = p
-                self.scene.addItem(
-                    _FOVPoints(
-                        center_x,
-                        center_y,
-                        self._scene_size_x,
-                        self._scene_size_y,
-                        self._plate_size_x,
-                        self._plate_size_y,
-                        _image_size_mm_x,
-                        _image_size_mm_y,
-                    )
-                )
-
-    def _update_scene_if_rectangular(
-        self,
-        nFOV: int,
-        mode: str,
-        area_x: float,
-        area_y: float,
-        _image_size_mm_x: float,
-        _image_size_mm_y: float,
-        area_pen: QPen,
-    ) -> None:
-        if mode == "Center":
-            center_x, center_y = (self._view_size / 2, self._view_size / 2)
-            self.scene.addItem(
-                _FOVPoints(
-                    center_x,
-                    center_y,
-                    self._scene_size_x,
-                    self._scene_size_y,
-                    self._plate_size_x,
-                    self._plate_size_y,
-                    _image_size_mm_x,
-                    _image_size_mm_y,
-                )
-            )
-
-        elif mode == "Random":
-            size_x = (self._scene_size_x * area_x) / self._plate_size_x
-            center_x = (self._view_size - size_x) / 2
-            size_y = (self._scene_size_y * area_y) / self._plate_size_y
-            center_y = (self._view_size - size_y) / 2
-
-            self.scene.addItem(
-                _WellArea(False, center_x, center_y, size_x, size_y, area_pen)
-            )
-
-            points_area_x = (self._scene_size_x * area_x) / self._plate_size_x
-            min_dist_x = (self._scene_size_x * _image_size_mm_x) / area_x
-            points_area_y = (self._scene_size_y * area_y) / self._plate_size_y
-            min_dist_y = (self._scene_size_y * _image_size_mm_y) / area_y
-
-            points = self._random_points_in_square(
-                nFOV,
-                points_area_x,
-                points_area_y,
-                self._view_size,
-                self._view_size,
-                min_dist_x,
-                min_dist_y,
-            )
-            for p in points:
-                center_x, center_y = p
-                self.scene.addItem(
-                    _FOVPoints(
-                        center_x,
-                        center_y,
-                        self._scene_size_x,
-                        self._scene_size_y,
-                        self._plate_size_x,
-                        self._plate_size_y,
-                        _image_size_mm_x,
-                        _image_size_mm_y,
-                    )
-                )
-
-    def _random_points_in_circle(
-        self,
-        nFOV: int,
-        diameter: float,
-        center: float,
-        min_dist_x: float,
-        min_dist_y: float,
-    ) -> list[tuple[float, float]]:
-        radius = round(diameter / 2)
-        _to_add = center + radius
-        points: list[tuple[float, float]] = []
-        t = time.time()
-        while len(points) < nFOV:
-            # random angle
-            alpha = 2 * math.pi * random.random()
-            # random radius
-            r = np.random.randint(0, radius)
-            # calculating coordinates
-            x = r * math.cos(alpha) + _to_add
-            y = r * math.sin(alpha) + _to_add
-            if self._distance((x, y), points, (min_dist_x, min_dist_y)):
-                points.append((x, y))
-            t1 = time.time()
-            if t1 - t > 1:
-                warnings.warn(
-                    f"Area too small to generate {nFOV} fovs. "
-                    f"Only {len(points)} were generated.",
-                    stacklevel=2,
-                )
-                with signals_blocked(self.random_wdg.number_of_FOV):
-                    self.random_wdg.number_of_FOV.setValue(len(points))
-                return points
-        return points
-
-    def _random_points_in_square(
-        self,
-        nFOV: int,
-        size_x: float,
-        size_y: float,
-        max_size_x: int,
-        max_size_y: int,
-        min_dist_x: float,
-        min_dist_y: float,
-    ) -> list[tuple[float, float]]:
-        x_left = (max_size_x - size_x) / 2  # left bound
-        x_right = x_left + size_x  # right bound
-        y_up = (max_size_y - size_y) / 2  # upper bound
-        y_down = y_up + size_y  # lower bound
-
-        points: list[tuple[float, float]] = []
-
-        t = time.time()
-        while len(points) < nFOV:
-            x = np.random.uniform(x_left, x_right)
-            y = np.random.uniform(y_up, y_down)
-            if self._distance((x, y), points, (min_dist_x, min_dist_y)):
-                points.append((x, y))
-            t1 = time.time()
-            if t1 - t > 0.5:
-                warnings.warn(
-                    f"Area too small to generate {nFOV} fovs. "
-                    f"Only {len(points)} were generated.",
-                    stacklevel=2,
-                )
-                with signals_blocked(self.random_wdg.number_of_FOV):
-                    self.random_wdg.number_of_FOV.setValue(len(points))
-                return points
-        return points
-
-    def _distance(
-        self,
-        new_point: tuple[float, float],
-        points: list[tuple[float, float]],
-        min_distance: tuple[float, float],
-    ) -> bool:
-        x_new, y_new = new_point[0], new_point[1]
-        min_distance_x, min_distance_y = min_distance[0], min_distance[1]
-        for point in points:
-            x, y = point[0], point[1]
-            x_max, x_min = max(x, x_new), min(x, x_new)
-            y_max, y_min = max(y, y_new), min(y, y_new)
-            if x_max - x_min < min_distance_x and y_max - y_min < min_distance_y:
-                return False
-        return True
+        mode = self.tab_wdg.tabText(self.tab_wdg.currentIndex())
+        self._update_center_or_random_scene(mode)
