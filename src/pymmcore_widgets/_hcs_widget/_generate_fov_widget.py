@@ -452,8 +452,6 @@ class _SelectFOV(QWidget):
                     self._plate_size_y,
                     _image_size_mm_x,
                     _image_size_mm_y,
-                    fov_row,
-                    fov_col,
                 )
             )
 

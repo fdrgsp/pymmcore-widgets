@@ -1,8 +1,8 @@
 import string
-from typing import Any, Optional, Tuple
+from typing import Any, Tuple
 
 from qtpy.QtCore import QRectF, Qt
-from qtpy.QtGui import QBrush, QColor, QFont, QPainter, QPen, QTextOption
+from qtpy.QtGui import QBrush, QFont, QPainter, QPen, QTextOption
 from qtpy.QtWidgets import QGraphicsItem
 
 from .._util import FOV_GRAPHICS_VIEW_SIZE
@@ -23,21 +23,16 @@ class _Well(QGraphicsItem):
         col: int,
         text_size: float,
         circular: bool,
-        text_color: str = "",
     ) -> None:
         super().__init__()
-        self._x = x
-        self._y = y
-        self._size_x = size_x
-        self._size_y = size_y
+
         self._row = row
         self._col = col
         self._text_size = text_size
         self.circular = circular
-        self.text_color = text_color
 
         self.brush = QBrush(Qt.green)
-        self.well_shape = QRectF(self._x, self._y, self._size_x, self._size_y)
+        self.well_shape = QRectF(x, y, size_x, size_y)
 
         self.setFlag(self.ItemIsSelectable, True)
 
@@ -54,8 +49,6 @@ class _Well(QGraphicsItem):
 
         font = QFont("Helvetica", int(self._text_size))
         font.setWeight(QFont.Bold)
-        pen = QPen(QColor(self.text_color))
-        painter.setPen(pen)
         painter.setFont(font)
         well_name = f"{ALPHABET[self._row]}{self._col + 1}"
         painter.drawText(self.well_shape, well_name, QTextOption(Qt.AlignCenter))
@@ -87,19 +80,13 @@ class _WellArea(QGraphicsItem):
     ) -> None:
         super().__init__()
 
-        self._view_size = FOV_GRAPHICS_VIEW_SIZE  # size of _SelectFOV QGraphicsView
-
         self._circular = circular
-        self._start_x = start_x
-        self._start_y = start_y
-        self._w = width
-        self._h = height
         self._pen = pen
-
-        self.rect = QRectF(self._start_x, self._start_y, self._w, self._h)
+        self.rect = QRectF(start_x, start_y, width, height)
 
     def boundingRect(self) -> QRectF:
-        return QRectF(0, 0, self._view_size, self._view_size)
+        # FOV_GRAPHICS_VIEW_SIZE is the size of _SelectFOV QGraphicsView
+        return QRectF(0, 0, FOV_GRAPHICS_VIEW_SIZE, FOV_GRAPHICS_VIEW_SIZE)
 
     def paint(self, painter: QPainter, *args: Any) -> None:
         painter.setPen(self._pen)
@@ -110,20 +97,21 @@ class _WellArea(QGraphicsItem):
 
 
 class _FOVPoints(QGraphicsItem):
-    """QGraphicsItem to draw the the positions of each FOV in the _SelectFOV widget."""
+    """QGraphicsItem to draw the the positions of each FOV in the _SelectFOV widget.
+
+    The FOV is drawn as a rectangle which represents the camera FOV.
+    """
 
     def __init__(
         self,
         center_x: float,
         center_y: float,
-        scene_size_x: int,
-        scene_size_y: int,
+        scene_width: int,
+        scene_height: int,
         plate_size_x: float,
         plate_size_y: float,
         image_size_mm_x: float,
         image_size_mm_y: float,
-        fov_row: Optional[int] = None,
-        fov_col: Optional[int] = None,
     ) -> None:
         super().__init__()
 
@@ -131,15 +119,13 @@ class _FOVPoints(QGraphicsItem):
 
         self.center_x = center_x
         self.center_y = center_y
-        self.fov_row = fov_row
-        self.fov_col = fov_col
 
         # fov width and height in scene px
-        self._x_size = (scene_size_x * image_size_mm_x) / plate_size_x
-        self._y_size = (scene_size_y * image_size_mm_y) / plate_size_y
+        self._x_size = (scene_width * image_size_mm_x) / plate_size_x
+        self._y_size = (scene_height * image_size_mm_y) / plate_size_y
 
-        self.scene_width = scene_size_x
-        self.scene_width = scene_size_y
+        self.scene_width = scene_width
+        self.scene_height = scene_height
 
     def boundingRect(self) -> QRectF:
         return QRectF(0, 0, self._view_size, self._view_size)
@@ -155,4 +141,4 @@ class _FOVPoints(QGraphicsItem):
 
     def get_center_and_size(self) -> Tuple[float, float, int, int]:
         """Return the center and size of the FOV."""
-        return self.center_x, self.center_y, self.scene_width, self.scene_width
+        return self.center_x, self.center_y, self.scene_width, self.scene_height
