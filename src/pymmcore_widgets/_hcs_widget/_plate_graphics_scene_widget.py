@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from itertools import groupby, product
+from itertools import product
 from typing import TYPE_CHECKING, cast
 
 from qtpy.QtCore import QRect, QRectF, Qt
@@ -152,22 +152,45 @@ class _HCSGraphicsScene(QGraphicsScene):
             return None
 
         well_list_to_order = [
-            item.get_name_row_col() for item in self.items() if item.isSelected()
+            item.get_name_row_col()
+            for item in reversed(self.items())
+            if item.isSelected()
         ]
-        return self._arrange_in_snake_order(well_list_to_order)
 
-    def _arrange_in_snake_order(
-        self, well_list_to_order: list[tuple[str, int, int]]
-    ) -> list[tuple[str, int, int]]:
-        """Reorder the list of tuples in a snake-like order."""
-        sorted_lst = sorted(well_list_to_order, key=lambda t: (t[1], t[2]))
+        # for 'snake' acquisition
+        correct_order = []
+        to_add = []
+        try:
+            previous_row = well_list_to_order[0][1]
+        except IndexError:
+            return None
+        current_row = 0
+        for idx, wrc in enumerate(well_list_to_order):
+            _, row, _ = wrc
 
-        result: list[tuple[str, int, int]] = []
-        for _, group in groupby(enumerate(sorted_lst), key=lambda t: t[1][1]):
-            group_list = list(group)
-            if group_list[0][1][1] % 2 == 0:
-                result.extend(t for _, t in group_list)
+            if idx == 0:
+                correct_order.append(wrc)
+            elif row == previous_row:
+                to_add.append(wrc)
+                if idx == len(well_list_to_order) - 1:
+                    if current_row % 2:
+                        correct_order.extend(iter(reversed(to_add)))
+                    else:
+                        correct_order.extend(iter(to_add))
             else:
-                result.extend(t for _, t in group_list[::-1])
+                if current_row % 2:
+                    correct_order.extend(iter(reversed(to_add)))
+                else:
+                    correct_order.extend(iter(to_add))
+                to_add.clear()
+                to_add.append(wrc)
+                if idx == len(well_list_to_order) - 1:
+                    if current_row % 2:
+                        correct_order.extend(iter(reversed(to_add)))
+                    else:
+                        correct_order.extend(iter(to_add))
 
-        return result
+                previous_row = row
+                current_row += 1
+
+        return correct_order
