@@ -29,33 +29,33 @@ class _Well(QGraphicsItem):
         self._row = row
         self._col = col
         self._text_size = text_size
-        self.circular = circular
+        self._circular = circular
 
-        self.brush = QBrush(Qt.green)
-        self.well_shape = QRectF(x, y, size_x, size_y)
+        self._brush = QBrush(Qt.green)
+        self._well_shape = QRectF(x, y, size_x, size_y)
 
         self.setFlag(self.ItemIsSelectable, True)
 
     def boundingRect(self) -> QRectF:
-        return self.well_shape
+        return self._well_shape
 
     def paint(self, painter: QPainter, *args: Any) -> None:
-        painter.setBrush(self.brush)
+        painter.setBrush(self._brush)
         painter.setPen(QPen(Qt.black))
-        if self.circular:
-            painter.drawEllipse(self.well_shape)
+        if self._circular:
+            painter.drawEllipse(self._well_shape)
         else:
-            painter.drawRect(self.well_shape)
+            painter.drawRect(self._well_shape)
 
         font = QFont("Helvetica", int(self._text_size))
         font.setWeight(QFont.Bold)
         painter.setFont(font)
         well_name = f"{ALPHABET[self._row]}{self._col + 1}"
-        painter.drawText(self.well_shape, well_name, QTextOption(Qt.AlignCenter))
+        painter.drawText(self._well_shape, well_name, QTextOption(Qt.AlignCenter))
 
     def set_well_color(self, brush: QBrush) -> None:
         """Set the QBrush of the well to change the well color."""
-        self.brush = brush
+        self._brush = brush
         self.update()
 
     def get_name_row_col(self) -> Tuple[str, int, int]:
@@ -82,7 +82,7 @@ class _WellArea(QGraphicsItem):
 
         self._circular = circular
         self._pen = pen
-        self.rect = QRectF(start_x, start_y, width, height)
+        self._rect = QRectF(start_x, start_y, width, height)
 
     def boundingRect(self) -> QRectF:
         # FOV_GRAPHICS_VIEW_SIZE is the size of _SelectFOV QGraphicsView
@@ -91,9 +91,9 @@ class _WellArea(QGraphicsItem):
     def paint(self, painter: QPainter, *args: Any) -> None:
         painter.setPen(self._pen)
         if self._circular:
-            painter.drawEllipse(self.rect)
+            painter.drawEllipse(self._rect)
         else:
-            painter.drawRect(self.rect)
+            painter.drawRect(self._rect)
 
 
 class _FOVPoints(QGraphicsItem):
@@ -117,15 +117,15 @@ class _FOVPoints(QGraphicsItem):
 
         self._view_size = FOV_GRAPHICS_VIEW_SIZE  # size of _SelectFOV QGraphicsView
 
-        self.center_x = center_x
-        self.center_y = center_y
+        self._center_x = center_x
+        self._center_y = center_y
 
         # fov width and height in scene px
         self._x_size = (scene_width * image_size_mm_x) / plate_size_x
         self._y_size = (scene_height * image_size_mm_y) / plate_size_y
 
-        self.scene_width = scene_width
-        self.scene_height = scene_height
+        self._scene_width = scene_width
+        self._scene_height = scene_height
 
     def boundingRect(self) -> QRectF:
         return QRectF(0, 0, self._view_size, self._view_size)
@@ -135,10 +135,10 @@ class _FOVPoints(QGraphicsItem):
         pen.setWidth(2)
         painter.setPen(pen)
 
-        start_x = self.center_x - (self._x_size / 2)
-        start_y = self.center_y - (self._y_size / 2)
+        start_x = self._center_x - (self._x_size / 2)
+        start_y = self._center_y - (self._y_size / 2)
         painter.drawRect(QRectF(start_x, start_y, self._x_size, self._y_size))
 
     def get_center_and_size(self) -> Tuple[float, float, int, int]:
         """Return the center and size of the FOV."""
-        return self.center_x, self.center_y, self.scene_width, self.scene_height
+        return self._center_x, self._center_y, self._scene_width, self._scene_height

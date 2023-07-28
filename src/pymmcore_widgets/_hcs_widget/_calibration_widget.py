@@ -31,7 +31,7 @@ from superqt.fonticon import icon
 from superqt.utils import signals_blocked
 
 from .._util import PLATE_FROM_CALIBRATION
-from ._well_plate_model import PLATE_DB, WellPlate
+from ._well_plate_model import WellPlate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 
@@ -47,11 +47,13 @@ class _PlateCalibration(QWidget):
         self,
         parent: QWidget | None = None,
         *,
+        plate_database: dict[str, WellPlate],
         mmcore: CMMCorePlus | None = None,
     ) -> None:
         super().__init__(parent)
 
         self._mmc = mmcore or CMMCorePlus.instance()
+        self._plate_db = plate_database
 
         self.plate: WellPlate | None = None
         self.A1_well: tuple[str, float, float] | None = None
@@ -202,7 +204,7 @@ class _PlateCalibration(QWidget):
         self._clear_tables()
 
         try:
-            self.plate = PLATE_DB[plate_id]
+            self.plate = self._plate_db[plate_id]
         except KeyError:
             self.plate = None
             warnings.warn(f'Plate ID "{plate_id}" not found in database.', stacklevel=2)
@@ -244,11 +246,11 @@ class _PlateCalibration(QWidget):
     def _update_well_combos(self, plate_id: str) -> None:
         """Update the well combo boxes with the correct letters/number of wells."""
         self._well_letter_combo.clear()
-        letters = [ALPHABET[letter] for letter in range(PLATE_DB[plate_id].rows)]
+        letters = [ALPHABET[letter] for letter in range(self._plate_db[plate_id].rows)]
         self._well_letter_combo.addItems(letters)
 
         self._well_number_combo.clear()
-        numbers = [str(c) for c in range(1, PLATE_DB[plate_id].cols + 1)]
+        numbers = [str(c) for c in range(1, self._plate_db[plate_id].cols + 1)]
         self._well_number_combo.addItems(numbers)
 
     def _get_calibration_wells(self, combo_txt: str) -> list[str] | None:

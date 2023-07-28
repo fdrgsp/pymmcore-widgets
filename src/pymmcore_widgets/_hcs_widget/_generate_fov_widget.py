@@ -277,8 +277,7 @@ class _SelectFOV(QWidget):
         """Update the plate area y value if the plate has circular wells."""
         if not self._is_circular:
             return
-        with signals_blocked(self.random_wdg.plate_area_y):
-            self.random_wdg.plate_area_y.setValue(value)
+        self.random_wdg.plate_area_y.setValue(value)
 
     def _on_tab_changed(self, tab_index: int) -> None:
         """Update the scene when the tab is changed."""

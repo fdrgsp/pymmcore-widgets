@@ -29,12 +29,6 @@ from qtpy.QtWidgets import (
 from superqt.utils import signals_blocked
 from useq import MDASequence
 
-from pymmcore_widgets._hcs_widget._calibration_widget import _PlateCalibration
-from pymmcore_widgets._hcs_widget._generate_fov_widget import _SelectFOV
-from pymmcore_widgets._hcs_widget._graphics_items import _FOVPoints
-from pymmcore_widgets._hcs_widget._plate_graphics_scene_widget import _HCSGraphicsScene
-from pymmcore_widgets._hcs_widget._update_plate_dialog import _PlateDatabaseWidget
-from pymmcore_widgets._hcs_widget._well_plate_model import PLATE_DB, WellPlate
 from pymmcore_widgets._mda._mda_widget import MDAWidget
 from pymmcore_widgets._util import (
     FOV_GRAPHICS_VIEW_SIZE,
@@ -43,7 +37,12 @@ from pymmcore_widgets._util import (
     PLATE_FROM_CALIBRATION,
 )
 
-from ._graphics_items import _Well
+from ._calibration_widget import _PlateCalibration
+from ._generate_fov_widget import _SelectFOV
+from ._graphics_items import _FOVPoints, _Well
+from ._plate_graphics_scene_widget import _HCSGraphicsScene
+from ._update_plate_dialog import _PlateDatabaseWidget
+from ._well_plate_model import PLATE_DB_PATH, WellPlate, load_database
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 
@@ -52,8 +51,12 @@ CALIBRATED_PLATE: WellPlate | None = None
 
 
 class _PlateAndFovTab(QWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, parent: QWidget | None = None, *, plate_database: dict[str, WellPlate]
+    ) -> None:
         super().__init__(parent)
+
+        self._plate_db = plate_database
 
         layout = QVBoxLayout()
         layout.setSpacing(20)
@@ -74,7 +77,7 @@ class _PlateAndFovTab(QWidget):
         combo_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         combo_label.setText("Plate:")
         self.wp_combo = QComboBox()
-        self.wp_combo.addItems(list(PLATE_DB))
+        self.wp_combo.addItems(list(self._plate_db))
         wp_combo_layout.addWidget(combo_label)
         wp_combo_layout.addWidget(self.wp_combo)
         wp_combo_wdg.setLayout(wp_combo_layout)
@@ -126,8 +129,12 @@ class _PlateAndFovTab(QWidget):
 
 
 class _CalibrationTab(QWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, parent: QWidget | None = None, *, plate_database: dict[str, WellPlate]
+    ) -> None:
         super().__init__(parent)
+
+        self._plate_db = plate_database
 
         layout = QVBoxLayout()
         layout.setSpacing(20)
@@ -142,7 +149,9 @@ class _CalibrationTab(QWidget):
         calibration_group_layout.setSpacing(0)
         calibration_group_layout.setContentsMargins(10, 20, 10, 10)
         calibration_group.setLayout(calibration_group_layout)
-        self.calibration_widget = _PlateCalibration(parent=self)
+        self.calibration_widget = _PlateCalibration(
+            parent=self, plate_database=self._plate_db
+        )
         calibration_group_layout.addWidget(self.calibration_widget)
         layout.addWidget(calibration_group)
 
@@ -180,6 +189,9 @@ class HCSWidget(QWidget):
         Optional `CMMCorePlus` micromanager core.
         By default, None. If not specified, the widget will use the active
         (or create a new) `CMMCorePlus.instance()`.
+    plate_database_path : Optional[Path | str]
+        Optional path to a custom well plate database. The database must be a
+        json file containing a list of `WellPlate` dictionaries.
 
     The `HCSWidget` provides a GUI to construct a `useq.MDASequence` object that
     can be used to automate the acquisition of multi-well plate or custom defined areas.
@@ -190,8 +202,12 @@ class HCSWidget(QWidget):
         parent: QWidget | None = None,
         *,
         mmcore: CMMCorePlus | None = None,
+        plate_database_path: Path | str | None = None,
     ) -> None:
         super().__init__(parent)
+
+        self._plate_db_path = plate_database_path or PLATE_DB_PATH
+        self._plate_db = load_database(self._plate_db_path)
 
         self._mmc = mmcore or CMMCorePlus.instance()
 
@@ -206,12 +222,16 @@ class HCSWidget(QWidget):
         layout.addWidget(scroll)
 
         # plate database widget
-        self._plate = _PlateDatabaseWidget(parent=self)
+        self._plate = _PlateDatabaseWidget(
+            parent=self,
+            plate_database=self._plate_db,
+            plate_database_path=self._plate_db_path,
+        )
         self._plate.valueChanged.connect(self._update_well_plate_combo)
 
         # tabwidget
         # plate and fov selection tab
-        self._plate_and_fov_tab = _PlateAndFovTab()
+        self._plate_and_fov_tab = _PlateAndFovTab(plate_database=self._plate_db)
         self._plate_and_fov_tab.wp_combo.currentTextChanged.connect(
             self._on_well_plate_combo_changed
         )
@@ -219,7 +239,7 @@ class HCSWidget(QWidget):
             self._show_custom_plate_dialog
         )
         # calibration tab
-        self._calibration_tab = _CalibrationTab()
+        self._calibration_tab = _CalibrationTab(plate_database=self._plate_db)
         self._calibration = self._calibration_tab.calibration_widget
         self._calibration.valueChanged.connect(self._on_plate_from_calibration)
         self._calibration._test_button.clicked.connect(self._test_calibration)
@@ -291,7 +311,9 @@ class HCSWidget(QWidget):
 
     def _update_plate_graphics_scene(self, well_plate: str | WellPlate) -> None:
         """Update the graphics scene with the selected well plate."""
-        self.wp = PLATE_DB[well_plate] if isinstance(well_plate, str) else well_plate
+        self.wp = (
+            self._plate_db[well_plate] if isinstance(well_plate, str) else well_plate
+        )
         # draw the plate
         self._plate_and_fov_tab.scene._draw_plate_wells(self.wp)
         # select the plate area if is not a multi well
@@ -317,7 +339,7 @@ class HCSWidget(QWidget):
         """Update the well plate combobox with the updated plate database."""
         with signals_blocked(self._plate_and_fov_tab.wp_combo):
             self._plate_and_fov_tab.wp_combo.clear()
-            self._plate_and_fov_tab.wp_combo.addItems(list(PLATE_DB))
+            self._plate_and_fov_tab.wp_combo.addItems(list(self._plate_db))
 
         if new_plate is not None:
             self._plate_and_fov_tab.wp_combo.setCurrentText(new_plate.id)

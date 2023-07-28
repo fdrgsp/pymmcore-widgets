@@ -19,7 +19,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from ._well_plate_model import PLATE_DB, WellPlate
+from ._well_plate_model import WellPlate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 
@@ -48,8 +48,17 @@ class _PlateDatabaseWidget(QDialog):
 
     valueChanged = Signal(object)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        plate_database: dict[str, WellPlate],
+        plate_database_path: Path | str,
+    ) -> None:
         super().__init__(parent)
+
+        self._plate_db_path = plate_database_path
+        self._plate_db = plate_database
 
         main_layout = QGridLayout()
         main_layout.setContentsMargins(5, 5, 5, 5)
@@ -142,8 +151,8 @@ class _PlateDatabaseWidget(QDialog):
             self._update_values(1, 0)
 
     def _update_table(self) -> None:
-        self.plate_table.setRowCount(len(PLATE_DB))
-        for row, plate_name in enumerate(PLATE_DB):
+        self.plate_table.setRowCount(len(self._plate_db))
+        for row, plate_name in enumerate(self._plate_db):
             item = QTableWidgetItem(plate_name)
             self.plate_table.setItem(row, 0, item)
 
@@ -152,7 +161,7 @@ class _PlateDatabaseWidget(QDialog):
         if not plate_item:
             return
 
-        plate = PLATE_DB[plate_item.text()]
+        plate = self._plate_db[plate_item.text()]
         self._id.setText(plate.id)
         self._rows.setValue(plate.rows)
         self._cols.setValue(plate.cols)
@@ -180,14 +189,14 @@ class _PlateDatabaseWidget(QDialog):
         )
 
         # save custom plate in database (read, append and overwrite)
-        with open(Path(__file__).parent / "well_plate_database.json") as file:
+        with open(Path(self._plate_db_path)) as file:
             db = json.load(file)
             db.append(new_plate.dict())
-        with open(Path(__file__).parent / "well_plate_database.json", "w") as file:
+        with open(Path(self._plate_db_path), "w") as file:
             json.dump(db, file)
 
-        # update PLATE_DB for the current session
-        PLATE_DB[new_plate.id] = new_plate
+        # update self._plate_db for the current session
+        self._plate_db[new_plate.id] = new_plate
 
         self.valueChanged.emit(new_plate)
         self._update_table()
@@ -203,14 +212,14 @@ class _PlateDatabaseWidget(QDialog):
 
         plate_names = [self.plate_table.item(r, 0).text() for r in selected_rows]
         for plate_name in plate_names:
-            # update PLATE_DB for the current session
-            PLATE_DB.pop(plate_name, None)
+            # update self._plate_db for the current session
+            self._plate_db.pop(plate_name, None)
             match = self.plate_table.findItems(plate_name, Qt.MatchExactly)
             self.plate_table.removeRow(match[0].row())
 
         # delete plate in database (get new list and overwrite)
-        with open(Path(__file__).parent / "well_plate_database.json", "w") as file:
-            db = [plate.dict() for plate in PLATE_DB.values()]
+        with open(Path(self._plate_db_path), "w") as file:
+            db = [plate.dict() for plate in self._plate_db.values()]
             json.dump(db, file)
 
         self.valueChanged.emit(None)

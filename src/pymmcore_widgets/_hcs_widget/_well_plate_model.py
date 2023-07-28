@@ -2,6 +2,8 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+PLATE_DB_PATH = Path(__file__).parent / "well_plate_database.json"
+
 
 class FrozenModel(BaseModel):
     class Config:
@@ -28,12 +30,9 @@ class WellPlate(FrozenModel):
         return self.rows * self.cols
 
 
-def _load_database() -> dict[str, WellPlate]:
+def load_database(database_path: Path | str) -> dict[str, WellPlate]:
     """Load the database of well plates contained in well_plate_database.json."""
     import json
 
-    with open(Path(__file__).parent / "well_plate_database.json") as f:
+    with open(Path(database_path)) as f:
         return {k["id"]: WellPlate(**k) for k in json.load(f)}
-
-
-PLATE_DB = _load_database()
