@@ -78,13 +78,14 @@ class _HCSGraphicsScene(QGraphicsScene):
             if item in selection:
                 # if pressing shift, remove from selection
                 if event.modifiers() and Qt.ShiftModifier:
-                    self._select(item, False)
+                    self._set_selected(item, False)
                 else:
-                    self._select(item, True)
+                    self._set_selected(item, True)
             elif item not in self._selected_wells:
-                self._select(item, False)
+                self._set_selected(item, False)
 
-    def _select(self, item: _Well, state: bool) -> None:
+    def _set_selected(self, item: _Well, state: bool) -> None:
+        """Select or deselect the item."""
         item.set_well_color(SELECTED_COLOR if state else UNSELECTED_COLOR)
         item.setSelected(state)
 
