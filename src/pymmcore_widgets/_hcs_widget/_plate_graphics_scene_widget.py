@@ -36,17 +36,25 @@ class _HCSGraphicsScene(QGraphicsScene):
         self._selected_wells: list[QGraphicsItem] = []
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        # origin point of the SCREEN
         self.origin_point = event.screenPos()
+        # rubber band to show the selection
         self.rubber_band = QRubberBand(QRubberBand.Rectangle)
-        self.end_point = event.scenePos()
+        # origin point of the SCENE
+        self.scene_origin_point = event.scenePos()
 
+        # get the selected items
         self._selected_wells = [item for item in self.items() if item.isSelected()]
 
+        # set the color of the selected wells to SELECTED_COLOR if they are within the
+        # selection
         for item in self._selected_wells:
             item = cast("_Well", item)
             item.set_well_color(SELECTED_COLOR)
 
-        if well := self.itemAt(self.end_point, QTransform()):
+        # if there is an item where the mouse is pressed and it is selected, deselect,
+        # otherwise select it.
+        if well := self.itemAt(self.scene_origin_point, QTransform()):
             well = cast("_Well", well)
             if well.isSelected():
                 well.set_well_color(UNSELECTED_COLOR)
@@ -56,9 +64,14 @@ class _HCSGraphicsScene(QGraphicsScene):
                 well.setSelected(True)
 
     def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        # update the rubber band geometry using the SCREEN origin point and the current
         self.rubber_band.setGeometry(QRect(self.origin_point, event.screenPos()))
         self.rubber_band.show()
-        selection = self.items(QRectF(self.end_point, event.scenePos()))
+        # get the items within the selection (within the rubber band)
+        selection = self.items(QRectF(self.scene_origin_point, event.scenePos()))
+        # loop through all the items in the scene and select them if they are within
+        # the selection or deselect them if they are not (or if the shift key is pressed
+        # while moving the movuse).
         for item in self.items():
             item = cast("_Well", item)
 
