@@ -175,7 +175,7 @@ class _PlateDatabaseWidget(QDialog):
         import json
 
         if not self._id.text():
-            return
+            raise ValueError("'Plate name' field cannot be empty.")
 
         new_plate = WellPlate(
             circular=self._circular_checkbox.isChecked(),

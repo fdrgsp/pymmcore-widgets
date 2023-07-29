@@ -8,7 +8,6 @@ PLATE_DB_PATH = Path(__file__).parent / "well_plate_database.json"
 class FrozenModel(BaseModel):
     class Config:
         allow_population_by_field_name = True
-        extra = "allow"
         frozen = True
 
 
