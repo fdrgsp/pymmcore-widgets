@@ -27,7 +27,8 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
-from .._util import FOV_GRAPHICS_VIEW_SIZE
+from pymmcore_widgets._util import FOV_GRAPHICS_VIEW_SIZE
+
 from ._graphics_items import _FOVPoints, _WellArea
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
@@ -56,7 +57,7 @@ def _make_QHBoxLayout_wdg_with_label(label: QLabel, wdg: QWidget) -> QWidget:
     return widget
 
 
-class _CenterWidget(QWidget):
+class _CenterFOVWidget(QWidget):
     """Widget to select the center of the well as FOV of the plate."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -94,7 +95,7 @@ class _CenterWidget(QWidget):
         _plate_area_y = _make_QHBoxLayout_wdg_with_label(
             plate_area_label_y, self.plate_area_y_c
         )
-        number_of_FOV_label = _create_label(group_wdg_layout, _plate_area_y, "FOVs:")
+        number_of_FOV_label = _create_label(group_wdg_layout, _plate_area_y, "FOVVs:")
 
         self.number_of_FOV_c = QSpinBox()
         self.number_of_FOV_c.setEnabled(False)
@@ -107,8 +108,8 @@ class _CenterWidget(QWidget):
         group_wdg_layout.addWidget(nFOV)
 
 
-class _RandomWidget(QWidget):
-    """Widget to select random FOVs per well of the plate."""
+class _RandomFOVWidget(QWidget):
+    """Widget to select random FOVVs per well of the plate."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -143,7 +144,7 @@ class _RandomWidget(QWidget):
         _plate_area_y = _make_QHBoxLayout_wdg_with_label(
             plate_area_label_y, self.plate_area_y
         )
-        number_of_FOV_label = _create_label(group_wdg_layout, _plate_area_y, "FOVs:")
+        number_of_FOV_label = _create_label(group_wdg_layout, _plate_area_y, "FOVVs:")
 
         self.number_of_FOV = QSpinBox()
         self.number_of_FOV.setAlignment(AlignCenter)
@@ -156,7 +157,7 @@ class _RandomWidget(QWidget):
         group_wdg_layout.addWidget(self.random_button)
 
 
-class _GridWidget(QWidget):
+class _GridFOVWidget(QWidget):
     """Widget to select a grid FOV per well of the plate."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -204,8 +205,8 @@ class _GridWidget(QWidget):
         group_wdg_layout.addWidget(_spacing_y)
 
 
-class _SelectFOV(QWidget):
-    """Widget to select the FOVs per well of the plate."""
+class FOVSelectrorWidget(QWidget):
+    """Widget to select the FOVVs per well of the plate."""
 
     def __init__(
         self, parent: QWidget | None = None, *, mmcore: CMMCorePlus | None = None
@@ -224,9 +225,9 @@ class _SelectFOV(QWidget):
         self.setLayout(layout)
 
         # contral widget
-        self.center_wdg = _CenterWidget()
+        self.center_wdg = _CenterFOVWidget()
         # random fov widget
-        self.random_wdg = _RandomWidget()
+        self.random_wdg = _RandomFOVWidget()
         self.random_wdg.plate_area_x.valueChanged.connect(self._on_random_area_changed)
         self.random_wdg.plate_area_x.valueChanged.connect(self._update_plate_area_y)
         self.random_wdg.plate_area_y.valueChanged.connect(self._on_random_area_changed)
@@ -235,7 +236,7 @@ class _SelectFOV(QWidget):
         )
         self.random_wdg.random_button.clicked.connect(self._on_random_button_pressed)
         # grid fovs widget
-        self.grid_wdg = _GridWidget()
+        self.grid_wdg = _GridFOVWidget()
         self.grid_wdg.rows.valueChanged.connect(self._on_grid_changed)
         self.grid_wdg.cols.valueChanged.connect(self._on_grid_changed)
         self.grid_wdg.spacing_x.valueChanged.connect(self._on_grid_changed)
@@ -298,7 +299,7 @@ class _SelectFOV(QWidget):
         self._update_center_or_random_scene("Random")
 
     def _on_number_of_FOV_changed(self) -> None:
-        """Update the _RandomWidget scene when the number of FOVs is changed."""
+        """Update the _RandomWidget scene when the number of FOVVs is changed."""
         for item in self.scene.items():
             if isinstance(item, _FOVPoints):
                 self.scene.removeItem(item)

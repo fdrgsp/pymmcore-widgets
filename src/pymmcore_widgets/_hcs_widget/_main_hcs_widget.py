@@ -4,8 +4,7 @@ import math
 import random
 import string
 import warnings
-from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 from pymmcore_plus import CMMCorePlus
@@ -27,7 +26,6 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
 )
 from superqt.utils import signals_blocked
-from useq import MDASequence
 
 from pymmcore_widgets._mda._mda_widget import MDAWidget
 from pymmcore_widgets._util import (
@@ -38,11 +36,16 @@ from pymmcore_widgets._util import (
 )
 
 from ._calibration_widget import _PlateCalibration
-from ._generate_fov_widget import _SelectFOV
+from ._generate_fov_widget import FOVSelectrorWidget
 from ._graphics_items import _FOVPoints, _Well
 from ._plate_graphics_scene_widget import _HCSGraphicsScene
 from ._update_plate_dialog import _PlateDatabaseWidget
 from ._well_plate_model import PLATE_DB_PATH, WellPlate, load_database
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from useq import MDASequence
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 
@@ -120,7 +123,7 @@ class _PlateAndFovTab(QWidget):
         FOV_gp_layout.setSpacing(0)
         FOV_gp_layout.setContentsMargins(10, 10, 10, 10)
         FOV_group.setLayout(FOV_gp_layout)
-        self.FOV_selector = _SelectFOV(parent=self)
+        self.FOV_selector = FOVSelectrorWidget(parent=self)
         FOV_gp_layout.addWidget(self.FOV_selector)
         layout.addWidget(FOV_group)
 
@@ -254,7 +257,7 @@ class HCSWidget(QWidget):
         )
         # add widgets to tabwidget
         self.tabwidget = QTabWidget()
-        self.tabwidget.addTab(self._plate_and_fov_tab, "  Plate and FOVs Selection  ")
+        self.tabwidget.addTab(self._plate_and_fov_tab, "  Plate and FOVVs Selection  ")
         self.tabwidget.addTab(self._calibration_tab, "  Plate Calibration  ")
         self.tabwidget.addTab(self._mda, "  MDA  ")
         scroll.setWidget(self.tabwidget)
@@ -534,7 +537,7 @@ class HCSWidget(QWidget):
         edge_points = [
             (x_top_left, np.random.uniform(y_top_left, y_bottom_right)),  # left
             (np.random.uniform(x_top_left, x_bottom_right), y_top_left),  # top
-            (x_bottom_right, np.random.uniform(y_top_left, y_bottom_right)),  # righ
+            (x_bottom_right, np.random.uniform(y_top_left, y_bottom_right)),  # right
             (np.random.uniform(x_top_left, x_bottom_right), y_bottom_right),  # bottom
         ]
         self._mmc.setXYPosition(*edge_points[np.random.randint(0, 4)])
