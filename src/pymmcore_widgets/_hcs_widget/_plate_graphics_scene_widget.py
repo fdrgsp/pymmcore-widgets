@@ -13,7 +13,8 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from .._util import GRAPHICS_VIEW_HEIGHT, GRAPHICS_VIEW_WIDTH
+from pymmcore_widgets._util import GRAPHICS_VIEW_HEIGHT, GRAPHICS_VIEW_WIDTH
+
 from ._graphics_items import _Well
 
 if TYPE_CHECKING:
@@ -35,9 +36,9 @@ class _HCSGraphicsScene(QGraphicsScene):
         self._selected_wells: list[QGraphicsItem] = []
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
-        self.originQPoint = event.screenPos()
-        self.currentQRubberBand = QRubberBand(QRubberBand.Rectangle)
-        self.originCropPoint = event.scenePos()
+        self.origin_point = event.screenPos()
+        self.rubber_band = QRubberBand(QRubberBand.Rectangle)
+        self.end_point = event.scenePos()
 
         self._selected_wells = [item for item in self.items() if item.isSelected()]
 
@@ -45,7 +46,7 @@ class _HCSGraphicsScene(QGraphicsScene):
             item = cast("_Well", item)
             item.set_well_color(SELECTED_COLOR)
 
-        if well := self.itemAt(self.originCropPoint, QTransform()):
+        if well := self.itemAt(self.end_point, QTransform()):
             well = cast("_Well", well)
             if well.isSelected():
                 well.set_well_color(UNSELECTED_COLOR)
@@ -55,9 +56,9 @@ class _HCSGraphicsScene(QGraphicsScene):
                 well.setSelected(True)
 
     def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent) -> None:
-        self.currentQRubberBand.setGeometry(QRect(self.originQPoint, event.screenPos()))
-        self.currentQRubberBand.show()
-        selection = self.items(QRectF(self.originCropPoint, event.scenePos()))
+        self.rubber_band.setGeometry(QRect(self.origin_point, event.screenPos()))
+        self.rubber_band.show()
+        selection = self.items(QRectF(self.end_point, event.scenePos()))
         for item in self.items():
             item = cast("_Well", item)
 
@@ -75,7 +76,7 @@ class _HCSGraphicsScene(QGraphicsScene):
         item.setSelected(state)
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
-        self.currentQRubberBand.hide()
+        self.rubber_band.hide()
 
     def _clear_selection(self) -> None:
         """Clear the selection of all wells."""
@@ -87,14 +88,15 @@ class _HCSGraphicsScene(QGraphicsScene):
 
     def _draw_plate_wells(self, plate: WellPlate) -> None:
         """Draw all wells of the plate."""
-        start_x, start_y, size_x, size_y, text_size = self._plate_sizes_in_pixel(plate)
+        start_x, start_y, width, height, text_size = self._plate_sizes_in_pixel(plate)
         x = start_x
         y = start_y
+        # draw the wells and place them in their correct row/column position
         for row, col in product(range(plate.rows), range(plate.cols)):
-            _x = x + size_x * col
-            _y = y + size_y * row
+            _x = x + width * col
+            _y = y + height * row
             self.addItem(
-                _Well(_x, _y, size_x, size_y, row, col, text_size, plate.circular)
+                _Well(_x, _y, width, height, row, col, text_size, plate.circular)
             )
 
     def _plate_sizes_in_pixel(
@@ -102,46 +104,59 @@ class _HCSGraphicsScene(QGraphicsScene):
     ) -> tuple[float, float, float, float, float]:
         """Calculate the size of the plate and the size of the wells to then draw it.
 
-        The sizes are not the real plate/well dimensions (mm) but are the size in
-        pixels for the QGraphicsView.
+        The sizes are not the real well dimensions (mm) but are the size in pixels for
+        the QGraphicsView.
 
         Returns
         -------
-            start_x: the starting pixel x coordinate of the well
-            (with start_y is the top left corner).
-            start_y: the starting pixel y coordinate of the well
-            (with start_x is the top left corner).
-            size_x: the width of the wells.
-            size_y: the height of the wells.
+            start_x: the starting pixel x coordinate of the well (x of top left corner).
+            start_y: the starting pixel y coordinate of the well (y of top left corner)
+            width: the width of the wells.
+            height: the height of the wells.
             text_size: the size of the text used to write the name inside the wells.
         """
         max_w = GRAPHICS_VIEW_WIDTH - 10
         max_h = GRAPHICS_VIEW_HEIGHT - 10
 
         start_y = 0.0
+        # if the plate has only one row and more than one column, the wells, width and
+        # height are the same and are euqal to the width of the view divided by the
+        # number of columns. The y of the starting point is the middle of the view
+        # minus half of the height of the well.
         if plate.rows == 1 and plate.cols > 1:
-            size_x = size_y = max_w / plate.cols
-            start_y = (max_h / 2) - (size_y / 2)
+            width = height = max_w / plate.cols
+            start_y = (max_h / 2) - (height / 2)
+        # if the plate has more than one row and only one column, the wells width
+        # and height are the same and are euqal to the height of the view divided by the
+        # number of rows.
         elif plate.cols == 1 and plate.rows > 1:
-            size_y = size_x = max_h / plate.rows
+            height = width = max_h / plate.rows
+        # if the plate has more than one row and more than one column, the wells height
+        # is equal to the height of the view divided by the number of rows. The wells
+        # width is equal to the height if the plate is circular or if the well dimension
+        # (in mm) in x and y are the same otherwise the width is equal to the width of
+        # the view divided by the number of columns.
         else:
-            size_y = max_h / plate.rows
-            size_x = (
-                size_y
+            height = max_h / plate.rows
+            width = (
+                height
                 if plate.circular or plate.well_size_x == plate.well_size_y
                 else (max_w / plate.cols)
             )
 
-        width = size_x * plate.cols
+        # knowing the plate width (well width * number of columns) we can calculate
+        # the starting x so that it stays in the middle of the scene.
+        plate_width = width * plate.cols
         start_x = (
-            max((self.width() - width) / 2, 0)
-            if width != self.width() and self.width() > 0
+            max((self.width() - plate_width) / 2, 0)
+            if plate_width != self.width() and self.width() > 0
             else 0
         )
 
-        text_size = size_y / 3
+        # the text size is the height of the well divided by 3
+        text_size = height / 3
 
-        return start_x, start_y, size_x, size_y, text_size
+        return start_x, start_y, width, height, text_size
 
     def get_wells_positions(self) -> list[tuple[str, int, int]] | None:
         """Return a list of (well, row, column) for each well selected.
