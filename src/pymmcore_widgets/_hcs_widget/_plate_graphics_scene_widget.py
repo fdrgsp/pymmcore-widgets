@@ -175,7 +175,7 @@ class _HCSGraphicsScene(QGraphicsScene):
     def get_wells_positions(self) -> list[tuple[str, int, int]] | None:
         """Return a list of (well, row, column) for each well selected.
 
-        ...in a snake-like order.
+        ...in a row-wise-snake order.
         """
         if not self.items():
             return None
