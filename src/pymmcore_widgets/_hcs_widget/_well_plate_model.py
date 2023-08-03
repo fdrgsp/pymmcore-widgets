@@ -1,17 +1,11 @@
+from dataclasses import dataclass
 from pathlib import Path
-
-from pydantic import BaseModel
 
 PLATE_DB_PATH = Path(__file__).parent / "well_plate_database.json"
 
 
-class FrozenModel(BaseModel):
-    class Config:
-        allow_population_by_field_name = True
-        frozen = True
-
-
-class WellPlate(FrozenModel):
+@dataclass(frozen=True)
+class WellPlate:
     """General well plates class."""
 
     id: str

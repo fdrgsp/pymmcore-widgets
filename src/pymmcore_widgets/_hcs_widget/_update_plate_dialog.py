@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from pathlib import Path
 
 from qtpy.QtCore import Qt, Signal
@@ -191,7 +192,7 @@ class _PlateDatabaseWidget(QDialog):
         # save custom plate in database (read, append and overwrite)
         with open(Path(self._plate_db_path)) as file:
             db = json.load(file)
-            db.append(new_plate.dict())
+            db.append(asdict(new_plate))
         with open(Path(self._plate_db_path), "w") as file:
             json.dump(db, file)
 
@@ -219,7 +220,7 @@ class _PlateDatabaseWidget(QDialog):
 
         # delete plate in database (get new list and overwrite)
         with open(Path(self._plate_db_path), "w") as file:
-            db = [plate.dict() for plate in self._plate_db.values()]
+            db = [asdict(plate) for plate in self._plate_db.values()]
             json.dump(db, file)
 
         self.valueChanged.emit(None)
