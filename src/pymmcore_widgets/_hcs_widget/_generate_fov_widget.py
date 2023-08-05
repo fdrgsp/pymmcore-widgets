@@ -31,20 +31,21 @@ from pymmcore_widgets._util import FOV_GRAPHICS_VIEW_SIZE
 from ._graphics_items import _FOVPoints, _WellArea
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
+CENTER = "Center"
+RANDOM = "Random"
+GRID = "Grid"
 
 
-# def _create_label(layout: QLayout, widget: QWidget, label_text: str) -> QLabel:
 def _create_label(label_text: str) -> QLabel:
-    """Create a QLabel with the given text and add it to the given layout."""
-    # layout.addWidget(widget)
+    """Create a QLabel with fixed QSizePolicy."""
     lbl = QLabel()
     lbl.setMinimumWidth(110)
-    lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+    lbl.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
     lbl.setText(label_text)
     return lbl
 
 
-def _make_QHBoxLayout_wdg_with_label(label: QLabel, wdg: QWidget) -> QWidget:
+def _make_wdg_with_label(label: QLabel, wdg: QWidget) -> QWidget:
     """Create a QWidget with a QHBoxLayout with the given label and widget."""
     widget = QWidget()
     layout = QHBoxLayout()
@@ -53,7 +54,6 @@ def _make_QHBoxLayout_wdg_with_label(label: QLabel, wdg: QWidget) -> QWidget:
     layout.addWidget(label)
     layout.addWidget(wdg)
     widget.setLayout(layout)
-
     return widget
 
 
@@ -77,7 +77,7 @@ class _CenterFOVWidget(QWidget):
         self.plate_area_center_x.setAlignment(AlignCenter)
         self.plate_area_center_x.setMinimum(1)
         plate_area_label_x = _create_label("Area x (mm):")
-        _plate_area_x = _make_QHBoxLayout_wdg_with_label(
+        _plate_area_x = _make_wdg_with_label(
             plate_area_label_x, self.plate_area_center_x
         )
 
@@ -89,7 +89,7 @@ class _CenterFOVWidget(QWidget):
         self.plate_area_center_y.setAlignment(AlignCenter)
         self.plate_area_center_y.setMinimum(1)
         plate_area_label_y = _create_label("Area y (mm):")
-        _plate_area_y = _make_QHBoxLayout_wdg_with_label(
+        _plate_area_y = _make_wdg_with_label(
             plate_area_label_y, self.plate_area_center_y
         )
 
@@ -122,25 +122,21 @@ class _RandomFOVWidget(QWidget):
         self.plate_area_x.setMinimum(0.01)
         self.plate_area_x.setSingleStep(0.1)
         plate_area_label_x = _create_label("Area x (mm):")
-        _plate_area_x = _make_QHBoxLayout_wdg_with_label(
-            plate_area_label_x, self.plate_area_x
-        )
+        _plate_area_x = _make_wdg_with_label(plate_area_label_x, self.plate_area_x)
 
         self.plate_area_y = QDoubleSpinBox()
         self.plate_area_y.setAlignment(AlignCenter)
         self.plate_area_y.setMinimum(0.01)
         self.plate_area_y.setSingleStep(0.1)
         plate_area_label_y = _create_label("Area y (mm):")
-        _plate_area_y = _make_QHBoxLayout_wdg_with_label(
-            plate_area_label_y, self.plate_area_y
-        )
+        _plate_area_y = _make_wdg_with_label(plate_area_label_y, self.plate_area_y)
 
         self.number_of_FOV = QSpinBox()
         self.number_of_FOV.setAlignment(AlignCenter)
         self.number_of_FOV.setMinimum(1)
         self.number_of_FOV.setMaximum(100)
         number_of_FOV_label = _create_label("FOVs:")
-        nFOV = _make_QHBoxLayout_wdg_with_label(number_of_FOV_label, self.number_of_FOV)
+        nFOV = _make_wdg_with_label(number_of_FOV_label, self.number_of_FOV)
 
         self.random_button = QPushButton(text="Generate Random FOV(s)")
 
@@ -197,13 +193,13 @@ class _GridFOVWidget(QWidget):
         self.rows.setAlignment(AlignCenter)
         self.rows.setMinimum(1)
         rows_lbl = _create_label("Rows:")
-        _rows = _make_QHBoxLayout_wdg_with_label(rows_lbl, self.rows)
+        _rows = _make_wdg_with_label(rows_lbl, self.rows)
 
         self.cols = QSpinBox()
         self.cols.setAlignment(AlignCenter)
         self.cols.setMinimum(1)
         cols_lbl = _create_label("Columns:")
-        _cols = _make_QHBoxLayout_wdg_with_label(cols_lbl, self.cols)
+        _cols = _make_wdg_with_label(cols_lbl, self.cols)
 
         self.spacing_x = QDoubleSpinBox()
         self.spacing_x.setAlignment(AlignCenter)
@@ -212,7 +208,7 @@ class _GridFOVWidget(QWidget):
         self.spacing_x.setSingleStep(100.0)
         self.spacing_x.setValue(0)
         spacing_x_lbl = _create_label("Spacing x (um):")
-        _spacing_x = _make_QHBoxLayout_wdg_with_label(spacing_x_lbl, self.spacing_x)
+        _spacing_x = _make_wdg_with_label(spacing_x_lbl, self.spacing_x)
 
         self.spacing_y = QDoubleSpinBox()
         self.spacing_y.setAlignment(AlignCenter)
@@ -221,7 +217,7 @@ class _GridFOVWidget(QWidget):
         self.spacing_y.setSingleStep(100.0)
         self.spacing_y.setValue(0)
         spacing_y_lbl = _create_label("Spacing y (um):")
-        _spacing_y = _make_QHBoxLayout_wdg_with_label(spacing_y_lbl, self.spacing_y)
+        _spacing_y = _make_wdg_with_label(spacing_y_lbl, self.spacing_y)
 
         # add widgets to wdg layout
         wdg_layout.addWidget(_rows)
@@ -306,9 +302,9 @@ class FOVSelectrorWidget(QWidget):
         # add widgets in a tab widget
         self.tab_wdg = QTabWidget()
         self.tab_wdg.setMinimumHeight(150)
-        self.tab_wdg.addTab(self.center_wdg, "Center")
-        self.tab_wdg.addTab(self.random_wdg, "Random")
-        self.tab_wdg.addTab(self.grid_wdg, "Grid")
+        self.tab_wdg.addTab(self.center_wdg, CENTER)
+        self.tab_wdg.addTab(self.random_wdg, RANDOM)
+        self.tab_wdg.addTab(self.grid_wdg, GRID)
         layout.addWidget(self.tab_wdg)
 
         # graphics scene to draw the well and the fovs
@@ -364,11 +360,11 @@ class FOVSelectrorWidget(QWidget):
 
     def _update_scene(self, mode: str) -> None:
         """Update the scene depending on the selected tab."""
-        if mode == "Center":
+        if mode == CENTER:
             self._update_center_fov()
-        elif mode == "Random":
+        elif mode == RANDOM:
             self._update_random_fovs(*self.random_wdg.value())
-        elif mode == "Grid":
+        elif mode == GRID:
             self._update_grid_fovs(*self.grid_wdg.value())
 
     def _update_center_fov(self) -> None:
