@@ -38,7 +38,7 @@ from pymmcore_widgets._util import (
 from ._calibration_widget import _PlateCalibration
 from ._generate_fov_widget import FOVSelectrorWidget
 from ._graphics_items import _FOVPoints, _Well
-from ._plate_graphics_scene_widget import _HCSGraphicsScene
+from ._plate_graphics_scene import _HCSGraphicsScene
 from ._update_plate_dialog import _PlateDatabaseWidget
 from ._well_plate_model import PLATE_DB_PATH, WellPlate, load_database
 
@@ -362,7 +362,7 @@ class HCSWidget(QWidget):
             return
 
         # get list of selected wells
-        well_list = self._plate_and_fov_tab.scene.get_wells_positions()
+        well_list = self._plate_and_fov_tab.scene.value()
         if not well_list:
             warnings.warn(
                 "No Well selected! Select at least one well first.", stacklevel=2

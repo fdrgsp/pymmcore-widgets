@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, cast
 from unittest.mock import Mock, call
 
 import pytest
-from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QGraphicsEllipseItem,
@@ -21,6 +20,7 @@ from pymmcore_widgets._mda._zstack_widget import ZRangeAroundSelect
 from pymmcore_widgets._util import PLATE_FROM_CALIBRATION
 
 if TYPE_CHECKING:
+    from pymmcore_plus import CMMCorePlus
     from pytestqt.qtbot import QtBot
 
 
@@ -63,7 +63,7 @@ def test_hcs_plate_selection(
         hcs._plate_and_fov_tab.wp_combo.setCurrentText("standard 6")
 
     assert hcs.tabwidget.currentIndex() == 0
-    assert hcs.tabwidget.tabText(0) == "  Plate and FOVs Selection  "
+    assert hcs.tabwidget.tabText(0) == "  Plate and FOVVs Selection  "
 
     assert hcs._plate_and_fov_tab.wp_combo.currentText() == "standard 6"
     assert len(hcs._plate_and_fov_tab.scene.items()) == 6
@@ -86,7 +86,7 @@ def test_hcs_plate_selection(
         == 4
     )
 
-    well_order = hcs._plate_and_fov_tab.scene.get_wells_positions()
+    well_order = hcs._plate_and_fov_tab.scene.value()
     assert well_order == [("A1", 0, 0), ("A2", 0, 1), ("B2", 1, 1), ("B1", 1, 0)]
 
     hcs._plate_and_fov_tab.clear_button.click()
@@ -156,7 +156,7 @@ def test_hcs_fov_selection_FOVPoints_size(global_mmcore: CMMCorePlus, qtbot: QtB
         hcs._plate_and_fov_tab.wp_combo.setCurrentText("standard 6")
 
     assert hcs.tabwidget.currentIndex() == 0
-    assert hcs.tabwidget.tabText(0) == "  Plate and FOVs Selection  "
+    assert hcs.tabwidget.tabText(0) == "  Plate and FOVVs Selection  "
     assert hcs._plate_and_fov_tab.FOV_selector.tab_wdg.currentIndex() == 0
     assert hcs._plate_and_fov_tab.FOV_selector.tab_wdg.tabText(0) == "Center"
 
@@ -206,7 +206,7 @@ def test_hcs_fov_selection_center(global_mmcore: CMMCorePlus, qtbot: QtBot):
         hcs._plate_and_fov_tab.wp_combo.setCurrentText("standard 6")
 
     assert hcs.tabwidget.currentIndex() == 0
-    assert hcs.tabwidget.tabText(0) == "  Plate and FOVs Selection  "
+    assert hcs.tabwidget.tabText(0) == "  Plate and FOVVs Selection  "
     assert hcs._plate_and_fov_tab.FOV_selector.tab_wdg.currentIndex() == 0
     assert hcs._plate_and_fov_tab.FOV_selector.tab_wdg.tabText(0) == "Center"
 
@@ -230,7 +230,7 @@ def test_hcs_fov_selection_random(global_mmcore: CMMCorePlus, qtbot: QtBot):
     with qtbot.waitSignal(hcs._plate_and_fov_tab.wp_combo.currentTextChanged):
         hcs._plate_and_fov_tab.wp_combo.setCurrentText("standard 6")
     assert hcs.tabwidget.currentIndex() == 0
-    assert hcs.tabwidget.tabText(0) == "  Plate and FOVs Selection  "
+    assert hcs.tabwidget.tabText(0) == "  Plate and FOVVs Selection  "
     hcs.tabwidget.setCurrentIndex(1)
     assert hcs._plate_and_fov_tab.FOV_selector.tab_wdg.tabText(1) == "Random"
 
@@ -290,7 +290,7 @@ def test_hcs_fov_selection_grid(global_mmcore: CMMCorePlus, qtbot: QtBot):
         hcs._plate_and_fov_tab.wp_combo.setCurrentText("standard 6")
 
     assert hcs.tabwidget.currentIndex() == 0
-    assert hcs.tabwidget.tabText(0) == "  Plate and FOVs Selection  "
+    assert hcs.tabwidget.tabText(0) == "  Plate and FOVVs Selection  "
     hcs.tabwidget.setCurrentIndex(2)
     assert hcs._plate_and_fov_tab.FOV_selector.tab_wdg.tabText(2) == "Grid"
 

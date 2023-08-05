@@ -3,6 +3,7 @@ from __future__ import annotations
 from itertools import product
 from typing import TYPE_CHECKING, cast
 
+import numpy as np
 from qtpy.QtCore import QRect, QRectF, Qt
 from qtpy.QtGui import QBrush, QTransform
 from qtpy.QtWidgets import (
@@ -25,7 +26,11 @@ UNSELECTED_COLOR = QBrush(Qt.green)
 
 
 class _HCSGraphicsScene(QGraphicsScene):
-    """Custom QGraphicsScene to control the plate/well selection."""
+    """Custom QGraphicsScene to control the plate/well selection.
+
+    To get the list of selected well info, use the `get_wells_positions` method
+    that returns a list of tuples contai (name, row, column).
+    """
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -159,7 +164,7 @@ class _HCSGraphicsScene(QGraphicsScene):
             )
 
         # knowing the plate width (well width * number of columns) we can calculate
-        # the starting x so that it stays in the middle of the scene.
+        # the starting x so that the plate stays in the middle of the scene.
         plate_width = width * plate.cols
         start_x = (
             max((self.width() - plate_width) / 2, 0)
@@ -172,59 +177,57 @@ class _HCSGraphicsScene(QGraphicsScene):
 
         return start_x, start_y, width, height, text_size
 
-    def get_wells_positions(self) -> list[tuple[str, int, int]] | None:
-        """Return a list of (well, row, column) for each well selected.
+    def set_value(self, value: list[tuple[str, int, int]]) -> None:
+        """Select the wells listed in `value`."""
+        self._clear_selection()
 
-        ...in a row-wise-snake order.
+        for item in self.items():
+            item = cast("_Well", item)
+            if item.get_name_row_col() in value:
+                self._set_selected(item, True)
+
+    def value(self) -> list[tuple[str, int, int]] | None:
+        """Return the list of tuple (name, row, column) of the selected wells.
+
+        ...in a snake-row-wise order.
         """
-        if not self.items():
-            return None
-
-        well_list_to_order = [
+        wells = [
             item.get_name_row_col()
             for item in reversed(self.items())
             if item.isSelected()
         ]
 
-        return self._order_snake_row_wise(well_list_to_order)
+        return self._snake_row_wise_ordered(wells) if wells else None
 
-    def _order_snake_row_wise(
-        self, well_list: list
-    ) -> list[tuple[str, int, int]] | None:
-        """Return a snake-wise ordered list of (well, row, column)."""
-        correct_order = []
-        to_add = []
-        try:
-            previous_row = well_list[0][1]
-        except IndexError:
-            return None
-        current_row = 0
-        for idx, wrc in enumerate(well_list):
-            _, row, _ = wrc
+    def _snake_row_wise_ordered(
+        self, wells: list[tuple[str, int, int]]
+    ) -> list[tuple[str, int, int]]:
+        """Return a snake-row-wise ordered list of the selected wells."""
+        max_row = max(wells, key=lambda x: x[1])[1] + 1
+        max_column = max(wells, key=lambda x: x[2])[2] + 1
 
-            if idx == 0:
-                correct_order.append(wrc)
-            elif row == previous_row:
-                to_add.append(wrc)
-                if idx == len(well_list) - 1:
-                    if current_row % 2:
-                        correct_order.extend(iter(reversed(to_add)))
-                    else:
-                        correct_order.extend(iter(to_add))
-            else:
-                if current_row % 2:
-                    correct_order.extend(iter(reversed(to_add)))
-                else:
-                    correct_order.extend(iter(to_add))
-                to_add.clear()
-                to_add.append(wrc)
-                if idx == len(well_list) - 1:
-                    if current_row % 2:
-                        correct_order.extend(iter(reversed(to_add)))
-                    else:
-                        correct_order.extend(iter(to_add))
+        # create an array of the rows and columns
+        _c, _r = np.arange(max_column), np.arange(max_row)
 
-                previous_row = row
-                current_row += 1
+        # remove rows and  columns that are not in the selected wells
+        row_list = [rw for n, rw, cl in wells]
+        _r_updated = _r[np.isin(_r, row_list)]
+        col_list = [cl for n, rw, cl in wells]
+        _c_updated = _c[np.isin(_c, col_list)]
 
-        return correct_order
+        # create a meshgrid of the rows and columns
+        c, r = np.meshgrid(_c_updated, _r_updated)
+        # invert the order of the columns in the odd rows
+        c[1::2, :] = c[1::2, :][:, ::-1]
+
+        # `list(zip(r.ravel(), c.ravel()))` creates a list of snake-row-wise ordered
+        # (row, col). Now we use this (row, col) info to create a list of
+        # (name, row, col) in a snake-row-wise order.
+        snake_ordered: list[tuple[str, int, int]] = []
+        for row, col in list(zip(r.ravel(), c.ravel())):
+            for well in wells:
+                _, well_r, well_c = well
+                if well_r == row and well_c == col:
+                    snake_ordered.append(well)
+
+        return snake_ordered
