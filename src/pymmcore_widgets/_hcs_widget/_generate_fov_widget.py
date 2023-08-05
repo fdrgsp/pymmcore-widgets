@@ -388,8 +388,6 @@ class FOVSelectrorWidget(QWidget):
 
     def _update_grid_fovs(self, rows: int, cols: int, dx: float, dy: float) -> None:
         """Update the _GridWidget scene."""
-        # TODO: to fix - sign
-        dy = -dy
         cr, cc = (self._view_size / 2, self._view_size / 2)
 
         _image_size_mm_x, _image_size_mm_y = self._get_image_size_in_mm()
@@ -400,7 +398,7 @@ class FOVSelectrorWidget(QWidget):
 
         scene_px_mm_x = self._plate_size_x / self._scene_size_x  # mm
         scene_px_mm_y = self._plate_size_y / self._scene_size_y  # mm
-        dy = (dy / 1000) / scene_px_mm_y
+        dy = ((-dy) / 1000) / scene_px_mm_y
         dx = (dx / 1000) / scene_px_mm_x
 
         if rows == 1 and cols == 1:
