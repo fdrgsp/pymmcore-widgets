@@ -336,7 +336,7 @@ class HCSWidget(QWidget):
             self._plate.close()
         self._plate.show()
         self._plate.plate_table.clearSelection()
-        self._plate._clear_values()
+        self._plate.clear_values()
 
     def _update_well_plate_combo(self, new_plate: WellPlate | None) -> None:
         """Update the well plate combobox with the updated plate database."""
