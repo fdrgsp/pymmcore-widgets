@@ -28,8 +28,8 @@ UNSELECTED_COLOR = QBrush(Qt.green)
 class _HCSGraphicsScene(QGraphicsScene):
     """Custom QGraphicsScene to control the plate/well selection.
 
-    To get the list of selected well info, use the `get_wells_positions` method
-    that returns a list of tuples contai (name, row, column).
+    To get the list of selected well info, use the `value` method
+    that returns a list of snake-row-wise ordered tuples (name, row, column).
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
