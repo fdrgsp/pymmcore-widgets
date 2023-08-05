@@ -154,7 +154,17 @@ class _RandomFOVWidget(QWidget):
         layout.addWidget(wdg)
 
     def value(self) -> tuple[float, float, int]:
-        """Return the values of the widgets."""
+        """Return the values of the widgets.
+
+        Returns
+        -------
+        area_x : float
+            The area of the well in x direction.
+        area_y : float
+            The area of the well in y direction.
+        nFOV : int
+            The number of FOVs per well.
+        """
         return (
             self.plate_area_x.value(),
             self.plate_area_y.value(),
@@ -233,7 +243,19 @@ class _GridFOVWidget(QWidget):
         layout.addWidget(wdg)
 
     def value(self) -> tuple[int, int, float, float]:
-        """Return the values of the widgets."""
+        """Return the values of the widgets.
+
+        Returns
+        -------
+        rows : int
+            The number of grid rows.
+        cols : int
+            The number of grid columns.
+        spacing_x : float
+            The spacing between the FOVs in x direction.
+        spacing_y : float
+            The spacing between the FOVs in y direction.
+        """
         return (
             self.rows.value(),
             self.cols.value(),
