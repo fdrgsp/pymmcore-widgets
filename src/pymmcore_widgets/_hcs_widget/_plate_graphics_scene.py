@@ -21,8 +21,8 @@ from ._graphics_items import _Well
 if TYPE_CHECKING:
     from ._well_plate_model import WellPlate
 
-SELECTED_COLOR = QBrush(Qt.magenta)
-UNSELECTED_COLOR = QBrush(Qt.green)
+SELECTED_COLOR = QBrush(Qt.GlobalColor.magenta)
+UNSELECTED_COLOR = QBrush(Qt.GlobalColor.green)
 
 
 class _HCSGraphicsScene(QGraphicsScene):

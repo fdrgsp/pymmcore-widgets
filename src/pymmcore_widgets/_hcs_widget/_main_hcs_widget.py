@@ -324,7 +324,7 @@ class HCSWidget(QWidget):
         if len(items) == 1:
             item = cast(_Well, items[0])
             item.setSelected(True)
-            item.set_well_color(QBrush(Qt.magenta))
+            item.set_well_color(QBrush(Qt.GlobalColor.magenta))
         # load plate info in the FOV selector widget
         self._plate_and_fov_tab.FOV_selector._load_plate_info(
             self.wp.well_size_x, self.wp.well_size_y, self.wp.circular
