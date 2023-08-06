@@ -110,22 +110,22 @@ class _FOVPoints(QGraphicsItem):
         center_y: float,
         scene_width: int,
         scene_height: int,
-        plate_size_x: float,
-        plate_size_y: float,
-        image_size_mm_x: float,
-        image_size_mm_y: float,
+        fov_width: float,
+        fov_height: float,
     ) -> None:
         super().__init__()
 
         self._view_size = FOV_GRAPHICS_VIEW_SIZE  # size of _SelectFOV QGraphicsView
 
+        # center of the FOV in scene px
         self._center_x = center_x
         self._center_y = center_y
 
-        # fov width and height in scene px
-        self._x_size = (scene_width * image_size_mm_x) / plate_size_x
-        self._y_size = (scene_height * image_size_mm_y) / plate_size_y
+        # width and height of the FOV in scene px
+        self.fov_width = fov_width
+        self.fov_height = fov_height
 
+        # scene width and height in scene px
         self._scene_width = scene_width
         self._scene_height = scene_height
 
@@ -137,9 +137,9 @@ class _FOVPoints(QGraphicsItem):
         pen.setWidth(2)
         painter.setPen(pen)
 
-        start_x = self._center_x - (self._x_size / 2)
-        start_y = self._center_y - (self._y_size / 2)
-        painter.drawRect(QRectF(start_x, start_y, self._x_size, self._y_size))
+        start_x = self._center_x - (self.fov_width / 2)
+        start_y = self._center_y - (self.fov_height / 2)
+        painter.drawRect(QRectF(start_x, start_y, self.fov_width, self.fov_height))
 
     def get_center_and_size(self) -> Tuple[float, float, int, int]:
         """Return the center and size of the FOV."""

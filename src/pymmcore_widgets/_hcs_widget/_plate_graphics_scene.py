@@ -206,17 +206,17 @@ class _HCSGraphicsScene(QGraphicsScene):
         max_row = max(wells, key=lambda x: x[1])[1] + 1
         max_column = max(wells, key=lambda x: x[2])[2] + 1
 
-        # create an array of the rows and columns
+        # create an array with the max number of rows and columns
         _c, _r = np.arange(max_column), np.arange(max_row)
 
-        # remove rows and  columns that are not in the selected wells
-        row_list = [rw for n, rw, cl in wells]
-        _r_updated = _r[np.isin(_r, row_list)]
-        col_list = [cl for n, rw, cl in wells]
-        _c_updated = _c[np.isin(_c, col_list)]
+        # remove rows and columns that are not in the selected wells
+        row_list = [rw for _, rw, _ in wells]
+        col_list = [cl for _, _, cl in wells]
+        row_list_updated = _r[np.isin(_r, row_list)]
+        col_list_updated = _c[np.isin(_c, col_list)]
 
         # create a meshgrid of the rows and columns
-        c, r = np.meshgrid(_c_updated, _r_updated)
+        c, r = np.meshgrid(col_list_updated, row_list_updated)
         # invert the order of the columns in the odd rows
         c[1::2, :] = c[1::2, :][:, ::-1]
 

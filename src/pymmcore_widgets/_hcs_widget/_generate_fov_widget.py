@@ -34,6 +34,8 @@ AlignCenter = Qt.AlignmentFlag.AlignCenter
 CENTER = "Center"
 RANDOM = "Random"
 GRID = "Grid"
+FOV_SCENE_MIN = 160
+FOV_SCENE_MAX = 180
 
 
 def _create_label(label_text: str) -> QLabel:
@@ -295,14 +297,11 @@ class FOVSelectrorWidget(QWidget):
 
         self._mmc = mmcore or CMMCorePlus.instance()
 
-        self._plate_size_x: float = 0
-        self._plate_size_y: float = 0
+        self._scene_width_px: float = 0.0
+        self._scene_height_px: float = 0.0
+        self._well_width_mm: float = 0.0
+        self._well_height_mm: float = 0.0
         self._is_circular: bool = False
-
-        layout = QHBoxLayout()
-        layout.setSpacing(10)
-        layout.setContentsMargins(0, 0, 0, 0)
-        self.setLayout(layout)
 
         # contral widget
         self.center_wdg = _CenterFOVWidget()
@@ -327,7 +326,6 @@ class FOVSelectrorWidget(QWidget):
         self.tab_wdg.addTab(self.center_wdg, CENTER)
         self.tab_wdg.addTab(self.random_wdg, RANDOM)
         self.tab_wdg.addTab(self.grid_wdg, GRID)
-        layout.addWidget(self.tab_wdg)
 
         # graphics scene to draw the well and the fovs
         self.scene = QGraphicsScene()
@@ -336,6 +334,13 @@ class FOVSelectrorWidget(QWidget):
         self._view_size = FOV_GRAPHICS_VIEW_SIZE
         self.scene.setSceneRect(QRectF(0, 0, self._view_size, self._view_size))
         self.view.setFixedSize(self._view_size + 2, self._view_size + 2)
+
+        # main
+        layout = QHBoxLayout()
+        layout.setSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.setLayout(layout)
+        layout.addWidget(self.tab_wdg)
         layout.addWidget(self.view)
 
         # connect
@@ -396,84 +401,82 @@ class FOVSelectrorWidget(QWidget):
 
     def _update_random_fovs(self, area_x: float, area_y: float, nFOV: int) -> None:
         """Update the _RandomWidget scene."""
-        _image_size_mm_x, _image_size_mm_y = self._get_image_size_in_mm()
+        image_width_mm, image_height_mm = self._get_image_size_in_mm()
         area_pen = QPen(Qt.GlobalColor.magenta)
         area_pen.setWidth(4)
         points = self._points_for_random_scene(
-            nFOV, area_x, area_y, _image_size_mm_x, _image_size_mm_y, area_pen
+            nFOV, area_x, area_y, image_width_mm, image_height_mm, area_pen
         )
         self._draw_fovs(points)
 
     def _update_grid_fovs(self, rows: int, cols: int, dx: float, dy: float) -> None:
-        """Update the _GridWidget scene."""
-        cr, cc = (self._view_size / 2, self._view_size / 2)
+        """Update the _GridWidget scene.
 
-        _image_size_mm_x, _image_size_mm_y = self._get_image_size_in_mm()
+        `dx` and `dy` are expressed in µm and are the wanted distance between the grid
+        FOVs along the x and y dimensions.
+        """
+        # x and y center coords of the scene in px
+        x, y = (self._view_size / 2, self._view_size / 2)  # px
+
+        # image size in mm
+        image_wdt_mm, image_hgt_mm = self._get_image_size_in_mm()
+
+        # value of 1 scene px in mm
+        scene_one_px_in_mm_x = self._well_width_mm / self._scene_width_px
+        scene_one_px_in_mm_y = self._well_height_mm / self._scene_height_px
+
+        # dx and dy in scene px
+        dy = ((-dy) / 1000) / scene_one_px_in_mm_y  # px
+        dx = (dx / 1000) / scene_one_px_in_mm_x  # px
 
         # cam fov size in scene pixels
-        self._x_size = (self._scene_size_x * _image_size_mm_x) / self._plate_size_x
-        self._y_size = (self._scene_size_y * _image_size_mm_y) / self._plate_size_y
+        image_width_px = (self._scene_width_px * image_wdt_mm) / self._well_width_mm
+        image_height_px = (self._scene_height_px * image_hgt_mm) / self._well_height_mm
 
-        scene_px_mm_x = self._plate_size_x / self._scene_size_x  # mm
-        scene_px_mm_y = self._plate_size_y / self._scene_size_y  # mm
-        dy = ((-dy) / 1000) / scene_px_mm_y
-        dx = (dx / 1000) / scene_px_mm_x
+        # getting the starting pixel x and y coords of the first fov for the grid by
+        # shiftingthe center of the scene towards the top left corner depending on the
+        # number of rows and columns.
+        if rows != 1 or cols != 1:
+            x = x - ((cols - 1) * (image_width_px / 2)) - ((dx / 2) * (cols - 1))
+            y = y + ((rows - 1) * (image_height_px / 2)) - ((dy / 2) * (rows - 1))
 
-        if rows == 1 and cols == 1:
-            canter_x = cr
-            center_y = cc
-        else:
-            canter_x = cc - ((cols - 1) * (self._x_size / 2)) - ((dx / 2) * (cols - 1))
-            center_y = cr + ((rows - 1) * (self._y_size / 2)) - ((dy / 2) * (rows - 1))
+        move_x = image_width_px + dx
+        move_y = image_height_px - dy
 
-        move_x = self._x_size + dx
-        move_y = self._y_size - dy
-
-        points = self._create_grid_of_points(
-            rows, cols, canter_x, center_y, move_x, move_y
-        )
+        points = self._grid_of_points(rows, cols, x, y, move_x, move_y)
 
         self._draw_fovs(points)
 
-    def _create_grid_of_points(
-        self, rows: int, cols: int, x: float, y: float, move_x: float, move_y: float
+    def _grid_of_points(
+        self, rows: int, columns: int, x: float, y: float, dx: float, dy: float
     ) -> list[tuple[float, float]]:
-        # for 'snake' acquisition
-        points = []
-        for r in range(rows):
-            if r % 2:  # for odd rows
-                col = cols - 1
-                for c in range(cols):
-                    if c == 0:
-                        y -= move_y
-                    points.append((x, y))
-                    if col > 0:
-                        col -= 1
-                        x -= move_x
-            else:  # for even rows
-                for c in range(cols):
-                    if r > 0 and c == 0:
-                        y -= move_y
-                    points.append((x, y))
-                    if c < cols - 1:
-                        x += move_x
+        """Create a snake-wise-ordered grid of points spaced by `dx` and  dy`."""
+        # create a meshgrid of arrays with the number of rows and columns
+        c, r = np.meshgrid(np.arange(columns), np.arange(rows))
+        # invert the order of the columns in the odd rows
+        c[1::2, :] = c[1::2, :][:, ::-1]
+        # create a list of points by shifting the starting point by dx and dy
+        points: list[tuple[float, float]] = [
+            (x + _c * dx, y - _r * dy) for _r, _c in zip(r.ravel(), c.ravel())
+        ]
         return points
 
     def _draw_fovs(self, points: list[tuple[float, float]]) -> None:
         """Draw the fovs in the scene."""
-        _image_size_mm_x, _image_size_mm_y = self._get_image_size_in_mm()
-
-        for center_x, center_y in points:
+        image_width_mm, image_height_mm = self._get_image_size_in_mm()
+        # fov width and fov height in scene px
+        fov_width = (self._scene_width_px * image_width_mm) / self._well_width_mm
+        fov_height = (self._scene_height_px * image_height_mm) / self._well_height_mm
+        # draw the _FOVPoints
+        for xc, yc in points:
             self.scene.addItem(
                 _FOVPoints(
-                    center_x,
-                    center_y,
-                    self._scene_size_x,
-                    self._scene_size_y,
-                    self._plate_size_x,
-                    self._plate_size_y,
-                    _image_size_mm_x,
-                    _image_size_mm_y,
+                    xc,
+                    yc,
+                    int(self._scene_width_px),
+                    int(self._scene_height_px),
+                    fov_width,
+                    fov_height,
                 )
             )
 
@@ -484,6 +487,7 @@ class FOVSelectrorWidget(QWidget):
         self.random_wdg.plate_area_y.setValue(value)
 
     def _get_image_size_in_mm(self) -> tuple[float, float]:
+        """Return the image size in mm."""
         if not self._mmc.getCameraDevice():
             ValueError("Camera Device not found! Set Camera Device first.")
 
@@ -492,51 +496,66 @@ class FOVSelectrorWidget(QWidget):
 
         _cam_x = self._mmc.getImageWidth()
         _cam_y = self._mmc.getImageHeight()
-        _image_size_mm_x = (_cam_x * self._mmc.getPixelSizeUm()) / 1000
-        _image_size_mm_y = (_cam_y * self._mmc.getPixelSizeUm()) / 1000
-        return _image_size_mm_x, _image_size_mm_y
+        image_width_mm = (_cam_x * self._mmc.getPixelSizeUm()) / 1000
+        image_height_mm = (_cam_y * self._mmc.getPixelSizeUm()) / 1000
+        return image_width_mm, image_height_mm
 
     def _points_for_random_scene(
         self,
         nFOV: int,
-        area_x: float,
-        area_y: float,
-        _image_size_mm_x: float,
-        _image_size_mm_y: float,
-        area_pen: QPen,
+        area_x_mm: float,
+        area_y_mm: float,
+        image_width_mm: float,
+        image_height_mm: float,
+        well_area_pen: QPen,
     ) -> list[tuple[float, float]]:
         """Create the points for the _RandomWidget scene.
 
         They can be either random points in a circle or in a square/rectangle depending
         on the well shape.
         """
-        size_x = (self._scene_size_x * area_x) / self._plate_size_x
-        size_y = (self._scene_size_y * area_y) / self._plate_size_y
-        center_x = (self._view_size - size_x) / 2
-        center_y = (self._view_size - size_y) / 2
+        well_area_width_px = (self._scene_width_px * area_x_mm) / self._well_width_mm
+        well_area_height_px = (self._scene_height_px * area_y_mm) / self._well_height_mm
+        scene_center_x = (self._view_size - well_area_width_px) / 2  # px
+        scene_center_y = (self._view_size - well_area_height_px) / 2  # px
 
+        # draw the well area
         self.scene.addItem(
-            _WellArea(self._is_circular, center_x, center_y, size_x, size_y, area_pen)
+            _WellArea(
+                self._is_circular,
+                scene_center_x,
+                scene_center_y,
+                well_area_width_px,
+                well_area_height_px,
+                well_area_pen,
+            )
         )
 
-        min_dist_x = (self._scene_size_x * _image_size_mm_x) / area_x
-        min_dist_y = (self._scene_size_y * _image_size_mm_y) / area_y
+        # minimum distance between the fovs in px
+        min_dist_px_x = (self._scene_width_px * image_width_mm) / area_x_mm
+        min_dist_px_y = (self._scene_height_px * image_height_mm) / area_y_mm
 
         if self._is_circular:
             return self._random_points_in_circle(
-                nFOV, size_x, center_x, center_y, min_dist_x, min_dist_y
+                nFOV,
+                well_area_width_px,
+                scene_center_x,
+                scene_center_y,
+                min_dist_px_x,
+                min_dist_px_y,
             )
 
-        area_x = (self._scene_size_x * area_x) / self._plate_size_x
-        area_y = (self._scene_size_y * area_y) / self._plate_size_y
+        well_area_x_px = (self._scene_width_px * area_x_mm) / self._well_width_mm
+        well_area_y_px = (self._scene_height_px * area_y_mm) / self._well_height_mm
+
         return self._random_points_in_rectangle(
             nFOV,
-            area_x,
-            area_y,
+            well_area_x_px,
+            well_area_y_px,
             self._view_size,
             self._view_size,
-            min_dist_x,
-            min_dist_y,
+            min_dist_px_x,
+            min_dist_px_y,
         )
 
     def _random_points_in_circle(
@@ -655,31 +674,45 @@ class FOVSelectrorWidget(QWidget):
                 return False
         return True
 
-    def _load_plate_info(self, size_x: float, size_y: float, is_circular: bool) -> None:
+    def _set_spinboxes_values(
+        self, spin_x: QDoubleSpinBox, spin_y: QDoubleSpinBox
+    ) -> None:
+        with signals_blocked(spin_x):
+            spin_x.setMaximum(self._well_width_mm)
+            spin_x.setValue(self._well_width_mm)
+        with signals_blocked(spin_y):
+            spin_y.setMaximum(self._well_height_mm)
+            spin_y.setValue(self._well_height_mm)
+
+    def _on_random_button_pressed(self) -> None:
+        for item in self.scene.items():
+            if isinstance(item, _FOVPoints):
+                self.scene.removeItem(item)
+        self._update_random_fovs(*self.random_wdg.value())
+
+    def _load_plate_info(
+        self, well_size_x_mm: float, well_size_y_mm: float, is_circular: bool
+    ) -> None:
         self.scene.clear()
 
-        self._plate_size_x = round(size_x, 3)
-        self._plate_size_y = round(size_y, 3)
+        self._well_width_mm = round(well_size_x_mm, 3)
+        self._well_height_mm = round(well_size_y_mm, 3)
         self._is_circular = is_circular
 
-        if (
-            self._plate_size_x == self._plate_size_y
-            or self._plate_size_x < self._plate_size_y
-        ):
-            self._scene_size_x = 160
-        else:
-            self._scene_size_x = 180
+        # set the scene size depending on the well size.
+        self._scene_width_px = (
+            FOV_SCENE_MIN
+            if self._well_width_mm <= self._well_height_mm
+            else FOV_SCENE_MAX
+        )
+        self._scene_height_px = (
+            FOV_SCENE_MIN
+            if self._well_height_mm <= self._well_width_mm
+            else FOV_SCENE_MAX
+        )
 
-        if (
-            self._plate_size_y == self._plate_size_x
-            or self._plate_size_y < self._plate_size_x
-        ):
-            self._scene_size_y = 160
-        else:
-            self._scene_size_y = 180
-
-        self._scene_start_x = (self._view_size - self._scene_size_x) / 2
-        self._scene_start_y = (self._view_size - self._scene_size_y) / 2
+        self._scene_start_x = (self._view_size - self._scene_width_px) / 2
+        self._scene_start_y = (self._view_size - self._scene_height_px) / 2
 
         pen = QPen(Qt.GlobalColor.green)
         pen.setWidth(4)
@@ -688,16 +721,16 @@ class FOVSelectrorWidget(QWidget):
             self.scene.addEllipse(
                 self._scene_start_x,
                 self._scene_start_y,
-                self._scene_size_x,
-                self._scene_size_y,
+                self._scene_width_px,
+                self._scene_height_px,
                 pen,
             )
         else:
             self.scene.addRect(
                 self._scene_start_x,
                 self._scene_start_y,
-                self._scene_size_x,
-                self._scene_size_y,
+                self._scene_width_px,
+                self._scene_height_px,
                 pen,
             )
 
@@ -719,19 +752,3 @@ class FOVSelectrorWidget(QWidget):
 
         mode = self.tab_wdg.tabText(self.tab_wdg.currentIndex())
         self._update_scene(mode)
-
-    def _set_spinboxes_values(
-        self, spin_x: QDoubleSpinBox, spin_y: QDoubleSpinBox
-    ) -> None:
-        with signals_blocked(spin_x):
-            spin_x.setMaximum(self._plate_size_x)
-            spin_x.setValue(self._plate_size_x)
-        with signals_blocked(spin_y):
-            spin_y.setMaximum(self._plate_size_y)
-            spin_y.setValue(self._plate_size_y)
-
-    def _on_random_button_pressed(self) -> None:
-        for item in self.scene.items():
-            if isinstance(item, _FOVPoints):
-                self.scene.removeItem(item)
-        self._update_random_fovs(*self.random_wdg.value())
