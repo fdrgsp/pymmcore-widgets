@@ -413,7 +413,7 @@ class _FOVSelectrorWidget(QWidget):
         scene_one_px_in_mm_y = self._well_height_mm / self._scene_height_px
 
         # dx and dy in scene px
-        dy = ((-dy) / 1000) / scene_one_px_in_mm_y  # px
+        dy = (dy / 1000) / scene_one_px_in_mm_y  # px
         dx = (dx / 1000) / scene_one_px_in_mm_x  # px
 
         # camera fov size in scene pixels
@@ -427,10 +427,10 @@ class _FOVSelectrorWidget(QWidget):
         # number of rows and columns.
         if rows != 1 or cols != 1:
             x = x - ((cols - 1) * (fov_width_px / 2)) - ((dx / 2) * (cols - 1))
-            y = y + ((rows - 1) * (fov_height_px / 2)) - ((dy / 2) * (rows - 1))
+            y = y - ((rows - 1) * (fov_height_px / 2)) - ((dy / 2) * (rows - 1))
 
         move_x = fov_width_px + dx
-        move_y = fov_height_px - dy
+        move_y = fov_height_px + dy
 
         points = self._grid_of_points(rows, cols, x, y, move_x, move_y)
 
@@ -479,7 +479,7 @@ class _FOVSelectrorWidget(QWidget):
         c[1::2, :] = c[1::2, :][:, ::-1]
         # create a list of points by shifting the starting point by dx and dy
         points: list[tuple[float, float]] = [
-            (x + _c * dx, y - _r * dy) for _r, _c in zip(r.ravel(), c.ravel())
+            (x + _c * dx, y + _r * dy) for _r, _c in zip(r.ravel(), c.ravel())
         ]
         return points
 
@@ -493,6 +493,7 @@ class _FOVSelectrorWidget(QWidget):
         line_pen.setWidth(2)
         x = y = None
         for xc, yc in points:
+            print("___", xc, yc)
             # draw the fovs
             self.scene.addItem(_FOVPoints(xc, yc, *self._get_image_size_in_px()))
             # draw the lines connecting the fovs
@@ -798,7 +799,7 @@ class _FOVSelectrorWidget(QWidget):
         points = [
             item.value() for item in self.scene.items() if isinstance(item, _FOVPoints)
         ]
-        fovs = self._order_points(points)
+        fovs = self._order_points(list(reversed(points)))
         fov_info = self._get_fov_info()
         return fovs, fov_info
 
