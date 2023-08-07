@@ -28,7 +28,7 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
-from pymmcore_widgets._util import FOV_GRAPHICS_VIEW_SIZE, POINT_RADIUS
+from pymmcore_widgets._util import FOV_GRAPHICS_VIEW_SIZE
 
 from ._graphics_items import _FOVPoints, _WellArea
 
@@ -419,9 +419,6 @@ class _FOVSelectrorWidget(QWidget):
         # camera fov size in scene pixels
         fov_width_px, fov_height_px = self._get_image_size_in_px()
 
-        if fov_width_px is None or fov_height_px is None:
-            fov_width_px = fov_height_px = POINT_RADIUS
-
         # getting the starting pixel x and y coords of the first fov for the grid by
         # shiftingthe center of the scene towards the top left corner depending on the
         # number of rows and columns.
@@ -453,12 +450,15 @@ class _FOVSelectrorWidget(QWidget):
 
         return image_width_mm, image_height_mm
 
-    def _get_image_size_in_px(self) -> tuple[float | None, float | None]:
-        """Return the image size in px depending on the camera device."""
+    def _get_image_size_in_px(self) -> tuple[float, float]:
+        """Return the image size in px depending on the camera device.
+
+        If no Camera Device is found, the image size is set to 1x1 px.
+        """
         image_width_mm, image_height_mm = self._get_image_size_in_mm()
 
         if image_width_mm is None or image_height_mm is None:
-            return None, None
+            return 1.0, 1.0
 
         well_size_mm = max(self._well_width_mm, self._well_height_mm)
         max_scene = max(self._scene_width_px, self._scene_height_px)
@@ -493,7 +493,6 @@ class _FOVSelectrorWidget(QWidget):
         line_pen.setWidth(2)
         x = y = None
         for xc, yc in points:
-            print("___", xc, yc)
             # draw the fovs
             self.scene.addItem(_FOVPoints(xc, yc, *self._get_image_size_in_px()))
             # draw the lines connecting the fovs

@@ -5,7 +5,7 @@ from qtpy.QtCore import QRectF, Qt
 from qtpy.QtGui import QBrush, QFont, QPainter, QPen, QTextOption
 from qtpy.QtWidgets import QGraphicsItem
 
-from pymmcore_widgets._util import FOV_GRAPHICS_VIEW_SIZE, POINT_RADIUS
+from pymmcore_widgets._util import FOV_GRAPHICS_VIEW_SIZE, POINT_SIZE
 
 ALPHABET = string.ascii_uppercase
 
@@ -108,8 +108,8 @@ class _FOVPoints(QGraphicsItem):
         self,
         center_x: float,
         center_y: float,
-        fov_width: float | None,
-        fov_height: float | None,
+        fov_width: float,
+        fov_height: float,
     ) -> None:
         super().__init__()
 
@@ -119,28 +119,22 @@ class _FOVPoints(QGraphicsItem):
         self._center_x = center_x
         self._center_y = center_y
 
-        # width and height of the FOV in scene px
-        self.fov_width = fov_width
-        self.fov_height = fov_height
+        self.fov_width = POINT_SIZE if fov_width == 1 else fov_width
+        self.fov_height = POINT_SIZE if fov_height == 1 else fov_height
+        self._use_brush = fov_width == 1 or fov_height == 1
 
     def boundingRect(self) -> QRectF:
         return QRectF(0, 0, self._view_size, self._view_size)
 
     def paint(self, painter: QPainter, *args) -> None:  # type: ignore
-        pen = QPen()
+        pen = QPen(Qt.GlobalColor.black)
         pen.setWidth(2)
         painter.setPen(pen)
-
-        if self.fov_width is None or self.fov_height is None:
-            # draw a point if the FOV dimensions are not set
+        if self._use_brush:
             painter.setBrush(QBrush(Qt.GlobalColor.black))
-            painter.drawEllipse(
-                int(self._center_x), int(self._center_y), POINT_RADIUS, POINT_RADIUS
-            )
-        else:
-            start_x = self._center_x - (self.fov_width / 2)
-            start_y = self._center_y - (self.fov_height / 2)
-            painter.drawRect(QRectF(start_x, start_y, self.fov_width, self.fov_height))
+        start_x = self._center_x - (self.fov_width / 2)
+        start_y = self._center_y - (self.fov_height / 2)
+        painter.drawRect(QRectF(start_x, start_y, self.fov_width, self.fov_height))
 
     def value(self) -> tuple[float, float]:
         """Return the center of the FOV."""
