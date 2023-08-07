@@ -27,7 +27,7 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
-from pymmcore_widgets._util import FOV_GRAPHICS_VIEW_SIZE
+from pymmcore_widgets._util import FOV_GRAPHICS_VIEW_SIZE, POINT_RADIUS
 
 from ._graphics_items import _FOVPoints, _WellArea
 
@@ -418,6 +418,9 @@ class _FOVSelectrorWidget(QWidget):
         # camera fov size in scene pixels
         fov_width_px, fov_height_px = self._get_image_size_in_px()
 
+        if fov_width_px is None or fov_height_px is None:
+            fov_width_px = fov_height_px = POINT_RADIUS
+
         # getting the starting pixel x and y coords of the first fov for the grid by
         # shiftingthe center of the scene towards the top left corner depending on the
         # number of rows and columns.
@@ -432,32 +435,37 @@ class _FOVSelectrorWidget(QWidget):
 
         self._draw_fovs(points)
 
-    def _get_image_size_in_mm(self) -> tuple[float, float]:
+    def _get_image_size_in_mm(self) -> tuple[float | None, float | None]:
         """Return the image size in mm depending on the camera device."""
         if not self._mmc.getCameraDevice():
-            warnings.warn(
-                "Camera Device not found!. Using default image size: 512x512",
-                stacklevel=2,
-            )
+            warnings.warn("Camera Device not found!", stacklevel=2)
+            return None, None
 
         if not self._mmc.getPixelSizeUm():
-            warnings.warn("Pixel Size not defined! Using 1µm as default.", stacklevel=2)
+            warnings.warn("Pixel Size not defined!", stacklevel=2)
+            return None, None
 
-        _cam_x = self._mmc.getImageWidth() or 512
-        _cam_y = self._mmc.getImageHeight() or 512
-        _px_size = self._mmc.getPixelSizeUm() or 1
-        image_width_mm = (_cam_x * _px_size) / 1000
-        image_height_mm = (_cam_y * _px_size) / 1000
+        _cam_x = self._mmc.getImageWidth()
+        _cam_y = self._mmc.getImageHeight()
+        image_width_mm = (_cam_x * self._mmc.getPixelSizeUm()) / 1000
+        image_height_mm = (_cam_y * self._mmc.getPixelSizeUm()) / 1000
 
         return image_width_mm, image_height_mm
 
-    def _get_image_size_in_px(self) -> tuple[float, float]:
+    def _get_image_size_in_px(self) -> tuple[float | None, float | None]:
         """Return the image size in px depending on the camera device."""
-        image_wdt_mm, image_hgt_mm = self._get_image_size_in_mm()
+        image_width_mm, image_height_mm = self._get_image_size_in_mm()
+
+        if image_width_mm is None or image_height_mm is None:
+            return None, None
+
         well_size_mm = max(self._well_width_mm, self._well_height_mm)
         max_scene = max(self._scene_width_px, self._scene_height_px)
-        image_width_px = (max_scene * image_wdt_mm) / well_size_mm
-        image_height_px = (max_scene * image_hgt_mm) / well_size_mm
+
+        # calculating the image size in scene px
+        image_width_px = (max_scene * image_width_mm) / well_size_mm
+        image_height_px = (max_scene * image_height_mm) / well_size_mm
+
         return image_width_px, image_height_px
 
     def _grid_of_points(
@@ -490,8 +498,8 @@ class _FOVSelectrorWidget(QWidget):
         nFOV: int,
         area_x_mm: float,
         area_y_mm: float,
-        image_width_mm: float,
-        image_height_mm: float,
+        image_width_mm: float | None,
+        image_height_mm: float | None,
         well_area_pen: QPen,
     ) -> list[tuple[float, float]]:
         """Create the points for the _RandomWidget scene.
@@ -517,8 +525,11 @@ class _FOVSelectrorWidget(QWidget):
         )
 
         # minimum distance between the fovs in px
-        min_dist_px_x = (self._scene_width_px * image_width_mm) / area_x_mm
-        min_dist_px_y = (self._scene_height_px * image_height_mm) / area_y_mm
+        if image_width_mm is None or image_height_mm is None:
+            min_dist_px_x = min_dist_px_y = 0.0
+        else:
+            min_dist_px_x = (self._scene_width_px * image_width_mm) / area_x_mm
+            min_dist_px_y = (self._scene_height_px * image_height_mm) / area_y_mm
 
         if self._is_circular:
             return self._random_points_in_circle(
