@@ -209,7 +209,7 @@ class _RandomFOVWidget(QWidget):
         self.number_of_FOV.setValue(value.nFOV)
 
 
-class _GridFOVWidget(QWidget):
+class _GridFovWidget(QWidget):
     """Widget to select a grid FOV per well of the plate."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -304,7 +304,7 @@ class _FOVSelectrorWidget(QWidget):
         self.random_wdg.number_of_FOV.valueChanged.connect(self._on_nFOV_changed)
         self.random_wdg.random_button.clicked.connect(self._on_random_button_pressed)
         # grid fovs widget
-        self.grid_wdg = _GridFOVWidget()
+        self.grid_wdg = _GridFovWidget()
         self.grid_wdg.rows.valueChanged.connect(self._on_grid_changed)
         self.grid_wdg.cols.valueChanged.connect(self._on_grid_changed)
         self.grid_wdg.spacing_x.valueChanged.connect(self._on_grid_changed)
@@ -482,15 +482,19 @@ class _FOVSelectrorWidget(QWidget):
     def _get_image_size_in_mm(self) -> tuple[float, float]:
         """Return the image size in mm."""
         if not self._mmc.getCameraDevice():
-            ValueError("Camera Device not found! Set Camera Device first.")
+            warnings.warn(
+                "Camera Device not found!. Using default image size: 512x512",
+                stacklevel=2,
+            )
 
         if not self._mmc.getPixelSizeUm():
-            ValueError("Pixel Size not defined! Set pixel size first.")
+            warnings.warn("Pixel Size not defined! Using 1µm as default.", stacklevel=2)
 
-        _cam_x = self._mmc.getImageWidth()
-        _cam_y = self._mmc.getImageHeight()
-        image_width_mm = (_cam_x * self._mmc.getPixelSizeUm()) / 1000
-        image_height_mm = (_cam_y * self._mmc.getPixelSizeUm()) / 1000
+        _cam_x = self._mmc.getImageWidth() or 512
+        _cam_y = self._mmc.getImageHeight() or 512
+        _px_size = self._mmc.getPixelSizeUm() or 1
+        image_width_mm = (_cam_x * _px_size) / 1000
+        image_height_mm = (_cam_y * _px_size) / 1000
         return image_width_mm, image_height_mm
 
     def _points_for_random_scene(
