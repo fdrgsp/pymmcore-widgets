@@ -694,7 +694,8 @@ class _FOVSelectrorWidget(QWidget):
         self._well_height_mm = round(well_plate.well_size_y, 3)
         self._is_circular = well_plate.circular
 
-        # set the scene size depending on the well size.
+        # set the scene size depending on the well size. Using FOV_SCENE_MIN or
+        # FOV_SCENE_MAX to draw any rectangular shaped well.
         self._scene_width_px = (
             FOV_SCENE_MIN
             if self._well_width_mm <= self._well_height_mm
