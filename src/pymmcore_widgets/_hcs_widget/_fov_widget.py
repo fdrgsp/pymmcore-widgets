@@ -14,6 +14,7 @@ from qtpy.QtGui import QPen
 from qtpy.QtWidgets import (
     QAbstractSpinBox,
     QDoubleSpinBox,
+    QGraphicsLineItem,
     QGraphicsScene,
     QGraphicsView,
     QHBoxLayout,
@@ -339,7 +340,7 @@ class _FOVSelectrorWidget(QWidget):
         """Update the scene when the pixel size is changed."""
         with contextlib.suppress(AttributeError):
             for item in self.scene.items():
-                if isinstance(item, (_WellArea, _FOVPoints)):
+                if isinstance(item, (_WellArea, _FOVPoints, QGraphicsLineItem)):
                     self.scene.removeItem(item)
             mode = self.tab_wdg.tabText(self.tab_wdg.currentIndex())
             self._update_scene(mode)
@@ -347,7 +348,7 @@ class _FOVSelectrorWidget(QWidget):
     def _on_tab_changed(self, tab_index: int) -> None:
         """Update the scene when the tab is changed."""
         for item in self.scene.items():
-            if isinstance(item, (_WellArea, _FOVPoints)):
+            if isinstance(item, (_WellArea, _FOVPoints, QGraphicsLineItem)):
                 self.scene.removeItem(item)
 
         mode = self.tab_wdg.tabText(tab_index)
@@ -356,20 +357,20 @@ class _FOVSelectrorWidget(QWidget):
     def _on_random_area_changed(self) -> None:
         """Update the _RandomWidget scene when the usable plate area is changed."""
         for item in self.scene.items():
-            if isinstance(item, (_WellArea, _FOVPoints)):
+            if isinstance(item, (_WellArea, _FOVPoints, QGraphicsLineItem)):
                 self.scene.removeItem(item)
         self._update_random_fovs(self.random_wdg.value())
 
     def _on_nFOV_changed(self) -> None:
         """Update the _RandomWidget scene when the number of FOVVs is changed."""
         for item in self.scene.items():
-            if isinstance(item, _FOVPoints):
+            if isinstance(item, (_FOVPoints, QGraphicsLineItem)):
                 self.scene.removeItem(item)
         self._update_random_fovs(self.random_wdg.value())
 
     def _on_grid_changed(self) -> None:
         for item in self.scene.items():
-            if isinstance(item, _FOVPoints):
+            if isinstance(item, (_FOVPoints, QGraphicsLineItem)):
                 self.scene.removeItem(item)
         self._update_grid_fovs(self.grid_wdg.value())
 
@@ -483,9 +484,22 @@ class _FOVSelectrorWidget(QWidget):
         return points
 
     def _draw_fovs(self, points: list[tuple[float, float]]) -> None:
-        """Draw the fovs in the scene as _FOVPoints."""
+        """Draw the fovs in the scene.
+
+        The scene will have fovs as `_FOVPoints` and lines conncting the fovs that
+        represent the fovs acquidition order.
+        """
+        line_pen = QPen(Qt.GlobalColor.white)
+        line_pen.setWidth(2)
+        x = y = None
         for xc, yc in points:
+            # draw the fovs
             self.scene.addItem(_FOVPoints(xc, yc, *self._get_image_size_in_px()))
+            # draw the lines connecting the fovs
+            if x is not None and y is not None:
+                self.scene.addLine(x, y, xc, yc, pen=line_pen)
+            x = xc
+            y = yc
 
     def _update_plate_area_y(self, value: float) -> None:
         """Update the plate area y value if the plate has circular wells."""
@@ -532,7 +546,7 @@ class _FOVSelectrorWidget(QWidget):
             min_dist_px_y = (self._scene_height_px * image_height_mm) / area_y_mm
 
         if self._is_circular:
-            return self._random_points_in_circle(
+            points = self._random_points_in_circle(
                 nFOV,
                 well_area_width_px,
                 scene_center_x,
@@ -541,18 +555,21 @@ class _FOVSelectrorWidget(QWidget):
                 min_dist_px_y,
             )
 
-        well_area_x_px = (self._scene_width_px * area_x_mm) / self._well_width_mm
-        well_area_y_px = (self._scene_height_px * area_y_mm) / self._well_height_mm
+        else:
+            well_area_x_px = (self._scene_width_px * area_x_mm) / self._well_width_mm
+            well_area_y_px = (self._scene_height_px * area_y_mm) / self._well_height_mm
 
-        return self._random_points_in_rectangle(
-            nFOV,
-            well_area_x_px,
-            well_area_y_px,
-            self._view_size,
-            self._view_size,
-            min_dist_px_x,
-            min_dist_px_y,
-        )
+            points = self._random_points_in_rectangle(
+                nFOV,
+                well_area_x_px,
+                well_area_y_px,
+                self._view_size,
+                self._view_size,
+                min_dist_px_x,
+                min_dist_px_y,
+            )
+
+        return self._order_points(points)
 
     def _random_points_in_circle(
         self,
@@ -682,7 +699,7 @@ class _FOVSelectrorWidget(QWidget):
 
     def _on_random_button_pressed(self) -> None:
         for item in self.scene.items():
-            if isinstance(item, _FOVPoints):
+            if isinstance(item, (_FOVPoints, QGraphicsLineItem)):
                 self.scene.removeItem(item)
         self._update_random_fovs(self.random_wdg.value())
 
@@ -748,11 +765,40 @@ class _FOVSelectrorWidget(QWidget):
         mode = self.tab_wdg.tabText(self.tab_wdg.currentIndex())
         self._update_scene(mode)
 
+    def _order_points(
+        self, fovs: list[tuple[float, float]]
+    ) -> list[tuple[float, float]]:
+        """Orders a list of points starting from the top-left and then moving towards
+        the nearest points.
+        """  # noqa: D205
+
+        def _distance(
+            point1: tuple[float, float], point2: tuple[float, float]
+        ) -> float:
+            """Return the Euclidean distance between two points."""
+            x1, y1 = point1
+            x2, y2 = point2
+            return math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+
+        # Find the top-left point
+        top_left = min(fovs, key=lambda p: p[0] + p[1])
+        ordered_points = [top_left]
+        fovs.remove(top_left)
+
+        while fovs:
+            # Find the nearest point to the last ordered point
+            nearest_point = min(fovs, key=lambda p: _distance(ordered_points[-1], p))
+            ordered_points.append(nearest_point)
+            fovs.remove(nearest_point)
+
+        return ordered_points
+
     def value(self) -> tuple[list[tuple[float, float]], Center | Random | Grid]:
         """Return the center of each FOVs."""
-        fovs = [
+        points = [
             item.value() for item in self.scene.items() if isinstance(item, _FOVPoints)
         ]
+        fovs = self._order_points(points)
         fov_info = self._get_fov_info()
         return fovs, fov_info
 
@@ -769,7 +815,7 @@ class _FOVSelectrorWidget(QWidget):
         """Set the center of each FOVs."""
         # clear the scene
         for item in self.scene.items():
-            if isinstance(item, _FOVPoints):
+            if isinstance(item, (_FOVPoints, QGraphicsLineItem)):
                 self.scene.removeItem(item)
 
         if isinstance(fov_info, Center):
