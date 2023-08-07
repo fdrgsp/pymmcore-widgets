@@ -36,7 +36,7 @@ from pymmcore_widgets._util import (
 )
 
 from ._calibration_widget import _PlateCalibration
-from ._generate_fov_widget import FOVSelectrorWidget
+from ._fov_widget import _FOVSelectrorWidget
 from ._graphics_items import _FOVPoints, _Well
 from ._plate_graphics_scene import _HCSGraphicsScene
 from ._update_plate_dialog import _PlateDatabaseWidget
@@ -123,7 +123,7 @@ class _PlateAndFovTab(QWidget):
         FOV_gp_layout.setSpacing(0)
         FOV_gp_layout.setContentsMargins(10, 10, 10, 10)
         FOV_group.setLayout(FOV_gp_layout)
-        self.FOV_selector = FOVSelectrorWidget(parent=self)
+        self.FOV_selector = _FOVSelectrorWidget(parent=self)
         FOV_gp_layout.addWidget(self.FOV_selector)
         layout.addWidget(FOV_group)
 
@@ -257,7 +257,7 @@ class HCSWidget(QWidget):
         )
         # add widgets to tabwidget
         self.tabwidget = QTabWidget()
-        self.tabwidget.addTab(self._plate_and_fov_tab, "  Plate and FOVVs Selection  ")
+        self.tabwidget.addTab(self._plate_and_fov_tab, "  Plate and FOVs Selection  ")
         self.tabwidget.addTab(self._calibration_tab, "  Plate Calibration  ")
         self.tabwidget.addTab(self._mda, "  MDA  ")
         scroll.setWidget(self.tabwidget)
@@ -326,9 +326,7 @@ class HCSWidget(QWidget):
             item.setSelected(True)
             item.set_well_color(QBrush(Qt.GlobalColor.magenta))
         # load plate info in the FOV selector widget
-        self._plate_and_fov_tab.FOV_selector._load_plate_info(
-            self.wp.well_size_x, self.wp.well_size_y, self.wp.circular
-        )
+        self._plate_and_fov_tab.FOV_selector._load_plate_info(self.wp)
 
     def _show_custom_plate_dialog(self) -> None:
         """Show the custom plate Qdialog widget."""

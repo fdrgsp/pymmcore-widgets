@@ -342,8 +342,8 @@ def test_calibration_label(global_mmcore: CMMCorePlus, qtbot: QtBot):
 
     assert cal.cal_lbl.text() == "Plate non Calibrated!"
 
-    assert cal._calibration_combo.currentIndex() == 0
-    assert cal._calibration_combo.currentText() == "1 Well (A1)"
+    assert cal._calibration_wells_combo.currentIndex() == 0
+    assert cal._calibration_wells_combo.currentText() == "1 Well (A1)"
     text = (
         "Calibrate Wells: A1\n"
         "\n"
@@ -352,8 +352,8 @@ def test_calibration_label(global_mmcore: CMMCorePlus, qtbot: QtBot):
     )
     assert cal.info_lbl.text() == text
 
-    cal._calibration_combo.setCurrentIndex(1)
-    assert cal._calibration_combo.currentText() == "2 Wells (A1,  A12)"
+    cal._calibration_wells_combo.setCurrentIndex(1)
+    assert cal._calibration_wells_combo.currentText() == "2 Wells (A1,  A12)"
     text = (
         "Calibrate Wells: A1,  A12\n"
         "\n"
@@ -369,8 +369,8 @@ def test_calibration_label(global_mmcore: CMMCorePlus, qtbot: QtBot):
         item for item in hcs._plate_and_fov_tab.scene.items() if item.isSelected()
     ]
 
-    cal._calibration_combo.setCurrentIndex(1)
-    assert cal._calibration_combo.currentText() == "2 Wells (A1,  A24)"
+    cal._calibration_wells_combo.setCurrentIndex(1)
+    assert cal._calibration_wells_combo.currentText() == "2 Wells (A1,  A24)"
 
     text = (
         "Calibrate Wells: A1,  A24\n"
@@ -402,7 +402,7 @@ def test_calibration_one_well(global_mmcore: CMMCorePlus, qtbot: QtBot):
         item for item in hcs._plate_and_fov_tab.scene.items() if item.isSelected()
     ]
 
-    assert cal._calibration_combo.currentText() == "1 Well (A1)"
+    assert cal._calibration_wells_combo.currentText() == "1 Well (A1)"
 
     assert not cal.table_1.isHidden()
     assert cal.table_2.isHidden()
@@ -470,7 +470,7 @@ def test_calibration_one_well_square(global_mmcore: CMMCorePlus, qtbot: QtBot):
         item for item in hcs._plate_and_fov_tab.scene.items() if item.isSelected()
     ]
 
-    assert cal._calibration_combo.currentText() == "1 Well (A1)"
+    assert cal._calibration_wells_combo.currentText() == "1 Well (A1)"
 
     assert not cal.table_1.isHidden()
     assert cal.table_2.isHidden()
@@ -520,7 +520,7 @@ def test_calibration_two_wells(global_mmcore: CMMCorePlus, qtbot: QtBot):
         item for item in hcs._plate_and_fov_tab.scene.items() if item.isSelected()
     ]
 
-    cal._calibration_combo.setCurrentText("2 Wells (A1,  A3)")
+    cal._calibration_wells_combo.setCurrentText("2 Wells (A1,  A3)")
 
     assert not cal.table_1.isHidden()
     assert not cal.table_2.isHidden()
@@ -589,12 +589,12 @@ def test_calibration_from_calibration(global_mmcore: CMMCorePlus, qtbot: QtBot):
         == 1
     )
 
-    assert cal._calibration_combo.currentText() == "1 Well (A1)"
+    assert cal._calibration_wells_combo.currentText() == "1 Well (A1)"
     assert (
         len(
             [
-                cal._calibration_combo.itemText(i)
-                for i in range(cal._calibration_combo.count())
+                cal._calibration_wells_combo.itemText(i)
+                for i in range(cal._calibration_wells_combo.count())
             ]
         )
         == 1
@@ -658,7 +658,7 @@ def test_generate_pos_list(global_mmcore: CMMCorePlus, qtbot: QtBot):
     )
     assert wells == ["A1", "A2", "B1", "B2"]
 
-    assert cal._calibration_combo.currentText() == "1 Well (A1)"
+    assert cal._calibration_wells_combo.currentText() == "1 Well (A1)"
 
     cal.table_1.tb.setRowCount(2)
     cal.table_1.tb.setItem(0, 0, QTableWidgetItem("Well A1_pos000"))
@@ -779,7 +779,7 @@ def test_hcs_state(global_mmcore: CMMCorePlus, qtbot: QtBot):
         == 2
     )
 
-    assert cal._calibration_combo.currentText() == "1 Well (A1)"
+    assert cal._calibration_wells_combo.currentText() == "1 Well (A1)"
 
     cal.table_1.tb.setRowCount(2)
     cal.table_1.tb.setItem(0, 0, QTableWidgetItem("Well A1_pos000"))

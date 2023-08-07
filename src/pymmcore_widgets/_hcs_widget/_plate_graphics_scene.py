@@ -177,7 +177,7 @@ class _HCSGraphicsScene(QGraphicsScene):
 
         return start_x, start_y, width, height, text_size
 
-    def set_value(self, value: list[tuple[str, int, int]]) -> None:
+    def setValue(self, value: list[tuple[str, int, int]]) -> None:
         """Select the wells listed in `value`."""
         self._clear_selection()
 

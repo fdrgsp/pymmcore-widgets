@@ -1,15 +1,5 @@
 [
     {
-        "id": "VWR 24  Plastic",
-        "circular": true,
-        "rows": 4,
-        "cols": 6,
-        "well_spacing_x": 19.2,
-        "well_spacing_y": 19.2,
-        "well_size_x": 15.7,
-        "well_size_y": 15.7
-    },
-    {
         "id": "custom_from_calibration",
         "circular": false,
         "rows": 1,
