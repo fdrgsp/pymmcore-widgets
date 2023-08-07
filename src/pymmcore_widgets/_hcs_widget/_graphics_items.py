@@ -105,13 +105,7 @@ class _FOVPoints(QGraphicsItem):
     """
 
     def __init__(
-        self,
-        center_x: float,
-        center_y: float,
-        # scene_width: int,
-        # scene_height: int,
-        fov_width: float,
-        fov_height: float,
+        self, center_x: float, center_y: float, fov_width: float, fov_height: float
     ) -> None:
         super().__init__()
 
@@ -125,10 +119,6 @@ class _FOVPoints(QGraphicsItem):
         self.fov_width = fov_width
         self.fov_height = fov_height
 
-        # scene width and height in scene px
-        # self._scene_width = scene_width
-        # self._scene_height = scene_height
-
     def boundingRect(self) -> QRectF:
         return QRectF(0, 0, self._view_size, self._view_size)
 
@@ -140,10 +130,6 @@ class _FOVPoints(QGraphicsItem):
         start_x = self._center_x - (self.fov_width / 2)
         start_y = self._center_y - (self.fov_height / 2)
         painter.drawRect(QRectF(start_x, start_y, self.fov_width, self.fov_height))
-
-    # def get_center_and_size(self) -> Tuple[float, float, int, int]:
-    #     """Return the center and size of the FOV."""
-    #     return self._center_x, self._center_y, self._scene_width, self._scene_height
 
     def value(self) -> tuple[float, float]:
         """Return the center of the FOV."""

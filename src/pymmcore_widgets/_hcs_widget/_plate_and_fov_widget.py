@@ -10,9 +10,11 @@ from qtpy.QtWidgets import (
     QGroupBox,
     QVBoxLayout,
 )
+from superqt.utils import signals_blocked
 
 from ._fov_widget import Center, Grid, Random, _FOVSelectrorWidget
 from ._plate_widget import _PlateWidget
+from ._update_plate_dialog import _PlateDatabaseWidget
 from ._well_plate_model import PLATE_DB_PATH, WellPlate, load_database
 
 if TYPE_CHECKING:
@@ -65,13 +67,36 @@ class PlateAndFovWidget(QWidget):
         self.layout().addWidget(plate_groupbox)
         self.layout().addWidget(fov_groupbox)
 
+        self._plate = _PlateDatabaseWidget(
+            parent=self,
+            plate_database=self._plate_db,
+            plate_database_path=self._plate_db_path,
+        )
+        self._plate.valueChanged.connect(self._update_plate_widget_combo)
+
         self._fov_selector._load_plate_info(self._plate_widget.current_plate())
 
         # connect
         self._plate_widget.valueChanged.connect(self._update_fov_scene)
+        self._plate_widget.custom_plate.clicked.connect(self._show_custom_plate_dialog)
 
     def _update_fov_scene(self, plate: WellPlate) -> None:
         self._fov_selector._load_plate_info(plate)
+
+    def _show_custom_plate_dialog(self) -> None:
+        """Show the custom plate Qdialog widget."""
+        if hasattr(self, "_plate"):
+            self._plate.close()
+        self._plate.show()
+        self._plate.plate_table.clearSelection()
+        self._plate.clear_values()
+
+    def _update_plate_widget_combo(self, new_plate: WellPlate) -> None:
+        """Update the well plate combobox with the new plate."""
+        with signals_blocked(self._plate_widget.wp_combo):
+            self._plate_widget.wp_combo.clear()
+            self._plate_widget.wp_combo.addItems(list(self._plate_db))
+        self._plate_widget.wp_combo.setCurrentText(new_plate.id)
 
     def value(self) -> WellsAndFovs:
         """Return the selected wells and coordinates for the FOVs selection."""

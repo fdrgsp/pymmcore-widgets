@@ -407,9 +407,6 @@ class _FOVSelectrorWidget(QWidget):
         # x and y center coords of the scene in px
         x, y = (self._view_size / 2, self._view_size / 2)  # px
 
-        # image size in mm
-        image_wdt_mm, image_hgt_mm = self._get_image_size_in_mm()
-
         # value of 1 scene px in mm
         scene_one_px_in_mm_x = self._well_width_mm / self._scene_width_px
         scene_one_px_in_mm_y = self._well_height_mm / self._scene_height_px
@@ -418,25 +415,50 @@ class _FOVSelectrorWidget(QWidget):
         dy = ((-dy) / 1000) / scene_one_px_in_mm_y  # px
         dx = (dx / 1000) / scene_one_px_in_mm_x  # px
 
-        # cam fov size in scene pixels
-        well_size_mm = max(self._well_width_mm, self._well_height_mm)
-        max_scene = max(self._scene_width_px, self._scene_height_px)
-        image_width_px = (max_scene * image_wdt_mm) / well_size_mm
-        image_height_px = (max_scene * image_hgt_mm) / well_size_mm
+        # camera fov size in scene pixels
+        fov_width_px, fov_height_px = self._get_image_size_in_px()
 
         # getting the starting pixel x and y coords of the first fov for the grid by
         # shiftingthe center of the scene towards the top left corner depending on the
         # number of rows and columns.
         if rows != 1 or cols != 1:
-            x = x - ((cols - 1) * (image_width_px / 2)) - ((dx / 2) * (cols - 1))
-            y = y + ((rows - 1) * (image_height_px / 2)) - ((dy / 2) * (rows - 1))
+            x = x - ((cols - 1) * (fov_width_px / 2)) - ((dx / 2) * (cols - 1))
+            y = y + ((rows - 1) * (fov_height_px / 2)) - ((dy / 2) * (rows - 1))
 
-        move_x = image_width_px + dx
-        move_y = image_height_px - dy
+        move_x = fov_width_px + dx
+        move_y = fov_height_px - dy
 
         points = self._grid_of_points(rows, cols, x, y, move_x, move_y)
 
         self._draw_fovs(points)
+
+    def _get_image_size_in_mm(self) -> tuple[float, float]:
+        """Return the image size in mm depending on the camera device."""
+        if not self._mmc.getCameraDevice():
+            warnings.warn(
+                "Camera Device not found!. Using default image size: 512x512",
+                stacklevel=2,
+            )
+
+        if not self._mmc.getPixelSizeUm():
+            warnings.warn("Pixel Size not defined! Using 1µm as default.", stacklevel=2)
+
+        _cam_x = self._mmc.getImageWidth() or 512
+        _cam_y = self._mmc.getImageHeight() or 512
+        _px_size = self._mmc.getPixelSizeUm() or 1
+        image_width_mm = (_cam_x * _px_size) / 1000
+        image_height_mm = (_cam_y * _px_size) / 1000
+
+        return image_width_mm, image_height_mm
+
+    def _get_image_size_in_px(self) -> tuple[float, float]:
+        """Return the image size in px depending on the camera device."""
+        image_wdt_mm, image_hgt_mm = self._get_image_size_in_mm()
+        well_size_mm = max(self._well_width_mm, self._well_height_mm)
+        max_scene = max(self._scene_width_px, self._scene_height_px)
+        image_width_px = (max_scene * image_wdt_mm) / well_size_mm
+        image_height_px = (max_scene * image_hgt_mm) / well_size_mm
+        return image_width_px, image_height_px
 
     def _grid_of_points(
         self, rows: int, columns: int, x: float, y: float, dx: float, dy: float
@@ -453,49 +475,15 @@ class _FOVSelectrorWidget(QWidget):
         return points
 
     def _draw_fovs(self, points: list[tuple[float, float]]) -> None:
-        """Draw the fovs in the scene."""
-        image_width_mm, image_height_mm = self._get_image_size_in_mm()
-        # fov width and fov height in scene px
-        well_size_mm = max(self._well_width_mm, self._well_height_mm)
-        max_scene = max(self._scene_width_px, self._scene_height_px)
-        fov_width = (max_scene * image_width_mm) / well_size_mm
-        fov_height = (max_scene * image_height_mm) / well_size_mm
-        # draw the _FOVPoints
+        """Draw the fovs in the scene as _FOVPoints."""
         for xc, yc in points:
-            self.scene.addItem(
-                _FOVPoints(
-                    xc,
-                    yc,
-                    # int(self._scene_width_px),
-                    # int(self._scene_height_px),
-                    fov_width,
-                    fov_height,
-                )
-            )
+            self.scene.addItem(_FOVPoints(xc, yc, *self._get_image_size_in_px()))
 
     def _update_plate_area_y(self, value: float) -> None:
         """Update the plate area y value if the plate has circular wells."""
         if not self._is_circular:
             return
         self.random_wdg.plate_area_y.setValue(value)
-
-    def _get_image_size_in_mm(self) -> tuple[float, float]:
-        """Return the image size in mm."""
-        if not self._mmc.getCameraDevice():
-            warnings.warn(
-                "Camera Device not found!. Using default image size: 512x512",
-                stacklevel=2,
-            )
-
-        if not self._mmc.getPixelSizeUm():
-            warnings.warn("Pixel Size not defined! Using 1µm as default.", stacklevel=2)
-
-        _cam_x = self._mmc.getImageWidth() or 512
-        _cam_y = self._mmc.getImageHeight() or 512
-        _px_size = self._mmc.getPixelSizeUm() or 1
-        image_width_mm = (_cam_x * _px_size) / 1000
-        image_height_mm = (_cam_y * _px_size) / 1000
-        return image_width_mm, image_height_mm
 
     def _points_for_random_scene(
         self,
