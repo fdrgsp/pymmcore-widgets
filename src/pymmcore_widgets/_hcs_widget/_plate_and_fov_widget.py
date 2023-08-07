@@ -28,10 +28,27 @@ CALIBRATED_PLATE: WellPlate | None = None
 
 
 class WellsAndFovs(NamedTuple):
+    """Named tuple with information about the selected wells and FOVs.
+
+    Attributes
+    ----------
+    plate : WellPlate
+        The selected well plate.
+    wells : list[tuple[str, int, int]] | None
+        The list of selected wells.
+    fovs : list[tuple[float, float]]
+        The list of (x, y) coordinates of the selected FOVs per well.
+    fov_info : Center | Random | Grid
+        The FOV selection mode.
+    scene_px_size_mm : tuple[float, float]
+        The (x, y) scene pixel size expressed in mm.
+    """
+
     plate: WellPlate
     wells: list[tuple[str, int, int]] | None
     fovs: list[tuple[float, float]]
     fov_info: Center | Random | Grid
+    scene_px_size_mm: tuple[float, float]
 
 
 class PlateAndFovWidget(QWidget):
@@ -101,8 +118,14 @@ class PlateAndFovWidget(QWidget):
     def value(self) -> WellsAndFovs:
         """Return the selected wells and coordinates for the FOVs selection."""
         plate, wells = self._plate_widget.value()
-        fovs, fovs_info = self._fov_selector.value()
-        return WellsAndFovs(plate=plate, wells=wells, fovs=fovs, fov_info=fovs_info)
+        fovs, fovs_info, scene_px_size_mm = self._fov_selector.value()
+        return WellsAndFovs(
+            plate=plate,
+            wells=wells,
+            fovs=fovs,
+            fov_info=fovs_info,
+            scene_px_size_mm=scene_px_size_mm,
+        )
 
     def setValue(self, wells_and_fovs: WellsAndFovs) -> None:
         """Set the selected wells and coordinates for the FOVs selection."""

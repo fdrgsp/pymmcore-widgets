@@ -793,14 +793,20 @@ class _FOVSelectrorWidget(QWidget):
 
         return ordered_points
 
-    def value(self) -> tuple[list[tuple[float, float]], Center | Random | Grid]:
+    def value(
+        self,
+    ) -> tuple[list[tuple[float, float]], Center | Random | Grid, tuple[float, float]]:
         """Return the center of each FOVs."""
         points = [
             item.value() for item in self.scene.items() if isinstance(item, _FOVPoints)
         ]
         fovs = self._order_points(list(reversed(points)))
         fov_info = self._get_fov_info()
-        return fovs, fov_info
+        scene_px_size_mm = (
+            self._well_width_mm / self._scene_width_px,
+            self._well_height_mm / self._scene_height_px,
+        )
+        return fovs, fov_info, scene_px_size_mm
 
     def _get_fov_info(self) -> Center | Random | Grid:
         """Return the information about the FOVs."""
