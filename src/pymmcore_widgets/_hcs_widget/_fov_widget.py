@@ -5,6 +5,7 @@ import math
 import random
 import time
 import warnings
+from enum import Enum
 from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
@@ -13,6 +14,7 @@ from qtpy.QtCore import QRectF, Qt
 from qtpy.QtGui import QPen
 from qtpy.QtWidgets import (
     QAbstractSpinBox,
+    QComboBox,
     QDoubleSpinBox,
     QGraphicsLineItem,
     QGraphicsScene,
@@ -69,6 +71,25 @@ class Grid(NamedTuple):
     cols: int
     dx: float
     dy: float
+    order: OrderMode
+
+
+class Mode(NamedTuple):
+    name: str
+    snake: bool
+    row_wise: bool
+
+
+class OrderMode(Enum):
+    """Different ways of ordering the grid positions."""
+
+    row_wise = Mode("row_wise", False, True)
+    column_wise = Mode("column_wise", False, False)
+    row_wise_snake = Mode("row_wise_snake", True, True)
+    column_wise_snake = Mode("column_wise_snake", True, False)
+
+    def __repr__(self) -> str:
+        return f"OrderMode.{self.value.name}: {self.value}"
 
 
 def _create_label(label_text: str) -> QLabel:
@@ -83,12 +104,11 @@ def _create_label(label_text: str) -> QLabel:
 def _make_wdg_with_label(label: QLabel, wdg: QWidget) -> QWidget:
     """Create a QWidget with a QHBoxLayout with the given label and widget."""
     widget = QWidget()
-    layout = QHBoxLayout()
-    layout.setContentsMargins(0, 0, 0, 0)
-    layout.setSpacing(5)
-    layout.addWidget(label)
-    layout.addWidget(wdg)
-    widget.setLayout(layout)
+    widget.setLayout(QHBoxLayout())
+    widget.layout().setContentsMargins(0, 0, 0, 0)
+    widget.layout().setSpacing(5)
+    widget.layout().addWidget(label)
+    widget.layout().addWidget(wdg)
     return widget
 
 
@@ -246,6 +266,12 @@ class _GridFovWidget(QWidget):
         spacing_y_lbl = _create_label("Spacing y (um):")
         _spacing_y = _make_wdg_with_label(spacing_y_lbl, self.spacing_y)
 
+        self.order_combo = QComboBox()
+        self.order_combo.addItems([mode.value.name for mode in OrderMode])
+        self.order_combo.setCurrentText(OrderMode.row_wise_snake.value.name)
+        order_combo_lbl = _create_label("Grid Order:")
+        _order_combo = _make_wdg_with_label(order_combo_lbl, self.order_combo)
+
         # add widgets to wdg layout
         wdg = QWidget()
         wdg.setLayout(QVBoxLayout())
@@ -255,6 +281,7 @@ class _GridFovWidget(QWidget):
         wdg.layout().addWidget(_cols)
         wdg.layout().addWidget(_spacing_x)
         wdg.layout().addWidget(_spacing_y)
+        wdg.layout().addWidget(_order_combo)
 
         # main
         self.setLayout(QVBoxLayout())
@@ -269,6 +296,7 @@ class _GridFovWidget(QWidget):
             cols=self.cols.value(),
             dx=self.spacing_x.value(),
             dy=self.spacing_y.value(),
+            order=OrderMode[self.order_combo.currentText()],
         )
 
     def setValue(self, value: Grid) -> None:
@@ -277,6 +305,7 @@ class _GridFovWidget(QWidget):
         self.cols.setValue(value.cols)
         self.spacing_x.setValue(value.dx)
         self.spacing_y.setValue(value.dy)
+        self.order_combo.setCurrentText(value.order.value.name)
 
 
 class _FOVSelectrorWidget(QWidget):
@@ -310,6 +339,7 @@ class _FOVSelectrorWidget(QWidget):
         self.grid_wdg.cols.valueChanged.connect(self._on_grid_changed)
         self.grid_wdg.spacing_x.valueChanged.connect(self._on_grid_changed)
         self.grid_wdg.spacing_y.valueChanged.connect(self._on_grid_changed)
+        self.grid_wdg.order_combo.currentIndexChanged.connect(self._on_grid_changed)
         # add widgets in a tab widget
         self.tab_wdg = QTabWidget()
         self.tab_wdg.setMinimumHeight(150)
@@ -419,6 +449,9 @@ class _FOVSelectrorWidget(QWidget):
         # camera fov size in scene pixels
         fov_width_px, fov_height_px = self._get_image_size_in_px()
 
+        # tooltip with overlap in %
+        self._update_overlap_tooltip(dx, dy, fov_width_px, fov_height_px)
+
         # getting the starting pixel x and y coords of the first fov for the grid by
         # shiftingthe center of the scene towards the top left corner depending on the
         # number of rows and columns.
@@ -429,9 +462,43 @@ class _FOVSelectrorWidget(QWidget):
         move_x = fov_width_px + dx
         move_y = fov_height_px + dy
 
-        points = self._grid_of_points(rows, cols, x, y, move_x, move_y)
+        order = OrderMode[self.grid_wdg.order_combo.currentText()]
+
+        points = self._grid_of_points(
+            rows, cols, x, y, move_x, move_y, order.value.snake, order.value.row_wise
+        )
 
         self._draw_fovs(points)
+
+    def _update_overlap_tooltip(
+        self, dx: float, dy: float, fov_width_px: float, fov_height_px: float
+    ) -> None:
+        """Update the tooltip of the grid widget with the overlap percentage."""
+        fov_width_mm, fov_height_mm = self._get_image_size_in_mm()
+
+        if fov_width_mm is None or fov_height_mm is None:
+            self.grid_wdg.spacing_x.setToolTip("")
+            self.grid_wdg.spacing_y.setToolTip("")
+            return
+
+        # overlap happens when the spacing value is negative
+        _over_x = dx / fov_width_px * 100
+        if _over_x > 0 or abs(_over_x) > 100:
+            _overlap_x = f"Overlap x: 0% (FOV={fov_width_mm * 1000} µm)"
+        else:
+            _overlap_x = (
+                f"Overlap x: {abs(_over_x):.2f}% (FOV={fov_width_mm * 1000} µm)"
+            )
+        self.grid_wdg.spacing_x.setToolTip(_overlap_x)
+
+        _over_y = dy / fov_height_px * 100
+        if _over_y > 0 or abs(_over_y) > 100:
+            _overlap_y = f"Overlap y: 0% (FOV={fov_height_mm * 1000} µm)"
+        else:
+            _overlap_y = (
+                f"Overlap y: {abs(_over_y):.2f}% (FOV={fov_height_mm * 1000} µm)"
+            )
+        self.grid_wdg.spacing_y.setToolTip(_overlap_y)
 
     def _get_image_size_in_mm(self) -> tuple[float | None, float | None]:
         """Return the image size in mm depending on the camera device."""
@@ -470,18 +537,31 @@ class _FOVSelectrorWidget(QWidget):
         return image_width_px, image_height_px
 
     def _grid_of_points(
-        self, rows: int, columns: int, x: float, y: float, dx: float, dy: float
+        self,
+        rows: int,
+        columns: int,
+        x: float,
+        y: float,
+        dx: float,
+        dy: float,
+        snake: bool = False,
+        row_wise: bool = True,
     ) -> list[tuple[float, float]]:
-        """Create a snake-wise-ordered grid of points spaced by `dx` and  dy`."""
+        """Create an ordered grid of points spaced by `dx` and  dy`."""
         # create a meshgrid of arrays with the number of rows and columns
         c, r = np.meshgrid(np.arange(columns), np.arange(rows))
-        # invert the order of the columns in the odd rows
-        c[1::2, :] = c[1::2, :][:, ::-1]
+        if snake:
+            if row_wise:
+                # invert the order of the columns in the odd rows
+                c[1::2, :] = c[1::2, :][:, ::-1]
+            else:
+                # invert the order of the rows in the odd columns
+                r[:, 1::2] = r[:, 1::2][::-1, :]
+        # _zip is a list of tuples with the row and column indices (ravel flattens the
+        # arrays)
+        _zip = zip(r.ravel(), c.ravel()) if row_wise else zip(r.T.ravel(), c.T.ravel())
         # create a list of points by shifting the starting point by dx and dy
-        points: list[tuple[float, float]] = [
-            (x + _c * dx, y + _r * dy) for _r, _c in zip(r.ravel(), c.ravel())
-        ]
-        return points
+        return [(x + _c * dx, y + _r * dy) for _r, _c in _zip]
 
     def _draw_fovs(self, points: list[tuple[float, float]]) -> None:
         """Draw the fovs in the scene.
