@@ -89,7 +89,7 @@ class OrderMode(Enum):
     column_wise_snake = OrderModeInfo("column_wise_snake", True, False)
 
     def __repr__(self) -> str:
-        return f"OrderMode.{self.value.name}: {self.value}"
+        return super().__repr__().replace("<", "").replace(">", "")
 
 
 def _create_label(label_text: str) -> QLabel:
