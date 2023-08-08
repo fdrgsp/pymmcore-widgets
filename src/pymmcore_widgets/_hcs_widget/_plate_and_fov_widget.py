@@ -40,7 +40,7 @@ class WellsAndFovs(NamedTuple):
         The list of (x, y) coordinates of the selected FOVs per well.
     fov_info : Center | Random | Grid
         The FOV selection mode.
-    scene_px_size_mm : tuple[float, float]
+    fov_scene_px_size_mm : tuple[float, float]
         The (x, y) scene pixel size expressed in mm.
     """
 
@@ -48,7 +48,7 @@ class WellsAndFovs(NamedTuple):
     wells: list[tuple[str, int, int]] | None
     fovs: list[tuple[float, float]]
     fov_info: Center | Random | Grid
-    scene_px_size_mm: tuple[float, float]
+    fov_scene_px_size_mm: tuple[float, float]
 
 
 class PlateAndFovWidget(QWidget):
@@ -126,7 +126,7 @@ class PlateAndFovWidget(QWidget):
             wells=wells,
             fovs=fovs,
             fov_info=fovs_info,
-            scene_px_size_mm=scene_px_size_mm,
+            fov_scene_px_size_mm=scene_px_size_mm,
         )
 
     def setValue(self, wells_and_fovs: WellsAndFovs) -> None:
