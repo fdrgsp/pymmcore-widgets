@@ -113,7 +113,9 @@ class PlateAndFovWidget(QWidget):
         with signals_blocked(self._plate_widget.wp_combo):
             self._plate_widget.wp_combo.clear()
             self._plate_widget.wp_combo.addItems(list(self._plate_db))
-        self._plate_widget.wp_combo.setCurrentText(new_plate.id)
+        self._plate_widget.wp_combo.setCurrentText(
+            new_plate.id if new_plate else self._plate_widget.wp_combo.itemText(0)
+        )
 
     def value(self) -> WellsAndFovs:
         """Return the selected wells and coordinates for the FOVs selection."""
