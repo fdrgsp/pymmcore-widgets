@@ -74,7 +74,7 @@ class Grid(NamedTuple):
     order: OrderMode
 
 
-class Mode(NamedTuple):
+class OrderModeInfo(NamedTuple):
     name: str
     snake: bool
     row_wise: bool
@@ -83,10 +83,10 @@ class Mode(NamedTuple):
 class OrderMode(Enum):
     """Different ways of ordering the grid positions."""
 
-    row_wise = Mode("row_wise", False, True)
-    column_wise = Mode("column_wise", False, False)
-    row_wise_snake = Mode("row_wise_snake", True, True)
-    column_wise_snake = Mode("column_wise_snake", True, False)
+    row_wise = OrderModeInfo("row_wise", False, True)
+    column_wise = OrderModeInfo("column_wise", False, False)
+    row_wise_snake = OrderModeInfo("row_wise_snake", True, True)
+    column_wise_snake = OrderModeInfo("column_wise_snake", True, False)
 
     def __repr__(self) -> str:
         return f"OrderMode.{self.value.name}: {self.value}"
