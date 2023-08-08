@@ -110,6 +110,7 @@ class _FOVPoints(QGraphicsItem):
         center_y: float,
         fov_width: float,
         fov_height: float,
+        pen: QPen | None = None,
     ) -> None:
         super().__init__()
 
@@ -121,15 +122,15 @@ class _FOVPoints(QGraphicsItem):
 
         self.fov_width = POINT_SIZE if fov_width == 1 else fov_width
         self.fov_height = POINT_SIZE if fov_height == 1 else fov_height
+        self.pen = pen or QPen(Qt.GlobalColor.black)
+        self.pen.setWidth(2)
         self._use_brush = fov_width == 1 or fov_height == 1
 
     def boundingRect(self) -> QRectF:
         return QRectF(0, 0, self._view_size, self._view_size)
 
     def paint(self, painter: QPainter, *args) -> None:  # type: ignore
-        pen = QPen(Qt.GlobalColor.black)
-        pen.setWidth(2)
-        painter.setPen(pen)
+        painter.setPen(self.pen)
         if self._use_brush:
             painter.setBrush(QBrush(Qt.GlobalColor.black))
         start_x = self._center_x - (self.fov_width / 2)

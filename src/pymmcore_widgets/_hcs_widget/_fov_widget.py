@@ -572,9 +572,17 @@ class _FOVSelectrorWidget(QWidget):
         line_pen = QPen(Qt.GlobalColor.white)
         line_pen.setWidth(2)
         x = y = None
-        for xc, yc in points:
+        for idx, (xc, yc) in enumerate(points):
+            # set the pen color to green for the first fov if the tab is the random one
+            pen = (
+                QPen(Qt.GlobalColor.white)
+                if idx == 0
+                and self.tab_wdg.currentIndex() == RANDOM_TAB_INDEX
+                and self.random_wdg.number_of_FOV.value() > 1
+                else None
+            )
             # draw the fovs
-            self.scene.addItem(_FOVPoints(xc, yc, *self._get_image_size_in_px()))
+            self.scene.addItem(_FOVPoints(xc, yc, *self._get_image_size_in_px(), pen))
             # draw the lines connecting the fovs
             if x is not None and y is not None:
                 self.scene.addLine(x, y, xc, yc, pen=line_pen)
