@@ -23,6 +23,7 @@ from qtpy.QtWidgets import (
     QLabel,
     QPushButton,
     QSizePolicy,
+    QSpacerItem,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
@@ -97,7 +98,6 @@ class OrderMode(Enum):
 def _create_label(label_text: str) -> QLabel:
     """Create a QLabel with fixed QSizePolicy."""
     lbl = QLabel()
-    lbl.setMinimumWidth(110)
     lbl.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
     lbl.setText(label_text)
     return lbl
@@ -160,6 +160,10 @@ class _CenterFOVWidget(QWidget):
         wdg.layout().addWidget(_plate_area_y)
         wdg.layout().addWidget(nFOV)
 
+        # set labels sizes
+        for lbl in (plate_area_label_x, plate_area_label_y, nFOV_label):
+            lbl.setMinimumWidth(plate_area_label_x.sizeHint().width())
+
         # main
         self.setLayout(QVBoxLayout())
         self.layout().setSpacing(0)
@@ -199,6 +203,8 @@ class _RandomFOVWidget(QWidget):
         number_of_FOV_label = _create_label("FOVs:")
         nFOV = _make_wdg_with_label(number_of_FOV_label, self.number_of_FOV)
 
+        spacer = QSpacerItem(0, 10, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
         self.random_button = QPushButton(text="Generate Random FOV(s)")
 
         # add widgets to wdg layout
@@ -209,7 +215,12 @@ class _RandomFOVWidget(QWidget):
         wdg.layout().addWidget(_plate_area_x)
         wdg.layout().addWidget(_plate_area_y)
         wdg.layout().addWidget(nFOV)
+        wdg.layout().addItem(spacer)
         wdg.layout().addWidget(self.random_button)
+
+        # set labels sizes
+        for lbl in (plate_area_label_x, plate_area_label_y, number_of_FOV_label):
+            lbl.setMinimumWidth(plate_area_label_x.sizeHint().width())
 
         # main
         self.setLayout(QVBoxLayout())
@@ -284,6 +295,16 @@ class _GridFovWidget(QWidget):
         wdg.layout().addWidget(_overlap_x)
         wdg.layout().addWidget(_overlap_y)
         wdg.layout().addWidget(_order_combo)
+
+        # set labels sizes
+        for lbl in (
+            rows_lbl,
+            cols_lbl,
+            overlap_x_lbl,
+            spacing_y_lbl,
+            order_combo_lbl,
+        ):
+            lbl.setMinimumWidth(overlap_x_lbl.sizeHint().width())
 
         # main
         self.setLayout(QVBoxLayout())
