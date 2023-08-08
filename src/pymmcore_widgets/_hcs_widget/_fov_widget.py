@@ -483,7 +483,7 @@ class _FOVSelectrorWidget(QWidget):
 
         # overlap happens when the spacing value is negative
         _over_x = dx / fov_width_px * 100
-        if _over_x > 0 or abs(_over_x) > 100:
+        if _over_x > 0 or abs(_over_x) > 100 or self.grid_wdg.cols.value() == 1:
             _overlap_x = f"Overlap x: 0% (FOV={fov_width_mm * 1000} µm)"
         else:
             _overlap_x = (
@@ -492,7 +492,7 @@ class _FOVSelectrorWidget(QWidget):
         self.grid_wdg.spacing_x.setToolTip(_overlap_x)
 
         _over_y = dy / fov_height_px * 100
-        if _over_y > 0 or abs(_over_y) > 100:
+        if _over_y > 0 or abs(_over_y) > 100 or self.grid_wdg.rows.value() == 1:
             _overlap_y = f"Overlap y: 0% (FOV={fov_height_mm * 1000} µm)"
         else:
             _overlap_y = (
