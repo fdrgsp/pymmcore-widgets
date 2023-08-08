@@ -74,7 +74,7 @@ def test_hcs_plate_selection(
     wells = []
     for item in reversed(hcs._plate_and_fov_tab.scene.items()):
         assert isinstance(item, _Well)
-        well, _, col = item.get_name_row_col()
+        well, _, col = item.value()
         wells.append(well)
         if col in {0, 1}:
             item.setSelected(True)
@@ -300,8 +300,8 @@ def test_hcs_fov_selection_grid(global_mmcore: CMMCorePlus, qtbot: QtBot):
 
     hcs._plate_and_fov_tab.FOV_selector.grid_wdg.rows.setValue(3)
     hcs._plate_and_fov_tab.FOV_selector.grid_wdg.cols.setValue(3)
-    hcs._plate_and_fov_tab.FOV_selector.grid_wdg.spacing_x.setValue(500.0)
-    hcs._plate_and_fov_tab.FOV_selector.grid_wdg.spacing_y.setValue(500.0)
+    hcs._plate_and_fov_tab.FOV_selector.grid_wdg.overlap_x.setValue(500.0)
+    hcs._plate_and_fov_tab.FOV_selector.grid_wdg.overlap_y.setValue(500.0)
     items = list(hcs._plate_and_fov_tab.FOV_selector.scene.items())
     assert len(items) == 10
     well = items[-1]
@@ -646,7 +646,7 @@ def test_generate_pos_list(global_mmcore: CMMCorePlus, qtbot: QtBot):
     wells = []
     for item in reversed(hcs._plate_and_fov_tab.scene.items()):
         assert isinstance(item, _Well)
-        well, row, col = item.get_name_row_col()
+        well, row, col = item.value()
         if col in {0, 1} and row in {0, 1}:
             item.setSelected(True)
             wells.append(well)
@@ -769,7 +769,7 @@ def test_hcs_state(global_mmcore: CMMCorePlus, qtbot: QtBot):
 
     for item in reversed(hcs._plate_and_fov_tab.scene.items()):
         assert isinstance(item, _Well)
-        _, row, col = item.get_name_row_col()
+        _, row, col = item.value()
         if col in {0, 1} and row in {0}:
             item.setSelected(True)
     assert (

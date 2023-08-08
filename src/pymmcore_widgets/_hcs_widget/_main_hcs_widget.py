@@ -352,37 +352,40 @@ class HCSWidget(QWidget):
             )
 
     def _generate_pos_list(self) -> None:
-        if not self._calibration.is_calibrated:
-            warnings.warn("Plate not calibrated! Calibrate it first.", stacklevel=2)
-            return
-        if not self._mmc.getPixelSizeUm():
-            warnings.warn("Pixel Size not defined! Set pixel size first.", stacklevel=2)
-            return
+        pass
+        # if not self._calibration.is_calibrated:
+        #     warnings.warn("Plate not calibrated! Calibrate it first.", stacklevel=2)
+        #     return
+        # if not self._mmc.getPixelSizeUm():
+        #    warnings.warn(
+        #        "Pixel Size not defined! Set pixel size first.", stacklevel=2
+        #    )
+        #     return
 
-        # get list of selected wells
-        well_list = self._plate_and_fov_tab.scene.value()
-        if not well_list:
-            warnings.warn(
-                "No Well selected! Select at least one well first.", stacklevel=2
-            )
-            return
+        # # get list of selected wells
+        # well_list = self._plate_and_fov_tab.scene.value()
+        # if not well_list:
+        #     warnings.warn(
+        #         "No Well selected! Select at least one well first.", stacklevel=2
+        #     )
+        #     return
 
-        self._mda.position_widget.clear()
+        # self._mda.position_widget.clear()
 
-        wells_in_stage_coords = self._get_wells_stage_coords(well_list)
-        wells_and_fovs_in_stage_coords = self._get_fovs_stage_coords(
-            wells_in_stage_coords
-        )
+        # wells_in_stage_coords = self._get_wells_stage_coords(well_list)
+        # wells_and_fovs_in_stage_coords = self._get_fovs_stage_coords(
+        #     wells_in_stage_coords
+        # )
 
-        if wells_and_fovs_in_stage_coords is None:
-            return
+        # if wells_and_fovs_in_stage_coords is None:
+        #     return
 
-        for well_name, stage_coord_x, stage_coord_y in wells_and_fovs_in_stage_coords:
-            zpos = self._mmc.getPosition() if self._mmc.getFocusDevice() else None
-            # TODO: fix autofocus
-            self._mda.position_widget._add_table_row(
-                well_name, stage_coord_x, stage_coord_y, zpos, None
-            )
+        # for well_name, stage_coord_x, stage_coord_y in wells_and_fovs_in_stage_coords:
+        #     zpos = self._mmc.getPosition() if self._mmc.getFocusDevice() else None
+        #     # TODO: fix autofocus
+        #     self._mda.position_widget._add_table_row(
+        #         well_name, stage_coord_x, stage_coord_y, zpos, None
+        #     )
 
     def _get_wells_stage_coords(
         self, well_list: list[tuple[str, int, int]]

@@ -1,5 +1,5 @@
 import string
-from typing import Any, Tuple
+from typing import Any, NamedTuple
 
 from qtpy.QtCore import QRectF, Qt
 from qtpy.QtGui import QBrush, QFont, QPainter, QPen, QTextOption
@@ -8,6 +8,14 @@ from qtpy.QtWidgets import QGraphicsItem
 from pymmcore_widgets._util import FOV_GRAPHICS_VIEW_SIZE, POINT_SIZE
 
 ALPHABET = string.ascii_uppercase
+
+
+class WellInfo(NamedTuple):
+    """Tuple to store the well name, row and column."""
+
+    well_name: str
+    row: int
+    col: int
 
 
 class _Well(QGraphicsItem):
@@ -60,12 +68,12 @@ class _Well(QGraphicsItem):
         self._brush = brush
         self.update()
 
-    def get_name_row_col(self) -> Tuple[str, int, int]:
+    def value(self) -> WellInfo:
         """Return the well name, row and column in a tuple."""
         row = self._row
         col = self._col
         well = f"{ALPHABET[self._row]}{self._col + 1}"
-        return well, row, col
+        return WellInfo(well_name=well, row=row, col=col)
 
 
 class _WellArea(QGraphicsItem):

@@ -19,6 +19,7 @@ from pymmcore_widgets._util import GRAPHICS_VIEW_HEIGHT, GRAPHICS_VIEW_WIDTH
 from ._graphics_items import _Well
 
 if TYPE_CHECKING:
+    from ._graphics_items import WellInfo
     from ._well_plate_model import WellPlate
 
 SELECTED_COLOR = QBrush(Qt.GlobalColor.magenta)
@@ -177,41 +178,35 @@ class _HCSGraphicsScene(QGraphicsScene):
 
         return start_x, start_y, width, height, text_size
 
-    def setValue(self, value: list[tuple[str, int, int]]) -> None:
+    def setValue(self, value: list[WellInfo]) -> None:
         """Select the wells listed in `value`."""
         self._clear_selection()
 
         for item in self.items():
             item = cast("_Well", item)
-            if item.get_name_row_col() in value:
+            if item.value() in value:
                 self._set_selected(item, True)
 
-    def value(self) -> list[tuple[str, int, int]] | None:
+    def value(self) -> list[WellInfo] | None:
         """Return the list of tuple (name, row, column) of the selected wells.
 
         ...in a snake-row-wise order.
         """
-        wells = [
-            item.get_name_row_col()
-            for item in reversed(self.items())
-            if item.isSelected()
-        ]
+        wells = [item.value() for item in reversed(self.items()) if item.isSelected()]
 
         return self._snake_row_wise_ordered(wells) if wells else None
 
-    def _snake_row_wise_ordered(
-        self, wells: list[tuple[str, int, int]]
-    ) -> list[tuple[str, int, int]]:
+    def _snake_row_wise_ordered(self, wells: list[WellInfo]) -> list[WellInfo]:
         """Return a snake-row-wise ordered list of the selected wells."""
-        max_row = max(wells, key=lambda x: x[1])[1] + 1
-        max_column = max(wells, key=lambda x: x[2])[2] + 1
+        max_row = max(wells, key=lambda well: well.row).row + 1
+        max_column = max(wells, key=lambda well: well.col).col + 1
 
         # create an array with the max number of rows and columns
         _c, _r = np.arange(max_column), np.arange(max_row)
 
         # remove rows and columns that are not in the selected wells
-        row_list = [rw for _, rw, _ in wells]
-        col_list = [cl for _, _, cl in wells]
+        row_list = [item.row for item in wells]
+        col_list = [item.col for item in wells]
         row_list_updated = _r[np.isin(_r, row_list)]
         col_list_updated = _c[np.isin(_c, col_list)]
 
@@ -223,11 +218,9 @@ class _HCSGraphicsScene(QGraphicsScene):
         # `list(zip(r.ravel(), c.ravel()))` creates a list of snake-row-wise ordered
         # (row, col). Now we use this (row, col) info to create a list of
         # (name, row, col) in a snake-row-wise order.
-        snake_ordered: list[tuple[str, int, int]] = []
+        snake_ordered: list[WellInfo] = []
         for row, col in list(zip(r.ravel(), c.ravel())):
-            for well in wells:
-                _, well_r, well_c = well
-                if well_r == row and well_c == col:
-                    snake_ordered.append(well)
-
+            snake_ordered.extend(
+                well for well in wells if well.row == row and well.col == col
+            )
         return snake_ordered

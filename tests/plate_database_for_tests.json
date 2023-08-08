@@ -1,4 +1,5 @@
 [
+
     {
         "id": "coverslip 22mm",
         "circular": false,
@@ -10,7 +11,7 @@
         "well_size_y": 22.0
     },
     {
-        "id": "standard 12",
+        "id": "standard 12 wp",
         "circular": true,
         "rows": 3,
         "cols": 4,
@@ -20,7 +21,7 @@
         "well_size_y": 22.11
     },
     {
-        "id": "standard 24",
+        "id": "standard 24 wp",
         "circular": true,
         "rows": 4,
         "cols": 6,
@@ -30,7 +31,7 @@
         "well_size_y": 15.54
     },
     {
-        "id": "standard 384",
+        "id": "standard 384 wp",
         "circular": false,
         "rows": 16,
         "cols": 24,
@@ -40,7 +41,7 @@
         "well_size_y": 4.0
     },
     {
-        "id": "standard 48",
+        "id": "standard 48 wp",
         "circular": true,
         "rows": 6,
         "cols": 8,
@@ -50,7 +51,7 @@
         "well_size_y": 11.37
     },
     {
-        "id": "standard 6",
+        "id": "standard 6 wp",
         "circular": true,
         "rows": 2,
         "cols": 3,
@@ -60,7 +61,7 @@
         "well_size_y": 34.8
     },
     {
-        "id": "standard 96",
+        "id": "standard 96 wp",
         "circular": true,
         "rows": 8,
         "cols": 12,
