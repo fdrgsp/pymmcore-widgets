@@ -5,25 +5,40 @@ from pathlib import Path
 from typing import cast
 
 from qtpy.QtCore import Qt, Signal
+from qtpy.QtSvgWidgets import QSvgWidget
 from qtpy.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QDialog,
     QDoubleSpinBox,
     QGridLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
+    QSpacerItem,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
+    QVBoxLayout,
     QWidget,
 )
 
 from ._well_plate_model import WellPlate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
+
+
+def _make_widget_with_label(label: QLabel, widget: QWidget) -> QWidget:
+    label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+    wdg = QWidget()
+    wdg.setLayout(QHBoxLayout())
+    wdg.layout().setContentsMargins(0, 0, 0, 0)
+    wdg.layout().setSpacing(5)
+    wdg.layout().addWidget(label)
+    wdg.layout().addWidget(widget)
+    return wdg
 
 
 class _Table(QTableWidget):
@@ -37,7 +52,7 @@ class _Table(QTableWidget):
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.setRowCount(1)
         self.setColumnCount(1)
-        self.setHorizontalHeaderLabels(["Plate"])
+        self.setHorizontalHeaderLabels(["Plate Database"])
 
         self.itemSelectionChanged.connect(self._update)
 
@@ -59,96 +74,149 @@ class _PlateDatabaseWidget(QDialog):
     ) -> None:
         super().__init__(parent)
 
-        self._plate_db_path = plate_database_path
-        self._plate_db = plate_database
+        # self._plate_db_path = plate_database_path
+        # self._plate_db = plate_database
 
-        main_layout = QGridLayout()
-        main_layout.setContentsMargins(5, 5, 5, 5)
-        main_layout.setSpacing(5)
+        from ._well_plate_model import PLATE_DB_PATH, load_database
 
-        self.plate_combo = QComboBox()
+        self._plate_db_path = plate_database_path or PLATE_DB_PATH
+        self._plate_db = load_database(self._plate_db_path)
 
-        self._id_label = QLabel()
-        self._id_label.setText("plate name:")
+        # plate name
+        id_label = QLabel()
+        id_label.setText("Plate Name:")
         self._id = QLineEdit()
-        main_layout.addWidget(self._id_label, 0, 0)
-        main_layout.addWidget(self._id, 0, 1)
+        plate_name = _make_widget_with_label(id_label, self._id)
+        # circulat well
+        is_circular_label = QLabel()
+        is_circular_label.setText("Circular Well:")
+        self._circular_checkbox = QCheckBox()
+        circular = _make_widget_with_label(is_circular_label, self._circular_checkbox)
+        spacer = QSpacerItem(
+            0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        circular.layout().addItem(spacer)
 
-        self._rows_label = QLabel()
-        self._rows_label.setText("rows:")
-        self._rows = QSpinBox()
-        self._rows.setAlignment(AlignCenter)
-        main_layout.addWidget(self._rows_label, 1, 0)
-        main_layout.addWidget(self._rows, 1, 1)
-
-        self._cols_label = QLabel()
-        self._cols_label.setText("columns:")
+        # columns
+        cols_label = QLabel(text="Number of Columns:")
         self._cols = QSpinBox()
         self._cols.setAlignment(AlignCenter)
-        main_layout.addWidget(self._cols_label, 2, 0)
-        main_layout.addWidget(self._cols, 2, 1)
+        cols = _make_widget_with_label(cols_label, self._cols)
+        # rows
+        rows_label = QLabel(text="Number of Rows:")
+        self._rows = QSpinBox()
+        self._rows.setAlignment(AlignCenter)
+        rows = _make_widget_with_label(rows_label, self._rows)
 
-        self._well_size_x_label = QLabel()
-        self._well_size_x_label.setText("well size x (mm):")
+        # well size x
+        well_size_x_label = QLabel()
+        well_size_x_label.setText("Well Size x (mm):")
         self._well_size_x = QDoubleSpinBox()
         self._well_size_x.setMaximum(100000.0)
         self._well_size_x.setAlignment(AlignCenter)
-        main_layout.addWidget(self._well_size_x_label, 3, 0)
-        main_layout.addWidget(self._well_size_x, 3, 1)
-
-        self._well_size_y_label = QLabel()
-        self._well_size_y_label.setText("well size y (mm):")
+        well_size_x = _make_widget_with_label(well_size_x_label, self._well_size_x)
+        # well size y
+        well_size_y_label = QLabel()
+        well_size_y_label.setText("Well Size y (mm):")
         self._well_size_y = QDoubleSpinBox()
         self._well_size_y.setMaximum(100000.0)
         self._well_size_y.setAlignment(AlignCenter)
-        main_layout.addWidget(self._well_size_y_label, 4, 0)
-        main_layout.addWidget(self._well_size_y, 4, 1)
+        well_size_y = _make_widget_with_label(well_size_y_label, self._well_size_y)
 
-        self._well_spacing_x_label = QLabel()
-        self._well_spacing_x_label.setText("well spacing x (mm):")
+        # well spacing x
+        well_spacing_x_label = QLabel()
+        well_spacing_x_label.setText("Well Spacing x (mm):")
         self._well_spacing_x = QDoubleSpinBox()
         self._well_spacing_x.setMaximum(100000.0)
         self._well_spacing_x.setAlignment(AlignCenter)
-        main_layout.addWidget(self._well_spacing_x_label, 5, 0)
-        main_layout.addWidget(self._well_spacing_x, 5, 1)
+        well_spacing_x = _make_widget_with_label(
+            well_spacing_x_label, self._well_spacing_x
+        )
 
-        self._well_spacing_y_label = QLabel()
-        self._well_spacing_y_label.setText("well spacing y (mm):")
+        well_spacing_y_label = QLabel()
+        well_spacing_y_label.setText("Well Spacing y (mm):")
         self._well_spacing_y = QDoubleSpinBox()
         self._well_spacing_y.setMaximum(100000.0)
         self._well_spacing_y.setAlignment(AlignCenter)
-        main_layout.addWidget(self._well_spacing_y_label, 6, 0)
-        main_layout.addWidget(self._well_spacing_y, 6, 1)
+        well_spacing_y = _make_widget_with_label(
+            well_spacing_y_label, self._well_spacing_y
+        )
 
-        is_circular_label = QLabel()
-        is_circular_label.setText("circular:")
-        self._circular_checkbox = QCheckBox()
-        main_layout.addWidget(is_circular_label, 7, 0)
-        main_layout.addWidget(self._circular_checkbox, 7, 1)
+        # set size
+        for lbl in [
+            id_label,
+            is_circular_label,
+            cols_label,
+            rows_label,
+            well_size_x_label,
+            well_size_y_label,
+            well_spacing_x_label,
+            well_spacing_y_label,
+        ]:
+            lbl.setMinimumWidth(well_spacing_x_label.sizeHint().width())
 
-        btn_wdg = QWidget()
-        btn_layout = QHBoxLayout()
-        btn_layout.setContentsMargins(5, 5, 5, 0)
-        btn_layout.setSpacing(5)
+        # top_groupbox
+        top_groupbox = QGroupBox()
+        top_groupbox.setLayout(QGridLayout())
+        top_groupbox.layout().setContentsMargins(10, 10, 10, 10)
+        top_groupbox.layout().setVerticalSpacing(10)
+        top_groupbox.layout().setHorizontalSpacing(20)
+
+        top_groupbox.layout().addWidget(plate_name, 0, 0)
+        top_groupbox.layout().addWidget(circular, 0, 1)
+        top_groupbox.layout().addWidget(cols, 1, 0)
+        top_groupbox.layout().addWidget(rows, 1, 1)
+        top_groupbox.layout().addWidget(well_size_x, 2, 0)
+        top_groupbox.layout().addWidget(well_size_y, 2, 1)
+        top_groupbox.layout().addWidget(well_spacing_x, 3, 0)
+        top_groupbox.layout().addWidget(well_spacing_y, 3, 1)
+
+        # table
+        table_groupbox = QGroupBox()
+        table_groupbox.setLayout(QVBoxLayout())
+        table_groupbox.layout().setContentsMargins(10, 10, 10, 10)
+        self.plate_table = _Table()
+        table_groupbox.layout().addWidget(self.plate_table)
+        self.plate_table.cellClicked.connect(self._update_values)
+
+        # image
+        image_groupbox = QGroupBox()
+        image_groupbox.setFixedSize(300, 300)
+        image_groupbox.setLayout(QVBoxLayout())
+        image_groupbox.layout().setContentsMargins(10, 10, 10, 10)
+        image = QSvgWidget("/Users/fdrgsp/Desktop/well_plate.svg")
+        image_groupbox.layout().addWidget(image)
+
+        bottom_groupbox = QGroupBox()
+        bottom_groupbox.setLayout(QHBoxLayout())
+        bottom_groupbox.layout().setContentsMargins(10, 10, 10, 10)
+        bottom_groupbox.layout().setSpacing(10)
+        bottom_groupbox.layout().addWidget(table_groupbox)
+        bottom_groupbox.layout().addWidget(image_groupbox)
+
+        # buttons
+        btn_wdg = QGroupBox()
+        btn_wdg.setLayout(QHBoxLayout())
+        btn_wdg.layout().setContentsMargins(5, 5, 5, 5)
+        btn_wdg.layout().setSpacing(5)
         self._delete_btn = QPushButton(text="Delete")
         self._delete_btn.clicked.connect(self._delete_plate)
         self._ok_btn = QPushButton(text="Add/Update")
         self._ok_btn.clicked.connect(self._update_plate_db)
-        btn_layout.addWidget(self._ok_btn)
-        btn_layout.addWidget(self._delete_btn)
-        btn_wdg.setLayout(btn_layout)
-        main_layout.addWidget(btn_wdg, 8, 0, 1, 3)
+        btn_wdg.layout().addWidget(self._ok_btn)
+        btn_wdg.layout().addWidget(self._delete_btn)
 
-        self.plate_table = _Table()
-        self.plate_table.cellClicked.connect(self._update_values)
-        main_layout.addWidget(self.plate_table, 0, 2, 8, 1)
+        # main
+        self.setLayout(QVBoxLayout())
+        self.layout().setContentsMargins(10, 10, 10, 10)
+        self.layout().setSpacing(10)
+        self.layout().addWidget(top_groupbox)
+        self.layout().addWidget(bottom_groupbox)
+        self.layout().addWidget(btn_wdg)
 
-        self.setLayout(main_layout)
+        self.setFixedHeight(self.sizeHint().height())
 
         self._populate_table()
-
-        if self.plate_table.rowCount():
-            self._update_values(1, 0)
 
     def _populate_table(self) -> None:
         """Populate the table with the well plate in the database."""
@@ -156,6 +224,7 @@ class _PlateDatabaseWidget(QDialog):
         for row, plate_name in enumerate(self._plate_db):
             item = QTableWidgetItem(plate_name)
             self.plate_table.setItem(row, 0, item)
+        self._update_values(row=1, col=0)
 
     def _update_values(self, row: int, col: int) -> None:
         """Update the values of the well plate in the widget."""
@@ -168,9 +237,10 @@ class _PlateDatabaseWidget(QDialog):
     def _update_plate_db(self) -> None:
         """Update the well plate in database and in current session."""
         if not self._id.text():
-            raise ValueError("'Plate name' field cannot be empty.")
+            raise ValueError("'Plate name' field cannot be empty!")
 
         new_plate = self.value()
+
         if new_plate is None:
             return
 
