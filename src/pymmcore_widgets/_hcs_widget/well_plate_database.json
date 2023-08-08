@@ -1,15 +1,5 @@
 [
     {
-        "id": "custom_from_calibration",
-        "circular": false,
-        "rows": 1,
-        "cols": 1,
-        "well_spacing_x": 0.0,
-        "well_spacing_y": 0.0,
-        "well_size_x": 10.0,
-        "well_size_y": 10.0
-    },
-    {
         "id": "coverslip 22mm",
         "circular": false,
         "rows": 1,
