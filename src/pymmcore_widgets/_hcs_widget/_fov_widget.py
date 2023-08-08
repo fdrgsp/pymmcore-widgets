@@ -69,12 +69,14 @@ class Grid(NamedTuple):
 
     rows: int
     cols: int
-    dx: float
-    dy: float
+    overlap_x: float
+    overlap_y: float
     order: OrderMode
 
 
 class OrderModeInfo(NamedTuple):
+    """Info about the `OrderMode`."""
+
     name: str
     snake: bool
     row_wise: bool
@@ -89,7 +91,7 @@ class OrderMode(Enum):
     column_wise_snake = OrderModeInfo("column_wise_snake", True, False)
 
     def __repr__(self) -> str:
-        return super().__repr__().replace("<", "").replace(">", "")
+        return self.value.name
 
 
 def _create_label(label_text: str) -> QLabel:
@@ -248,23 +250,23 @@ class _GridFovWidget(QWidget):
         cols_lbl = _create_label("Columns:")
         _cols = _make_wdg_with_label(cols_lbl, self.cols)
 
-        self.spacing_x = QDoubleSpinBox()
-        self.spacing_x.setAlignment(AlignCenter)
-        self.spacing_x.setMinimum(-10000)
-        self.spacing_x.setMaximum(100000)
-        self.spacing_x.setSingleStep(100.0)
-        self.spacing_x.setValue(0)
-        spacing_x_lbl = _create_label("Spacing x (um):")
-        _spacing_x = _make_wdg_with_label(spacing_x_lbl, self.spacing_x)
+        self.overlap_x = QDoubleSpinBox()
+        self.overlap_x.setAlignment(AlignCenter)
+        self.overlap_x.setMinimum(-10000)
+        self.overlap_x.setMaximum(100)
+        self.overlap_x.setSingleStep(1.0)
+        self.overlap_x.setValue(0)
+        overlap_x_lbl = _create_label("Overlap x (%):")
+        _overlap_x = _make_wdg_with_label(overlap_x_lbl, self.overlap_x)
 
-        self.spacing_y = QDoubleSpinBox()
-        self.spacing_y.setAlignment(AlignCenter)
-        self.spacing_y.setMinimum(-10000)
-        self.spacing_y.setMaximum(100000)
-        self.spacing_y.setSingleStep(100.0)
-        self.spacing_y.setValue(0)
-        spacing_y_lbl = _create_label("Spacing y (um):")
-        _spacing_y = _make_wdg_with_label(spacing_y_lbl, self.spacing_y)
+        self.overlap_y = QDoubleSpinBox()
+        self.overlap_y.setAlignment(AlignCenter)
+        self.overlap_y.setMinimum(-10000)
+        self.overlap_y.setMaximum(100)
+        self.overlap_y.setSingleStep(1.0)
+        self.overlap_y.setValue(0)
+        spacing_y_lbl = _create_label("Overlap y (%):")
+        _overlap_y = _make_wdg_with_label(spacing_y_lbl, self.overlap_y)
 
         self.order_combo = QComboBox()
         self.order_combo.addItems([mode.value.name for mode in OrderMode])
@@ -279,8 +281,8 @@ class _GridFovWidget(QWidget):
         wdg.layout().setContentsMargins(10, 10, 10, 10)
         wdg.layout().addWidget(_rows)
         wdg.layout().addWidget(_cols)
-        wdg.layout().addWidget(_spacing_x)
-        wdg.layout().addWidget(_spacing_y)
+        wdg.layout().addWidget(_overlap_x)
+        wdg.layout().addWidget(_overlap_y)
         wdg.layout().addWidget(_order_combo)
 
         # main
@@ -294,8 +296,8 @@ class _GridFovWidget(QWidget):
         return Grid(
             rows=self.rows.value(),
             cols=self.cols.value(),
-            dx=self.spacing_x.value(),
-            dy=self.spacing_y.value(),
+            overlap_x=self.overlap_x.value(),
+            overlap_y=self.overlap_y.value(),
             order=OrderMode[self.order_combo.currentText()],
         )
 
@@ -303,8 +305,8 @@ class _GridFovWidget(QWidget):
         """Set the values of the widgets."""
         self.rows.setValue(value.rows)
         self.cols.setValue(value.cols)
-        self.spacing_x.setValue(value.dx)
-        self.spacing_y.setValue(value.dy)
+        self.overlap_x.setValue(value.overlap_x)
+        self.overlap_y.setValue(value.overlap_y)
         self.order_combo.setCurrentText(value.order.value.name)
 
 
@@ -337,8 +339,8 @@ class _FOVSelectrorWidget(QWidget):
         self.grid_wdg = _GridFovWidget()
         self.grid_wdg.rows.valueChanged.connect(self._on_grid_changed)
         self.grid_wdg.cols.valueChanged.connect(self._on_grid_changed)
-        self.grid_wdg.spacing_x.valueChanged.connect(self._on_grid_changed)
-        self.grid_wdg.spacing_y.valueChanged.connect(self._on_grid_changed)
+        self.grid_wdg.overlap_x.valueChanged.connect(self._on_grid_changed)
+        self.grid_wdg.overlap_y.valueChanged.connect(self._on_grid_changed)
         self.grid_wdg.order_combo.currentIndexChanged.connect(self._on_grid_changed)
         # add widgets in a tab widget
         self.tab_wdg = QTabWidget()
@@ -433,28 +435,21 @@ class _FOVSelectrorWidget(QWidget):
         """Update the _GridWidget scene."""
         # `dx` and `dy` are expressed in µm and are the wanted distance between the grid
         # FOVs along the x and y dimensions.
-        rows, cols, dx, dy = (value.rows, value.cols, value.dx, value.dy)
-
-        # x and y center coords of the scene in px
-        x, y = (self._view_size / 2, self._view_size / 2)  # px
-
-        # value of 1 scene px in mm
-        scene_one_px_in_mm_x = self._well_width_mm / self._scene_width_px
-        scene_one_px_in_mm_y = self._well_height_mm / self._scene_height_px
-
-        # dx and dy in scene px
-        dy = (dy / 1000) / scene_one_px_in_mm_y  # px
-        dx = (dx / 1000) / scene_one_px_in_mm_x  # px
+        # rows, cols, dx, dy = (value.rows, value.cols, value.dx, value.dy)
 
         # camera fov size in scene pixels
         fov_width_px, fov_height_px = self._get_image_size_in_px()
 
-        # tooltip with overlap in %
-        self._update_overlap_tooltip(dx, dy, fov_width_px, fov_height_px)
+        # overlap in scene px
+        dx = -value.overlap_x * fov_width_px / 100
+        dy = -value.overlap_y * fov_height_px / 100
 
-        # getting the starting pixel x and y coords of the first fov for the grid by
-        # shiftingthe center of the scene towards the top left corner depending on the
-        # number of rows and columns.
+        # x and y center coords of the scene in px
+        x, y = (self._view_size / 2, self._view_size / 2)  # px
+        # if we have more than 1 row or column, we need to shift towards the scene
+        # top-left corner the starting pixel (x, y) coords for the first fov of the grid
+        # depending on the number of rows and columns.
+        rows, cols = (value.rows, value.cols)
         if rows != 1 or cols != 1:
             x = x - ((cols - 1) * (fov_width_px / 2)) - ((dx / 2) * (cols - 1))
             y = y - ((rows - 1) * (fov_height_px / 2)) - ((dy / 2) * (rows - 1))
@@ -469,36 +464,6 @@ class _FOVSelectrorWidget(QWidget):
         )
 
         self._draw_fovs(points)
-
-    def _update_overlap_tooltip(
-        self, dx: float, dy: float, fov_width_px: float, fov_height_px: float
-    ) -> None:
-        """Update the tooltip of the grid widget with the overlap percentage."""
-        fov_width_mm, fov_height_mm = self._get_image_size_in_mm()
-
-        if fov_width_mm is None or fov_height_mm is None:
-            self.grid_wdg.spacing_x.setToolTip("")
-            self.grid_wdg.spacing_y.setToolTip("")
-            return
-
-        # overlap happens when the spacing value is negative
-        _over_x = dx / fov_width_px * 100
-        if _over_x > 0 or abs(_over_x) > 100 or self.grid_wdg.cols.value() == 1:
-            _overlap_x = f"Overlap x: 0% (FOV={fov_width_mm * 1000} µm)"
-        else:
-            _overlap_x = (
-                f"Overlap x: {abs(_over_x):.2f}% (FOV={fov_width_mm * 1000} µm)"
-            )
-        self.grid_wdg.spacing_x.setToolTip(_overlap_x)
-
-        _over_y = dy / fov_height_px * 100
-        if _over_y > 0 or abs(_over_y) > 100 or self.grid_wdg.rows.value() == 1:
-            _overlap_y = f"Overlap y: 0% (FOV={fov_height_mm * 1000} µm)"
-        else:
-            _overlap_y = (
-                f"Overlap y: {abs(_over_y):.2f}% (FOV={fov_height_mm * 1000} µm)"
-            )
-        self.grid_wdg.spacing_y.setToolTip(_overlap_y)
 
     def _get_image_size_in_mm(self) -> tuple[float | None, float | None]:
         """Return the image size in mm depending on the camera device."""
