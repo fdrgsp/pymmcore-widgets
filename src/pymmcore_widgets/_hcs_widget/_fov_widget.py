@@ -857,7 +857,7 @@ class _FOVSelectrorWidget(QWidget):
         self, fovs: list[tuple[float, float]]
     ) -> list[tuple[float, float]]:
         """Orders a list of points starting from the top-left and then moving towards
-        the nearest points.
+        the nearest point.
         """  # noqa: D205
 
         def _distance(
@@ -922,5 +922,8 @@ class _FOVSelectrorWidget(QWidget):
             self.grid_wdg.setValue(fov_info)
             tab_idx = GRID_TAB_INDEX
 
+        # doing both because if we are on the tab_idx tab, the fovs are not properly
+        # drawn
         with signals_blocked(self.tab_wdg):
             self.tab_wdg.setCurrentIndex(tab_idx) or 0
+        self._on_tab_changed(tab_idx or 0)
