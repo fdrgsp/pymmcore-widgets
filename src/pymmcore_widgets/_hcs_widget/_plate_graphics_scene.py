@@ -108,13 +108,15 @@ class _HCSGraphicsScene(QGraphicsScene):
 
     def _draw_plate_wells(self, plate: WellPlate) -> None:
         """Draw all wells of the plate."""
-        start_x, start_y, width, height, text_size = self._plate_sizes_in_pixel(plate)
-        x = start_x
-        y = start_y
+        try:
+            x0, y0, width, height, text_size = self._plate_sizes_in_pixel(plate)
+        except ZeroDivisionError:
+            return
+
         # draw the wells and place them in their correct row/column position
         for row, col in product(range(plate.rows), range(plate.cols)):
-            _x = x + (width * col)
-            _y = y + (height * row)
+            _x = x0 + (width * col)
+            _y = y0 + (height * row)
             self.addItem(
                 _Well(_x, _y, width, height, row, col, text_size, plate.circular)
             )
@@ -163,6 +165,15 @@ class _HCSGraphicsScene(QGraphicsScene):
                 if plate.circular or plate.well_size_x == plate.well_size_y
                 else (max_w / plate.cols)
             )
+            # if width * plate.cols > max_w, reduce the width and height!!!
+            if width * plate.cols > max_w:
+                width = max_w / plate.cols
+                height = width
+                # knowing the plate height (well height * number of rows) we can
+                # calculate the starting y so that the plate stays in the middle of
+                # the scene.
+                plate_height = height * plate.rows
+                start_y = (max_h / 2) - (plate_height / 2)
 
         # knowing the plate width (well width * number of columns) we can calculate
         # the starting x so that the plate stays in the middle of the scene.

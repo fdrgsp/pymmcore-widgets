@@ -96,8 +96,7 @@ class PlateAndFovWidget(QWidget):
         self._plate_widget.valueChanged.connect(self._update_fov_scene)
         self._plate_widget.custom_plate.clicked.connect(self._show_custom_plate_dialog)
         self._plate.valueChanged.connect(self._update_plate_widget_combo)
-        # TODO: uncomment this when the drawing of the plate is fixed
-        # self._plate.valueChanged.connect(self._real_time_update)
+        self._plate.valueChanged.connect(self._real_time_update)
 
     def _real_time_update(self) -> None:
         self._plate_widget.scene.clear()
