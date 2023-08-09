@@ -77,13 +77,8 @@ class _PlateDatabaseWidget(QDialog):
     ) -> None:
         super().__init__(parent)
 
-        # self._plate_db_path = plate_database_path
-        # self._plate_db = plate_database
-
-        from ._well_plate_model import PLATE_DB_PATH, load_database
-
-        self._plate_db_path = plate_database_path or PLATE_DB_PATH
-        self._plate_db = load_database(self._plate_db_path)
+        self._plate_db_path = plate_database_path
+        self._plate_db = plate_database
 
         # plate name
         id_label = QLabel()
