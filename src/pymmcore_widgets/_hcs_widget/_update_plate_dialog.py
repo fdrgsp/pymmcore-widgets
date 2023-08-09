@@ -141,6 +141,9 @@ class _PlateDatabaseWidget(QDialog):
         # well spacing x
         well_spacing_x_label = QLabel()
         well_spacing_x_label.setText("Well Spacing x (mm):")
+        well_spacing_x_label.setToolTip(
+            "Distance between the center of two wells along the horizontal axes."
+        )
         self._well_spacing_x = QDoubleSpinBox()
         self._well_spacing_x.setMaximum(100000.0)
         self._well_spacing_x.setAlignment(AlignCenter)
@@ -150,6 +153,9 @@ class _PlateDatabaseWidget(QDialog):
 
         well_spacing_y_label = QLabel()
         well_spacing_y_label.setText("Well Spacing y (mm):")
+        well_spacing_y_label.setToolTip(
+            "Distance between the center of two wells along the vertical axes."
+        )
         self._well_spacing_y = QDoubleSpinBox()
         self._well_spacing_y.setMaximum(100000.0)
         self._well_spacing_y.setAlignment(AlignCenter)
@@ -254,6 +260,7 @@ class _PlateDatabaseWidget(QDialog):
             self.plate_table.setItem(row, 0, item)
         self._update_values(row=1, col=0)
         draw_well_plate(self.view, self.scene, self._plate_db[plate_name])
+        self._id.adjustSize()
 
     def _update_values(self, row: int, col: int) -> None:
         """Update the values of the well plate in the widget."""
