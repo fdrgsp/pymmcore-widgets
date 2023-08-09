@@ -292,17 +292,17 @@ class _PlateDatabaseWidget(QDialog):
             self.plate_table.setCurrentCell(0, 0)
             self._update_values(0, 0)
         else:
-            self.clear_values()
+            self.reset_values()
 
-    def clear_values(self) -> None:
-        """Clear the values of the well plate in the widget."""
+    def reset_values(self) -> None:
+        """Reset the values of the well plate in the widget."""
         self._id.setText("")
-        self._rows.setValue(0)
-        self._cols.setValue(0)
+        self._rows.setValue(1)
+        self._cols.setValue(1)
         self._well_spacing_x.setValue(0.0)
         self._well_spacing_y.setValue(0.0)
-        self._well_size_x.setValue(0.0)
-        self._well_size_y.setValue(0.0)
+        self._well_size_x.setValue(1.0)
+        self._well_size_y.setValue(1.0)
         self._circular_checkbox.setChecked(False)
 
     def set_value(self, plate: WellPlate) -> None:

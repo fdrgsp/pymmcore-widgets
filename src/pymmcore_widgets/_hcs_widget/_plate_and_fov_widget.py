@@ -115,7 +115,7 @@ class PlateAndFovWidget(QWidget):
             self._plate.close()
         self._plate.show()
         self._plate.plate_table.clearSelection()
-        self._plate.clear_values()
+        self._plate.reset_values()
 
     def _update_plate_widget_combo(self, new_plate: WellPlate) -> None:
         """Update the well plate combobox with the new plate."""
