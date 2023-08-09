@@ -4,14 +4,16 @@ import string
 import warnings
 from dataclasses import asdict
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from qtpy.QtCore import Qt, Signal
-from qtpy.QtSvgWidgets import QSvgWidget
+from qtpy.QtGui import QPen
 from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
     QDoubleSpinBox,
+    QGraphicsScene,
+    QGraphicsView,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -27,7 +29,12 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from ._util import draw_well_plate
 from ._well_plate_model import WellPlate
+
+if TYPE_CHECKING:
+    from qtpy.QtGui import QResizeEvent
+
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 StyleSheet = "background:grey; border: 0px; border-radius: 5px;"
@@ -42,6 +49,16 @@ def _make_widget_with_label(label: QLabel, widget: QWidget) -> QWidget:
     wdg.layout().addWidget(label)
     wdg.layout().addWidget(widget)
     return wdg
+
+
+class ResizingGraphicsView(QGraphicsView):
+    """A QGraphicsView that resizes the scene to fit the view."""
+
+    def __init__(self, scene: QGraphicsScene, parent: QWidget | None = None) -> None:
+        super().__init__(scene, parent)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        self.fitInView(self.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
 
 class _Table(QTableWidget):
@@ -177,23 +194,21 @@ class _PlateDatabaseWidget(QDialog):
         table_groupbox.layout().addWidget(self.plate_table)
         self.plate_table.cellClicked.connect(self._update_values)
 
-        # image
-        image_groupbox = QGroupBox()
-        image_groupbox.setStyleSheet(StyleSheet)
-        image_groupbox.setFixedSize(
-            self.plate_table.sizeHint().width(), self.plate_table.sizeHint().width()
-        )
-        image_groupbox.setLayout(QVBoxLayout())
-        image_groupbox.layout().setContentsMargins(0, 0, 0, 0)
-        image = QSvgWidget(str(Path(__file__).parent / "well_plate.svg"))
-        image_groupbox.layout().addWidget(image)
-
+        # plate preview
+        self.scene = QGraphicsScene()
+        self.view = ResizingGraphicsView(self.scene)
+        self.view.setStyleSheet("background:grey; border-radius: 5px;")
+        self.view.setMinimumWidth(self.plate_table.sizeHint().width())
+        preview_wdg = QWidget()
+        preview_wdg.setLayout(QVBoxLayout())
+        preview_wdg.layout().setContentsMargins(0, 0, 0, 0)
+        preview_wdg.layout().addWidget(self.view)
         bottom_groupbox = QGroupBox()
         bottom_groupbox.setLayout(QHBoxLayout())
         bottom_groupbox.layout().setContentsMargins(10, 10, 10, 10)
         bottom_groupbox.layout().setSpacing(10)
         bottom_groupbox.layout().addWidget(table_groupbox)
-        bottom_groupbox.layout().addWidget(image_groupbox)
+        bottom_groupbox.layout().addWidget(preview_wdg)
 
         # buttons
         btn_wdg = QGroupBox()
@@ -217,7 +232,7 @@ class _PlateDatabaseWidget(QDialog):
 
         self.setFixedHeight(self.sizeHint().height())
 
-        # connect all widgets to valueChanged signal
+        # connect all widgets to their valueChanged signal
         for wdg in (
             self._rows,
             self._cols,
@@ -226,14 +241,10 @@ class _PlateDatabaseWidget(QDialog):
             self._well_spacing_x,
             self._well_spacing_y,
         ):
-            wdg.valueChanged.connect(self._emit_signal)
-        self._circular_checkbox.toggled.connect(self._emit_signal)
+            wdg.valueChanged.connect(self._draw_well_plate)
+        self._circular_checkbox.toggled.connect(self._draw_well_plate)
 
         self._populate_table()
-
-    def _emit_signal(self) -> None:
-        """Emit the valueChanged signal."""
-        self.valueChanged.emit(self.value())
 
     def _populate_table(self) -> None:
         """Populate the table with the well plate in the database."""
@@ -242,6 +253,7 @@ class _PlateDatabaseWidget(QDialog):
             item = QTableWidgetItem(plate_name)
             self.plate_table.setItem(row, 0, item)
         self._update_values(row=1, col=0)
+        draw_well_plate(self.view, self.scene, self._plate_db[plate_name])
 
     def _update_values(self, row: int, col: int) -> None:
         """Update the values of the well plate in the widget."""
@@ -250,6 +262,15 @@ class _PlateDatabaseWidget(QDialog):
             return
         plate = self._plate_db[plate_item.text()]
         self.set_value(plate)
+
+    def _draw_well_plate(self) -> None:
+        """Draw the well plate."""
+        plate = self.value()
+        if plate is None:
+            return
+        pen = QPen()
+        pen.setWidth(0)
+        draw_well_plate(self.view, self.scene, plate, pen)
 
     def _update_plate_db(self) -> None:
         """Update the well plate in database and in current session."""
@@ -297,12 +318,12 @@ class _PlateDatabaseWidget(QDialog):
     def reset_values(self) -> None:
         """Reset the values of the well plate in the widget."""
         self._id.setText("")
-        self._rows.setValue(1)
-        self._cols.setValue(1)
+        self._rows.setValue(0)
+        self._cols.setValue(0)
         self._well_spacing_x.setValue(0.0)
         self._well_spacing_y.setValue(0.0)
-        self._well_size_x.setValue(1.0)
-        self._well_size_y.setValue(1.0)
+        self._well_size_x.setValue(0.0)
+        self._well_size_y.setValue(0.0)
         self._circular_checkbox.setChecked(False)
 
     def set_value(self, plate: WellPlate) -> None:

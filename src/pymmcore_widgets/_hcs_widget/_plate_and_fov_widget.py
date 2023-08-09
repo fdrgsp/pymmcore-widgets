@@ -20,6 +20,7 @@ from ._well_plate_model import PLATE_DB_PATH, WellPlate, load_database
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from ._graphics_items import WellInfo
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 
@@ -34,7 +35,7 @@ class WellsAndFovs(NamedTuple):
     ----------
     plate : WellPlate
         The selected well plate.
-    wells : list[tuple[str, int, int]] | None
+    wells : list[WellInfo] | None
         The list of selected wells.
     fovs : list[tuple[float, float]]
         The list of (x, y) coordinates of the selected FOVs per well.
@@ -45,7 +46,7 @@ class WellsAndFovs(NamedTuple):
     """
 
     plate: WellPlate
-    wells: list[tuple[str, int, int]] | None
+    wells: list[WellInfo] | None
     fovs: list[tuple[float, float]]
     fov_info: Center | Random | Grid
     fov_scene_px_size_mm: tuple[float, float]
@@ -96,15 +97,6 @@ class PlateAndFovWidget(QWidget):
         self._plate_widget.valueChanged.connect(self._update_fov_scene)
         self._plate_widget.custom_plate.clicked.connect(self._show_custom_plate_dialog)
         self._plate.valueChanged.connect(self._update_plate_widget_combo)
-        self._plate.valueChanged.connect(self._real_time_update)
-
-    def _real_time_update(self) -> None:
-        self._plate_widget.scene.clear()
-        plate = self._plate.value()
-        if plate is None:
-            return
-        self._plate_widget.scene._draw_plate_wells(plate)
-        self._update_fov_scene(plate)
 
     def _update_fov_scene(self, plate: WellPlate) -> None:
         self._fov_selector._load_plate_info(plate)

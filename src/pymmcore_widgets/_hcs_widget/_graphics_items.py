@@ -31,6 +31,8 @@ class _Well(QGraphicsItem):
         col: int,
         text_size: float,
         circular: bool,
+        pen: QPen | None = None,
+        brush: QBrush | None = None,
     ) -> None:
         super().__init__()
 
@@ -39,17 +41,39 @@ class _Well(QGraphicsItem):
         self._text_size = text_size
         self._circular = circular
 
-        self._brush = QBrush(Qt.GlobalColor.green)
+        default_pen = QPen(Qt.GlobalColor.black)
+        default_pen.setWidth(1)
+        self._pen = pen or default_pen
+        self._brush = brush or QBrush(Qt.GlobalColor.green)
+
         self._well_shape = QRectF(x, y, size_x, size_y)
 
-        self.setFlag(self.ItemIsSelectable, True)
+        self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
+
+    @property
+    def pen(self) -> QPen:
+        return self._pen
+
+    @pen.setter
+    def pen(self, pen: QPen) -> None:
+        self._pen = pen
+        self.update()
+
+    @property
+    def brush(self) -> QBrush:
+        return self._brush
+
+    @brush.setter
+    def brush(self, brush: QBrush) -> None:
+        self._brush = brush
+        self.update()
 
     def boundingRect(self) -> QRectF:
         return self._well_shape
 
     def paint(self, painter: QPainter, *args: Any) -> None:
         painter.setBrush(self._brush)
-        painter.setPen(QPen(Qt.GlobalColor.black))
+        painter.setPen(self._pen)
         # draw a circular or rectangular well
         if self._circular:
             painter.drawEllipse(self._well_shape)
@@ -58,15 +82,12 @@ class _Well(QGraphicsItem):
 
         # write the well name
         font = QFont("Helvetica", int(self._text_size))
-        font.setWeight(QFont.Bold)
+        font.setWeight(QFont.Weight.Bold)
         painter.setFont(font)
         well_name = f"{ALPHABET[self._row]}{self._col + 1}"
-        painter.drawText(self._well_shape, well_name, QTextOption(Qt.AlignCenter))
-
-    def set_well_color(self, brush: QBrush) -> None:
-        """Set the QBrush of the well to change the well color."""
-        self._brush = brush
-        self.update()
+        painter.drawText(
+            self._well_shape, well_name, QTextOption(Qt.AlignmentFlag.AlignCenter)
+        )
 
     def value(self) -> WellInfo:
         """Return the well name, row and column in a tuple."""

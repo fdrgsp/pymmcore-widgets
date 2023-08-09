@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from itertools import product
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
@@ -14,13 +13,8 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from pymmcore_widgets._util import GRAPHICS_VIEW_HEIGHT, GRAPHICS_VIEW_WIDTH
-
-from ._graphics_items import _Well
-
 if TYPE_CHECKING:
-    from ._graphics_items import WellInfo
-    from ._well_plate_model import WellPlate
+    from ._graphics_items import WellInfo, _Well
 
 SELECTED_COLOR = QBrush(Qt.GlobalColor.magenta)
 UNSELECTED_COLOR = QBrush(Qt.GlobalColor.green)
@@ -56,17 +50,17 @@ class _HCSGraphicsScene(QGraphicsScene):
         # selection
         for item in self._selected_wells:
             item = cast("_Well", item)
-            item.set_well_color(SELECTED_COLOR)
+            item.brush = SELECTED_COLOR
 
         # if there is an item where the mouse is pressed and it is selected, deselect,
         # otherwise select it.
         if well := self.itemAt(self.scene_origin_point, QTransform()):
             well = cast("_Well", well)
             if well.isSelected():
-                well.set_well_color(UNSELECTED_COLOR)
+                well.brush = UNSELECTED_COLOR
                 well.setSelected(False)
             else:
-                well.set_well_color(SELECTED_COLOR)
+                well.brush = SELECTED_COLOR
                 well.setSelected(True)
 
     def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent) -> None:
@@ -92,7 +86,7 @@ class _HCSGraphicsScene(QGraphicsScene):
 
     def _set_selected(self, item: _Well, state: bool) -> None:
         """Select or deselect the item."""
-        item.set_well_color(SELECTED_COLOR if state else UNSELECTED_COLOR)
+        item.brush = SELECTED_COLOR if state else UNSELECTED_COLOR
         item.setSelected(state)
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
@@ -104,90 +98,7 @@ class _HCSGraphicsScene(QGraphicsScene):
             item = cast("_Well", item)
             if item.isSelected():
                 item.setSelected(False)
-                item.set_well_color(UNSELECTED_COLOR)
-
-    def _draw_plate_wells(self, plate: WellPlate) -> None:
-        """Draw all wells of the plate."""
-        try:
-            x0, y0, width, height = self._plate_sizes_in_pixel(plate)
-        except ZeroDivisionError:
-            return
-
-        # the text size is the height of the well divided by 3
-        text_size = height / 3
-
-        # draw the wells and place them in their correct row/column position
-        for row, col in product(range(plate.rows), range(plate.cols)):
-            _x = x0 + (width * col)
-            _y = y0 + (height * row)
-            self.addItem(
-                _Well(_x, _y, width, height, row, col, text_size, plate.circular)
-            )
-
-    def _plate_sizes_in_pixel(
-        self, plate: WellPlate
-    ) -> tuple[float, float, float, float]:
-        """Calculate the size of the plate and the size of the wells to then draw it.
-
-        The sizes are not the real well dimensions (mm) but are the size in pixels for
-        the QGraphicsView.
-
-        Returns
-        -------
-            start_x: the starting pixel x coordinate of the well (x of top left corner).
-            start_y: the starting pixel y coordinate of the well (y of top left corner)
-            width: the width of the wells.
-            height: the height of the wells.
-            text_size: the size of the text used to write the name inside the wells.
-        """
-        max_w = GRAPHICS_VIEW_WIDTH - 10
-        max_h = GRAPHICS_VIEW_HEIGHT - 10
-
-        start_y = 0.0
-        # if the plate has only one row and more than one column, the wells, width and
-        # height are the same and are euqal to the width of the view divided by the
-        # number of columns. The y of the starting point is the middle of the view
-        # minus half of the height of the well.
-        if plate.rows == 1 and plate.cols > 1:
-            width = height = max_w / plate.cols
-            start_y = (max_h / 2) - (height / 2)
-        # if the plate has more than one row and only one column, the wells width
-        # and height are the same and are euqal to the height of the view divided by the
-        # number of rows.
-        elif plate.cols == 1 and plate.rows > 1:
-            height = width = max_h / plate.rows
-        # if the plate has more than one row and more than one column, the wells height
-        # is equal to the height of the view divided by the number of rows. The wells
-        # width is equal to the height if the plate is circular or if the well dimension
-        # (in mm) in x and y are the same otherwise the width is equal to the width of
-        # the view divided by the number of columns.
-        else:
-            height = max_h / plate.rows
-            width = (
-                height
-                if plate.circular or plate.well_size_x == plate.well_size_y
-                else (max_w / plate.cols)
-            )
-            # if width * plate.cols > max_w, reduce the width and height!!!
-            if width * plate.cols > max_w:
-                width = max_w / plate.cols
-                height = width
-                # knowing the plate height (well height * number of rows) we can
-                # calculate the starting y so that the plate stays in the middle of
-                # the scene.
-                plate_height = height * plate.rows
-                start_y = (max_h / 2) - (plate_height / 2)
-
-        # knowing the plate width (well width * number of columns) we can calculate
-        # the starting x so that the plate stays in the middle of the scene.
-        plate_width = width * plate.cols
-        start_x = (
-            max((self.width() - plate_width) / 2, 0)
-            if plate_width != self.width() and self.width() > 0
-            else 0
-        )
-
-        return start_x, start_y, width, height
+                item.brush = UNSELECTED_COLOR
 
     def setValue(self, value: list[WellInfo]) -> None:
         """Select the wells listed in `value`."""
