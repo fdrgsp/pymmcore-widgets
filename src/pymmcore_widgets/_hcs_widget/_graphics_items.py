@@ -41,8 +41,8 @@ class _Well(QGraphicsItem):
         self._text_size = text_size
         self._circular = circular
 
-        default_pen = QPen(Qt.GlobalColor.black)
-        default_pen.setWidth(1)
+        default_pen = QPen()
+        default_pen.setWidth(0)
         self._pen = pen or default_pen
         self._brush = brush or QBrush(Qt.GlobalColor.green)
 

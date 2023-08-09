@@ -1,7 +1,6 @@
 from itertools import product
 
 from qtpy.QtCore import Qt
-from qtpy.QtGui import QPen
 from qtpy.QtWidgets import QGraphicsScene, QGraphicsView
 
 from ._graphics_items import _Well
@@ -9,10 +8,7 @@ from ._well_plate_model import WellPlate
 
 
 def draw_well_plate(
-    view: QGraphicsView,
-    scene: QGraphicsScene,
-    plate: WellPlate,
-    pen: QPen | None = None,
+    view: QGraphicsView, scene: QGraphicsScene, plate: WellPlate
 ) -> None:
     """Draw all wells of the plate."""
     scene.clear()
@@ -30,8 +26,6 @@ def draw_well_plate(
         _x = (width * col) + (dx * col)
         _y = (height * row) + (dy * row)
         well = _Well(_x, _y, width, height, row, col, text_size, plate.circular)
-        if pen:
-            well.pen = pen
         scene.addItem(well)
 
     # set the scene size

@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from qtpy.QtCore import Qt, Signal
-from qtpy.QtGui import QPen
 from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -275,9 +274,7 @@ class _PlateDatabaseWidget(QDialog):
         plate = self.value()
         if plate is None:
             return
-        pen = QPen()
-        pen.setWidth(0)
-        draw_well_plate(self.view, self.scene, plate, pen)
+        draw_well_plate(self.view, self.scene, plate)
 
     def _update_plate_db(self) -> None:
         """Update the well plate in database and in current session."""
