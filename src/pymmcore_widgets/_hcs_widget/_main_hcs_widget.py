@@ -40,6 +40,7 @@ from ._fov_widget import _FOVSelectrorWidget
 from ._graphics_items import _FOVPoints, _Well
 from ._plate_graphics_scene import _HCSGraphicsScene
 from ._update_plate_dialog import _PlateDatabaseWidget
+from ._util import draw_well_plate
 from ._well_plate_model import PLATE_DB_PATH, WellPlate, load_database
 
 if TYPE_CHECKING:
@@ -318,13 +319,16 @@ class HCSWidget(QWidget):
             self._plate_db[well_plate] if isinstance(well_plate, str) else well_plate
         )
         # draw the plate
-        self._plate_and_fov_tab.scene._draw_plate_wells(self.wp)
+        # self._plate_and_fov_tab.plate._draw_plate_wells(self.wp)
+        draw_well_plate(
+            self._plate_and_fov_tab.view, self._plate_and_fov_tab.scene, self.wp
+        )
         # select the plate area if is not a multi well
         items = self._plate_and_fov_tab.scene.items()
         if len(items) == 1:
             item = cast(_Well, items[0])
             item.setSelected(True)
-            item.set_well_color(QBrush(Qt.GlobalColor.magenta))
+            item.brush = QBrush(Qt.GlobalColor.magenta)
         # load plate info in the FOV selector widget
         self._plate_and_fov_tab.FOV_selector._load_plate_info(self.wp)
 
