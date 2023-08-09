@@ -109,9 +109,12 @@ class _HCSGraphicsScene(QGraphicsScene):
     def _draw_plate_wells(self, plate: WellPlate) -> None:
         """Draw all wells of the plate."""
         try:
-            x0, y0, width, height, text_size = self._plate_sizes_in_pixel(plate)
+            x0, y0, width, height = self._plate_sizes_in_pixel(plate)
         except ZeroDivisionError:
             return
+
+        # the text size is the height of the well divided by 3
+        text_size = height / 3
 
         # draw the wells and place them in their correct row/column position
         for row, col in product(range(plate.rows), range(plate.cols)):
@@ -123,7 +126,7 @@ class _HCSGraphicsScene(QGraphicsScene):
 
     def _plate_sizes_in_pixel(
         self, plate: WellPlate
-    ) -> tuple[float, float, float, float, float]:
+    ) -> tuple[float, float, float, float]:
         """Calculate the size of the plate and the size of the wells to then draw it.
 
         The sizes are not the real well dimensions (mm) but are the size in pixels for
@@ -184,10 +187,7 @@ class _HCSGraphicsScene(QGraphicsScene):
             else 0
         )
 
-        # the text size is the height of the well divided by 3
-        text_size = height / 3
-
-        return start_x, start_y, width, height, text_size
+        return start_x, start_y, width, height
 
     def setValue(self, value: list[WellInfo]) -> None:
         """Select the wells listed in `value`."""
