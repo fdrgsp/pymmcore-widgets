@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import string
+import warnings
 from dataclasses import asdict
 from pathlib import Path
 from typing import cast
@@ -28,6 +30,7 @@ from qtpy.QtWidgets import (
 from ._well_plate_model import WellPlate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
+StyleSheet = "background:grey; border: 0px; border-radius: 5px;"
 
 
 def _make_widget_with_label(label: QLabel, widget: QWidget) -> QWidget:
@@ -181,10 +184,13 @@ class _PlateDatabaseWidget(QDialog):
 
         # image
         image_groupbox = QGroupBox()
-        image_groupbox.setFixedSize(300, 300)
+        image_groupbox.setStyleSheet(StyleSheet)
+        image_groupbox.setFixedSize(
+            self.plate_table.sizeHint().width(), self.plate_table.sizeHint().width()
+        )
         image_groupbox.setLayout(QVBoxLayout())
-        image_groupbox.layout().setContentsMargins(10, 10, 10, 10)
-        image = QSvgWidget("/Users/fdrgsp/Desktop/well_plate.svg")
+        image_groupbox.layout().setContentsMargins(0, 0, 0, 0)
+        image = QSvgWidget(str(Path(__file__).parent / "well_plate.svg"))
         image_groupbox.layout().addWidget(image)
 
         bottom_groupbox = QGroupBox()
@@ -216,7 +222,23 @@ class _PlateDatabaseWidget(QDialog):
 
         self.setFixedHeight(self.sizeHint().height())
 
+        # connect all widgets to valueChanged signal
+        for wdg in (
+            self._rows,
+            self._cols,
+            self._well_size_x,
+            self._well_size_y,
+            self._well_spacing_x,
+            self._well_spacing_y,
+        ):
+            wdg.valueChanged.connect(self._emit_signal)
+        self._circular_checkbox.toggled.connect(self._emit_signal)
+
         self._populate_table()
+
+    def _emit_signal(self) -> None:
+        """Emit the valueChanged signal."""
+        self.valueChanged.emit(self.value())
 
     def _populate_table(self) -> None:
         """Populate the table with the well plate in the database."""
@@ -301,6 +323,13 @@ class _PlateDatabaseWidget(QDialog):
 
     def value(self) -> WellPlate | None:
         """Return the well plate with the current values."""
+        ALPHABET = string.ascii_uppercase
+        if self._cols.value() > len(ALPHABET) or self._rows.value() > len(ALPHABET):
+            warnings.warn(
+                "Well name with multiple letter not yet implemented.", stacklevel=2
+            )
+            return None
+
         return WellPlate(
             circular=self._circular_checkbox.isChecked(),
             id=self._id.text(),

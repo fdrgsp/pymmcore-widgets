@@ -89,13 +89,22 @@ class PlateAndFovWidget(QWidget):
             plate_database=self._plate_db,
             plate_database_path=self._plate_db_path,
         )
-        self._plate.valueChanged.connect(self._update_plate_widget_combo)
 
         self._fov_selector._load_plate_info(self._plate_widget.current_plate())
 
         # connect
         self._plate_widget.valueChanged.connect(self._update_fov_scene)
         self._plate_widget.custom_plate.clicked.connect(self._show_custom_plate_dialog)
+        self._plate.valueChanged.connect(self._update_plate_widget_combo)
+        # TODO: uncomment this when the drawing of the plate is fixed
+        # self._plate.valueChanged.connect(self._real_time_update)
+
+    def _real_time_update(self) -> None:
+        self._plate_widget.scene.clear()
+        plate = self._plate.value()
+        if plate is None:
+            return
+        self._plate_widget.scene._draw_plate_wells(plate)
 
     def _update_fov_scene(self, plate: WellPlate) -> None:
         self._fov_selector._load_plate_info(plate)
