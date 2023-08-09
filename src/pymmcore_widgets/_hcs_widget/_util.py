@@ -6,6 +6,8 @@ from qtpy.QtWidgets import QGraphicsScene, QGraphicsView
 from ._graphics_items import _Well
 from ._well_plate_model import WellPlate
 
+GRAPHICS_VIEW_HEIGHT = 320
+
 
 def draw_well_plate(
     view: QGraphicsView, scene: QGraphicsScene, plate: WellPlate

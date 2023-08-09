@@ -16,10 +16,7 @@ from qtpy.QtWidgets import (
 from superqt.utils import signals_blocked
 
 PLATE_FROM_CALIBRATION = "custom_from_calibration"
-GRAPHICS_VIEW_WIDTH = 500
-GRAPHICS_VIEW_HEIGHT = 320
 FOV_GRAPHICS_VIEW_SIZE = 200
-POINT_SIZE = 5
 
 
 class ComboMessageBox(QDialog):

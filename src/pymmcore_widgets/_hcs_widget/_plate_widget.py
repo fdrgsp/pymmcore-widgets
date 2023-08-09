@@ -16,10 +16,10 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
 )
 
-from pymmcore_widgets._util import GRAPHICS_VIEW_HEIGHT
-
 from ._plate_graphics_scene import _HCSGraphicsScene
-from ._util import draw_well_plate
+
+# from pymmcore_widgets._util import GRAPHICS_VIEW_HEIGHT
+from ._util import GRAPHICS_VIEW_HEIGHT, draw_well_plate
 from ._well_plate_model import WellPlate
 
 if TYPE_CHECKING:
@@ -86,7 +86,6 @@ class _PlateWidget(QWidget):
         self.scene = _HCSGraphicsScene(parent=self)
         self.view = ResizingGraphicsView(self.scene, self)
         self.view.setStyleSheet("background:grey; border-radius: 5px;")
-        # self.view.setMinimumSize(GRAPHICS_VIEW_WIDTH, GRAPHICS_VIEW_HEIGHT)
         self.view.setMinimumHeight(GRAPHICS_VIEW_HEIGHT)
 
         self.setLayout(QVBoxLayout())

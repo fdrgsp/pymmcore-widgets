@@ -5,9 +5,10 @@ from qtpy.QtCore import QRectF, Qt
 from qtpy.QtGui import QBrush, QFont, QPainter, QPen, QTextOption
 from qtpy.QtWidgets import QGraphicsItem
 
-from pymmcore_widgets._util import FOV_GRAPHICS_VIEW_SIZE, POINT_SIZE
+from pymmcore_widgets._util import FOV_GRAPHICS_VIEW_SIZE
 
 ALPHABET = string.ascii_uppercase
+POINT_SIZE = 5
 
 
 class WellInfo(NamedTuple):
