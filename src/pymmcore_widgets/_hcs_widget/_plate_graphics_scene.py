@@ -113,8 +113,8 @@ class _HCSGraphicsScene(QGraphicsScene):
         y = start_y
         # draw the wells and place them in their correct row/column position
         for row, col in product(range(plate.rows), range(plate.cols)):
-            _x = x + width * col
-            _y = y + height * row
+            _x = x + (width * col)
+            _y = y + (height * row)
             self.addItem(
                 _Well(_x, _y, width, height, row, col, text_size, plate.circular)
             )
