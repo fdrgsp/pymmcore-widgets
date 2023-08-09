@@ -104,6 +104,7 @@ class PlateAndFovWidget(QWidget):
         if plate is None:
             return
         self._plate_widget.scene._draw_plate_wells(plate)
+        self._update_fov_scene(plate)
 
     def _update_fov_scene(self, plate: WellPlate) -> None:
         self._fov_selector._load_plate_info(plate)
