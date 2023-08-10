@@ -46,16 +46,6 @@ def _make_widget_with_label(label: QLabel, widget: QWidget) -> QWidget:
     return wdg
 
 
-# class ResizingGraphicsView(QGraphicsView):
-#     """A QGraphicsView that resizes the scene to fit the view."""
-
-#     def __init__(self, scene: QGraphicsScene, parent: QWidget | None = None) -> None:
-#         super().__init__(scene, parent)
-
-#     def resizeEvent(self, event: QResizeEvent) -> None:
-#         self.fitInView(self.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
-
-
 class _Table(QTableWidget):
     """QTableWidget setup."""
 
