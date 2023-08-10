@@ -30,7 +30,6 @@ class _Well(QGraphicsItem):
         col: int,
         text_size: float | None,
         circular: bool,
-        pen: QPen | None = None,
         brush: QBrush | None = None,
     ) -> None:
         super().__init__()
@@ -40,23 +39,11 @@ class _Well(QGraphicsItem):
         self._text_size = text_size
         self._circular = circular
 
-        default_pen = QPen()
-        default_pen.setWidth(0)
-        self._pen = pen or default_pen
         self._brush = brush or QBrush(Qt.GlobalColor.green)
 
         self._well_shape = QRectF(x, y, size_x, size_y)
 
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
-
-    @property
-    def pen(self) -> QPen:
-        return self._pen
-
-    @pen.setter
-    def pen(self, pen: QPen) -> None:
-        self._pen = pen
-        self.update()
 
     @property
     def brush(self) -> QBrush:
@@ -72,7 +59,9 @@ class _Well(QGraphicsItem):
 
     def paint(self, painter: QPainter, *args: Any) -> None:
         painter.setBrush(self._brush)
-        painter.setPen(self._pen)
+        pen = QPen(Qt.GlobalColor.black)
+        pen.setWidth(1)
+        painter.setPen(pen)
         # draw a circular or rectangular well
         if self._circular:
             painter.drawEllipse(self._well_shape)

@@ -33,7 +33,7 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
-from pymmcore_widgets._util import PEN_WIDTH, ResizingGraphicsView
+from pymmcore_widgets._util import ResizingGraphicsView
 
 from ._graphics_items import _FOVPoints, _WellArea
 
@@ -47,9 +47,9 @@ GRID = "Grid"
 CENTER_TAB_INDEX = 0
 RANDOM_TAB_INDEX = 1
 GRID_TAB_INDEX = 2
-FOV_GRAPHICS_VIEW_X = 200
-FOV_GRAPHICS_VIEW_Y = 200
-FOV_SCENE_SIZE = 180
+FOV_GRAPHICS_VIEW = 200
+FOV_SCENE_SIZE = FOV_GRAPHICS_VIEW - 10
+PEN_WIDTH = 4
 
 
 class Center(NamedTuple):
@@ -357,8 +357,8 @@ class _FOVSelectrorWidget(QWidget):
         self.scene = QGraphicsScene()
         self.view = ResizingGraphicsView(self.scene, self)
         self.view.setStyleSheet("background:grey; border-radius: 5px;")
-        self.view.setFixedHeight(FOV_GRAPHICS_VIEW_X)
-        self.view.setMinimumWidth(FOV_GRAPHICS_VIEW_Y)
+        self.view.setFixedHeight(FOV_GRAPHICS_VIEW)
+        self.view.setMinimumWidth(FOV_GRAPHICS_VIEW)
         # contral widget
         self.center_wdg = _CenterFOVWidget(view=self.view)
         # random fov widget
@@ -807,27 +807,33 @@ class _FOVSelectrorWidget(QWidget):
         pen.setWidth(PEN_WIDTH)
 
         if well_plate.well_size_x == well_plate.well_size_y:
-            w = h = FOV_SCENE_SIZE
+            width = height = FOV_SCENE_SIZE
         elif well_plate.well_size_x > well_plate.well_size_y:
-            w = FOV_SCENE_SIZE
+            width = FOV_SCENE_SIZE
             # keep the ratio between well_size_x and well_size_y
-            h = int(FOV_SCENE_SIZE * well_plate.well_size_y / well_plate.well_size_x)
+            height = int(
+                FOV_SCENE_SIZE * well_plate.well_size_y / well_plate.well_size_x
+            )
         else:
             # keep the ratio between well_size_x and well_size_y
-            w = int(FOV_SCENE_SIZE * well_plate.well_size_x / well_plate.well_size_y)
-            h = FOV_SCENE_SIZE
+            width = int(
+                FOV_SCENE_SIZE * well_plate.well_size_x / well_plate.well_size_y
+            )
+            height = FOV_SCENE_SIZE
 
-        shape_par = (0, 0, w, h)
+        # draw the well area
+        area = (0, 0, width, height)
         if well_plate.circular:
-            self.scene.addEllipse(*shape_par, pen=pen)
+            self.scene.addEllipse(*area, pen=pen)
         else:
-            self.scene.addRect(*shape_par, pen=pen)
+            self.scene.addRect(*area, pen=pen)
 
-        self.scene.setSceneRect(-5, -5, w + 10, h + 10)
+        # using -5 and +10 to add some space around the plate
+        self.scene.setSceneRect(-5, -5, width + 10, height + 10)
 
         # set variables
-        self._scene_width_px = w
-        self._scene_height_px = h
+        self._scene_width_px = width
+        self._scene_height_px = height
         self._well_width_mm = round(well_plate.well_size_x, 3)
         self._well_height_mm = round(well_plate.well_size_y, 3)
         self._circular = well_plate.circular
@@ -845,7 +851,6 @@ class _FOVSelectrorWidget(QWidget):
             if self._circular
             else QAbstractSpinBox.ButtonSymbols.UpDownArrows
         )
-
         self.random_wdg.plate_area_x.setEnabled(True)
 
         mode = self.tab_wdg.tabText(self.tab_wdg.currentIndex())

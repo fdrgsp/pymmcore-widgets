@@ -14,9 +14,8 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
 )
 
-# from pymmcore_widgets._util import GRAPHICS_VIEW_HEIGHT
 from pymmcore_widgets._util import (
-    GRAPHICS_VIEW_HEIGHT,
+    PLATE_GRAPHICS_VIEW_HEIGHT,
     ResizingGraphicsView,
     draw_well_plate,
 )
@@ -31,16 +30,6 @@ AlignCenter = Qt.AlignmentFlag.AlignCenter
 
 ALPHABET = string.ascii_uppercase
 CALIBRATED_PLATE: WellPlate | None = None
-
-
-# class ResizingGraphicsView(QGraphicsView):
-#     """A QGraphicsView that resizes the scene to fit the view."""
-
-#     def __init__(self, scene: QGraphicsScene, parent: QWidget | None = None) -> None:
-#         super().__init__(scene, parent)
-
-#     def resizeEvent(self, event: QResizeEvent) -> None:
-#         self.fitInView(self.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
 
 class _PlateWidget(QWidget):
@@ -86,7 +75,7 @@ class _PlateWidget(QWidget):
         self.scene = _HCSGraphicsScene(parent=self)
         self.view = ResizingGraphicsView(self.scene, self)
         self.view.setStyleSheet("background:grey; border-radius: 5px;")
-        self.view.setMinimumHeight(GRAPHICS_VIEW_HEIGHT)
+        self.view.setMinimumHeight(PLATE_GRAPHICS_VIEW_HEIGHT)
 
         self.setLayout(QVBoxLayout())
         self.layout().setSpacing(15)

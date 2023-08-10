@@ -26,10 +26,9 @@ if TYPE_CHECKING:
 
     from ._hcs_widget._well_plate_model import WellPlate
 
-GRAPHICS_VIEW_HEIGHT = 320
 PLATE_FROM_CALIBRATION = "custom_from_calibration"
-FOV_GRAPHICS_VIEW_SIZE = 200
-PEN_WIDTH = 4
+PLATE_GRAPHICS_VIEW_HEIGHT = 320
+PLATE_SCENE_SIZE = PLATE_GRAPHICS_VIEW_HEIGHT - 10
 
 
 class ComboMessageBox(QDialog):
@@ -141,26 +140,42 @@ def draw_well_plate(
 ) -> None:
     """Draw all wells of the plate."""
     scene.clear()
-    width = plate.well_size_x
-    height = plate.well_size_y
 
+    if not plate.well_size_x or not plate.well_size_y:
+        return
+
+    if plate.well_size_x == plate.well_size_y:
+        width = height = PLATE_SCENE_SIZE
+    elif plate.well_size_x > plate.well_size_y:
+        width = PLATE_SCENE_SIZE
+        # keep the ratio between well_size_x and well_size_y
+        height = int(PLATE_SCENE_SIZE * plate.well_size_y / plate.well_size_x)
+    else:
+        # keep the ratio between well_size_x and well_size_y
+        width = int(PLATE_SCENE_SIZE * plate.well_size_x / plate.well_size_y)
+        height = PLATE_SCENE_SIZE
+
+    # calculate the spacing between wells
     dx = plate.well_spacing_x - plate.well_size_x if plate.well_spacing_x else 0
     dy = plate.well_spacing_y - plate.well_size_y if plate.well_spacing_y else 0
+
+    # convert the spacing between wells in pixels
+    dx_px = dx * width / plate.well_size_x if plate.well_spacing_x else 0
+    dy_px = dy * height / plate.well_size_y if plate.well_spacing_y else 0
 
     # the text size is the height of the well divided by 3
     text_size = height / 3 if text else None
 
     # draw the wells and place them in their correct row/column position
     for row, col in product(range(plate.rows), range(plate.cols)):
-        _x = (width * col) + (dx * col)
-        _y = (height * row) + (dy * row)
-        well = _Well(_x, _y, width, height, row, col, text_size, plate.circular)
-        scene.addItem(well)
+        _x = (width * col) + (dx_px * col)
+        _y = (height * row) + (dy_px * row)
+        scene.addItem(_Well(_x, _y, width, height, row, col, text_size, plate.circular))
 
     # set the scene size
-    plate_width = (width * plate.cols) + (dx * (plate.cols - 1))
-    plate_height = (height * plate.rows) + (dy * (plate.rows - 1))
-    # adding -5 and +10 to the scene rect to have a bit of space around the plate
-    scene.setSceneRect(-3, -3, plate_width + 6, plate_height + 6)
+    plate_width = (width * plate.cols) + (dx_px * (plate.cols - 1))
+    plate_height = (height * plate.rows) + (dy_px * (plate.rows - 1))
+    scene.setSceneRect(0, 0, plate_width, plate_height)
+
     # fit scene in view
     view.fitInView(view.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
