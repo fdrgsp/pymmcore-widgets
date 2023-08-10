@@ -603,6 +603,8 @@ class _FOVSelectrorWidget(QWidget):
         if self._plate is None:
             return []
 
+        # get the already existing well in the scene as a reference for scene
+        # center coordinates and size
         reference_well_area: QGraphicsEllipseItem | QGraphicsRectItem | None = None
         for i in self.scene.items():
             if isinstance(i, (QGraphicsEllipseItem, QGraphicsRectItem)):
@@ -611,30 +613,28 @@ class _FOVSelectrorWidget(QWidget):
         if reference_well_area is None:
             return []
 
+        # get the rect of the reference well area
         rect = reference_well_area.rect()
 
+        # convert the well area from mm to px
         well_area_width_px = rect.width() * area_x_mm / self._plate.well_size_x
         well_area_height_px = rect.height() * area_y_mm / self._plate.well_size_y
 
+        # calculate the starting point of the well area
         start_x = rect.center().x() - (well_area_width_px / 2)
         start_y = rect.center().y() - (well_area_height_px / 2)
 
-        pen = QPen(Qt.GlobalColor.magenta)
-        pen.setWidth(PEN_WIDTH)
-
         # draw the well area
-        item = _WellArea(
-            self._is_circular,
-            start_x,
-            start_y,
-            well_area_width_px,
-            well_area_height_px,
-            pen,
+        self.scene.addItem(
+            _WellArea(
+                self._is_circular,
+                start_x,
+                start_y,
+                well_area_width_px,
+                well_area_height_px,
+                QPen(Qt.GlobalColor.magenta).setWidth(PEN_WIDTH),
+            )
         )
-        self.scene.addItem(item)
-
-        print(rect, "->", item._rect, item.boundingRect())
-        # self.view.fitInView(self.view.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
         # minimum distance between the fovs in px
         if image_width_mm is None or image_height_mm is None:
@@ -827,8 +827,6 @@ class _FOVSelectrorWidget(QWidget):
             self.scene.addRect(*shape_par, pen=pen)
 
         self.scene.setSceneRect(-5, -5, w + 10, h + 10)
-
-        # self.view.fitInView(self.view.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
         # set variables
         self._scene_width_px = w
