@@ -33,6 +33,8 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
+from pymmcore_widgets._util import PEN_WIDTH
+
 from ._graphics_items import _FOVPoints, _WellArea
 from ._util import ResizingGraphicsView
 
@@ -49,7 +51,6 @@ GRID_TAB_INDEX = 2
 FOV_GRAPHICS_VIEW_X = 200
 FOV_GRAPHICS_VIEW_Y = 200
 FOV_SCENE_SIZE = 180
-PEN_WIDTH = 5
 
 
 class Center(NamedTuple):
@@ -594,7 +595,7 @@ class _FOVSelectrorWidget(QWidget):
         area_y_mm: float,
         image_width_mm: float | None,
         image_height_mm: float | None,
-    ) -> list[tuple[float, float]]:
+    ) -> list[tuple[float, float]]:  # sourcery skip: use-next
         """Create the points for the _RandomWidget scene.
 
         They can be either random points in a circle or in a square/rectangle depending
@@ -617,22 +618,17 @@ class _FOVSelectrorWidget(QWidget):
         rect = reference_well_area.rect()
 
         # convert the well area from mm to px
-        well_area_width_px = rect.width() * area_x_mm / self._plate.well_size_x
-        well_area_height_px = rect.height() * area_y_mm / self._plate.well_size_y
+        well_area_x_px = rect.width() * area_x_mm / self._plate.well_size_x
+        well_area_y_px = rect.height() * area_y_mm / self._plate.well_size_y
 
         # calculate the starting point of the well area
-        start_x = rect.center().x() - (well_area_width_px / 2)
-        start_y = rect.center().y() - (well_area_height_px / 2)
+        start_x = rect.center().x() - (well_area_x_px / 2)
+        start_y = rect.center().y() - (well_area_y_px / 2)
 
         # draw the well area
         self.scene.addItem(
             _WellArea(
-                self._is_circular,
-                start_x,
-                start_y,
-                well_area_width_px,
-                well_area_height_px,
-                QPen(Qt.GlobalColor.magenta).setWidth(PEN_WIDTH),
+                self._is_circular, start_x, start_y, well_area_x_px, well_area_y_px
             )
         )
 
@@ -646,7 +642,7 @@ class _FOVSelectrorWidget(QWidget):
         if self._is_circular:
             points = self._random_points_in_circle(
                 nFOV,
-                well_area_width_px,
+                well_area_x_px,
                 start_x,
                 start_y,
                 min_dist_px_x,

@@ -17,6 +17,7 @@ from superqt.utils import signals_blocked
 
 PLATE_FROM_CALIBRATION = "custom_from_calibration"
 FOV_GRAPHICS_VIEW_SIZE = 200
+PEN_WIDTH = 4
 
 
 class ComboMessageBox(QDialog):

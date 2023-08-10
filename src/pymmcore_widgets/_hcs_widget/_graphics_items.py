@@ -5,7 +5,7 @@ from qtpy.QtCore import QRectF, Qt
 from qtpy.QtGui import QBrush, QFont, QPainter, QPen, QTextOption
 from qtpy.QtWidgets import QGraphicsItem
 
-from pymmcore_widgets._util import FOV_GRAPHICS_VIEW_SIZE
+from pymmcore_widgets._util import FOV_GRAPHICS_VIEW_SIZE, PEN_WIDTH
 
 ALPHABET = string.ascii_uppercase
 POINT_SIZE = 5
@@ -110,49 +110,24 @@ class _WellArea(QGraphicsItem):
         start_y: float,
         width: float,
         height: float,
-        pen: QPen,
+        # pen: QPen,
     ) -> None:
         super().__init__()
 
         self._circular = circular
-        self._pen = pen
         self._rect = QRectF(start_x, start_y, width, height)
 
-        print(self._rect, "-->", start_x, start_y, width, height)
-
     def boundingRect(self) -> QRectF:
-        # FOV_GRAPHICS_VIEW_SIZE is the size of _SelectFOV QGraphicsView
-        # return QRectF(0, 0, FOV_GRAPHICS_VIEW_SIZE, FOV_GRAPHICS_VIEW_SIZE)
         return self._rect
 
     def paint(self, painter: QPainter, *args: Any) -> None:
-        painter.setPen(self._pen)
+        pen = QPen(Qt.GlobalColor.magenta)
+        pen.setWidth(PEN_WIDTH)
+        painter.setPen(pen)
         if self._circular:
             painter.drawEllipse(self._rect)
         else:
             painter.drawRect(self._rect)
-
-
-# class _WellArea(QGraphicsItem):
-#     """QGraphicsItem to draw the single well area for the _SelectFOV widget."""
-
-#     def __init__(self, circular: bool, scene_rect: QRectF, pen: QPen) -> None:
-#         super().__init__()
-
-#         self._circular = circular
-#         self._pen = pen
-#         self._rect = scene_rect
-
-#     def boundingRect(self) -> QRectF:
-#         # FOV_GRAPHICS_VIEW_SIZE is the size of _SelectFOV QGraphicsView
-#         return QRectF(0, 0, FOV_GRAPHICS_VIEW_SIZE, FOV_GRAPHICS_VIEW_SIZE)
-
-#     def paint(self, painter: QPainter, *args: Any) -> None:
-#         painter.setPen(self._pen)
-#         if self._circular:
-#             painter.drawEllipse(self._rect)
-#         else:
-#             painter.drawRect(self._rect)
 
 
 class _FOVPoints(QGraphicsItem):
