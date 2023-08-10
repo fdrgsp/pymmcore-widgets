@@ -4,7 +4,7 @@ import string
 import warnings
 from dataclasses import asdict
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import (
@@ -12,7 +12,6 @@ from qtpy.QtWidgets import (
     QDialog,
     QDoubleSpinBox,
     QGraphicsScene,
-    QGraphicsView,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -28,12 +27,8 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from ._util import draw_well_plate
+from ._util import ResizingGraphicsView, draw_well_plate
 from ._well_plate_model import WellPlate
-
-if TYPE_CHECKING:
-    from qtpy.QtGui import QResizeEvent
-
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 StyleSheet = "background:grey; border: 0px; border-radius: 5px;"
@@ -50,14 +45,14 @@ def _make_widget_with_label(label: QLabel, widget: QWidget) -> QWidget:
     return wdg
 
 
-class ResizingGraphicsView(QGraphicsView):
-    """A QGraphicsView that resizes the scene to fit the view."""
+# class ResizingGraphicsView(QGraphicsView):
+#     """A QGraphicsView that resizes the scene to fit the view."""
 
-    def __init__(self, scene: QGraphicsScene, parent: QWidget | None = None) -> None:
-        super().__init__(scene, parent)
+#     def __init__(self, scene: QGraphicsScene, parent: QWidget | None = None) -> None:
+#         super().__init__(scene, parent)
 
-    def resizeEvent(self, event: QResizeEvent) -> None:
-        self.fitInView(self.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+#     def resizeEvent(self, event: QResizeEvent) -> None:
+#         self.fitInView(self.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
 
 class _Table(QTableWidget):
@@ -258,7 +253,7 @@ class _PlateDatabaseWidget(QDialog):
             item = QTableWidgetItem(plate_name)
             self.plate_table.setItem(row, 0, item)
         self._update_values(row=1, col=0)
-        draw_well_plate(self.view, self.scene, self._plate_db[plate_name])
+        draw_well_plate(self.view, self.scene, self._plate_db[plate_name], text=False)
         self._id.adjustSize()
 
     def _update_values(self, row: int, col: int) -> None:
@@ -274,7 +269,7 @@ class _PlateDatabaseWidget(QDialog):
         plate = self.value()
         if plate is None:
             return
-        draw_well_plate(self.view, self.scene, plate)
+        draw_well_plate(self.view, self.scene, plate, text=False)
 
     def _update_plate_db(self) -> None:
         """Update the well plate in database and in current session."""

@@ -7,8 +7,6 @@ from PyQt6.QtWidgets import QWidget
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import (
     QComboBox,
-    QGraphicsScene,
-    QGraphicsView,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -19,12 +17,10 @@ from qtpy.QtWidgets import (
 from ._plate_graphics_scene import _HCSGraphicsScene
 
 # from pymmcore_widgets._util import GRAPHICS_VIEW_HEIGHT
-from ._util import GRAPHICS_VIEW_HEIGHT, draw_well_plate
+from ._util import GRAPHICS_VIEW_HEIGHT, ResizingGraphicsView, draw_well_plate
 from ._well_plate_model import WellPlate
 
 if TYPE_CHECKING:
-    from qtpy.QtGui import QResizeEvent
-
     from ._graphics_items import WellInfo
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
@@ -33,14 +29,14 @@ ALPHABET = string.ascii_uppercase
 CALIBRATED_PLATE: WellPlate | None = None
 
 
-class ResizingGraphicsView(QGraphicsView):
-    """A QGraphicsView that resizes the scene to fit the view."""
+# class ResizingGraphicsView(QGraphicsView):
+#     """A QGraphicsView that resizes the scene to fit the view."""
 
-    def __init__(self, scene: QGraphicsScene, parent: QWidget | None = None) -> None:
-        super().__init__(scene, parent)
+#     def __init__(self, scene: QGraphicsScene, parent: QWidget | None = None) -> None:
+#         super().__init__(scene, parent)
 
-    def resizeEvent(self, event: QResizeEvent) -> None:
-        self.fitInView(self.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+#     def resizeEvent(self, event: QResizeEvent) -> None:
+#         self.fitInView(self.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
 
 class _PlateWidget(QWidget):

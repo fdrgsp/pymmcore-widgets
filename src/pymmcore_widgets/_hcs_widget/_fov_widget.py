@@ -10,13 +10,15 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtCore import QRectF, Qt
+from qtpy.QtCore import Qt
 from qtpy.QtGui import QPen
 from qtpy.QtWidgets import (
     QAbstractSpinBox,
     QComboBox,
     QDoubleSpinBox,
+    QGraphicsEllipseItem,
     QGraphicsLineItem,
+    QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsView,
     QHBoxLayout,
@@ -31,9 +33,8 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
-from pymmcore_widgets._util import FOV_GRAPHICS_VIEW_SIZE
-
 from ._graphics_items import _FOVPoints, _WellArea
+from ._util import ResizingGraphicsView
 
 if TYPE_CHECKING:
     from ._well_plate_model import WellPlate
@@ -45,9 +46,10 @@ GRID = "Grid"
 CENTER_TAB_INDEX = 0
 RANDOM_TAB_INDEX = 1
 GRID_TAB_INDEX = 2
-FOV_SCENE_MIN = 160
-FOV_SCENE_MAX = 180
-PEN_WIDTH = 4
+FOV_GRAPHICS_VIEW_X = 200
+FOV_GRAPHICS_VIEW_Y = 200
+FOV_SCENE_SIZE = 180
+PEN_WIDTH = 5
 
 
 class Center(NamedTuple):
@@ -117,8 +119,9 @@ def _make_wdg_with_label(label: QLabel, wdg: QWidget) -> QWidget:
 class _CenterFOVWidget(QWidget):
     """Widget to select the center of the well as FOV of the plate."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, view: QGraphicsView) -> None:
         super().__init__(parent)
+        self.view = view
         # well area doublespinbox along x
         self.plate_area_center_x = QDoubleSpinBox()
         self.plate_area_center_x.setEnabled(False)
@@ -173,7 +176,9 @@ class _CenterFOVWidget(QWidget):
     def value(self) -> Center:
         """Return the values of the widgets."""
         # x and y are the center of the well in view pixels
-        return Center(x=FOV_GRAPHICS_VIEW_SIZE / 2, y=FOV_GRAPHICS_VIEW_SIZE / 2)
+        return Center(
+            x=self.view.sceneRect().center().x(), y=self.view.sceneRect().center().y()
+        )
 
 
 class _RandomFOVWidget(QWidget):
@@ -346,9 +351,16 @@ class _FOVSelectrorWidget(QWidget):
         self._well_width_mm: float = 0.0
         self._well_height_mm: float = 0.0
         self._is_circular: bool = False
+        self._plate: WellPlate | None = None
 
+        # graphics scene to draw the well and the fovs
+        self.scene = QGraphicsScene()
+        self.view = ResizingGraphicsView(self.scene, self)
+        self.view.setStyleSheet("background:grey; border-radius: 5px;")
+        self.view.setFixedHeight(FOV_GRAPHICS_VIEW_X)
+        self.view.setMinimumWidth(FOV_GRAPHICS_VIEW_Y)
         # contral widget
-        self.center_wdg = _CenterFOVWidget()
+        self.center_wdg = _CenterFOVWidget(view=self.view)
         # random fov widget
         self.random_wdg = _RandomFOVWidget()
         self.random_wdg.plate_area_x.valueChanged.connect(self._on_random_area_changed)
@@ -369,14 +381,6 @@ class _FOVSelectrorWidget(QWidget):
         self.tab_wdg.addTab(self.center_wdg, CENTER)
         self.tab_wdg.addTab(self.random_wdg, RANDOM)
         self.tab_wdg.addTab(self.grid_wdg, GRID)
-
-        # graphics scene to draw the well and the fovs
-        self.scene = QGraphicsScene()
-        self.view = QGraphicsView(self.scene, self)
-        self.view.setStyleSheet("background:grey; border-radius: 5px;")
-        self._view_size = FOV_GRAPHICS_VIEW_SIZE
-        self.scene.setSceneRect(QRectF(0, 0, self._view_size, self._view_size))
-        self.view.setFixedSize(self._view_size + 2, self._view_size + 2)
 
         # main
         self.setLayout(QHBoxLayout())
@@ -438,17 +442,16 @@ class _FOVSelectrorWidget(QWidget):
 
     def _update_center_fov(self) -> None:
         """Update the _CenterWidget scene."""
-        points = [(self._view_size / 2, self._view_size / 2)]  # center x and y
-        self._draw_fovs(points)
+        self._draw_fovs(
+            [(self.scene.sceneRect().center().x(), self.scene.sceneRect().center().y())]
+        )
 
     def _update_random_fovs(self, value: Random) -> None:
         """Update the _RandomWidget scene."""
         nFOV, area_x, area_y = (value.nFOV, value.area_x, value.area_y)
         image_width_mm, image_height_mm = self._get_image_size_in_mm()
-        area_pen = QPen(Qt.GlobalColor.magenta)
-        area_pen.setWidth(PEN_WIDTH)
         points = self._points_for_random_scene(
-            nFOV, area_x, area_y, image_width_mm, image_height_mm, area_pen
+            nFOV, area_x, area_y, image_width_mm, image_height_mm
         )
         self._draw_fovs(points)
 
@@ -466,7 +469,10 @@ class _FOVSelectrorWidget(QWidget):
         dy = -value.overlap_y * fov_height_px / 100
 
         # x and y center coords of the scene in px
-        x, y = (self._view_size / 2, self._view_size / 2)  # px
+        x, y = (
+            self.scene.sceneRect().center().x(),
+            self.scene.sceneRect().center().y(),
+        )
         # if we have more than 1 row or column, we need to shift towards the scene
         # top-left corner the starting pixel (x, y) coords for the first fov of the grid
         # depending on the number of rows and columns.
@@ -513,12 +519,12 @@ class _FOVSelectrorWidget(QWidget):
         if image_width_mm is None or image_height_mm is None:
             return 1.0, 1.0
 
-        well_size_mm = max(self._well_width_mm, self._well_height_mm)
+        max_well_size_mm = max(self._well_width_mm, self._well_height_mm)
         max_scene = max(self._scene_width_px, self._scene_height_px)
 
         # calculating the image size in scene px
-        image_width_px = (max_scene * image_width_mm) / well_size_mm
-        image_height_px = (max_scene * image_height_mm) / well_size_mm
+        image_width_px = (max_scene * image_width_mm) / max_well_size_mm
+        image_height_px = (max_scene * image_height_mm) / max_well_size_mm
 
         return image_width_px, image_height_px
 
@@ -588,29 +594,47 @@ class _FOVSelectrorWidget(QWidget):
         area_y_mm: float,
         image_width_mm: float | None,
         image_height_mm: float | None,
-        well_area_pen: QPen,
     ) -> list[tuple[float, float]]:
         """Create the points for the _RandomWidget scene.
 
         They can be either random points in a circle or in a square/rectangle depending
         on the well shape.
         """
-        well_area_width_px = (self._scene_width_px * area_x_mm) / self._well_width_mm
-        well_area_height_px = (self._scene_height_px * area_y_mm) / self._well_height_mm
-        scene_center_x = (self._view_size - well_area_width_px) / 2  # px
-        scene_center_y = (self._view_size - well_area_height_px) / 2  # px
+        if self._plate is None:
+            return []
+
+        reference_well_area: QGraphicsEllipseItem | QGraphicsRectItem | None = None
+        for i in self.scene.items():
+            if isinstance(i, (QGraphicsEllipseItem, QGraphicsRectItem)):
+                reference_well_area = i
+                break
+        if reference_well_area is None:
+            return []
+
+        rect = reference_well_area.rect()
+
+        well_area_width_px = rect.width() * area_x_mm / self._plate.well_size_x
+        well_area_height_px = rect.height() * area_y_mm / self._plate.well_size_y
+
+        start_x = rect.center().x() - (well_area_width_px / 2)
+        start_y = rect.center().y() - (well_area_height_px / 2)
+
+        pen = QPen(Qt.GlobalColor.magenta)
+        pen.setWidth(PEN_WIDTH)
 
         # draw the well area
-        self.scene.addItem(
-            _WellArea(
-                self._is_circular,
-                scene_center_x,
-                scene_center_y,
-                well_area_width_px,
-                well_area_height_px,
-                well_area_pen,
-            )
+        item = _WellArea(
+            self._is_circular,
+            start_x,
+            start_y,
+            well_area_width_px,
+            well_area_height_px,
+            pen,
         )
+        self.scene.addItem(item)
+
+        print(rect, "->", item._rect, item.boundingRect())
+        # self.view.fitInView(self.view.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
         # minimum distance between the fovs in px
         if image_width_mm is None or image_height_mm is None:
@@ -623,8 +647,8 @@ class _FOVSelectrorWidget(QWidget):
             points = self._random_points_in_circle(
                 nFOV,
                 well_area_width_px,
-                scene_center_x,
-                scene_center_y,
+                start_x,
+                start_y,
                 min_dist_px_x,
                 min_dist_px_y,
             )
@@ -637,8 +661,8 @@ class _FOVSelectrorWidget(QWidget):
                 nFOV,
                 well_area_x_px,
                 well_area_y_px,
-                self._view_size,
-                self._view_size,
+                self.scene.sceneRect().center().x(),
+                self.scene.sceneRect().center().y(),
                 min_dist_px_x,
                 min_dist_px_y,
             )
@@ -780,45 +804,38 @@ class _FOVSelectrorWidget(QWidget):
     def _load_plate_info(self, well_plate: WellPlate) -> None:
         self.scene.clear()
 
-        self._well_width_mm = round(well_plate.well_size_x, 3)
-        self._well_height_mm = round(well_plate.well_size_y, 3)
-        self._is_circular = well_plate.circular
-
-        # set the scene size depending on the well size. Using FOV_SCENE_MIN or
-        # FOV_SCENE_MAX to draw any rectangular shaped well.
-        self._scene_width_px = (
-            FOV_SCENE_MIN
-            if self._well_width_mm <= self._well_height_mm
-            else FOV_SCENE_MAX
-        )
-        self._scene_height_px = (
-            FOV_SCENE_MIN
-            if self._well_height_mm <= self._well_width_mm
-            else FOV_SCENE_MAX
-        )
-
-        self._scene_start_x = (self._view_size - self._scene_width_px) / 2
-        self._scene_start_y = (self._view_size - self._scene_height_px) / 2
+        self._plate = well_plate
 
         pen = QPen(Qt.GlobalColor.green)
         pen.setWidth(PEN_WIDTH)
 
-        if self._is_circular:
-            self.scene.addEllipse(
-                self._scene_start_x,
-                self._scene_start_y,
-                self._scene_width_px,
-                self._scene_height_px,
-                pen,
-            )
+        if well_plate.well_size_x == well_plate.well_size_y:
+            w = h = FOV_SCENE_SIZE
+        elif well_plate.well_size_x > well_plate.well_size_y:
+            w = FOV_SCENE_SIZE
+            # keep the ratio between well_size_x and well_size_y
+            h = int(FOV_SCENE_SIZE * well_plate.well_size_y / well_plate.well_size_x)
         else:
-            self.scene.addRect(
-                self._scene_start_x,
-                self._scene_start_y,
-                self._scene_width_px,
-                self._scene_height_px,
-                pen,
-            )
+            # keep the ratio between well_size_x and well_size_y
+            w = int(FOV_SCENE_SIZE * well_plate.well_size_x / well_plate.well_size_y)
+            h = FOV_SCENE_SIZE
+
+        shape_par = (0, 0, w, h)
+        if well_plate.circular:
+            self.scene.addEllipse(*shape_par, pen=pen)
+        else:
+            self.scene.addRect(*shape_par, pen=pen)
+
+        self.scene.setSceneRect(-5, -5, w + 10, h + 10)
+
+        # self.view.fitInView(self.view.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+        # set variables
+        self._scene_width_px = w
+        self._scene_height_px = h
+        self._well_width_mm = round(well_plate.well_size_x, 3)
+        self._well_height_mm = round(well_plate.well_size_y, 3)
+        self._is_circular = well_plate.circular
 
         self._set_spinboxes_values(
             self.random_wdg.plate_area_x, self.random_wdg.plate_area_y

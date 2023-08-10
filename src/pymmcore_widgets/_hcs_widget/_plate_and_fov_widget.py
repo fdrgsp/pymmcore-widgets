@@ -6,10 +6,7 @@ from typing import TYPE_CHECKING, NamedTuple
 from pymmcore_plus import CMMCorePlus
 from PyQt6.QtWidgets import QWidget
 from qtpy.QtCore import Qt
-from qtpy.QtWidgets import (
-    QGroupBox,
-    QVBoxLayout,
-)
+from qtpy.QtWidgets import QGroupBox, QSizePolicy, QVBoxLayout
 from superqt.utils import signals_blocked
 
 from ._fov_widget import Center, Grid, Random, _FOVSelectrorWidget
@@ -92,6 +89,9 @@ class PlateAndFovWidget(QWidget):
         )
 
         self._fov_selector._load_plate_info(self._plate_widget.current_plate())
+        self._fov_selector.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
 
         # connect
         self._plate_widget.valueChanged.connect(self._update_fov_scene)
