@@ -5,8 +5,6 @@ from qtpy.QtCore import QRectF, Qt
 from qtpy.QtGui import QBrush, QFont, QPainter, QPen, QTextOption
 from qtpy.QtWidgets import QGraphicsItem
 
-from pymmcore_widgets._util import FOV_GRAPHICS_VIEW_SIZE, PEN_WIDTH
-
 ALPHABET = string.ascii_uppercase
 POINT_SIZE = 5
 
@@ -110,11 +108,12 @@ class _WellArea(QGraphicsItem):
         start_y: float,
         width: float,
         height: float,
-        # pen: QPen,
+        pen_width: int,
     ) -> None:
         super().__init__()
 
         self._circular = circular
+        self._pen_width = pen_width
         self._rect = QRectF(start_x, start_y, width, height)
 
     def boundingRect(self) -> QRectF:
@@ -122,7 +121,7 @@ class _WellArea(QGraphicsItem):
 
     def paint(self, painter: QPainter, *args: Any) -> None:
         pen = QPen(Qt.GlobalColor.magenta)
-        pen.setWidth(PEN_WIDTH)
+        pen.setWidth(self._pen_width)
         painter.setPen(pen)
         if self._circular:
             painter.drawEllipse(self._rect)
@@ -142,12 +141,12 @@ class _FOVPoints(QGraphicsItem):
         center_y: float,
         fov_width: float,
         fov_height: float,
+        bounding_rect: QRectF,
         pen: QPen | None = None,
     ) -> None:
         super().__init__()
 
-        self._view_size = FOV_GRAPHICS_VIEW_SIZE  # size of _SelectFOV QGraphicsView
-
+        self._rect = bounding_rect
         # center of the FOV in scene px
         self._center_x = center_x
         self._center_y = center_y
@@ -159,7 +158,7 @@ class _FOVPoints(QGraphicsItem):
         self._use_brush = fov_width == 1 or fov_height == 1
 
     def boundingRect(self) -> QRectF:
-        return QRectF(0, 0, self._view_size, self._view_size)
+        return self._rect
 
     def paint(self, painter: QPainter, *args) -> None:  # type: ignore
         painter.setPen(self.pen)

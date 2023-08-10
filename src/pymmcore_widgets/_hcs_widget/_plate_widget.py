@@ -14,10 +14,14 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
 )
 
-from ._plate_graphics_scene import _HCSGraphicsScene
-
 # from pymmcore_widgets._util import GRAPHICS_VIEW_HEIGHT
-from ._util import GRAPHICS_VIEW_HEIGHT, ResizingGraphicsView, draw_well_plate
+from pymmcore_widgets._util import (
+    GRAPHICS_VIEW_HEIGHT,
+    ResizingGraphicsView,
+    draw_well_plate,
+)
+
+from ._plate_graphics_scene import _HCSGraphicsScene
 from ._well_plate_model import WellPlate
 
 if TYPE_CHECKING:

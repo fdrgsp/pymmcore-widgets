@@ -33,10 +33,9 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
-from pymmcore_widgets._util import PEN_WIDTH
+from pymmcore_widgets._util import PEN_WIDTH, ResizingGraphicsView
 
 from ._graphics_items import _FOVPoints, _WellArea
-from ._util import ResizingGraphicsView
 
 if TYPE_CHECKING:
     from ._well_plate_model import WellPlate
@@ -351,7 +350,7 @@ class _FOVSelectrorWidget(QWidget):
         self._scene_height_px: float = 0.0
         self._well_width_mm: float = 0.0
         self._well_height_mm: float = 0.0
-        self._is_circular: bool = False
+        self._circular: bool = False
         self._plate: WellPlate | None = None
 
         # graphics scene to draw the well and the fovs
@@ -575,7 +574,11 @@ class _FOVSelectrorWidget(QWidget):
                 else None
             )
             # draw the fovs
-            self.scene.addItem(_FOVPoints(xc, yc, *self._get_image_size_in_px(), pen))
+            self.scene.addItem(
+                _FOVPoints(
+                    xc, yc, *self._get_image_size_in_px(), self.scene.sceneRect(), pen
+                )
+            )
             # draw the lines connecting the fovs
             if x is not None and y is not None:
                 self.scene.addLine(x, y, xc, yc, pen=line_pen)
@@ -584,7 +587,7 @@ class _FOVSelectrorWidget(QWidget):
 
     def _update_plate_area_y(self, value: float) -> None:
         """Update the plate area y value if the plate has circular wells."""
-        if not self._is_circular:
+        if not self._circular:
             return
         self.random_wdg.plate_area_y.setValue(value)
 
@@ -622,14 +625,12 @@ class _FOVSelectrorWidget(QWidget):
         well_area_y_px = rect.height() * area_y_mm / self._plate.well_size_y
 
         # calculate the starting point of the well area
-        start_x = rect.center().x() - (well_area_x_px / 2)
-        start_y = rect.center().y() - (well_area_y_px / 2)
+        x = rect.center().x() - (well_area_x_px / 2)
+        y = rect.center().y() - (well_area_y_px / 2)
 
         # draw the well area
         self.scene.addItem(
-            _WellArea(
-                self._is_circular, start_x, start_y, well_area_x_px, well_area_y_px
-            )
+            _WellArea(self._circular, x, y, well_area_x_px, well_area_y_px, PEN_WIDTH)
         )
 
         # minimum distance between the fovs in px
@@ -639,12 +640,12 @@ class _FOVSelectrorWidget(QWidget):
             min_dist_px_x = (self._scene_width_px * image_width_mm) / area_x_mm
             min_dist_px_y = (self._scene_height_px * image_height_mm) / area_y_mm
 
-        if self._is_circular:
+        if self._circular:
             points = self._random_points_in_circle(
                 nFOV,
                 well_area_x_px,
-                start_x,
-                start_y,
+                x,
+                y,
                 min_dist_px_x,
                 min_dist_px_y,
             )
@@ -829,7 +830,7 @@ class _FOVSelectrorWidget(QWidget):
         self._scene_height_px = h
         self._well_width_mm = round(well_plate.well_size_x, 3)
         self._well_height_mm = round(well_plate.well_size_y, 3)
-        self._is_circular = well_plate.circular
+        self._circular = well_plate.circular
 
         self._set_spinboxes_values(
             self.random_wdg.plate_area_x, self.random_wdg.plate_area_y
@@ -838,10 +839,10 @@ class _FOVSelectrorWidget(QWidget):
             self.center_wdg.plate_area_center_x, self.center_wdg.plate_area_center_y
         )
 
-        self.random_wdg.plate_area_y.setEnabled(not self._is_circular)
+        self.random_wdg.plate_area_y.setEnabled(not self._circular)
         self.random_wdg.plate_area_y.setButtonSymbols(
             QAbstractSpinBox.ButtonSymbols.NoButtons
-            if self._is_circular
+            if self._circular
             else QAbstractSpinBox.ButtonSymbols.UpDownArrows
         )
 

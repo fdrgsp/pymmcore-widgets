@@ -27,7 +27,8 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from ._util import ResizingGraphicsView, draw_well_plate
+from pymmcore_widgets._util import ResizingGraphicsView, draw_well_plate
+
 from ._well_plate_model import WellPlate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter

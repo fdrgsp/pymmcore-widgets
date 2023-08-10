@@ -1,20 +1,32 @@
 from __future__ import annotations
 
-from typing import ContextManager, Sequence
+from itertools import product
+from typing import TYPE_CHECKING, ContextManager, Sequence
 
 import useq
 from pymmcore_plus import CMMCorePlus
 from pymmcore_plus.core.events import CMMCoreSignaler, PCoreSignaler
+from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QGraphicsScene,
+    QGraphicsView,
     QLabel,
     QVBoxLayout,
     QWidget,
 )
 from superqt.utils import signals_blocked
 
+from ._hcs_widget._graphics_items import _Well
+
+if TYPE_CHECKING:
+    from qtpy.QtGui import QResizeEvent
+
+    from ._hcs_widget._well_plate_model import WellPlate
+
+GRAPHICS_VIEW_HEIGHT = 320
 PLATE_FROM_CALIBRATION = "custom_from_calibration"
 FOV_GRAPHICS_VIEW_SIZE = 200
 PEN_WIDTH = 4
@@ -112,3 +124,43 @@ def fov_kwargs(core: CMMCorePlus) -> dict:
         *_, width, height = core.getROI()
         return {"fov_width": (width * px) or None, "fov_height": (height * px) or None}
     return {}
+
+
+class ResizingGraphicsView(QGraphicsView):
+    """A QGraphicsView that resizes the scene to fit the view."""
+
+    def __init__(self, scene: QGraphicsScene, parent: QWidget | None = None) -> None:
+        super().__init__(scene, parent)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        self.fitInView(self.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+
+def draw_well_plate(
+    view: QGraphicsView, scene: QGraphicsScene, plate: WellPlate, text: bool = True
+) -> None:
+    """Draw all wells of the plate."""
+    scene.clear()
+    width = plate.well_size_x
+    height = plate.well_size_y
+
+    dx = plate.well_spacing_x - plate.well_size_x if plate.well_spacing_x else 0
+    dy = plate.well_spacing_y - plate.well_size_y if plate.well_spacing_y else 0
+
+    # the text size is the height of the well divided by 3
+    text_size = height / 3 if text else None
+
+    # draw the wells and place them in their correct row/column position
+    for row, col in product(range(plate.rows), range(plate.cols)):
+        _x = (width * col) + (dx * col)
+        _y = (height * row) + (dy * row)
+        well = _Well(_x, _y, width, height, row, col, text_size, plate.circular)
+        scene.addItem(well)
+
+    # set the scene size
+    plate_width = (width * plate.cols) + (dx * (plate.cols - 1))
+    plate_height = (height * plate.rows) + (dy * (plate.rows - 1))
+    # adding -5 and +10 to the scene rect to have a bit of space around the plate
+    scene.setSceneRect(-3, -3, plate_width + 6, plate_height + 6)
+    # fit scene in view
+    view.fitInView(view.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
