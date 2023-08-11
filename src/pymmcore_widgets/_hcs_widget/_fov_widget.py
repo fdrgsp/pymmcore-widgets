@@ -42,7 +42,7 @@ GRID = "Grid"
 CENTER_TAB_INDEX = 0
 RANDOM_TAB_INDEX = 1
 GRID_TAB_INDEX = 2
-FOV_GRAPHICS_VIEW = 200
+FOV_GRAPHICS_VIEW_SIZE = 200
 OFFSET = 20
 PEN_WIDTH = 4
 WELL_PLATE = WellPlate("", True, 0, 0, 0, 0, 0, 0)
@@ -361,11 +361,10 @@ class _FOVSelectrorWidget(QWidget):
 
         # graphics scene to draw the well and the fovs
         self.scene = QGraphicsScene()
-        self.scene.setSceneRect(0, 0, FOV_GRAPHICS_VIEW, FOV_GRAPHICS_VIEW)
         self.view = ResizingGraphicsView(self.scene, self)
         self.view.setStyleSheet("background:grey; border-radius: 5px;")
-        self.view.setMinimumSize(FOV_GRAPHICS_VIEW, FOV_GRAPHICS_VIEW)
-        self.view.setSceneRect(0, 0, FOV_GRAPHICS_VIEW, FOV_GRAPHICS_VIEW)
+        self.view.setMinimumSize(FOV_GRAPHICS_VIEW_SIZE, FOV_GRAPHICS_VIEW_SIZE)
+        self.view.setSceneRect(0, 0, FOV_GRAPHICS_VIEW_SIZE, FOV_GRAPHICS_VIEW_SIZE)
         # contral, random and grid widgets
         self.center_wdg = _CenterFOVWidget()
         self.random_wdg = _RandomFOVWidget()
@@ -410,7 +409,7 @@ class _FOVSelectrorWidget(QWidget):
         # set the size of the well in pixel maintaining the ratio between
         # the well size x and y. The offset is used to leave some space between the
         # well plate and the border of the scene (scene SceneRect set in __init__).
-        well_size_px = FOV_GRAPHICS_VIEW - OFFSET
+        well_size_px = FOV_GRAPHICS_VIEW_SIZE - OFFSET
         if well_plate.well_size_x == well_plate.well_size_y:
             size_x = size_y = well_size_px
         elif well_plate.well_size_x > well_plate.well_size_y:
@@ -423,8 +422,8 @@ class _FOVSelectrorWidget(QWidget):
             size_y = well_size_px
 
         # draw the well area
-        x = (FOV_GRAPHICS_VIEW - size_x) / 2
-        y = (FOV_GRAPHICS_VIEW - size_y) / 2
+        x = (FOV_GRAPHICS_VIEW_SIZE - size_x) / 2
+        y = (FOV_GRAPHICS_VIEW_SIZE - size_y) / 2
         w = size_x
         h = size_y
 
