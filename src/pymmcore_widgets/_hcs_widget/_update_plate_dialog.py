@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import string
-import warnings
 from dataclasses import asdict
 from pathlib import Path
 from typing import cast
@@ -100,6 +98,7 @@ class _PlateDatabaseWidget(QDialog):
         # columns
         cols_label = QLabel(text="Number of Columns:")
         self._cols = QSpinBox()
+        self._cols.setMaximum(26)  # 26 letters in the alphabet
         self._cols.setAlignment(AlignCenter)
         cols = _make_widget_with_label(cols_label, self._cols)
         # rows
@@ -329,13 +328,6 @@ class _PlateDatabaseWidget(QDialog):
 
     def value(self) -> WellPlate | None:
         """Return the well plate with the current values."""
-        ALPHABET = string.ascii_uppercase
-        if self._cols.value() > len(ALPHABET) or self._rows.value() > len(ALPHABET):
-            warnings.warn(
-                "Well name with multiple letter not yet implemented.", stacklevel=2
-            )
-            return None
-
         return WellPlate(
             circular=self._circular_checkbox.isChecked(),
             id=self._id.text(),
