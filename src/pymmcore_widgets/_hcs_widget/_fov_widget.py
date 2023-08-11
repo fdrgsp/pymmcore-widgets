@@ -365,8 +365,7 @@ class _FOVSelectrorWidget(QWidget):
         self.scene = QGraphicsScene()
         self.view = ResizingGraphicsView(self.scene, self)
         self.view.setStyleSheet("background:grey; border-radius: 5px;")
-        self.view.setFixedHeight(FOV_GRAPHICS_VIEW)
-        self.view.setMinimumWidth(FOV_GRAPHICS_VIEW)
+        self.view.setMinimumSize(FOV_GRAPHICS_VIEW, FOV_GRAPHICS_VIEW)
         # contral, random and grid widgets
         self.center_wdg = _CenterFOVWidget(view=self.view)
         self.random_wdg = _RandomFOVWidget()
