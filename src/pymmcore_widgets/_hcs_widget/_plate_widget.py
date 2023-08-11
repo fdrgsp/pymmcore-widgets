@@ -15,7 +15,6 @@ from qtpy.QtWidgets import (
 )
 
 from pymmcore_widgets._util import (
-    PLATE_GRAPHICS_VIEW_HEIGHT,
     ResizingGraphicsView,
     draw_well_plate,
 )
@@ -30,6 +29,7 @@ AlignCenter = Qt.AlignmentFlag.AlignCenter
 
 ALPHABET = string.ascii_uppercase
 CALIBRATED_PLATE: WellPlate | None = None
+PLATE_GRAPHICS_VIEW_HEIGHT = 320
 
 
 class _PlateWidget(QWidget):
