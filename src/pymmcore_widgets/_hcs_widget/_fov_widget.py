@@ -6,19 +6,17 @@ import random
 import time
 import warnings
 from enum import Enum
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import Any, NamedTuple
 
 import numpy as np
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtCore import Qt
+from qtpy.QtCore import QRectF, Qt
 from qtpy.QtGui import QPen
 from qtpy.QtWidgets import (
     QAbstractSpinBox,
     QComboBox,
     QDoubleSpinBox,
-    QGraphicsEllipseItem,
     QGraphicsLineItem,
-    QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsView,
     QHBoxLayout,
@@ -36,9 +34,7 @@ from superqt.utils import signals_blocked
 from pymmcore_widgets._util import ResizingGraphicsView
 
 from ._graphics_items import _FOVPoints, _WellArea
-
-if TYPE_CHECKING:
-    from ._well_plate_model import WellPlate
+from ._well_plate_model import WellPlate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 CENTER = "Center"
@@ -50,6 +46,7 @@ GRID_TAB_INDEX = 2
 FOV_GRAPHICS_VIEW = 200
 FOV_SCENE_SIZE = FOV_GRAPHICS_VIEW - 10
 PEN_WIDTH = 4
+WELL_PLATE = WellPlate("", True, 0, 0, 0, 0, 0, 0)
 
 
 class Center(NamedTuple):
@@ -57,8 +54,6 @@ class Center(NamedTuple):
 
     area_x: float
     area_y: float
-    x: float
-    y: float
 
 
 class Random(NamedTuple):
@@ -186,8 +181,6 @@ class _CenterFOVWidget(QWidget):
         """Return the values of the widgets."""
         # x and y are the center of the well in view pixels
         return Center(
-            x=self.view.sceneRect().center().x(),
-            y=self.view.sceneRect().center().y(),
             area_x=self.plate_area_center_x.value(),
             area_y=self.plate_area_center_y.value(),
         )
@@ -363,12 +356,10 @@ class _FOVSelectrorWidget(QWidget):
 
         self._mmc = mmcore or CMMCorePlus.instance()
 
-        self._scene_width_px: float = 0.0
-        self._scene_height_px: float = 0.0
-        self._well_width_mm: float = 0.0
-        self._well_height_mm: float = 0.0
-        self._circular: bool = False
-        self._plate: WellPlate | None = None
+        self._plate: WellPlate = WELL_PLATE
+        self._well_size_x_px: float = 0.0
+        self._well_size_y_px: float = 0.0
+        self._reference_area: QRectF = QRectF()
 
         # graphics scene to draw the well and the fovs
         self.scene = QGraphicsScene()
@@ -376,22 +367,10 @@ class _FOVSelectrorWidget(QWidget):
         self.view.setStyleSheet("background:grey; border-radius: 5px;")
         self.view.setFixedHeight(FOV_GRAPHICS_VIEW)
         self.view.setMinimumWidth(FOV_GRAPHICS_VIEW)
-        # contral widget
+        # contral, random and grid widgets
         self.center_wdg = _CenterFOVWidget(view=self.view)
-        # random fov widget
         self.random_wdg = _RandomFOVWidget()
-        self.random_wdg.plate_area_x.valueChanged.connect(self._on_random_area_changed)
-        self.random_wdg.plate_area_x.valueChanged.connect(self._update_plate_area_y)
-        self.random_wdg.plate_area_y.valueChanged.connect(self._on_random_area_changed)
-        self.random_wdg.number_of_FOV.valueChanged.connect(self._on_nFOV_changed)
-        self.random_wdg.random_button.clicked.connect(self._on_random_button_pressed)
-        # grid fovs widget
         self.grid_wdg = _GridFovWidget()
-        self.grid_wdg.rows.valueChanged.connect(self._on_grid_changed)
-        self.grid_wdg.cols.valueChanged.connect(self._on_grid_changed)
-        self.grid_wdg.overlap_x.valueChanged.connect(self._on_grid_changed)
-        self.grid_wdg.overlap_y.valueChanged.connect(self._on_grid_changed)
-        self.grid_wdg.order_combo.currentIndexChanged.connect(self._on_grid_changed)
         # add widgets in a tab widget
         self.tab_wdg = QTabWidget()
         self.tab_wdg.setMinimumHeight(150)
@@ -409,6 +388,16 @@ class _FOVSelectrorWidget(QWidget):
         # connect
         self.tab_wdg.currentChanged.connect(self._on_tab_changed)
         self._mmc.events.pixelSizeChanged.connect(self._on_px_size_changed)
+        self.random_wdg.plate_area_x.valueChanged.connect(self._on_random_area_changed)
+        self.random_wdg.plate_area_x.valueChanged.connect(self._update_plate_area_y)
+        self.random_wdg.plate_area_y.valueChanged.connect(self._on_random_area_changed)
+        self.random_wdg.number_of_FOV.valueChanged.connect(self._on_nFOV_changed)
+        self.random_wdg.random_button.clicked.connect(self._on_random_button_pressed)
+        self.grid_wdg.rows.valueChanged.connect(self._on_grid_changed)
+        self.grid_wdg.cols.valueChanged.connect(self._on_grid_changed)
+        self.grid_wdg.overlap_x.valueChanged.connect(self._on_grid_changed)
+        self.grid_wdg.overlap_y.valueChanged.connect(self._on_grid_changed)
+        self.grid_wdg.order_combo.currentIndexChanged.connect(self._on_grid_changed)
 
     def _load_plate_info(self, well_plate: WellPlate) -> None:
         """Load the information of the well plate.
@@ -422,22 +411,22 @@ class _FOVSelectrorWidget(QWidget):
         # set the size of the well plate size in pixels depending on the FOV_SCENE_SIZE
         # variable.
         if well_plate.well_size_x == well_plate.well_size_y:
-            width = height = FOV_SCENE_SIZE
+            size_x = size_y = FOV_SCENE_SIZE
         elif well_plate.well_size_x > well_plate.well_size_y:
-            width = FOV_SCENE_SIZE
+            size_x = FOV_SCENE_SIZE
             # keep the ratio between well_size_x and well_size_y
-            height = int(
+            size_y = int(
                 FOV_SCENE_SIZE * well_plate.well_size_y / well_plate.well_size_x
             )
         else:
             # keep the ratio between well_size_x and well_size_y
-            width = int(
+            size_x = int(
                 FOV_SCENE_SIZE * well_plate.well_size_x / well_plate.well_size_y
             )
-            height = FOV_SCENE_SIZE
+            size_y = FOV_SCENE_SIZE
 
         # draw the well area
-        area = (0, 0, width, height)
+        area = (0, 0, size_x, size_y)
         pen = QPen(Qt.GlobalColor.green)
         pen.setWidth(PEN_WIDTH)
         if well_plate.circular:
@@ -445,41 +434,56 @@ class _FOVSelectrorWidget(QWidget):
         else:
             self.scene.addRect(*area, pen=pen)
 
+        self._reference_area = QRectF(*area)
+
         # using -5 and +10 to add some space around the plate
-        self.scene.setSceneRect(-5, -5, width + 10, height + 10)
+        self.scene.setSceneRect(-5, -5, size_x + 10, size_y + 10)
 
         # set variables
-        self._scene_width_px = width
-        self._scene_height_px = height
-        self._well_width_mm = round(well_plate.well_size_x, 3)
-        self._well_height_mm = round(well_plate.well_size_y, 3)
-        self._circular = well_plate.circular
+        self._well_size_x_px = size_x
+        self._well_size_y_px = size_y
 
         # set the values of the center widget
-        self.center_wdg.setValue(
-            Center(
-                well_plate.well_size_x,
-                well_plate.well_size_y,
-                self.scene.sceneRect().center().x(),
-                self.scene.sceneRect().center().y(),
-            )
-        )
+        self._update_center_wdg()
 
         # set the values of the random widget
-        self.random_wdg.plate_area_y.setEnabled(not self._circular)
-        self.random_wdg.setValue(
-            Random(well_plate.well_size_x, well_plate.well_size_y, 1)
-        )
-        self.random_wdg.plate_area_y.setButtonSymbols(
-            QAbstractSpinBox.ButtonSymbols.NoButtons
-            if self._circular
-            else QAbstractSpinBox.ButtonSymbols.UpDownArrows
-        )
-        self.random_wdg.plate_area_x.setEnabled(True)
+        self._update_random_wdg()
 
         # update the scene with the new pl,ate information
         mode = self.tab_wdg.tabText(self.tab_wdg.currentIndex())
         self._update_scene(mode)
+
+    def _update_center_wdg(self) -> None:
+        """Update the center widget."""
+        self.center_wdg.setValue(
+            Center(self._plate.well_size_x, self._plate.well_size_y)
+        )
+
+    def _update_random_wdg(self) -> None:
+        """Update the random widget."""
+        self.random_wdg.plate_area_y.setEnabled(not self._plate.circular)
+        # not using self.random_wdg.setValue because we need to block the signals
+        with signals_blocked(self.random_wdg.plate_area_x):
+            self.random_wdg.plate_area_x.setMaximum(self._plate.well_size_x)
+            self.random_wdg.plate_area_x.setValue(self._plate.well_size_x)
+        with signals_blocked(self.random_wdg.plate_area_y):
+            self.random_wdg.plate_area_y.setMaximum(self._plate.well_size_y)
+            self.random_wdg.plate_area_y.setValue(self._plate.well_size_y)
+        self.random_wdg.plate_area_y.setButtonSymbols(
+            QAbstractSpinBox.ButtonSymbols.NoButtons
+            if self._plate.circular
+            else QAbstractSpinBox.ButtonSymbols.UpDownArrows
+        )
+
+    def _set_spinboxes_values(
+        self, spin_x: QDoubleSpinBox, spin_y: QDoubleSpinBox
+    ) -> None:
+        with signals_blocked(spin_x):
+            spin_x.setMaximum(self._plate.well_size_x)
+            spin_x.setValue(self._plate.well_size_x)
+        with signals_blocked(spin_y):
+            spin_y.setMaximum(self._plate.well_size_y)
+            spin_y.setValue(self._plate.well_size_y)
 
     def _remove_items(self, item_types: Any | tuple[Any]) -> None:
         """Remove all items of `item_types` from the scene."""
@@ -598,8 +602,8 @@ class _FOVSelectrorWidget(QWidget):
         if image_width_mm is None or image_height_mm is None:
             return 1.0, 1.0
 
-        max_well_size_mm = max(self._well_width_mm, self._well_height_mm)
-        max_scene = max(self._scene_width_px, self._scene_height_px)
+        max_well_size_mm = max(self._plate.well_size_x, self._plate.well_size_y)
+        max_scene = max(self._well_size_x_px, self._well_size_y_px)
 
         # calculating the image size in scene px
         image_width_px = (max_scene * image_width_mm) / max_well_size_mm
@@ -645,14 +649,8 @@ class _FOVSelectrorWidget(QWidget):
         line_pen.setWidth(2)
         x = y = None
         for idx, (xc, yc) in enumerate(points):
-            # set the pen color to green for the first fov if the tab is the random one
-            pen = (
-                QPen(Qt.GlobalColor.white)
-                if idx == 0
-                and self.tab_wdg.currentIndex() == RANDOM_TAB_INDEX
-                and self.random_wdg.number_of_FOV.value() > 1
-                else None
-            )
+            # set the pen color to white for the first fov if the tab is the random one
+            pen = self._get_pen(idx)
             # draw the fovs
             img_w, img_h = self._get_image_size_in_px()
             fovs = _FOVPoints(xc, yc, img_w, img_h, self.scene.sceneRect(), pen)
@@ -662,9 +660,22 @@ class _FOVSelectrorWidget(QWidget):
                 self.scene.addLine(x, y, xc, yc, pen=line_pen)
             x, y = (xc, yc)
 
+    def _get_pen(self, index: int) -> QPen:
+        """Return the pen for the fovs.
+
+        Return white color for the first fov if the tab is the random one.
+        """
+        return (
+            QPen(Qt.GlobalColor.white)
+            if index == 0
+            and self.tab_wdg.currentIndex() == RANDOM_TAB_INDEX
+            and self.random_wdg.number_of_FOV.value() > 1
+            else None
+        )
+
     def _update_plate_area_y(self, value: float) -> None:
         """Update the plate area y value if the plate has circular wells."""
-        if not self._circular:
+        if not self._plate.circular:
             return
         self.random_wdg.plate_area_y.setValue(value)
 
@@ -681,21 +692,8 @@ class _FOVSelectrorWidget(QWidget):
         They can be either random points in a circle or in a square/rectangle depending
         on the well shape.
         """
-        if self._plate is None:
-            return []
-
-        # get the already existing well in the scene as a reference for scene
-        # center coordinates and size
-        reference_well_area: QGraphicsEllipseItem | QGraphicsRectItem | None = None
-        for i in self.scene.items():
-            if isinstance(i, (QGraphicsEllipseItem, QGraphicsRectItem)):
-                reference_well_area = i
-                break
-        if reference_well_area is None:
-            return []
-
         # get the rect of the reference well area
-        rect = reference_well_area.rect()
+        rect = self._reference_area
 
         # convert the well area from mm to px
         well_area_x_px = rect.width() * area_x_mm / self._plate.well_size_x
@@ -706,67 +704,64 @@ class _FOVSelectrorWidget(QWidget):
         y = rect.center().y() - (well_area_y_px / 2)
 
         # draw the well area
-        self.scene.addItem(
-            _WellArea(self._circular, x, y, well_area_x_px, well_area_y_px, PEN_WIDTH)
+
+        area = _WellArea(
+            self._plate.circular, x, y, well_area_x_px, well_area_y_px, PEN_WIDTH
         )
+        self.scene.addItem(area)
 
         # minimum distance between the fovs in px
         if image_width_mm is None or image_height_mm is None:
             min_dist_px_x = min_dist_px_y = 0.0
         else:
-            min_dist_px_x = (self._scene_width_px * image_width_mm) / area_x_mm
-            min_dist_px_y = (self._scene_height_px * image_height_mm) / area_y_mm
+            min_dist_px_x = (self._well_size_x_px * image_width_mm) / area_x_mm
+            min_dist_px_y = (self._well_size_y_px * image_height_mm) / area_y_mm
 
-        if self._circular:
-            points = self._random_points_in_circle(
-                nFOV, well_area_x_px, x, y, min_dist_px_x, min_dist_px_y
-            )
-        else:
-            well_area_x_px = (self._scene_width_px * area_x_mm) / self._well_width_mm
-            well_area_y_px = (self._scene_height_px * area_y_mm) / self._well_height_mm
-            x = self.scene.sceneRect().center().x()
-            y = self.scene.sceneRect().center().y()
-            points = self._random_points_in_rectangle(
-                nFOV, well_area_x_px, well_area_y_px, x, y, min_dist_px_x, min_dist_px_y
-            )
+        # generate random points
+        points = self._generate_random_points(
+            nFOV, area._rect, min_dist_px_x, min_dist_px_y
+        )
 
         return self._order_points(points)
 
-    def _random_points_in_circle(
-        self,
-        nFOV: int,
-        diameter: float,
-        center_x: float,
-        center_y: float,
-        min_dist_x: float,
-        min_dist_y: float,
+    def _generate_random_points(
+        self, nFOV: int, rect: QRectF, min_dist_x: float, min_dist_y: float
     ) -> list[tuple[float, float]]:
-        """Create a list of random points in a specified circle.
-
-        The points have a minimum distance from each other defined by `min_dist_x` and
-        `min_dist_y`.
-        """
-        radius = diameter / 2
+        """Generate a list of random points in a circle or in a rectangle."""
         points: list[tuple[float, float]] = []
-        _t = time.time()
+
+        t = time.time()
         while len(points) < nFOV:
-            angle = random.uniform(0, 2 * math.pi)
-            x = center_x + radius + random.uniform(0, radius) * math.cos(angle)
-            y = center_y + radius + random.uniform(0, radius) * math.sin(angle)
-            new_point = (x, y)
-            if self.is_a_valid_point(new_point, points, min_dist_x, min_dist_y):
-                points.append(new_point)
+            # random point in circle
+            if self._plate.circular:
+                x, y = self._random_point_in_circle(rect)
+            else:
+                x, y = self._random_point_in_rectangle(rect)
+
+            if self.is_a_valid_point((x, y), points, min_dist_x, min_dist_y):
+                points.append((x, y))
             # raise a warning if it takes longer than 200ms to generate the points.
-            if time.time() - _t > 0.25:
-                warnings.warn(
-                    f"Unable to generate {nFOV} fovs. "
-                    f"Only {len(points)} were generated.",
-                    stacklevel=2,
-                )
-                with signals_blocked(self.random_wdg.number_of_FOV):
-                    self.random_wdg.number_of_FOV.setValue(len(points) or 1)
+            if time.time() - t > 0.25:
+                self._raise_points_warning(nFOV, len(points))
                 return points
+
         return points
+
+    def _random_point_in_circle(self, rect: QRectF) -> tuple[float, float]:
+        """Generate a random point in a circle."""
+        radius = rect.width() / 2
+        center_x = rect.center().x()
+        center_y = rect.center().y()
+        angle = random.uniform(0, 2 * math.pi)
+        x = center_x + radius + random.uniform(0, radius) * math.cos(angle)
+        y = center_y + radius + random.uniform(0, radius) * math.sin(angle)
+        return (x, y)
+
+    def _random_point_in_rectangle(self, rect: QRectF) -> tuple[float, float]:
+        """Generate a random point in a rectangle."""
+        x = np.random.uniform(rect.left(), rect.right())
+        y = np.random.uniform(rect.top(), rect.bottom())
+        return (x, y)
 
     def is_a_valid_point(
         self,
@@ -786,71 +781,14 @@ class _FOVSelectrorWidget(QWidget):
             for point in existing_points
         )
 
-    def _random_points_in_rectangle(
-        self,
-        nFOV: int,
-        size_x: float,
-        size_y: float,
-        max_size_x: int,
-        max_size_y: int,
-        min_dist_x: float,
-        min_dist_y: float,
-    ) -> list[tuple[float, float]]:
-        """Create a list of random points in a square/rectangle.
-
-        The points have a minimum distance from each other defined by `min_dist_x` and
-        `min_dist_y`.
-        """
-        x_left = (max_size_x - size_x) / 2  # left bound
-        x_right = x_left + size_x  # right bound
-        y_up = (max_size_y - size_y) / 2  # upper bound
-        y_down = y_up + size_y  # lower bound
-
-        points: list[tuple[float, float]] = []
-
-        t = time.time()
-        while len(points) < nFOV:
-            x = np.random.uniform(x_left, x_right)
-            y = np.random.uniform(y_up, y_down)
-            if self._is_distant((x, y), points, (min_dist_x, min_dist_y)):
-                points.append((x, y))
-            t1 = time.time()
-            if t1 - t > 0.5:
-                warnings.warn(
-                    f"Area too small to generate {nFOV} fovs. "
-                    f"Only {len(points)} were generated.",
-                    stacklevel=2,
-                )
-                with signals_blocked(self.random_wdg.number_of_FOV):
-                    self.random_wdg.number_of_FOV.setValue(len(points))
-                return points
-        return points
-
-    def _is_distant(
-        self,
-        new_point: tuple[float, float],
-        points: list[tuple[float, float]],
-        min_distance: tuple[float, float],
-    ) -> bool:
-        x_new, y_new = new_point[0], new_point[1]
-        min_distance_x, min_distance_y = min_distance[0], min_distance[1]
-        for point in points:
-            x, y = point[0], point[1]
-            x_max, x_min = max(x, x_new), min(x, x_new)
-            y_max, y_min = max(y, y_new), min(y, y_new)
-            if x_max - x_min < min_distance_x and y_max - y_min < min_distance_y:
-                return False
-        return True
-
-    def _set_spinboxes_values(
-        self, spin_x: QDoubleSpinBox, spin_y: QDoubleSpinBox
-    ) -> None:
-        with signals_blocked(spin_x):
-            spin_x.setMaximum(self._well_width_mm)
-            spin_x.setValue(self._well_width_mm)
-        with signals_blocked(spin_y):
-            spin_y.setMaximum(self._well_height_mm)
-            spin_y.setValue(self._well_height_mm)
+    def _raise_points_warning(self, nFOV: int, points: int) -> None:
+        """Display a warning the set number of points cannot be generated."""
+        warnings.warn(
+            f"Unable to generate {nFOV} fovs. " f"Only {points} were generated.",
+            stacklevel=2,
+        )
+        with signals_blocked(self.random_wdg.number_of_FOV):
+            self.random_wdg.number_of_FOV.setValue(points or 1)
 
     def _on_random_button_pressed(self) -> None:
         self._remove_items((_FOVPoints, QGraphicsLineItem))
@@ -885,8 +823,8 @@ class _FOVSelectrorWidget(QWidget):
         fovs = self._order_points(list(reversed(points)))
         fov_info = self._get_fov_info()
         scene_px_size_mm = (
-            self._well_width_mm / self._scene_width_px,
-            self._well_height_mm / self._scene_height_px,
+            self._plate.well_size_x / self._well_size_x_px,
+            self._plate.well_size_y / self._well_size_y_px,
         )
         return fovs, fov_info, scene_px_size_mm
 
@@ -904,7 +842,9 @@ class _FOVSelectrorWidget(QWidget):
         self._remove_items((_FOVPoints, QGraphicsLineItem))
 
         if isinstance(fov_info, Center):
-            self._draw_fovs([(fov_info.x, fov_info.y)])
+            x = self.scene.sceneRect().center().x()
+            y = self.scene.sceneRect().center().y()
+            self._draw_fovs([(x, y)])
             tab_idx = CENTER_TAB_INDEX
         elif isinstance(fov_info, Random):
             self.random_wdg.setValue(fov_info)
