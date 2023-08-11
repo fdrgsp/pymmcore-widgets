@@ -9,9 +9,9 @@ from qtpy.QtCore import Qt
 from qtpy.QtWidgets import QGroupBox, QSizePolicy, QVBoxLayout
 from superqt.utils import signals_blocked
 
+from ._custom_plate_widget import _PlateDatabaseWidget
 from ._fov_widget import Center, Grid, Random, _FOVSelectrorWidget
 from ._plate_widget import _PlateWidget
-from ._update_plate_dialog import _PlateDatabaseWidget
 from ._well_plate_model import PLATE_DB_PATH, WellPlate, load_database
 
 if TYPE_CHECKING:
