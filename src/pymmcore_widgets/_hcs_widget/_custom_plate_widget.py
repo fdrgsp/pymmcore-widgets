@@ -68,7 +68,7 @@ class _Table(QTableWidget):
         self.cellClicked.emit(self.currentRow(), 0)
 
 
-class _PlateDatabaseWidget(QDialog):
+class _CustomPlateWidget(QDialog):
     """Widget to create or edit a well plate in the database."""
 
     valueChanged = Signal(object)
