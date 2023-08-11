@@ -421,14 +421,16 @@ class _FOVSelectrorWidget(QWidget):
             size_x = int(well_size_px * well_plate.well_size_x / well_plate.well_size_y)
             size_y = well_size_px
 
-        # draw the well area
-        x = (FOV_GRAPHICS_VIEW_SIZE - size_x) / 2
-        y = (FOV_GRAPHICS_VIEW_SIZE - size_y) / 2
+        # set the position of the well plate in the scene using the center of the view
+        # QRectF as reference
+        x = self.view.sceneRect().center().x() - size_x / 2
+        y = self.view.sceneRect().center().y() - size_y / 2
         w = size_x
         h = size_y
 
         self._reference_well_area = QRectF(x, y, w, h)
 
+        # draw the well
         pen = QPen(Qt.GlobalColor.green)
         pen.setWidth(PEN_WIDTH)
         if well_plate.circular:
