@@ -18,7 +18,6 @@ from qtpy.QtWidgets import (
     QDoubleSpinBox,
     QGraphicsLineItem,
     QGraphicsScene,
-    QGraphicsView,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -44,7 +43,7 @@ CENTER_TAB_INDEX = 0
 RANDOM_TAB_INDEX = 1
 GRID_TAB_INDEX = 2
 FOV_GRAPHICS_VIEW = 200
-FOV_SCENE_SIZE = FOV_GRAPHICS_VIEW - 10
+OFFSET = 20
 PEN_WIDTH = 4
 WELL_PLATE = WellPlate("", True, 0, 0, 0, 0, 0, 0)
 
@@ -123,9 +122,8 @@ def _distance(point1: tuple[float, float], point2: tuple[float, float]) -> float
 class _CenterFOVWidget(QWidget):
     """Widget to select the center of the well as FOV of the plate."""
 
-    def __init__(self, parent: QWidget | None = None, *, view: QGraphicsView) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.view = view
         # well area doublespinbox along x
         self.plate_area_center_x = QDoubleSpinBox()
         self.plate_area_center_x.setEnabled(False)
@@ -357,22 +355,24 @@ class _FOVSelectrorWidget(QWidget):
         self._mmc = mmcore or CMMCorePlus.instance()
 
         self._plate: WellPlate = WELL_PLATE
+        self._reference_well_area: QRectF = QRectF()
         self._well_size_x_px: float = 0.0
         self._well_size_y_px: float = 0.0
-        self._reference_area: QRectF = QRectF()
 
         # graphics scene to draw the well and the fovs
         self.scene = QGraphicsScene()
+        self.scene.setSceneRect(0, 0, FOV_GRAPHICS_VIEW, FOV_GRAPHICS_VIEW)
         self.view = ResizingGraphicsView(self.scene, self)
         self.view.setStyleSheet("background:grey; border-radius: 5px;")
         self.view.setMinimumSize(FOV_GRAPHICS_VIEW, FOV_GRAPHICS_VIEW)
+        self.view.setSceneRect(0, 0, FOV_GRAPHICS_VIEW, FOV_GRAPHICS_VIEW)
         # contral, random and grid widgets
-        self.center_wdg = _CenterFOVWidget(view=self.view)
+        self.center_wdg = _CenterFOVWidget()
         self.random_wdg = _RandomFOVWidget()
         self.grid_wdg = _GridFovWidget()
         # add widgets in a tab widget
         self.tab_wdg = QTabWidget()
-        self.tab_wdg.setMinimumHeight(150)
+        self.tab_wdg.setMinimumHeight(self.tab_wdg.sizeHint().height())
         self.tab_wdg.addTab(self.center_wdg, CENTER)
         self.tab_wdg.addTab(self.random_wdg, RANDOM)
         self.tab_wdg.addTab(self.grid_wdg, GRID)
@@ -407,36 +407,35 @@ class _FOVSelectrorWidget(QWidget):
 
         self._plate = well_plate
 
-        # set the size of the well plate size in pixels depending on the FOV_SCENE_SIZE
-        # variable.
+        # set the size of the well in pixel maintaining the ratio between
+        # the well size x and y. The offset is used to leave some space between the
+        # well plate and the border of the scene (scene SceneRect set in __init__).
+        well_size_px = FOV_GRAPHICS_VIEW - OFFSET
         if well_plate.well_size_x == well_plate.well_size_y:
-            size_x = size_y = FOV_SCENE_SIZE
+            size_x = size_y = well_size_px
         elif well_plate.well_size_x > well_plate.well_size_y:
-            size_x = FOV_SCENE_SIZE
+            size_x = well_size_px
             # keep the ratio between well_size_x and well_size_y
-            size_y = int(
-                FOV_SCENE_SIZE * well_plate.well_size_y / well_plate.well_size_x
-            )
+            size_y = int(well_size_px * well_plate.well_size_y / well_plate.well_size_x)
         else:
             # keep the ratio between well_size_x and well_size_y
-            size_x = int(
-                FOV_SCENE_SIZE * well_plate.well_size_x / well_plate.well_size_y
-            )
-            size_y = FOV_SCENE_SIZE
+            size_x = int(well_size_px * well_plate.well_size_x / well_plate.well_size_y)
+            size_y = well_size_px
 
         # draw the well area
-        area = (0, 0, size_x, size_y)
+        x = (FOV_GRAPHICS_VIEW - size_x) / 2
+        y = (FOV_GRAPHICS_VIEW - size_y) / 2
+        w = size_x
+        h = size_y
+
+        self._reference_well_area = QRectF(x, y, w, h)
+
         pen = QPen(Qt.GlobalColor.green)
         pen.setWidth(PEN_WIDTH)
         if well_plate.circular:
-            self.scene.addEllipse(*area, pen=pen)
+            self.scene.addEllipse(self._reference_well_area, pen=pen)
         else:
-            self.scene.addRect(*area, pen=pen)
-
-        self._reference_area = QRectF(*area)
-
-        # using -5 and +10 to add some space around the plate
-        self.scene.setSceneRect(-5, -5, size_x + 10, size_y + 10)
+            self.scene.addRect(self._reference_well_area, pen=pen)
 
         # set variables
         self._well_size_x_px = size_x
@@ -691,25 +690,26 @@ class _FOVSelectrorWidget(QWidget):
         They can be either random points in a circle or in a square/rectangle depending
         on the well shape.
         """
-        # get the rect of the reference well area
-        rect = self._reference_area
-
-        # convert the well area from mm to px
-        well_area_x_px = rect.width() * area_x_mm / self._plate.well_size_x
-        well_area_y_px = rect.height() * area_y_mm / self._plate.well_size_y
+        # convert the well area from mm to px depending on the image size ant the well
+        # reference area (size of the well in pixel in the scene)
+        well_area_x_px = (
+            self._reference_well_area.width() * area_x_mm / self._plate.well_size_x
+        )
+        well_area_y_px = (
+            self._reference_well_area.height() * area_y_mm / self._plate.well_size_y
+        )
 
         # calculate the starting point of the well area
-        x = rect.center().x() - (well_area_x_px / 2)
-        y = rect.center().y() - (well_area_y_px / 2)
+        x = self._reference_well_area.center().x() - (well_area_x_px / 2)
+        y = self._reference_well_area.center().y() - (well_area_y_px / 2)
 
         # draw the well area
-
         area = _WellArea(
             self._plate.circular, x, y, well_area_x_px, well_area_y_px, PEN_WIDTH
         )
         self.scene.addItem(area)
 
-        # minimum distance between the fovs in px
+        # minimum distance between the fovs in px depending on the image size
         if image_width_mm is None or image_height_mm is None:
             min_dist_px_x = min_dist_px_y = 0.0
         else:
@@ -749,11 +749,9 @@ class _FOVSelectrorWidget(QWidget):
     def _random_point_in_circle(self, rect: QRectF) -> tuple[float, float]:
         """Generate a random point in a circle."""
         radius = rect.width() / 2
-        center_x = rect.center().x()
-        center_y = rect.center().y()
         angle = random.uniform(0, 2 * math.pi)
-        x = center_x + radius + random.uniform(0, radius) * math.cos(angle)
-        y = center_y + radius + random.uniform(0, radius) * math.sin(angle)
+        x = rect.center().x() + random.uniform(0, radius) * math.cos(angle)
+        y = rect.center().y() + random.uniform(0, radius) * math.sin(angle)
         return (x, y)
 
     def _random_point_in_rectangle(self, rect: QRectF) -> tuple[float, float]:
