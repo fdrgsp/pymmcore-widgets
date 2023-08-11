@@ -22,15 +22,13 @@ class _Well(QGraphicsItem):
 
     def __init__(
         self,
-        x: float,
-        y: float,
-        size_x: float,
-        size_y: float,
+        rect: QRectF,
         row: int,
         col: int,
-        text_size: float | None,
         circular: bool,
+        text_size: float | None,
         brush: QBrush | None = None,
+        pen: QPen | None = None,
     ) -> None:
         super().__init__()
 
@@ -41,7 +39,11 @@ class _Well(QGraphicsItem):
 
         self._brush = brush or QBrush(Qt.GlobalColor.green)
 
-        self._well_shape = QRectF(x, y, size_x, size_y)
+        default_pen = QPen(Qt.GlobalColor.black)
+        default_pen.setWidth(1)
+        self._pen = pen or default_pen
+
+        self._well_shape = rect
 
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
 
@@ -54,14 +56,21 @@ class _Well(QGraphicsItem):
         self._brush = brush
         self.update()
 
+    @property
+    def pen(self) -> QPen:
+        return self._pen
+
+    @pen.setter
+    def pen(self, pen: QPen) -> None:
+        self._pen = pen
+        self.update()
+
     def boundingRect(self) -> QRectF:
         return self._well_shape
 
     def paint(self, painter: QPainter, *args: Any) -> None:
         painter.setBrush(self._brush)
-        pen = QPen(Qt.GlobalColor.black)
-        pen.setWidth(1)
-        painter.setPen(pen)
+        painter.setPen(self._pen)
         # draw a circular or rectangular well
         if self._circular:
             painter.drawEllipse(self._well_shape)
@@ -90,20 +99,12 @@ class _Well(QGraphicsItem):
 class _WellArea(QGraphicsItem):
     """QGraphicsItem to draw the single well area for the _SelectFOV widget."""
 
-    def __init__(
-        self,
-        circular: bool,
-        start_x: float,
-        start_y: float,
-        width: float,
-        height: float,
-        pen_width: int,
-    ) -> None:
+    def __init__(self, rect: QRectF, circular: bool, pen_width: int) -> None:
         super().__init__()
 
         self._circular = circular
         self._pen_width = pen_width
-        self._rect = QRectF(start_x, start_y, width, height)
+        self._rect = rect
 
     def boundingRect(self) -> QRectF:
         return self._rect
@@ -142,7 +143,7 @@ class _FOVPoints(QGraphicsItem):
 
         self.fov_width = POINT_SIZE if fov_width == 1 else fov_width
         self.fov_height = POINT_SIZE if fov_height == 1 else fov_height
-        self.pen = pen or QPen(Qt.GlobalColor.black)
+        self.pen = pen or QPen(Qt.GlobalColor.white)
         self.pen.setWidth(2)
         self._use_brush = fov_width == 1 or fov_height == 1
 
@@ -152,7 +153,7 @@ class _FOVPoints(QGraphicsItem):
     def paint(self, painter: QPainter, *args) -> None:  # type: ignore
         painter.setPen(self.pen)
         if self._use_brush:
-            painter.setBrush(QBrush(Qt.GlobalColor.black))
+            painter.setBrush(QBrush(Qt.GlobalColor.white))
         start_x = self._center_x - (self.fov_width / 2)
         start_y = self._center_y - (self.fov_height / 2)
         painter.drawRect(QRectF(start_x, start_y, self.fov_width, self.fov_height))

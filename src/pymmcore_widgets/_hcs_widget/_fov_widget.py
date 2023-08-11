@@ -644,11 +644,11 @@ class _FOVSelectrorWidget(QWidget):
         represent the fovs acquidition order.
         """
         self._remove_items(_FOVPoints)
-        line_pen = QPen(Qt.GlobalColor.white)
+        line_pen = QPen(Qt.GlobalColor.black)
         line_pen.setWidth(2)
         x = y = None
         for idx, (xc, yc) in enumerate(points):
-            # set the pen color to white for the first fov if the tab is the random one
+            # set the pen color to black for the first fov if the tab is the random one
             pen = self._get_pen(idx)
             # draw the fovs
             img_w, img_h = self._get_image_size_in_px()
@@ -662,10 +662,10 @@ class _FOVSelectrorWidget(QWidget):
     def _get_pen(self, index: int) -> QPen:
         """Return the pen for the fovs.
 
-        Return white color for the first fov if the tab is the random one.
+        Return black color for the first fov if the tab is the random one.
         """
         return (
-            QPen(Qt.GlobalColor.white)
+            QPen(Qt.GlobalColor.black)
             if index == 0
             and self.tab_wdg.currentIndex() == RANDOM_TAB_INDEX
             and self.random_wdg.number_of_FOV.value() > 1
@@ -703,11 +703,9 @@ class _FOVSelectrorWidget(QWidget):
         # calculate the starting point of the well area
         x = self._reference_well_area.center().x() - (well_area_x_px / 2)
         y = self._reference_well_area.center().y() - (well_area_y_px / 2)
-
+        rect = QRectF(x, y, well_area_x_px, well_area_y_px)
         # draw the well area
-        area = _WellArea(
-            self._plate.circular, x, y, well_area_x_px, well_area_y_px, PEN_WIDTH
-        )
+        area = _WellArea(rect, self._plate.circular, PEN_WIDTH)
         self.scene.addItem(area)
 
         # minimum distance between the fovs in px depending on the image size

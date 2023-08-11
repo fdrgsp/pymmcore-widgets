@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, ContextManager, Sequence
 import useq
 from pymmcore_plus import CMMCorePlus
 from pymmcore_plus.core.events import CMMCoreSignaler, PCoreSignaler
-from qtpy.QtCore import Qt
+from qtpy.QtCore import QRectF, Qt
 from qtpy.QtWidgets import (
     QComboBox,
     QDialog,
@@ -22,7 +22,7 @@ from superqt.utils import signals_blocked
 from ._hcs_widget._graphics_items import _Well
 
 if TYPE_CHECKING:
-    from qtpy.QtGui import QResizeEvent
+    from qtpy.QtGui import QBrush, QPen, QResizeEvent
 
     from ._hcs_widget._well_plate_model import WellPlate
 
@@ -134,7 +134,13 @@ class ResizingGraphicsView(QGraphicsView):
 
 
 def draw_well_plate(
-    view: QGraphicsView, scene: QGraphicsScene, plate: WellPlate, text: bool = True
+    view: QGraphicsView,
+    scene: QGraphicsScene,
+    plate: WellPlate,
+    brush: QBrush | None = None,
+    pen: QPen | None = None,
+    opacity: float = 1.0,
+    text: bool = True,
 ) -> None:
     """Draw all wells of the plate."""
     # setting a custom well size in scene px. Using 10 times the well size in mm
@@ -172,9 +178,12 @@ def draw_well_plate(
     for row, col in product(range(plate.rows), range(plate.cols)):
         _x = (well_width * col) + (dx_px * col)
         _y = (well_height * row) + (dy_px * row)
-        scene.addItem(
-            _Well(_x, _y, well_width, well_height, row, col, text_size, plate.circular)
-        )
+        rect = QRectF(_x, _y, well_width, well_height)
+        w = _Well(rect, row, col, plate.circular, text_size)
+        w.brush = brush
+        w.pen = pen
+        w.setOpacity(opacity)
+        scene.addItem(w)
 
     # # set the scene size
     plate_width = (well_width * plate.cols) + (dx_px * (plate.cols - 1))

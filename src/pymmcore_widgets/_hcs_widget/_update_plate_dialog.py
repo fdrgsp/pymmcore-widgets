@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import cast
 
 from qtpy.QtCore import Qt, Signal
+from qtpy.QtGui import QBrush, QPen
 from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -31,6 +32,10 @@ from ._well_plate_model import WellPlate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 StyleSheet = "background:grey; border: 0px; border-radius: 5px;"
+BRUSH = QBrush(Qt.GlobalColor.green)
+PEN = QPen(Qt.GlobalColor.black)
+PEN.setWidth(1)
+OPACITY = 0.9
 
 
 def _make_widget_with_label(label: QLabel, widget: QWidget) -> QWidget:
@@ -243,7 +248,15 @@ class _PlateDatabaseWidget(QDialog):
             item = QTableWidgetItem(plate_name)
             self.plate_table.setItem(row, 0, item)
         self._update_values(row=1, col=0)
-        draw_well_plate(self.view, self.scene, self._plate_db[plate_name], text=False)
+        draw_well_plate(
+            self.view,
+            self.scene,
+            self._plate_db[plate_name],
+            brush=BRUSH,
+            pen=PEN,
+            opacity=OPACITY,
+            text=False,
+        )
         self._id.adjustSize()
 
     def _update_values(self, row: int, col: int) -> None:
@@ -259,7 +272,15 @@ class _PlateDatabaseWidget(QDialog):
         plate = self.value()
         if plate is None:
             return
-        draw_well_plate(self.view, self.scene, plate, text=False)
+        draw_well_plate(
+            self.view,
+            self.scene,
+            plate,
+            brush=BRUSH,
+            pen=PEN,
+            opacity=OPACITY,
+            text=False,
+        )
 
     def _update_plate_db(self) -> None:
         """Update the well plate in database and in current session."""

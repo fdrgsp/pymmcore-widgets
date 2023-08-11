@@ -3,8 +3,8 @@ from __future__ import annotations
 import string
 from typing import TYPE_CHECKING
 
-from PyQt6.QtWidgets import QWidget
 from qtpy.QtCore import Qt, Signal
+from qtpy.QtGui import QBrush, QPen
 from qtpy.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -12,6 +12,7 @@ from qtpy.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
+    QWidget,
 )
 
 from pymmcore_widgets._util import (
@@ -30,6 +31,9 @@ AlignCenter = Qt.AlignmentFlag.AlignCenter
 ALPHABET = string.ascii_uppercase
 CALIBRATED_PLATE: WellPlate | None = None
 PLATE_GRAPHICS_VIEW_HEIGHT = 320
+BRUSH = QBrush(Qt.GlobalColor.green)
+PEN = QPen(Qt.GlobalColor.black)
+PEN.setWidth(1)
 
 
 class _PlateWidget(QWidget):
@@ -90,7 +94,9 @@ class _PlateWidget(QWidget):
         self._update_plate(self.wp_combo.currentText())
 
     def _update_plate(self, plate_name: str) -> None:
-        draw_well_plate(self.view, self.scene, self._plate_db[plate_name])
+        draw_well_plate(
+            self.view, self.scene, self._plate_db[plate_name], brush=BRUSH, pen=PEN
+        )
         self.valueChanged.emit(self.current_plate())
 
     def current_plate(self) -> WellPlate:
