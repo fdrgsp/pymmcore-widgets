@@ -220,7 +220,7 @@ class _PlateDatabaseWidget(QDialog):
         self.layout().addWidget(bottom_groupbox)
         self.layout().addWidget(btn_wdg)
 
-        self.setFixedHeight(self.sizeHint().height())
+        self.setMinimumHeight(self.sizeHint().height())
 
         # connect all widgets to their valueChanged signal
         for wdg in (
