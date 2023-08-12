@@ -15,6 +15,7 @@ class WellInfo(NamedTuple):
     well_name: str
     row: int
     col: int
+    well_shape: QRectF
 
 
 class _Well(QGraphicsItem):
@@ -93,7 +94,7 @@ class _Well(QGraphicsItem):
         row = self._row
         col = self._col
         well = f"{ALPHABET[self._row]}{self._col + 1}"
-        return WellInfo(well_name=well, row=row, col=col)
+        return WellInfo(well_name=well, row=row, col=col, well_shape=self._well_shape)
 
 
 class _WellArea(QGraphicsItem):

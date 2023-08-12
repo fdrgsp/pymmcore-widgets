@@ -35,7 +35,7 @@ StyleSheet = "background:grey; border: 0px; border-radius: 5px;"
 BRUSH = QBrush(Qt.GlobalColor.green)
 PEN = QPen(Qt.GlobalColor.black)
 PEN.setWidth(1)
-OPACITY = 0.9
+OPACITY = 0.7
 
 
 def _make_widget_with_label(label: QLabel, widget: QWidget) -> QWidget:
