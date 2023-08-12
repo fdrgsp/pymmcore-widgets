@@ -92,6 +92,7 @@ class HCSWizard(QWizard):
         _next.clicked.connect(self._on_next_clicked)
 
         _run = self.button(QWizard.WizardButton.FinishButton)  # name set in self.page3
+        _run.disconnect()  # disconnect default behavior
         _run.clicked.connect(self._on_finish_clicked)
 
         self.addPage(self.page1)
