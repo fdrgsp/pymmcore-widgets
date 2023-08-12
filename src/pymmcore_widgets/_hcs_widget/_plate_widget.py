@@ -30,7 +30,7 @@ AlignCenter = Qt.AlignmentFlag.AlignCenter
 
 ALPHABET = string.ascii_uppercase
 CALIBRATED_PLATE: WellPlate | None = None
-PLATE_GRAPHICS_VIEW_HEIGHT = 320
+PLATE_GRAPHICS_VIEW_HEIGHT = 440
 BRUSH = QBrush(Qt.GlobalColor.green)
 PEN = QPen(Qt.GlobalColor.black)
 PEN.setWidth(1)
@@ -80,6 +80,7 @@ class _PlateWidget(QWidget):
         self.view = ResizingGraphicsView(self.scene, self)
         self.view.setStyleSheet("background:grey; border-radius: 5px;")
         self.view.setMinimumHeight(PLATE_GRAPHICS_VIEW_HEIGHT)
+        self.view.setMinimumWidth(int(PLATE_GRAPHICS_VIEW_HEIGHT * 1.5))
 
         self.setLayout(QVBoxLayout())
         self.layout().setSpacing(15)

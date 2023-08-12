@@ -780,7 +780,7 @@ class _FOVSelectrorWidget(QWidget):
     def _raise_points_warning(self, nFOV: int, points: int) -> None:
         """Display a warning the set number of points cannot be generated."""
         warnings.warn(
-            f"Unable to generate {nFOV} fovs. " f"Only {points} were generated.",
+            f"Unable to generate {nFOV} fovs. Only {points} were generated.",
             stacklevel=2,
         )
         with signals_blocked(self.random_wdg.number_of_FOV):
