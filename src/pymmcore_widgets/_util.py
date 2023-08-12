@@ -137,8 +137,8 @@ def draw_well_plate(
     view: QGraphicsView,
     scene: QGraphicsScene,
     plate: WellPlate,
-    brush: QBrush | None = None,
-    pen: QPen | None = None,
+    brush: QBrush | None,
+    pen: QPen | None,
     opacity: float = 1.0,
     text: bool = True,
 ) -> None:

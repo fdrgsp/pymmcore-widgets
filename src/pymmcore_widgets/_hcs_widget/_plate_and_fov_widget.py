@@ -64,7 +64,9 @@ class PlateAndFovWidget(QWidget):
         self._plate_db_path = plate_database_path or PLATE_DB_PATH
         self._plate_db = load_database(self._plate_db_path)
 
-        self._plate_widget = _PlateWidget(plate_database=self._plate_db)
+        self._plate_widget = _PlateWidget(
+            plate_database=self._plate_db, plate_database_path=self._plate_db_path
+        )
         plate_groupbox = QGroupBox()
         plate_groupbox.setLayout(QVBoxLayout())
         plate_groupbox.layout().setContentsMargins(0, 0, 0, 0)
@@ -95,7 +97,9 @@ class PlateAndFovWidget(QWidget):
 
         # connect
         self._plate_widget.valueChanged.connect(self._update_fov_scene)
-        self._plate_widget.custom_plate.clicked.connect(self._show_custom_plate_dialog)
+        self._plate_widget.custom_plate_button.clicked.connect(
+            self._show_custom_plate_dialog
+        )
         self._plate.valueChanged.connect(self._update_plate_widget_combo)
 
     def _update_fov_scene(self, plate: WellPlate) -> None:

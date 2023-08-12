@@ -6,25 +6,28 @@ import random
 import time
 import warnings
 from enum import Enum
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 import numpy as np
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import QRectF, Qt
-from qtpy.QtGui import QPen
+from qtpy.QtGui import QPainter, QPaintEvent, QPen
 from qtpy.QtWidgets import (
     QAbstractSpinBox,
+    QButtonGroup,
     QComboBox,
     QDoubleSpinBox,
     QGraphicsLineItem,
     QGraphicsScene,
+    QGridLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QRadioButton,
     QSizePolicy,
     QSpacerItem,
     QSpinBox,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -42,7 +45,7 @@ GRID = "Grid"
 CENTER_TAB_INDEX = 0
 RANDOM_TAB_INDEX = 1
 GRID_TAB_INDEX = 2
-FOV_GRAPHICS_VIEW_SIZE = 200
+FOV_GRAPHICS_VIEW_SIZE = 300
 OFFSET = 20
 PEN_WIDTH = 4
 WELL_PLATE = WellPlate("", True, 0, 0, 0, 0, 0, 0)
@@ -119,36 +122,38 @@ def _distance(point1: tuple[float, float], point2: tuple[float, float]) -> float
     return math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
 
 
-class _CenterFOVWidget(QWidget):
+class _CenterFOVWidget(QGroupBox):
     """Widget to select the center of the well as FOV of the plate."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setTitle("Center")
+
         # well area doublespinbox along x
-        self.plate_area_center_x = QDoubleSpinBox()
-        self.plate_area_center_x.setEnabled(False)
-        self.plate_area_center_x.setButtonSymbols(
+        self.well_area_center_x = QDoubleSpinBox()
+        self.well_area_center_x.setEnabled(False)
+        self.well_area_center_x.setButtonSymbols(
             QAbstractSpinBox.ButtonSymbols.NoButtons
         )
-        self.plate_area_center_x.setAlignment(AlignCenter)
-        self.plate_area_center_x.setMinimum(1)
+        self.well_area_center_x.setAlignment(AlignCenter)
+        self.well_area_center_x.setMinimum(1)
         plate_area_label_x = _create_label("Area x (mm):")
         _plate_area_x = _make_wdg_with_label(
-            plate_area_label_x, self.plate_area_center_x
+            plate_area_label_x, self.well_area_center_x
         )
-        # well area doublespinbox along x
-        self.plate_area_center_y = QDoubleSpinBox()
-        self.plate_area_center_y.setEnabled(False)
-        self.plate_area_center_y.setButtonSymbols(
+        # well area doublespinbox along y
+        self.well_area_center_y = QDoubleSpinBox()
+        self.well_area_center_y.setEnabled(False)
+        self.well_area_center_y.setButtonSymbols(
             QAbstractSpinBox.ButtonSymbols.NoButtons
         )
-        self.plate_area_center_y.setAlignment(AlignCenter)
-        self.plate_area_center_y.setMinimum(1)
+        self.well_area_center_y.setAlignment(AlignCenter)
+        self.well_area_center_y.setMinimum(1)
         plate_area_label_y = _create_label("Area y (mm):")
         _plate_area_y = _make_wdg_with_label(
-            plate_area_label_y, self.plate_area_center_y
+            plate_area_label_y, self.well_area_center_y
         )
-        # fov spinbox
+        # number of FOVs spinbox
         nFOV_spin = QSpinBox()
         nFOV_spin.setEnabled(False)
         nFOV_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
@@ -156,6 +161,7 @@ class _CenterFOVWidget(QWidget):
         nFOV_spin.setValue(1)
         nFOV_label = _create_label("FOVs:")
         nFOV = _make_wdg_with_label(nFOV_label, nFOV_spin)
+
         # add widgets layout
         wdg = QWidget()
         wdg.setLayout(QVBoxLayout())
@@ -165,6 +171,20 @@ class _CenterFOVWidget(QWidget):
         wdg.layout().addWidget(_plate_area_y)
         wdg.layout().addWidget(nFOV)
 
+        self._radio_btn = QRadioButton()
+        self._radio_btn.setObjectName(CENTER)
+        self._radio_btn.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+
+        # widgets with radio button
+        wdg_radio = QWidget()
+        wdg_radio.setLayout(QHBoxLayout())
+        wdg_radio.layout().setSpacing(0)
+        wdg_radio.layout().setContentsMargins(0, 0, 0, 0)
+        wdg_radio.layout().addWidget(self._radio_btn)
+        wdg_radio.layout().addWidget(wdg)
+
         # set labels sizes
         for lbl in (plate_area_label_x, plate_area_label_y, nFOV_label):
             lbl.setMinimumWidth(plate_area_label_x.sizeHint().width())
@@ -173,28 +193,31 @@ class _CenterFOVWidget(QWidget):
         self.setLayout(QVBoxLayout())
         self.layout().setSpacing(0)
         self.layout().setContentsMargins(0, 0, 0, 0)
-        self.layout().addWidget(wdg)
+        self.layout().addWidget(wdg_radio)
 
     def value(self) -> Center:
         """Return the values of the widgets."""
         # x and y are the center of the well in view pixels
         return Center(
-            area_x=self.plate_area_center_x.value(),
-            area_y=self.plate_area_center_y.value(),
+            area_x=self.well_area_center_x.value(),
+            area_y=self.well_area_center_y.value(),
         )
 
     def setValue(self, center: Center) -> None:
         """Set the values of the widgets."""
-        self.plate_area_center_x.setValue(center.area_x)
-        self.plate_area_center_y.setValue(center.area_y)
+        self.well_area_center_x.setValue(center.area_x)
+        self.well_area_center_y.setValue(center.area_y)
 
 
-class _RandomFOVWidget(QWidget):
+class _RandomFOVWidget(QGroupBox):
     """Widget to select random FOVVs per well of the plate."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
+        self.setTitle("Random FOVs")
+
+        # well area doublespinbox along x
         self.plate_area_x = QDoubleSpinBox()
         self.plate_area_x.setAlignment(AlignCenter)
         self.plate_area_x.setMinimum(0.01)
@@ -202,6 +225,7 @@ class _RandomFOVWidget(QWidget):
         plate_area_label_x = _create_label("Area x (mm):")
         _plate_area_x = _make_wdg_with_label(plate_area_label_x, self.plate_area_x)
 
+        # well area doublespinbox along y
         self.plate_area_y = QDoubleSpinBox()
         self.plate_area_y.setAlignment(AlignCenter)
         self.plate_area_y.setMinimum(0.01)
@@ -209,6 +233,7 @@ class _RandomFOVWidget(QWidget):
         plate_area_label_y = _create_label("Area y (mm):")
         _plate_area_y = _make_wdg_with_label(plate_area_label_y, self.plate_area_y)
 
+        # number of FOVs spinbox
         self.number_of_FOV = QSpinBox()
         self.number_of_FOV.setAlignment(AlignCenter)
         self.number_of_FOV.setMinimum(1)
@@ -231,6 +256,20 @@ class _RandomFOVWidget(QWidget):
         wdg.layout().addItem(spacer)
         wdg.layout().addWidget(self.random_button)
 
+        self._radio_btn = QRadioButton()
+        self._radio_btn.setObjectName(RANDOM)
+        self._radio_btn.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+
+        # widgets with radio button
+        wdg_radio = QWidget()
+        wdg_radio.setLayout(QHBoxLayout())
+        wdg_radio.layout().setSpacing(0)
+        wdg_radio.layout().setContentsMargins(0, 0, 0, 0)
+        wdg_radio.layout().addWidget(self._radio_btn)
+        wdg_radio.layout().addWidget(wdg)
+
         # set labels sizes
         for lbl in (plate_area_label_x, plate_area_label_y, number_of_FOV_label):
             lbl.setMinimumWidth(plate_area_label_x.sizeHint().width())
@@ -239,7 +278,7 @@ class _RandomFOVWidget(QWidget):
         self.setLayout(QVBoxLayout())
         self.layout().setSpacing(0)
         self.layout().setContentsMargins(0, 0, 0, 0)
-        self.layout().addWidget(wdg)
+        self.layout().addWidget(wdg_radio)
 
     def value(self) -> Random:
         """Return the values of the widgets."""
@@ -256,11 +295,12 @@ class _RandomFOVWidget(QWidget):
         self.number_of_FOV.setValue(value.nFOV)
 
 
-class _GridFovWidget(QWidget):
+class _GridFovWidget(QGroupBox):
     """Widget to select a grid FOV per well of the plate."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setTitle("Grid FOVs")
 
         self.rows = QSpinBox()
         self.rows.setAlignment(AlignCenter)
@@ -309,6 +349,20 @@ class _GridFovWidget(QWidget):
         wdg.layout().addWidget(_overlap_y)
         wdg.layout().addWidget(_order_combo)
 
+        self._radio_btn = QRadioButton()
+        self._radio_btn.setObjectName(GRID)
+        self._radio_btn.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+
+        # widgets with radio button
+        wdg_radio = QWidget()
+        wdg_radio.setLayout(QHBoxLayout())
+        wdg_radio.layout().setSpacing(0)
+        wdg_radio.layout().setContentsMargins(0, 0, 0, 0)
+        wdg_radio.layout().addWidget(self._radio_btn)
+        wdg_radio.layout().addWidget(wdg)
+
         # set labels sizes
         for lbl in (
             rows_lbl,
@@ -323,7 +377,7 @@ class _GridFovWidget(QWidget):
         self.setLayout(QVBoxLayout())
         self.layout().setSpacing(0)
         self.layout().setContentsMargins(0, 0, 0, 0)
-        self.layout().addWidget(wdg)
+        self.layout().addWidget(wdg_radio)
 
     def value(self) -> Grid:
         """Return the values of the widgets."""
@@ -342,6 +396,19 @@ class _GridFovWidget(QWidget):
         self.overlap_x.setValue(value.overlap_x)
         self.overlap_y.setValue(value.overlap_y)
         self.order_combo.setCurrentText(value.order.value.name)
+
+
+class _SeparatorWidget(QWidget):
+    """Widget to separate widgets with a line."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFixedHeight(1)
+
+    def paintEvent(self, a0: QPaintEvent | None) -> None:
+        painter = QPainter(self)
+        painter.setPen(QPen(Qt.GlobalColor.gray, 1, Qt.PenStyle.SolidLine))
+        painter.drawLine(self.rect().topLeft(), self.rect().topRight())
 
 
 class _FOVSelectrorWidget(QWidget):
@@ -369,22 +436,28 @@ class _FOVSelectrorWidget(QWidget):
         self.center_wdg = _CenterFOVWidget()
         self.random_wdg = _RandomFOVWidget()
         self.grid_wdg = _GridFovWidget()
-        # add widgets in a tab widget
-        self.tab_wdg = QTabWidget()
-        self.tab_wdg.setMinimumHeight(self.tab_wdg.sizeHint().height())
-        self.tab_wdg.addTab(self.center_wdg, CENTER)
-        self.tab_wdg.addTab(self.random_wdg, RANDOM)
-        self.tab_wdg.addTab(self.grid_wdg, GRID)
+
+        self._mode_btn_group = QButtonGroup()
+        self._mode_btn_group.addButton(self.center_wdg._radio_btn)
+        self._mode_btn_group.addButton(self.random_wdg._radio_btn)
+        self._mode_btn_group.addButton(self.grid_wdg._radio_btn)
+        self._mode_btn_group.buttonToggled.connect(self._on_radiobutton_toggled)
 
         # main
-        self.setLayout(QHBoxLayout())
+        self.setLayout(QGridLayout())
         self.layout().setSpacing(10)
         self.layout().setContentsMargins(10, 10, 10, 10)
-        self.layout().addWidget(self.tab_wdg)
-        self.layout().addWidget(self.view)
+        # self.layout().addWidget(self.tab_wdg)
+        self.layout().addWidget(_SeparatorWidget(), 0, 0)
+        self.layout().addWidget(self.center_wdg, 1, 0)
+        self.layout().addWidget(_SeparatorWidget(), 2, 0)
+        self.layout().addWidget(self.random_wdg, 3, 0)
+        self.layout().addWidget(_SeparatorWidget(), 4, 0)
+        self.layout().addWidget(self.grid_wdg, 5, 0)
+        self.layout().addWidget(_SeparatorWidget(), 6, 0)
+        self.layout().addWidget(self.view, 0, 1, 7, 1)
 
         # connect
-        self.tab_wdg.currentChanged.connect(self._on_tab_changed)
         self._mmc.events.pixelSizeChanged.connect(self._on_px_size_changed)
         self.random_wdg.plate_area_x.valueChanged.connect(self._on_random_area_changed)
         self.random_wdg.plate_area_x.valueChanged.connect(self._update_plate_area_y)
@@ -397,6 +470,17 @@ class _FOVSelectrorWidget(QWidget):
         self.grid_wdg.overlap_y.valueChanged.connect(self._on_grid_changed)
         self.grid_wdg.order_combo.currentIndexChanged.connect(self._on_grid_changed)
 
+    @property
+    def plate(self) -> WellPlate:
+        """Return the well plate."""
+        return self._plate
+
+    @plate.setter
+    def plate(self, well_plate: WellPlate) -> None:
+        """Set the well plate."""
+        self._plate = well_plate
+        self._load_plate_info(well_plate)
+
     def _load_plate_info(self, well_plate: WellPlate) -> None:
         """Load the information of the well plate.
 
@@ -404,7 +488,7 @@ class _FOVSelectrorWidget(QWidget):
         """
         self.scene.clear()
 
-        self._plate = well_plate
+        # self._plate = well_plate
 
         # set the size of the well in pixel maintaining the ratio between
         # the well size x and y. The offset is used to leave some space between the
@@ -449,8 +533,15 @@ class _FOVSelectrorWidget(QWidget):
         self._update_random_wdg()
 
         # update the scene with the new pl,ate information
-        mode = self.tab_wdg.tabText(self.tab_wdg.currentIndex())
-        self._update_scene(mode)
+        self._update_scene(self._get_mode())
+
+    def _get_mode(self) -> str:
+        """Return the current mode."""
+        for btn in self._mode_btn_group.buttons():
+            if btn.isChecked():
+                mode = cast(str, btn.objectName())
+                return mode
+        return ""
 
     def _update_center_wdg(self) -> None:
         """Update the center widget."""
@@ -494,14 +585,13 @@ class _FOVSelectrorWidget(QWidget):
         """Update the scene when the pixel size is changed."""
         with contextlib.suppress(AttributeError):
             self._remove_items((_WellArea, _FOVPoints, QGraphicsLineItem))
-            mode = self.tab_wdg.tabText(self.tab_wdg.currentIndex())
-            self._update_scene(mode)
+            self._update_scene(self._get_mode())
 
-    def _on_tab_changed(self, tab_index: int) -> None:
+    def _on_radiobutton_toggled(self, radio_btn: QRadioButton) -> None:
         """Update the scene when the tab is changed."""
         self._remove_items((_WellArea, _FOVPoints, QGraphicsLineItem))
-        mode = self.tab_wdg.tabText(tab_index)
-        self._update_scene(mode)
+        if radio_btn.isChecked():
+            self._update_scene(self._get_mode())
 
     def _on_random_area_changed(self) -> None:
         """Update the _RandomWidget scene when the usable plate area is changed."""
@@ -667,7 +757,7 @@ class _FOVSelectrorWidget(QWidget):
         return (
             QPen(Qt.GlobalColor.black)
             if index == 0
-            and self.tab_wdg.currentIndex() == RANDOM_TAB_INDEX
+            and self.random_wdg._radio_btn.isChecked()
             and self.random_wdg.number_of_FOV.value() > 1
             else None
         )
@@ -822,11 +912,12 @@ class _FOVSelectrorWidget(QWidget):
             self._plate.well_size_x / self._well_size_x_px,
             self._plate.well_size_y / self._well_size_y_px,
         )
+        # TODO: make scene_px_size_mm class
         return fovs, fov_info, scene_px_size_mm
 
     def _get_fov_info(self) -> Center | Random | Grid:
         """Return the information about the FOVs."""
-        mode = self.tab_wdg.tabText(self.tab_wdg.currentIndex())
+        mode = self._get_mode()
         if mode == RANDOM:
             return self.random_wdg.value()
         elif mode == GRID:
@@ -853,4 +944,4 @@ class _FOVSelectrorWidget(QWidget):
         # drawn
         with signals_blocked(self.tab_wdg):
             self.tab_wdg.setCurrentIndex(tab_idx) or 0
-        self._on_tab_changed(tab_idx or 0)
+        self._on_radiobutton_toggled(tab_idx or 0)

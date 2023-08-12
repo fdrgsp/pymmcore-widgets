@@ -53,7 +53,9 @@ class _Well(QGraphicsItem):
         return self._brush
 
     @brush.setter
-    def brush(self, brush: QBrush) -> None:
+    def brush(self, brush: QBrush | None) -> None:
+        if brush is None:
+            return
         self._brush = brush
         self.update()
 
@@ -62,7 +64,9 @@ class _Well(QGraphicsItem):
         return self._pen
 
     @pen.setter
-    def pen(self, pen: QPen) -> None:
+    def pen(self, pen: QPen | None) -> None:
+        if pen is None:
+            return
         self._pen = pen
         self.update()
 
