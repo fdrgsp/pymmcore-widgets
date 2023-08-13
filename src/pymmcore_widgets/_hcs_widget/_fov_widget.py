@@ -134,6 +134,7 @@ class _CenterFOVWidget(QWidget):
         super().__init__(parent)
 
         lbl = QLabel(text="Center of the Well.")
+        lbl.setStyleSheet("font-weight: bold;")
         lbl.setAlignment(AlignCenter)
 
         # # add widgets layout
@@ -237,6 +238,7 @@ class _RandomFOVWidget(QWidget):
             lbl.setMinimumWidth(plate_area_label_x.sizeHint().width())
 
         title = QLabel(text="Random Fields of Views.")
+        title.setStyleSheet("font-weight: bold;")
         title.setAlignment(AlignCenter)
 
         # main
@@ -342,6 +344,7 @@ class _GridFovWidget(QWidget):
             lbl.setMinimumWidth(overlap_x_lbl.sizeHint().width())
 
         title = QLabel(text="Fields of Views in a Grid.")
+        title.setStyleSheet("font-weight: bold;")
         title.setAlignment(AlignCenter)
 
         # main
