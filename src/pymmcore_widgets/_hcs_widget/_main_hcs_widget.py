@@ -36,7 +36,7 @@ from pymmcore_widgets._util import (
 from ._calibration_widget import _PlateCalibration
 from ._custom_plate_widget import _CustomPlateWidget
 from ._fov_widget import _FOVSelectrorWidget
-from ._graphics_items import _FOVPoints, _Well
+from ._graphics_items import _FOVCoordinates, _Well
 from ._plate_graphics_scene import _HCSGraphicsScene
 from ._well_plate_model import PLATE_DB_PATH, WellPlate, load_database
 
@@ -450,7 +450,7 @@ class HCSWidget(QWidget):
         fovs = [
             item.get_center_and_size()
             for item in self._plate_and_fov_tab.FOV_selector.scene.items()
-            if isinstance(item, _FOVPoints)
+            if isinstance(item, _FOVCoordinates)
         ]
         fovs.reverse()
 

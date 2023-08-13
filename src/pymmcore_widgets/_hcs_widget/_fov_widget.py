@@ -26,7 +26,6 @@ from qtpy.QtWidgets import (
     QPushButton,
     QRadioButton,
     QSizePolicy,
-    QSpacerItem,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -35,27 +34,33 @@ from superqt.utils import signals_blocked
 
 from pymmcore_widgets._util import ResizingGraphicsView
 
-from ._graphics_items import _FOVPoints, _WellArea
+from ._graphics_items import FOV, _FOVCoordinates, _WellArea
 from ._well_plate_model import WellPlate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 CENTER = "Center"
+CENTER_BTN_ID = 0
 RANDOM = "Random"
+RANDOM_BTN_ID = 1
 GRID = "Grid"
-CENTER_TAB_INDEX = 0
-RANDOM_TAB_INDEX = 1
-GRID_TAB_INDEX = 2
+GRID_BTN_ID = 2
 FOV_GRAPHICS_VIEW_SIZE = 300
 OFFSET = 20
 PEN_WIDTH = 4
 WELL_PLATE = WellPlate("", True, 0, 0, 0, 0, 0, 0)
 
 
+class FOVs(NamedTuple):
+    """FOVs of the well plate."""
+
+    fov_info: Center | Random | Grid | None
+    fov_list: list[FOV]
+
+
 class Center(NamedTuple):
     """Center of the well as FOV of the plate."""
 
-    area_x: float
-    area_y: float
+    mode: str = CENTER
 
 
 class Random(NamedTuple):
@@ -64,6 +69,7 @@ class Random(NamedTuple):
     area_x: float
     area_y: float
     nFOV: int
+    mode: str = RANDOM
 
 
 class Grid(NamedTuple):
@@ -74,6 +80,7 @@ class Grid(NamedTuple):
     overlap_x: float
     overlap_y: float
     order: OrderMode
+    mode: str = GRID
 
 
 class OrderModeInfo(NamedTuple):
@@ -115,63 +122,30 @@ def _make_wdg_with_label(label: QLabel, wdg: QWidget) -> QWidget:
     return widget
 
 
-def _distance(point1: tuple[float, float], point2: tuple[float, float]) -> float:
+def _distance(point1: FOV, point2: FOV) -> float:
     """Return the Euclidean distance between two points."""
-    x1, y1 = point1
-    x2, y2 = point2
-    return math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+    return math.sqrt((point2.x - point1.x) ** 2 + (point2.y - point1.y) ** 2)
 
 
-class _CenterFOVWidget(QGroupBox):
+class _CenterFOVWidget(QWidget):
     """Widget to select the center of the well as FOV of the plate."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setTitle("Center")
 
-        # well area doublespinbox along x
-        self.well_area_center_x = QDoubleSpinBox()
-        self.well_area_center_x.setEnabled(False)
-        self.well_area_center_x.setButtonSymbols(
-            QAbstractSpinBox.ButtonSymbols.NoButtons
-        )
-        self.well_area_center_x.setAlignment(AlignCenter)
-        self.well_area_center_x.setMinimum(1)
-        plate_area_label_x = _create_label("Area x (mm):")
-        _plate_area_x = _make_wdg_with_label(
-            plate_area_label_x, self.well_area_center_x
-        )
-        # well area doublespinbox along y
-        self.well_area_center_y = QDoubleSpinBox()
-        self.well_area_center_y.setEnabled(False)
-        self.well_area_center_y.setButtonSymbols(
-            QAbstractSpinBox.ButtonSymbols.NoButtons
-        )
-        self.well_area_center_y.setAlignment(AlignCenter)
-        self.well_area_center_y.setMinimum(1)
-        plate_area_label_y = _create_label("Area y (mm):")
-        _plate_area_y = _make_wdg_with_label(
-            plate_area_label_y, self.well_area_center_y
-        )
-        # number of FOVs spinbox
-        nFOV_spin = QSpinBox()
-        nFOV_spin.setEnabled(False)
-        nFOV_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-        nFOV_spin.setAlignment(AlignCenter)
-        nFOV_spin.setValue(1)
-        nFOV_label = _create_label("FOVs:")
-        nFOV = _make_wdg_with_label(nFOV_label, nFOV_spin)
+        lbl = QLabel(text="Center of the Well.")
+        lbl.setAlignment(AlignCenter)
 
-        # add widgets layout
-        wdg = QWidget()
-        wdg.setLayout(QVBoxLayout())
-        wdg.layout().setSpacing(0)
-        wdg.layout().setContentsMargins(10, 10, 10, 10)
-        wdg.layout().addWidget(_plate_area_x)
-        wdg.layout().addWidget(_plate_area_y)
-        wdg.layout().addWidget(nFOV)
+        # # add widgets layout
+        self.wdg = QGroupBox()
+        self.wdg.setLayout(QVBoxLayout())
+        self.wdg.layout().setSpacing(0)
+        self.wdg.layout().setContentsMargins(10, 10, 10, 10)
+        self.wdg.layout().addWidget(lbl)
+        self.wdg.setEnabled(False)
 
         self._radio_btn = QRadioButton()
+        self._radio_btn.toggled.connect(self.wdg.setEnabled)
         self._radio_btn.setObjectName(CENTER)
         self._radio_btn.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
@@ -180,14 +154,10 @@ class _CenterFOVWidget(QGroupBox):
         # widgets with radio button
         wdg_radio = QWidget()
         wdg_radio.setLayout(QHBoxLayout())
-        wdg_radio.layout().setSpacing(0)
+        wdg_radio.layout().setSpacing(10)
         wdg_radio.layout().setContentsMargins(0, 0, 0, 0)
         wdg_radio.layout().addWidget(self._radio_btn)
-        wdg_radio.layout().addWidget(wdg)
-
-        # set labels sizes
-        for lbl in (plate_area_label_x, plate_area_label_y, nFOV_label):
-            lbl.setMinimumWidth(plate_area_label_x.sizeHint().width())
+        wdg_radio.layout().addWidget(self.wdg)
 
         # main
         self.setLayout(QVBoxLayout())
@@ -197,25 +167,18 @@ class _CenterFOVWidget(QGroupBox):
 
     def value(self) -> Center:
         """Return the values of the widgets."""
-        # x and y are the center of the well in view pixels
-        return Center(
-            area_x=self.well_area_center_x.value(),
-            area_y=self.well_area_center_y.value(),
-        )
+        return Center()
 
     def setValue(self, center: Center) -> None:
         """Set the values of the widgets."""
-        self.well_area_center_x.setValue(center.area_x)
-        self.well_area_center_y.setValue(center.area_y)
+        self._radio_btn.setChecked(True)
 
 
-class _RandomFOVWidget(QGroupBox):
+class _RandomFOVWidget(QWidget):
     """Widget to select random FOVVs per well of the plate."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-
-        self.setTitle("Random FOVs")
 
         # well area doublespinbox along x
         self.plate_area_x = QDoubleSpinBox()
@@ -241,22 +204,21 @@ class _RandomFOVWidget(QGroupBox):
         number_of_FOV_label = _create_label("FOVs:")
         nFOV = _make_wdg_with_label(number_of_FOV_label, self.number_of_FOV)
 
-        spacer = QSpacerItem(0, 10, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-
         self.random_button = QPushButton(text="Generate Random FOV(s)")
 
         # add widgets to wdg layout
-        wdg = QWidget()
-        wdg.setLayout(QVBoxLayout())
-        wdg.layout().setSpacing(5)
-        wdg.layout().setContentsMargins(10, 10, 10, 10)
-        wdg.layout().addWidget(_plate_area_x)
-        wdg.layout().addWidget(_plate_area_y)
-        wdg.layout().addWidget(nFOV)
-        wdg.layout().addItem(spacer)
-        wdg.layout().addWidget(self.random_button)
+        self.wdg = QGroupBox()
+        self.wdg.setLayout(QVBoxLayout())
+        self.wdg.layout().setSpacing(5)
+        self.wdg.layout().setContentsMargins(10, 10, 10, 10)
+        self.wdg.layout().addWidget(_plate_area_x)
+        self.wdg.layout().addWidget(_plate_area_y)
+        self.wdg.layout().addWidget(nFOV)
+        self.wdg.layout().addWidget(self.random_button)
+        self.wdg.setEnabled(False)
 
         self._radio_btn = QRadioButton()
+        self._radio_btn.toggled.connect(self.wdg.setEnabled)
         self._radio_btn.setObjectName(RANDOM)
         self._radio_btn.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
@@ -265,19 +227,23 @@ class _RandomFOVWidget(QGroupBox):
         # widgets with radio button
         wdg_radio = QWidget()
         wdg_radio.setLayout(QHBoxLayout())
-        wdg_radio.layout().setSpacing(0)
+        wdg_radio.layout().setSpacing(10)
         wdg_radio.layout().setContentsMargins(0, 0, 0, 0)
         wdg_radio.layout().addWidget(self._radio_btn)
-        wdg_radio.layout().addWidget(wdg)
+        wdg_radio.layout().addWidget(self.wdg)
 
         # set labels sizes
         for lbl in (plate_area_label_x, plate_area_label_y, number_of_FOV_label):
             lbl.setMinimumWidth(plate_area_label_x.sizeHint().width())
 
+        title = QLabel(text="Random Fields of Views.")
+        title.setAlignment(AlignCenter)
+
         # main
         self.setLayout(QVBoxLayout())
-        self.layout().setSpacing(0)
+        self.layout().setSpacing(10)
         self.layout().setContentsMargins(0, 0, 0, 0)
+        self.layout().addWidget(title)
         self.layout().addWidget(wdg_radio)
 
     def value(self) -> Random:
@@ -290,17 +256,17 @@ class _RandomFOVWidget(QGroupBox):
 
     def setValue(self, value: Random) -> None:
         """Set the values of the widgets."""
+        self._radio_btn.setChecked(True)
         self.plate_area_x.setValue(value.area_x)
         self.plate_area_y.setValue(value.area_y)
         self.number_of_FOV.setValue(value.nFOV)
 
 
-class _GridFovWidget(QGroupBox):
+class _GridFovWidget(QWidget):
     """Widget to select a grid FOV per well of the plate."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setTitle("Grid FOVs")
 
         self.rows = QSpinBox()
         self.rows.setAlignment(AlignCenter)
@@ -339,17 +305,19 @@ class _GridFovWidget(QGroupBox):
         _order_combo = _make_wdg_with_label(order_combo_lbl, self.order_combo)
 
         # add widgets to wdg layout
-        wdg = QWidget()
-        wdg.setLayout(QVBoxLayout())
-        wdg.layout().setSpacing(5)
-        wdg.layout().setContentsMargins(10, 10, 10, 10)
-        wdg.layout().addWidget(_rows)
-        wdg.layout().addWidget(_cols)
-        wdg.layout().addWidget(_overlap_x)
-        wdg.layout().addWidget(_overlap_y)
-        wdg.layout().addWidget(_order_combo)
+        self.wdg = QGroupBox()
+        self.wdg.setLayout(QVBoxLayout())
+        self.wdg.layout().setSpacing(5)
+        self.wdg.layout().setContentsMargins(10, 10, 10, 10)
+        self.wdg.layout().addWidget(_rows)
+        self.wdg.layout().addWidget(_cols)
+        self.wdg.layout().addWidget(_overlap_x)
+        self.wdg.layout().addWidget(_overlap_y)
+        self.wdg.layout().addWidget(_order_combo)
+        self.wdg.setEnabled(False)
 
         self._radio_btn = QRadioButton()
+        self._radio_btn.toggled.connect(self.wdg.setEnabled)
         self._radio_btn.setObjectName(GRID)
         self._radio_btn.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
@@ -358,10 +326,10 @@ class _GridFovWidget(QGroupBox):
         # widgets with radio button
         wdg_radio = QWidget()
         wdg_radio.setLayout(QHBoxLayout())
-        wdg_radio.layout().setSpacing(0)
+        wdg_radio.layout().setSpacing(10)
         wdg_radio.layout().setContentsMargins(0, 0, 0, 0)
         wdg_radio.layout().addWidget(self._radio_btn)
-        wdg_radio.layout().addWidget(wdg)
+        wdg_radio.layout().addWidget(self.wdg)
 
         # set labels sizes
         for lbl in (
@@ -373,10 +341,14 @@ class _GridFovWidget(QGroupBox):
         ):
             lbl.setMinimumWidth(overlap_x_lbl.sizeHint().width())
 
+        title = QLabel(text="Fields of Views in a Grid.")
+        title.setAlignment(AlignCenter)
+
         # main
         self.setLayout(QVBoxLayout())
-        self.layout().setSpacing(0)
+        self.layout().setSpacing(10)
         self.layout().setContentsMargins(0, 0, 0, 0)
+        self.layout().addWidget(title)
         self.layout().addWidget(wdg_radio)
 
     def value(self) -> Grid:
@@ -391,6 +363,7 @@ class _GridFovWidget(QGroupBox):
 
     def setValue(self, value: Grid) -> None:
         """Set the values of the widgets."""
+        self._radio_btn.setChecked(True)
         self.rows.setValue(value.rows)
         self.cols.setValue(value.cols)
         self.overlap_x.setValue(value.overlap_x)
@@ -438,9 +411,9 @@ class _FOVSelectrorWidget(QWidget):
         self.grid_wdg = _GridFovWidget()
 
         self._mode_btn_group = QButtonGroup()
-        self._mode_btn_group.addButton(self.center_wdg._radio_btn)
-        self._mode_btn_group.addButton(self.random_wdg._radio_btn)
-        self._mode_btn_group.addButton(self.grid_wdg._radio_btn)
+        self._mode_btn_group.addButton(self.center_wdg._radio_btn, id=CENTER_BTN_ID)
+        self._mode_btn_group.addButton(self.random_wdg._radio_btn, id=RANDOM_BTN_ID)
+        self._mode_btn_group.addButton(self.grid_wdg._radio_btn, id=GRID_BTN_ID)
         self._mode_btn_group.buttonToggled.connect(self._on_radiobutton_toggled)
 
         # main
@@ -526,28 +499,18 @@ class _FOVSelectrorWidget(QWidget):
         self._well_size_x_px = size_x
         self._well_size_y_px = size_y
 
-        # set the values of the center widget
-        self._update_center_wdg()
-
         # set the values of the random widget
         self._update_random_wdg()
 
         # update the scene with the new pl,ate information
         self._update_scene(self._get_mode())
 
-    def _get_mode(self) -> str:
+    def _get_mode(self) -> str | None:
         """Return the current mode."""
         for btn in self._mode_btn_group.buttons():
             if btn.isChecked():
-                mode = cast(str, btn.objectName())
-                return mode
-        return ""
-
-    def _update_center_wdg(self) -> None:
-        """Update the center widget."""
-        self.center_wdg.setValue(
-            Center(self._plate.well_size_x, self._plate.well_size_y)
-        )
+                return cast(str, btn.objectName())
+        return None
 
     def _update_random_wdg(self) -> None:
         """Update the random widget."""
@@ -584,30 +547,30 @@ class _FOVSelectrorWidget(QWidget):
     def _on_px_size_changed(self) -> None:
         """Update the scene when the pixel size is changed."""
         with contextlib.suppress(AttributeError):
-            self._remove_items((_WellArea, _FOVPoints, QGraphicsLineItem))
+            self._remove_items((_WellArea, _FOVCoordinates, QGraphicsLineItem))
             self._update_scene(self._get_mode())
 
     def _on_radiobutton_toggled(self, radio_btn: QRadioButton) -> None:
         """Update the scene when the tab is changed."""
-        self._remove_items((_WellArea, _FOVPoints, QGraphicsLineItem))
+        self._remove_items((_WellArea, _FOVCoordinates, QGraphicsLineItem))
         if radio_btn.isChecked():
             self._update_scene(self._get_mode())
 
     def _on_random_area_changed(self) -> None:
         """Update the _RandomWidget scene when the usable plate area is changed."""
-        self._remove_items((_WellArea, _FOVPoints, QGraphicsLineItem))
+        self._remove_items((_WellArea, _FOVCoordinates, QGraphicsLineItem))
         self._update_random_fovs(self.random_wdg.value())
 
     def _on_nFOV_changed(self) -> None:
         """Update the _RandomWidget scene when the number of FOVVs is changed."""
-        self._remove_items((_FOVPoints, QGraphicsLineItem))
+        self._remove_items((_FOVCoordinates, QGraphicsLineItem))
         self._update_random_fovs(self.random_wdg.value())
 
     def _on_grid_changed(self) -> None:
-        self._remove_items((_FOVPoints, QGraphicsLineItem))
+        self._remove_items((_FOVCoordinates, QGraphicsLineItem))
         self._update_grid_fovs(self.grid_wdg.value())
 
-    def _update_scene(self, mode: str) -> None:
+    def _update_scene(self, mode: str | None) -> None:
         """Update the scene depending on the selected tab."""
         if mode == CENTER:
             self._update_center_fov()
@@ -615,11 +578,18 @@ class _FOVSelectrorWidget(QWidget):
             self._update_random_fovs(self.random_wdg.value())
         elif mode == GRID:
             self._update_grid_fovs(self.grid_wdg.value())
+        else:
+            return
 
     def _update_center_fov(self) -> None:
         """Update the _CenterWidget scene."""
         self._draw_fovs(
-            [(self.scene.sceneRect().center().x(), self.scene.sceneRect().center().y())]
+            [
+                FOV(
+                    self.scene.sceneRect().center().x(),
+                    self.scene.sceneRect().center().y(),
+                )
+            ]
         )
 
     def _update_random_fovs(self, value: Random) -> None:
@@ -710,7 +680,7 @@ class _FOVSelectrorWidget(QWidget):
         dy: float,
         snake: bool = False,
         row_wise: bool = True,
-    ) -> list[tuple[float, float]]:
+    ) -> list[FOV]:
         """Create an ordered grid of points spaced by `dx` and  dy`."""
         # create a meshgrid of arrays with the number of rows and columns
         c, r = np.meshgrid(np.arange(columns), np.arange(rows))
@@ -725,29 +695,31 @@ class _FOVSelectrorWidget(QWidget):
         # arrays)
         _zip = zip(r.ravel(), c.ravel()) if row_wise else zip(r.T.ravel(), c.T.ravel())
         # create a list of points by shifting the starting point by dx and dy
-        return [(x + _c * dx, y + _r * dy) for _r, _c in _zip]
+        return [FOV(x + _c * dx, y + _r * dy) for _r, _c in _zip]
 
-    def _draw_fovs(self, points: list[tuple[float, float]]) -> None:
+    def _draw_fovs(self, points: list[FOV]) -> None:
         """Draw the fovs in the scene.
 
         The scene will have fovs as `_FOVPoints` and lines conncting the fovs that
         represent the fovs acquidition order.
         """
-        self._remove_items(_FOVPoints)
+        self._remove_items((_FOVCoordinates, QGraphicsLineItem))
         line_pen = QPen(Qt.GlobalColor.black)
         line_pen.setWidth(2)
         x = y = None
-        for idx, (xc, yc) in enumerate(points):
+        for idx, fov in enumerate(points):
             # set the pen color to black for the first fov if the tab is the random one
             pen = self._get_pen(idx)
             # draw the fovs
             img_w, img_h = self._get_image_size_in_px()
-            fovs = _FOVPoints(xc, yc, img_w, img_h, self.scene.sceneRect(), pen)
+            fovs = _FOVCoordinates(
+                fov.x, fov.y, img_w, img_h, self.scene.sceneRect(), pen
+            )
             self.scene.addItem(fovs)
             # draw the lines connecting the fovs
             if x is not None and y is not None:
-                self.scene.addLine(x, y, xc, yc, pen=line_pen)
-            x, y = (xc, yc)
+                self.scene.addLine(x, y, fov.x, fov.y, pen=line_pen)
+            x, y = (fov.x, fov.y)
 
     def _get_pen(self, index: int) -> QPen:
         """Return the pen for the fovs.
@@ -775,7 +747,7 @@ class _FOVSelectrorWidget(QWidget):
         area_y_mm: float,
         image_width_mm: float | None,
         image_height_mm: float | None,
-    ) -> list[tuple[float, float]]:  # sourcery skip: use-next
+    ) -> list[FOV]:
         """Create the points for the _RandomWidget scene.
 
         They can be either random points in a circle or in a square/rectangle depending
@@ -814,9 +786,10 @@ class _FOVSelectrorWidget(QWidget):
 
     def _generate_random_points(
         self, nFOV: int, rect: QRectF, min_dist_x: float, min_dist_y: float
-    ) -> list[tuple[float, float]]:
+    ) -> list[FOV]:
         """Generate a list of random points in a circle or in a rectangle."""
-        points: list[tuple[float, float]] = []
+        # points: list[tuple[float, float]] = []
+        points: list[FOV] = []
 
         t = time.time()
         while len(points) < nFOV:
@@ -826,8 +799,8 @@ class _FOVSelectrorWidget(QWidget):
             else:
                 x, y = self._random_point_in_rectangle(rect)
 
-            if self.is_a_valid_point((x, y), points, min_dist_x, min_dist_y):
-                points.append((x, y))
+            if self.is_a_valid_point(FOV(x, y), points, min_dist_x, min_dist_y):
+                points.append(FOV(x, y))
             # raise a warning if it takes longer than 200ms to generate the points.
             if time.time() - t > 0.25:
                 self._raise_points_warning(nFOV, len(points))
@@ -851,8 +824,8 @@ class _FOVSelectrorWidget(QWidget):
 
     def is_a_valid_point(
         self,
-        new_point: tuple[float, float],
-        existing_points: list[tuple[float, float]],
+        new_point: FOV,
+        existing_points: list[FOV],
         min_dist_x: float,
         min_dist_y: float,
     ) -> bool:
@@ -877,71 +850,67 @@ class _FOVSelectrorWidget(QWidget):
             self.random_wdg.number_of_FOV.setValue(points or 1)
 
     def _on_random_button_pressed(self) -> None:
-        self._remove_items((_FOVPoints, QGraphicsLineItem))
+        self._remove_items((_FOVCoordinates, QGraphicsLineItem))
         self._update_random_fovs(self.random_wdg.value())
 
-    def _order_points(
-        self, fovs: list[tuple[float, float]]
-    ) -> list[tuple[float, float]]:
+    def _order_points(self, fovs: list[FOV]) -> list[FOV]:
         """Orders a list of points starting from the top-left and then moving towards
         the nearest point.
         """  # noqa: D205
-        # Find the top-left point
-        top_left = min(fovs, key=lambda p: p[0] + p[1])
+        top_left = min(fovs, key=lambda fov: (fov.x, fov.y))
         ordered_points = [top_left]
         fovs.remove(top_left)
 
         while fovs:
-            # Find the nearest point to the last ordered point
-            nearest_point = min(fovs, key=lambda p: _distance(ordered_points[-1], p))
-            ordered_points.append(nearest_point)
-            fovs.remove(nearest_point)
+            nearest_fov = min(fovs, key=lambda fov: _distance(ordered_points[-1], fov))
+            fovs.remove(nearest_fov)
+            ordered_points.append(nearest_fov)
 
         return ordered_points
 
     def value(
         self,
-    ) -> tuple[list[tuple[float, float]], Center | Random | Grid, tuple[float, float]]:
+    ) -> FOVs:
         """Return the center of each FOVs."""
         points = [
-            item.value() for item in self.scene.items() if isinstance(item, _FOVPoints)
+            item.value()
+            for item in self.scene.items()
+            if isinstance(item, _FOVCoordinates)
         ]
-        fovs = self._order_points(list(reversed(points)))
-        fov_info = self._get_fov_info()
-        scene_px_size_mm = (
-            self._plate.well_size_x / self._well_size_x_px,
-            self._plate.well_size_y / self._well_size_y_px,
-        )
-        # TODO: make scene_px_size_mm class
-        return fovs, fov_info, scene_px_size_mm
+        return FOVs(self._get_fov_info(), self._order_points(points))
 
-    def _get_fov_info(self) -> Center | Random | Grid:
+    def _get_fov_info(self) -> Center | Random | Grid | None:
         """Return the information about the FOVs."""
         mode = self._get_mode()
         if mode == RANDOM:
             return self.random_wdg.value()
         elif mode == GRID:
             return self.grid_wdg.value()
-        return self.center_wdg.value()
+        elif mode == CENTER:
+            return self.center_wdg.value()
+        return None
 
-    def setValue(self, fov_info: Center | Random | Grid) -> None:
+    def setValue(self, fovs: FOVs) -> None:
         """Set the center of each FOVs."""
-        self._remove_items((_FOVPoints, QGraphicsLineItem))
+        self._remove_items((_FOVCoordinates, QGraphicsLineItem))
 
-        if isinstance(fov_info, Center):
-            x = self.scene.sceneRect().center().x()
-            y = self.scene.sceneRect().center().y()
-            self._draw_fovs([(x, y)])
-            tab_idx = CENTER_TAB_INDEX
-        elif isinstance(fov_info, Random):
-            self.random_wdg.setValue(fov_info)
-            tab_idx = RANDOM_TAB_INDEX
-        elif isinstance(fov_info, Grid):
-            self.grid_wdg.setValue(fov_info)
-            tab_idx = GRID_TAB_INDEX
+        # in case the radio button is already checked, call _update_scene to directly
+        # update the scene
+        radio_btn = self._mode_btn_group.checkedButton().objectName()
 
-        # doing both because if we are on the tab_idx tab, the fovs are not properly
-        # drawn
-        with signals_blocked(self.tab_wdg):
-            self.tab_wdg.setCurrentIndex(tab_idx) or 0
-        self._on_radiobutton_toggled(tab_idx or 0)
+        if isinstance(fovs.fov_info, Center):
+            self.center_wdg.setValue(fovs.fov_info)
+            if radio_btn == CENTER:
+                self._update_scene(CENTER)
+
+        elif isinstance(fovs.fov_info, Random):
+            with signals_blocked(self.random_wdg):
+                self.random_wdg.setValue(fovs.fov_info)
+            # here we want to draw the fovs in the fov_list and not trigger the creation
+            # of new fovs
+            self._draw_fovs(fovs.fov_list)
+
+        elif isinstance(fovs.fov_info, Grid):
+            self.grid_wdg.setValue(fovs.fov_info)
+            if radio_btn == GRID:
+                self._update_scene(GRID)

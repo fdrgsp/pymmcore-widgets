@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import string
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtGui import QBrush, QPen
@@ -38,6 +38,13 @@ PLATE_GRAPHICS_VIEW_HEIGHT = 440
 BRUSH = QBrush(Qt.GlobalColor.green)
 PEN = QPen(Qt.GlobalColor.black)
 PEN.setWidth(1)
+
+
+class WellPlateInfo(NamedTuple):
+    """Information about a well plate."""
+
+    plate: WellPlate
+    wells: list[WellInfo] | None
 
 
 class _PlateWidget(QWidget):
@@ -133,22 +140,22 @@ class _PlateWidget(QWidget):
         """Update the well plate combobox with the updated plate database."""
         with signals_blocked(self.wp_combo):
             self.wp_combo.clear()
-            self.wp_combo.addItems(list(self._plate_db))
+        self.wp_combo.addItems(list(self._plate_db))
         if new_plate:
             self.wp_combo.setCurrentText(new_plate.id)
 
-    def value(self) -> tuple[WellPlate, list[WellInfo] | None]:
+    def value(self) -> WellPlateInfo:
         """Return the current selected wells as a list of (name, row, column)."""
-        return self.current_plate(), self.scene.value()
+        return WellPlateInfo(self.current_plate(), self.scene.value())
 
-    def setValue(self, plate: WellPlate, wells: list[WellInfo] | None) -> None:
+    def setValue(self, plateinfo: WellPlateInfo) -> None:
         """Set the current selected wells.
 
         `value` is a list of (well_name, row, column).
         """
-        self.wp_combo.setCurrentText(plate.id)
+        self.wp_combo.setCurrentText(plateinfo.plate.id)
 
-        if not wells:
+        if not plateinfo.wells:
             return
 
-        self.scene.setValue(wells)
+        self.scene.setValue(plateinfo.wells)

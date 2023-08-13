@@ -20,6 +20,8 @@ class PlatePage(QWizardPage):
     ) -> None:
         super().__init__(parent)
 
+        self.setTitle("Plate and Well Selection")
+
         self._mmc = mmcore or CMMCorePlus.instance()
         self._plate_db = plate_database
         self._plate_db_path = plate_database_path
@@ -29,7 +31,7 @@ class PlatePage(QWizardPage):
         )
 
         self.setLayout(QVBoxLayout())
-        self.layout().setContentsMargins(10, 10, 10, 10)
+        self.layout().setContentsMargins(0, 0, 0, 0)
         self.layout().addWidget(self._plate_widget)
 
         self.setButtonText(QWizard.WizardButton.NextButton, "Calibration >")
@@ -40,6 +42,10 @@ class PlateCalibrationPage(QWizardPage):
         self, parent: QWidget | None = None, *, mmcore: CMMCorePlus | None = None
     ) -> None:
         super().__init__(parent)
+        self.setTitle("Plate Calibration")
+
+        self.setLayout(QVBoxLayout())
+        self.layout().setContentsMargins(0, 0, 0, 0)
 
         self.setButtonText(QWizard.WizardButton.NextButton, "FOVs >")
 
@@ -49,13 +55,14 @@ class FOVSelectorPage(QWizardPage):
         self, parent: QWidget | None = None, *, mmcore: CMMCorePlus | None = None
     ) -> None:
         super().__init__(parent)
+        self.setTitle("Field of View Selection")
 
         self._mmc = mmcore or CMMCorePlus.instance()
 
         self._fov_widget = _FOVSelectrorWidget()
 
         self.setLayout(QVBoxLayout())
-        self.layout().setContentsMargins(10, 10, 10, 10)
+        self.layout().setContentsMargins(0, 0, 0, 0)
         self.layout().addWidget(self._fov_widget)
 
         self.setButtonText(QWizard.WizardButton.FinishButton, "Run")
@@ -80,13 +87,10 @@ class HCSWizard(QWizard):
         self.page1 = PlatePage(
             plate_database_path=self._plate_db_path, plate_database=self._plate_db
         )
-        self.page1.setTitle("Plate and Fields of View Selection")
 
         page2 = PlateCalibrationPage()
-        page2.setTitle("Plate Calibration")
 
         self.page3 = FOVSelectorPage()
-        self.page3.setTitle("Field of View Selection")
 
         _next = self.button(QWizard.WizardButton.NextButton)
         _next.clicked.connect(self._on_next_clicked)
@@ -101,14 +105,15 @@ class HCSWizard(QWizard):
 
     def _on_next_clicked(self) -> None:
         if self.currentId() == 2:
-            print()
-            print(self.page1._plate_widget.value())
+            # print()
+            # print(self.page1._plate_widget.value())
             self.page3._fov_widget.plate = self.page1._plate_widget.value()[0]
             self.page3._fov_widget.center_wdg._radio_btn.setChecked(True)
 
         if self.currentId() == 1:
-            print()
-            print(self.page1._plate_widget.value())
+            # print()
+            # print(self.page1._plate_widget.value())
+            pass
 
     def _on_finish_clicked(self) -> None:
         print("__________________________")

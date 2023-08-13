@@ -18,6 +18,13 @@ class WellInfo(NamedTuple):
     well_shape: QRectF
 
 
+class FOV(NamedTuple):
+    """FOV x and y coordinates."""
+
+    x: float
+    y: float
+
+
 class _Well(QGraphicsItem):
     """QGraphicsItem to draw a well of a plate."""
 
@@ -124,7 +131,7 @@ class _WellArea(QGraphicsItem):
             painter.drawRect(self._rect)
 
 
-class _FOVPoints(QGraphicsItem):
+class _FOVCoordinates(QGraphicsItem):
     """QGraphicsItem to draw the the positions of each FOV in the _SelectFOV widget.
 
     The FOV is drawn as a rectangle which represents the camera FOV.
@@ -163,6 +170,6 @@ class _FOVPoints(QGraphicsItem):
         start_y = self._center_y - (self.fov_height / 2)
         painter.drawRect(QRectF(start_x, start_y, self.fov_width, self.fov_height))
 
-    def value(self) -> tuple[float, float]:
+    def value(self) -> FOV:
         """Return the center of the FOV."""
-        return self._center_x, self._center_y
+        return FOV(self._center_x, self._center_y)

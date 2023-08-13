@@ -152,6 +152,7 @@ def draw_well_plate(
     if not plate.well_size_x or not plate.well_size_y:
         return
 
+    # calculate the width and height of the well in scene px
     if plate.well_size_x == plate.well_size_y:
         well_width = well_height = well_scene_size
     elif plate.well_size_x > plate.well_size_y:
