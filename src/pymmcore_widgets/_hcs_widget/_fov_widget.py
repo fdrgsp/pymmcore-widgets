@@ -5,7 +5,6 @@ import math
 import random
 import time
 import warnings
-from enum import Enum
 from typing import Any, NamedTuple, cast
 
 import numpy as np
@@ -31,6 +30,8 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 from superqt.utils import signals_blocked
+from useq import GridRelative
+from useq._grid import OrderMode
 
 from pymmcore_widgets._util import ResizingGraphicsView
 
@@ -53,14 +54,14 @@ WELL_PLATE = WellPlate("", True, 0, 0, 0, 0, 0, 0)
 class FOVs(NamedTuple):
     """FOVs of the well plate."""
 
-    fov_info: Center | Random | Grid | None
+    fov_info: Center | Random | GridRelative | None
     fov_list: list[FOV]
 
 
 class Center(NamedTuple):
     """Center of the well as FOV of the plate."""
 
-    mode: str = CENTER
+    ...
 
 
 class Random(NamedTuple):
@@ -69,38 +70,6 @@ class Random(NamedTuple):
     area_x: float
     area_y: float
     nFOV: int
-    mode: str = RANDOM
-
-
-class Grid(NamedTuple):
-    """Grid FOV per well of the plate."""
-
-    rows: int
-    cols: int
-    overlap_x: float
-    overlap_y: float
-    order: OrderMode
-    mode: str = GRID
-
-
-class OrderModeInfo(NamedTuple):
-    """Info about the `OrderMode`."""
-
-    name: str
-    snake: bool
-    row_wise: bool
-
-
-class OrderMode(Enum):
-    """Different ways of ordering the grid positions."""
-
-    row_wise = OrderModeInfo("row_wise", False, True)
-    column_wise = OrderModeInfo("column_wise", False, False)
-    row_wise_snake = OrderModeInfo("row_wise_snake", True, True)
-    column_wise_snake = OrderModeInfo("column_wise_snake", True, False)
-
-    def __repr__(self) -> str:
-        return self.value.name
 
 
 def _create_label(label_text: str) -> QLabel:
@@ -301,8 +270,8 @@ class _GridFovWidget(QWidget):
         _overlap_y = _make_wdg_with_label(spacing_y_lbl, self.overlap_y)
 
         self.order_combo = QComboBox()
-        self.order_combo.addItems([mode.value.name for mode in OrderMode])
-        self.order_combo.setCurrentText(OrderMode.row_wise_snake.value.name)
+        self.order_combo.addItems([mode.value for mode in OrderMode])
+        self.order_combo.setCurrentText(OrderMode.row_wise_snake.value)
         order_combo_lbl = _create_label("Grid Order:")
         _order_combo = _make_wdg_with_label(order_combo_lbl, self.order_combo)
 
@@ -354,24 +323,23 @@ class _GridFovWidget(QWidget):
         self.layout().addWidget(title)
         self.layout().addWidget(wdg_radio)
 
-    def value(self) -> Grid:
+    def value(self) -> GridRelative:
         """Return the values of the widgets."""
-        return Grid(
+        return GridRelative(
             rows=self.rows.value(),
-            cols=self.cols.value(),
-            overlap_x=self.overlap_x.value(),
-            overlap_y=self.overlap_y.value(),
-            order=OrderMode[self.order_combo.currentText()],
+            columns=self.cols.value(),
+            overlap=(self.overlap_x.value(), self.overlap_y.value()),
+            mode=self.order_combo.currentText(),
         )
 
-    def setValue(self, value: Grid) -> None:
+    def setValue(self, value: GridRelative) -> None:
         """Set the values of the widgets."""
         self._radio_btn.setChecked(True)
         self.rows.setValue(value.rows)
-        self.cols.setValue(value.cols)
-        self.overlap_x.setValue(value.overlap_x)
-        self.overlap_y.setValue(value.overlap_y)
-        self.order_combo.setCurrentText(value.order.value.name)
+        self.cols.setValue(value.columns)
+        self.overlap_x.setValue(value.overlap[0])
+        self.overlap_y.setValue(value.overlap[1])
+        self.order_combo.setCurrentText(value.mode.value)
 
 
 class _SeparatorWidget(QWidget):
@@ -413,6 +381,7 @@ class _FOVSelectrorWidget(QWidget):
         self.random_wdg = _RandomFOVWidget()
         self.grid_wdg = _GridFovWidget()
 
+        # radio buttons group for fov mode selection
         self._mode_btn_group = QButtonGroup()
         self._mode_btn_group.addButton(self.center_wdg._radio_btn, id=CENTER_BTN_ID)
         self._mode_btn_group.addButton(self.random_wdg._radio_btn, id=RANDOM_BTN_ID)
@@ -423,7 +392,6 @@ class _FOVSelectrorWidget(QWidget):
         self.setLayout(QGridLayout())
         self.layout().setSpacing(10)
         self.layout().setContentsMargins(10, 10, 10, 10)
-        # self.layout().addWidget(self.tab_wdg)
         self.layout().addWidget(_SeparatorWidget(), 0, 0)
         self.layout().addWidget(self.center_wdg, 1, 0)
         self.layout().addWidget(_SeparatorWidget(), 2, 0)
@@ -463,8 +431,6 @@ class _FOVSelectrorWidget(QWidget):
         This method get the GUI ready to select the FOVs of the well plate.
         """
         self.scene.clear()
-
-        # self._plate = well_plate
 
         # set the size of the well in pixel maintaining the ratio between
         # the well size x and y. The offset is used to leave some space between the
@@ -604,36 +570,29 @@ class _FOVSelectrorWidget(QWidget):
         )
         self._draw_fovs(points)
 
-    def _update_grid_fovs(self, value: Grid) -> None:
+    def _update_grid_fovs(self, value: GridRelative) -> None:
         """Update the _GridWidget scene."""
         # camera fov size in scene pixels
         fov_width_px, fov_height_px = self._get_image_size_in_px()
 
-        # overlap in scene px
-        dx = -value.overlap_x * fov_width_px / 100
-        dy = -value.overlap_y * fov_height_px / 100
+        grid = GridRelative(
+            rows=value.rows,
+            columns=value.columns,
+            fov_width=fov_width_px,
+            fov_height=fov_height_px,
+            overlap=value.overlap,
+            mode=value.mode,
+        )
 
         # x and y center coords of the scene in px
         x, y = (
             self.scene.sceneRect().center().x(),
             self.scene.sceneRect().center().y(),
         )
-        # if we have more than 1 row or column, we need to shift towards the scene
-        # top-left corner the starting pixel (x, y) coords for the first fov of the grid
-        # depending on the number of rows and columns.
-        rows, cols = (value.rows, value.cols)
-        if rows != 1 or cols != 1:
-            x = x - ((cols - 1) * (fov_width_px / 2)) - ((dx / 2) * (cols - 1))
-            y = y - ((rows - 1) * (fov_height_px / 2)) - ((dy / 2) * (rows - 1))
 
-        move_x = fov_width_px + dx
-        move_y = fov_height_px + dy
-
-        order = OrderMode[self.grid_wdg.order_combo.currentText()]
-
-        points = self._grid_of_points(
-            rows, cols, x, y, move_x, move_y, order.value.snake, order.value.row_wise
-        )
+        # create a list of FOV points by shifting the grid by the center coords
+        # and invert the y axis (because (0,0) in the scene is the top left corner)
+        points = [FOV(g.x + x, (g.y - y) * (-1)) for g in grid]  # type: ignore
 
         self._draw_fovs(points)
 
@@ -672,33 +631,6 @@ class _FOVSelectrorWidget(QWidget):
         image_height_px = (max_scene * image_height_mm) / max_well_size_mm
 
         return image_width_px, image_height_px
-
-    def _grid_of_points(
-        self,
-        rows: int,
-        columns: int,
-        x: float,
-        y: float,
-        dx: float,
-        dy: float,
-        snake: bool = False,
-        row_wise: bool = True,
-    ) -> list[FOV]:
-        """Create an ordered grid of points spaced by `dx` and  dy`."""
-        # create a meshgrid of arrays with the number of rows and columns
-        c, r = np.meshgrid(np.arange(columns), np.arange(rows))
-        if snake:
-            if row_wise:
-                # invert the order of the columns in the odd rows
-                c[1::2, :] = c[1::2, :][:, ::-1]
-            else:
-                # invert the order of the rows in the odd columns
-                r[:, 1::2] = r[:, 1::2][::-1, :]
-        # _zip is a list of tuples with the row and column indices (ravel flattens the
-        # arrays)
-        _zip = zip(r.ravel(), c.ravel()) if row_wise else zip(r.T.ravel(), c.T.ravel())
-        # create a list of points by shifting the starting point by dx and dy
-        return [FOV(x + _c * dx, y + _r * dy) for _r, _c in _zip]
 
     def _draw_fovs(self, points: list[FOV]) -> None:
         """Draw the fovs in the scene.
@@ -880,9 +812,16 @@ class _FOVSelectrorWidget(QWidget):
             for item in self.scene.items()
             if isinstance(item, _FOVCoordinates)
         ]
-        return FOVs(self._get_fov_info(), self._order_points(points))
+        fov_info = self._get_fov_info()
+        # if randon, the points are ordered from the top-left one
+        fov_list = (
+            self._order_points(points)
+            if isinstance(fov_info, Random)
+            else list(reversed(points))
+        )
+        return FOVs(fov_info, fov_list)
 
-    def _get_fov_info(self) -> Center | Random | Grid | None:
+    def _get_fov_info(self) -> Center | Random | GridRelative | None:
         """Return the information about the FOVs."""
         mode = self._get_mode()
         if mode == RANDOM:
@@ -913,7 +852,7 @@ class _FOVSelectrorWidget(QWidget):
             # of new fovs
             self._draw_fovs(fovs.fov_list)
 
-        elif isinstance(fovs.fov_info, Grid):
+        elif isinstance(fovs.fov_info, GridRelative):
             self.grid_wdg.setValue(fovs.fov_info)
             if radio_btn == GRID:
                 self._update_scene(GRID)
