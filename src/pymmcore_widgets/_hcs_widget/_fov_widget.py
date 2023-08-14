@@ -539,6 +539,12 @@ class _FOVSelectrorWidget(QWidget):
         self._remove_items((_FOVCoordinates, QGraphicsLineItem))
         self._update_grid_fovs(self.grid_wdg.value())
 
+    def _update_plate_area_y(self, value: float) -> None:
+        """Update the plate area y value if the plate has circular wells."""
+        if not self._plate.circular:
+            return
+        self.random_wdg.plate_area_y.setValue(value)
+
     def _update_scene(self, mode: str | None) -> None:
         """Update the scene depending on the selected tab."""
         if mode == CENTER:
@@ -669,12 +675,6 @@ class _FOVSelectrorWidget(QWidget):
             else None
         )
 
-    def _update_plate_area_y(self, value: float) -> None:
-        """Update the plate area y value if the plate has circular wells."""
-        if not self._plate.circular:
-            return
-        self.random_wdg.plate_area_y.setValue(value)
-
     def _points_for_random_scene(
         self,
         nFOV: int,
@@ -775,6 +775,10 @@ class _FOVSelectrorWidget(QWidget):
             for point in existing_points
         )
 
+    def _on_random_button_pressed(self) -> None:
+        self._remove_items((_FOVCoordinates, QGraphicsLineItem))
+        self._update_random_fovs(self.random_wdg.value())
+
     def _raise_points_warning(self, nFOV: int, points: int) -> None:
         """Display a warning the set number of points cannot be generated."""
         warnings.warn(
@@ -783,10 +787,6 @@ class _FOVSelectrorWidget(QWidget):
         )
         with signals_blocked(self.random_wdg.number_of_FOV):
             self.random_wdg.number_of_FOV.setValue(points or 1)
-
-    def _on_random_button_pressed(self) -> None:
-        self._remove_items((_FOVCoordinates, QGraphicsLineItem))
-        self._update_random_fovs(self.random_wdg.value())
 
     def _order_points(self, fovs: list[FOV]) -> list[FOV]:
         """Orders a list of points starting from the top-left and then moving towards
