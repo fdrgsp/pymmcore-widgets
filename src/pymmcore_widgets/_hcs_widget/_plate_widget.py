@@ -3,7 +3,7 @@ from __future__ import annotations
 import string
 from typing import TYPE_CHECKING, NamedTuple
 
-from qtpy.QtCore import Qt, Signal
+from qtpy.QtCore import Qt
 from qtpy.QtGui import QBrush, QPen
 from qtpy.QtWidgets import (
     QComboBox,
@@ -23,12 +23,12 @@ from pymmcore_widgets._util import (
 
 from ._custom_plate_widget import _CustomPlateWidget
 from ._plate_graphics_scene import _HCSGraphicsScene
-from ._well_plate_model import WellPlate
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from ._graphics_items import WellInfo
+    from ._well_plate_model import WellPlate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 
@@ -48,7 +48,7 @@ class WellPlateInfo(NamedTuple):
 
 
 class _PlateWidget(QWidget):
-    valueChanged = Signal(WellPlate)
+    # valueChanged = Signal(WellPlate)
 
     def __init__(
         self,
@@ -66,14 +66,14 @@ class _PlateWidget(QWidget):
         combo_label = QLabel()
         combo_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         combo_label.setText("Plate:")
-        self.wp_combo = QComboBox()
-        self.wp_combo.addItems(list(self._plate_db))
+        self.plate_combo = QComboBox()
+        self.plate_combo.addItems(list(self._plate_db))
         wp_combo_wdg = QWidget()
         wp_combo_wdg.setLayout(QHBoxLayout())
         wp_combo_wdg.layout().setContentsMargins(0, 0, 0, 0)
         wp_combo_wdg.layout().setSpacing(5)
         wp_combo_wdg.layout().addWidget(combo_label)
-        wp_combo_wdg.layout().addWidget(self.wp_combo)
+        wp_combo_wdg.layout().addWidget(self.plate_combo)
 
         # clear and custom plate buttons
         self.custom_plate_button = QPushButton(text="Custom Plate")
@@ -112,21 +112,21 @@ class _PlateWidget(QWidget):
 
         # connect
         self.clear_button.clicked.connect(self.scene._clear_selection)
-        self.wp_combo.currentTextChanged.connect(self._update_plate)
+        self.plate_combo.currentTextChanged.connect(self._update)
         self.custom_plate_button.clicked.connect(self._show_custom_plate_dialog)
         self._custom_plate.valueChanged.connect(self._update_well_plate_combo)
 
-        self._update_plate(self.wp_combo.currentText())
+        self._update(self.plate_combo.currentText())
 
-    def _update_plate(self, plate_name: str) -> None:
+    def _update(self, plate_name: str) -> None:
         draw_well_plate(
             self.view, self.scene, self._plate_db[plate_name], brush=BRUSH, pen=PEN
         )
-        self.valueChanged.emit(self.current_plate())
+        # self.valueChanged.emit(self.current_plate())
 
     def current_plate(self) -> WellPlate:
         """Return the current selected plate."""
-        return self._plate_db[self.wp_combo.currentText()]
+        return self._plate_db[self.plate_combo.currentText()]
 
     def _show_custom_plate_dialog(self) -> None:
         """Show the custom plate Qdialog widget."""
@@ -138,11 +138,11 @@ class _PlateWidget(QWidget):
 
     def _update_well_plate_combo(self, new_plate: WellPlate | None) -> None:
         """Update the well plate combobox with the updated plate database."""
-        with signals_blocked(self.wp_combo):
-            self.wp_combo.clear()
-        self.wp_combo.addItems(list(self._plate_db))
+        with signals_blocked(self.plate_combo):
+            self.plate_combo.clear()
+        self.plate_combo.addItems(list(self._plate_db))
         if new_plate:
-            self.wp_combo.setCurrentText(new_plate.id)
+            self.plate_combo.setCurrentText(new_plate.id)
 
     def value(self) -> WellPlateInfo:
         """Return the current selected wells as a list of (name, row, column)."""
@@ -153,7 +153,7 @@ class _PlateWidget(QWidget):
 
         `value` is a list of (well_name, row, column).
         """
-        self.wp_combo.setCurrentText(plateinfo.plate.id)
+        self.plate_combo.setCurrentText(plateinfo.plate.id)
 
         if not plateinfo.wells:
             return

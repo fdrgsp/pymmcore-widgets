@@ -8,19 +8,19 @@ PLATE_DB_PATH = Path(__file__).parent / "well_plate_database.json"
 class WellPlate:
     """General well plates class."""
 
-    id: str
-    circular: bool
-    rows: int
-    cols: int
-    well_spacing_x: float
-    well_spacing_y: float
-    well_size_x: float
-    well_size_y: float
+    id: str = ""
+    circular: bool = False
+    rows: int = 0
+    columns: int = 0
+    well_spacing_x: float = 0.0
+    well_spacing_y: float = 0.0
+    well_size_x: float = 0.0
+    well_size_y: float = 0.0
 
     @property
     def well_count(self) -> int:
         """Return the number of wells in the plate."""
-        return self.rows * self.cols
+        return self.rows * self.columns
 
     @property
     def plate_size(self) -> tuple[float, float]:
@@ -29,7 +29,8 @@ class WellPlate:
         Size is calculated from well edge to well edge (along x and y).
         """
         return (
-            (self.well_size_x * self.cols) + (self.well_spacing_x * (self.cols - 1)),
+            (self.well_size_x * self.columns)
+            + (self.well_spacing_x * (self.columns - 1)),
             (self.well_size_y * self.rows) + (self.well_spacing_y * (self.rows - 1)),
         )
 

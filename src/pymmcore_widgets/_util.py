@@ -176,7 +176,7 @@ def draw_well_plate(
     text_size = well_height / 3 if text else None
 
     # draw the wells and place them in their correct row/column position
-    for row, col in product(range(plate.rows), range(plate.cols)):
+    for row, col in product(range(plate.rows), range(plate.columns)):
         _x = (well_width * col) + (dx_px * col)
         _y = (well_height * row) + (dy_px * row)
         rect = QRectF(_x, _y, well_width, well_height)
@@ -187,7 +187,7 @@ def draw_well_plate(
         scene.addItem(w)
 
     # # set the scene size
-    plate_width = (well_width * plate.cols) + (dx_px * (plate.cols - 1))
+    plate_width = (well_width * plate.columns) + (dx_px * (plate.columns - 1))
     plate_height = (well_height * plate.rows) + (dy_px * (plate.rows - 1))
 
     # add some offset to the scene rect to leave some space around the plate

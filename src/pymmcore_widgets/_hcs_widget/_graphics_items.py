@@ -92,6 +92,8 @@ class _Well(QGraphicsItem):
         # write the well name
         if self._text_size is None:
             return
+        painter.setPen(Qt.GlobalColor.black)
+        painter.pen().setWidth(1)
         font = QFont("Helvetica", int(self._text_size))
         font.setWeight(QFont.Weight.Bold)
         painter.setFont(font)

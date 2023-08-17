@@ -365,7 +365,7 @@ class _FOVSelectrorWidget(QWidget):
 
         self._mmc = mmcore or CMMCorePlus.instance()
 
-        self._plate: WellPlate = WELL_PLATE
+        self._plate: WellPlate = WellPlate()
         self._reference_well_area: QRectF = QRectF()
         self._well_size_x_px: float = 0.0
         self._well_size_y_px: float = 0.0
@@ -414,37 +414,39 @@ class _FOVSelectrorWidget(QWidget):
         self.grid_wdg.overlap_y.valueChanged.connect(self._on_grid_changed)
         self.grid_wdg.order_combo.currentIndexChanged.connect(self._on_grid_changed)
 
-    @property
-    def plate(self) -> WellPlate:
-        """Return the well plate."""
-        return self._plate
+    # @property
+    # def plate(self) -> WellPlate:
+    #     """Return the well plate."""
+    #     return self._plate
 
-    @plate.setter
-    def plate(self, well_plate: WellPlate) -> None:
-        """Set the well plate."""
-        self._plate = well_plate
-        self._load_plate_info(well_plate)
+    # @plate.setter
+    # def plate(self, well_plate: WellPlate) -> None:
+    #     """Set the well plate."""
+    #     self._plate = well_plate
+    #     self._update(well_plate)
 
-    def _load_plate_info(self, well_plate: WellPlate) -> None:
+    def _update(self, plate: WellPlate) -> None:
         """Load the information of the well plate.
 
         This method get the GUI ready to select the FOVs of the well plate.
         """
+        self._plate = plate
+
         self.scene.clear()
 
         # set the size of the well in pixel maintaining the ratio between
         # the well size x and y. The offset is used to leave some space between the
         # well plate and the border of the scene (scene SceneRect set in __init__).
         well_size_px = FOV_GRAPHICS_VIEW_SIZE - OFFSET
-        if well_plate.well_size_x == well_plate.well_size_y:
+        if plate.well_size_x == plate.well_size_y:
             size_x = size_y = well_size_px
-        elif well_plate.well_size_x > well_plate.well_size_y:
+        elif plate.well_size_x > plate.well_size_y:
             size_x = well_size_px
             # keep the ratio between well_size_x and well_size_y
-            size_y = int(well_size_px * well_plate.well_size_y / well_plate.well_size_x)
+            size_y = int(well_size_px * plate.well_size_y / plate.well_size_x)
         else:
             # keep the ratio between well_size_x and well_size_y
-            size_x = int(well_size_px * well_plate.well_size_x / well_plate.well_size_y)
+            size_x = int(well_size_px * plate.well_size_x / plate.well_size_y)
             size_y = well_size_px
 
         # set the position of the well plate in the scene using the center of the view
@@ -459,7 +461,7 @@ class _FOVSelectrorWidget(QWidget):
         # draw the well
         pen = QPen(Qt.GlobalColor.green)
         pen.setWidth(PEN_WIDTH)
-        if well_plate.circular:
+        if plate.circular:
             self.scene.addEllipse(self._reference_well_area, pen=pen)
         else:
             self.scene.addRect(self._reference_well_area, pen=pen)
@@ -806,7 +808,7 @@ class _FOVSelectrorWidget(QWidget):
     def value(
         self,
     ) -> FOVs:
-        """Return the center of each FOVs."""
+        """Return the list of FOVs."""
         points = [
             item.value()
             for item in self.scene.items()
@@ -832,8 +834,11 @@ class _FOVSelectrorWidget(QWidget):
             return self.center_wdg.value()
         return None
 
-    def setValue(self, fovs: FOVs) -> None:
-        """Set the center of each FOVs."""
+    def setValue(self, fovs: FOVs, plate: WellPlate | None = None) -> None:
+        """Set the value of the widget."""
+        if plate is not None:
+            self._plate = plate
+
         self._remove_items((_FOVCoordinates, QGraphicsLineItem))
 
         # in case the radio button is already checked, call _update_scene to directly

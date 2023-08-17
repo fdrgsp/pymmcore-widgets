@@ -340,7 +340,7 @@ class _CustomPlateWidget(QDialog):
         """Set the values of the well plate."""
         self._id.setText(plate.id)
         self._rows.setValue(plate.rows)
-        self._cols.setValue(plate.cols)
+        self._cols.setValue(plate.columns)
         self._well_spacing_x.setValue(plate.well_spacing_x)
         self._well_spacing_y.setValue(plate.well_spacing_y)
         self._well_size_x.setValue(plate.well_size_x)
@@ -352,7 +352,7 @@ class _CustomPlateWidget(QDialog):
         return WellPlate(
             circular=self._circular_checkbox.isChecked(),
             id=self._id.text(),
-            cols=self._cols.value(),
+            columns=self._cols.value(),
             rows=self._rows.value(),
             well_size_x=self._well_size_x.value(),
             well_size_y=self._well_size_y.value(),
