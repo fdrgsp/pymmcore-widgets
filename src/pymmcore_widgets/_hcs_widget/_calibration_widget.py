@@ -139,11 +139,8 @@ class _CalibrationTable(QWidget):
         self._toolbar.addWidget(spacer_1)
         self._toolbar.addWidget(self._well_label)
         self._toolbar.addWidget(spacer_2)
-        # self._toolbar.addSeparator()
         self._toolbar.addAction(self.act_add_row)
-        # self._toolbar.addSeparator()
         self._toolbar.addAction(self.act_remove_row)
-        # self._toolbar.addSeparator()
         self._toolbar.addAction(self.act_clear)
 
         # table
@@ -204,38 +201,12 @@ class _CalibrationTable(QWidget):
         self._well_label.setText(f" Well A{colunm + 1} ")
 
 
-class _CalibrationLabel(QGroupBox):
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        # icon
-        self._icon_lbl = QLabel()
-        self._icon_lbl.setSizePolicy(*FixedSizePolicy)
-        self._icon_lbl.setPixmap(
-            icon(MDI6.close_octagon_outline, color="magenta").pixmap(QSize(30, 30))
-        )
-        # text
-        self._text_lbl = QLabel(text="Plate Not Calibrated!")
-        self._text_lbl.setStyleSheet("font-size: 14px; font-weight: bold;")
-
-        # main
-        self.setLayout(QHBoxLayout())
-        self.layout().setAlignment(AlignCenter)
-        self.layout().setSpacing(0)
-        self.layout().setContentsMargins(0, 0, 0, 0)
-        self.layout().addWidget(self._icon_lbl)
-        self.layout().addWidget(self._text_lbl)
-
-    def setValue(self, pixmap: QPixmap, text: str) -> None:
-        """Set the icon and text of the labels."""
-        self._icon_lbl.setPixmap(pixmap)
-        self._text_lbl.setText(text)
-
-
-class _TestCalibrationWidget(QWidget):
+class _TestCalibrationWidget(QGroupBox):
     def __init__(
         self, parent: QWidget | None = None, *, mmcore: CMMCorePlus | None = None
     ) -> None:
         super().__init__(parent)
+        self.setTitle("Test Calibration")
 
         self._mmc = mmcore or CMMCorePlus.instance()
 
@@ -256,7 +227,7 @@ class _TestCalibrationWidget(QWidget):
         self._test_button = QPushButton("Go")
         self._test_button.setEnabled(False)
         # groupbox
-        test_calibration = QGroupBox(title="Test Calibration")
+        test_calibration = QWidget()
         test_calibration.setLayout(QHBoxLayout())
         test_calibration.layout().setSpacing(10)
         test_calibration.layout().setContentsMargins(10, 10, 10, 10)
@@ -267,8 +238,7 @@ class _TestCalibrationWidget(QWidget):
 
         # main
         self.setLayout(QHBoxLayout())
-        self.layout().setSpacing(10)
-        self.layout().setContentsMargins(0, 0, 0, 0)
+        self.layout().setContentsMargins(10, 10, 10, 10)
         self.layout().addWidget(test_calibration)
 
     def _update(self, plate: WellPlate) -> None:
@@ -279,6 +249,35 @@ class _TestCalibrationWidget(QWidget):
         self._well_number_combo.clear()
         numbers = [str(c) for c in range(1, plate.columns + 1)]
         self._well_number_combo.addItems(numbers)
+
+
+class _CalibrationLabel(QGroupBox):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setTitle("Calibration Status")
+
+        # icon
+        self._icon_lbl = QLabel()
+        self._icon_lbl.setSizePolicy(*FixedSizePolicy)
+        self._icon_lbl.setPixmap(
+            icon(MDI6.close_octagon_outline, color="magenta").pixmap(QSize(30, 30))
+        )
+        # text
+        self._text_lbl = QLabel(text="Plate Not Calibrated!")
+        self._text_lbl.setStyleSheet("font-size: 14px; font-weight: bold;")
+
+        # main
+        self.setLayout(QHBoxLayout())
+        self.layout().setAlignment(AlignCenter)
+        self.layout().setSpacing(5)
+        self.layout().setContentsMargins(0, 0, 0, 0)
+        self.layout().addWidget(self._icon_lbl)
+        self.layout().addWidget(self._text_lbl)
+
+    def setValue(self, pixmap: QPixmap, text: str) -> None:
+        """Set the icon and text of the labels."""
+        self._icon_lbl.setPixmap(pixmap)
+        self._text_lbl.setText(text)
 
 
 class _CalibrationWidget(QWidget):
@@ -390,3 +389,4 @@ class _CalibrationWidget(QWidget):
             pixmap=icon(lbl_icon, color=lbl_icon_color).pixmap(lbl_icon_size),
             text=text,
         )
+        self._test_calibration._test_button.setEnabled(state)
