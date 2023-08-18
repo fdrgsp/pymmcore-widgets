@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
@@ -15,6 +16,7 @@ from rich import print
 from ._calibration_widget import _CalibrationWidget
 from ._fov_widget import _FOVSelectrorWidget
 from ._plate_widget import _PlateWidget
+from ._util import get_well_center_stage_coordinates
 from ._well_plate_model import PLATE_DB_PATH, WellPlate, load_database
 
 
@@ -100,36 +102,69 @@ class HCSWizard(QWizard):
         self._plate_db_path = plate_database_path or PLATE_DB_PATH
         self._plate_db = load_database(self._plate_db_path)
 
-        self.page1 = PlatePage(
+        self.plate_page = PlatePage(
             plate_database_path=self._plate_db_path, plate_database=self._plate_db
         )
-        self.page1._plate_widget.plate_combo.currentTextChanged.connect(
+        self.plate_page._plate_widget.plate_combo.currentTextChanged.connect(
             self._on_plate_combo_changed
         )
 
-        self.page2 = PlateCalibrationPage()
+        self.calibration_page = PlateCalibrationPage()
 
-        self.page3 = FOVSelectorPage()
+        self.fov_page = FOVSelectorPage()
 
-        self.addPage(self.page1)
-        self.addPage(self.page2)
-        self.addPage(self.page3)
+        self.addPage(self.plate_page)
+        self.addPage(self.calibration_page)
+        self.addPage(self.fov_page)
 
         _run = self.button(QWizard.WizardButton.FinishButton)  # name set in self.page3
         _run.disconnect()  # disconnect default behavior
         _run.clicked.connect(self._on_finish_clicked)
 
-        self._on_plate_combo_changed(self.page1._plate_widget.plate_combo.currentText())
+        self._on_plate_combo_changed(
+            self.plate_page._plate_widget.plate_combo.currentText()
+        )
 
-        self.page3._fov_widget.center_wdg._radio_btn.setChecked(True)
+        self.fov_page._fov_widget.center_wdg._radio_btn.setChecked(True)
 
     def _on_plate_combo_changed(self, plate_id: str) -> None:
         plate = self._plate_db[plate_id]
-        self.page2._calibration._update(plate)
-        self.page3._fov_widget._update(plate)
+        self.calibration_page._calibration._update(plate)
+        self.fov_page._fov_widget._update(plate)
 
     def _on_finish_clicked(self) -> None:
         print("__________________________")
-        print(self.page1._plate_widget.value())
-        print(self.page3._fov_widget.value())
+        print(self.plate_page._plate_widget.value())
+        print(self.fov_page._fov_widget.value())
+        print(self.calibration_page._calibration.value())
         print("__________________________")
+
+        well_list = self.plate_page._plate_widget.value().wells
+        if well_list is None:
+            return
+
+        plate = self.plate_page._plate_widget.value().plate
+
+        calib_info = self.calibration_page._calibration.value()
+        if calib_info is None:
+            return
+
+        center_a1 = (calib_info.well_a1_center_x, calib_info.well_a1_center_x)
+        rotation_matrix = calib_info.rotation_matrix
+
+        for well in well_list:
+            x, y = get_well_center_stage_coordinates(
+                plate,
+                well.well_name,
+                well.row,
+                well.col,
+                center_a1,
+                rotation_matrix,
+            )
+
+            # this is just for testing, remove later____________________________________
+            plt.plot(x, y, "go")
+        plt.plot(center_a1[0], center_a1[1], "ko")
+        plt.axis("equal")
+        plt.show()
+        # ______________________________________________________________________________

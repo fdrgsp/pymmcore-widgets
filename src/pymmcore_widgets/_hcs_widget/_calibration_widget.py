@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import math
+import random
 import string
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple, cast
 
+import matplotlib.pyplot as plt
+import numpy as np
 from fonticon_mdi6 import MDI6
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtCore import QSize, Qt
+from qtpy.QtCore import QSize, Qt, Signal
 from qtpy.QtGui import QAction, QIcon, QPixmap
 from qtpy.QtWidgets import (
     QAbstractSpinBox,
@@ -26,6 +30,8 @@ from qtpy.QtWidgets import (
 )
 from superqt.fonticon import icon
 
+from ._util import get_well_center_stage_coordinates
+
 if TYPE_CHECKING:
     from ._well_plate_model import WellPlate
 
@@ -38,14 +44,16 @@ ROLE = Qt.ItemDataRole.UserRole + 1
 ICON_PATH = Path(__file__).parent / "icons"
 ICON_SIZE = 22
 CIRCLE_ICON = QIcon(str(ICON_PATH / "circle-outline.svg"))
-SQUARE_ICON_SIDES = QIcon(str(ICON_PATH / "square-outline_s.svg"))
-SQUARE_ICON_VERTICES = QIcon(str(ICON_PATH / "square-outline_v.svg"))
-CIRCLE_ITEM = "3 points: add 3 points on the circonference of the well"
-SQUARE_ITEM_SIDES = "4 points: add 4 points, 1 per side of the rectangular/square well"
-SQUARE_ITEM_VERTICES = (
+SIDES_ICON = QIcon(str(ICON_PATH / "square-outline_s.svg"))
+VERTICES_ICON = QIcon(str(ICON_PATH / "square-outline_v.svg"))
+CIRCLE_ITEM = "3 points : add 3 points on the circonference of the well"
+SIDES_ITEM = "4 points: add 4 points, 1 per side of the rectangular/square well"
+VERTICES_ITEM = (
     "2 points: add 2 points at 2 opposite vertices of the rectangular/square well"
 )
-
+CIRCLE_MODE_POINTS = 3
+SIDES_MODE_POINTS = 4
+VERTICES_MODE_POINTS = 2
 LABEL_STYLE = """
     background: rgb(0, 255, 0);
     font-size: 16pt; font-weight:bold;
@@ -55,13 +63,141 @@ LABEL_STYLE = """
 """
 
 
-class _CalibrationMode(QGroupBox):
+class ThreePoints(NamedTuple):
+    icon: QIcon = CIRCLE_ICON
+    item: str = CIRCLE_ITEM
+    points: int = CIRCLE_MODE_POINTS
+
+
+class FourPoints(NamedTuple):
+    icon: QIcon = SIDES_ICON
+    item: str = SIDES_ITEM
+    points: int = SIDES_MODE_POINTS
+
+
+class TwoPoints(NamedTuple):
+    icon: QIcon = VERTICES_ICON
+    item: str = VERTICES_ITEM
+    points: int = VERTICES_MODE_POINTS
+
+
+class CalibrationInfo(NamedTuple):
+    """Calibration information for the plate."""
+
+    well_a1_center_x: float
+    well_a1_center_y: float
+    rotation_matrix: np.ndarray | None
+
+
+def _get_circle_center_(
+    point1: tuple[float, float],
+    point2: tuple[float, float],
+    point3: tuple[float, float],
+) -> tuple[float, float]:
+    """Find the center of a round well given 3 circonference points.
+
+    Circle Equation: (x - x1)^2 + (y - y1)^2 = r^2
+    - solve for point a: (x - ax)^2 + (y - ay)^2 = r^2
+    - solve for point b: = (x - bx)^2 + (y - by)^2 = r^2
+    - solve for point c: = (x - cx)^2 + (y - cy)^2 = r^2
+    """
+    A = np.array([[*point1, 1], [*point2, 1], [*point3, 1]])
+    B = np.array(
+        [
+            point1[0] ** 2 + point1[1] ** 2,
+            point2[0] ** 2 + point2[1] ** 2,
+            point3[0] ** 2 + point3[1] ** 2,
+        ]
+    )
+    xc, yc, _ = np.linalg.solve(A, B)
+    return float(xc), float(yc)
+
+
+def _get_rectangle_center(*args: tuple[float, ...]) -> tuple[float, float]:
+    """
+    Find the center of a rectangle/square well.
+
+    ...given two opposite verices coordinates or 4 points on the edges.
+    """
+    x_list, y_list = list(zip(*args))
+
+    if len(args) == 4:
+        # get corner x and y coordinates
+        x_list = (max(x_list), min(x_list))
+        y_list = (max(y_list), min(y_list))
+
+    # get center coordinates
+    x = sum(x_list) / 2
+    y = sum(y_list) / 2
+
+    plt.plot(x_list, y_list, "o")
+    plt.plot(x, y, "o")
+    plt.show()
+
+    return x, y
+
+
+def _get_plate_rotation_matrix(
+    xy_well_1: tuple[float, float], xy_well_2: tuple[float, float]
+) -> np.ndarray:
+    """Get the rotation matrix to align the plate along the x axis."""
+    x1, y1 = xy_well_1
+    x2, y2 = xy_well_2
+
+    m = (y2 - y1) / (x2 - x1)  # slope from y = mx + q
+    plate_angle_rad = -np.arctan(m)  # TODOL check if sign it's correct
+    print(f"plate_angle: {np.rad2deg(plate_angle_rad)}")
+    return np.array(
+        [
+            [np.cos(plate_angle_rad), -np.sin(plate_angle_rad)],
+            [np.sin(plate_angle_rad), np.cos(plate_angle_rad)],
+        ]
+    )
+
+
+def _get_random_circle_edge_point(
+    xc: float, yc: float, radius: float
+) -> tuple[float, float]:
+    """Get random edge point of a circle.
+
+    ...with center (xc, yc) and radius `radius`.
+    """
+    # random angle
+    alpha = 2 * math.pi * random.random()
+    move_x = radius * math.cos(alpha) + xc
+    move_y = radius * math.sin(alpha) + yc
+    return move_x, move_y
+
+
+def _get_random_rectangle_edge_point(
+    xc: float, yc: float, well_size_x: float, well_size_y: float
+) -> tuple[float, float]:
+    """Get random edge point of a rectangle.
+
+    ...with center (xc, yc) and size (well_size_x, well_size_y).
+    """
+    x_top_left, y_top_left = xc - (well_size_x / 2), yc + (well_size_y / 2)
+    x_bottom_right, y_bottom_right = xc + (well_size_x / 2), yc - (well_size_y / 2)
+    # random 4 edge points
+    edge_points = [
+        (x_top_left, np.random.uniform(y_top_left, y_bottom_right)),  # left
+        (np.random.uniform(x_top_left, x_bottom_right), y_top_left),  # top
+        (x_bottom_right, np.random.uniform(y_top_left, y_bottom_right)),  # right
+        (np.random.uniform(x_top_left, x_bottom_right), y_bottom_right),  # bottom
+    ]
+    return edge_points[np.random.randint(0, 4)]
+
+
+class _CalibrationModeWidget(QGroupBox):
+    valueChanged = Signal(object)
+
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
 
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         self._mode_combo = QComboBox()
+        self._mode_combo.currentIndexChanged.connect(self._on_value_changed)
         # self._mode_combo.setIconSize(QSize(30, 30))
         # self._mode_combo.setStyleSheet("QComboBox {font-size: 40px;}")
         # align text to center
@@ -78,25 +214,21 @@ class _CalibrationMode(QGroupBox):
         self.layout().addWidget(lbl)
         self.layout().addWidget(self._mode_combo)
 
-        self.setValue(False)
+    def _on_value_changed(self) -> None:
+        """Emit the selected mode with valueChanged signal."""
+        mode = self._mode_combo.itemData(self._mode_combo.currentIndex(), ROLE)
+        self.valueChanged.emit(mode)
 
-    def setValue(self, circle: bool) -> None:
+    def setValue(self, modes: list[ThreePoints | FourPoints | TwoPoints]) -> None:
+        """Set the available modes."""
         self._mode_combo.clear()
+        for idx, mode in enumerate(modes):
+            self._mode_combo.addItem(mode.icon, mode.item)
+            self._mode_combo.setItemData(idx, mode, ROLE)
 
-        if circle:
-            items = [(CIRCLE_ITEM, CIRCLE_ICON, 3)]
-        else:
-            items = [
-                (SQUARE_ITEM_VERTICES, SQUARE_ICON_VERTICES, 2),
-                (SQUARE_ITEM_SIDES, SQUARE_ICON_SIDES, 4),
-            ]
-        for idx, (_text, _icon, _pos) in enumerate(items):
-            self._mode_combo.addItem(_icon, _text)
-            self._mode_combo.setItemData(idx, _pos, ROLE)
-
-    def value(self) -> int:
-        """Return the number of points necessary for the calibration."""
-        return int(self._mode_combo.itemData(self._mode_combo.currentIndex(), ROLE))
+    def value(self) -> ThreePoints | FourPoints | TwoPoints:
+        """Return the selected calibration mode."""
+        return self._mode_combo.itemData(self._mode_combo.currentIndex(), ROLE)  # type: ignore  # noqa E501
 
 
 class _CalibrationTable(QWidget):
@@ -106,6 +238,9 @@ class _CalibrationTable(QWidget):
         super().__init__()
 
         self._mmc = mmcore or CMMCorePlus.instance()
+
+        self._plate: WellPlate | None = None
+        self._calibration_mode: ThreePoints | FourPoints | TwoPoints | None = None
 
         self._toolbar = QToolBar()
         self._toolbar.setFloatable(False)
@@ -134,7 +269,7 @@ class _CalibrationTable(QWidget):
         self.act_clear = QAction(
             icon(MDI6.close_box_multiple_outline, color="magenta"), "Clear", self
         )
-        self.act_clear.triggered.connect(self._clear_table)
+        self.act_clear.triggered.connect(self._clear)
 
         self._toolbar.addWidget(spacer_1)
         self._toolbar.addWidget(self._well_label)
@@ -159,6 +294,14 @@ class _CalibrationTable(QWidget):
         self.layout().setSpacing(0)
         self.layout().addWidget(self._toolbar)
         self.layout().addWidget(self.tb)
+
+    @property
+    def calibration_mode(self) -> ThreePoints | FourPoints | TwoPoints | None:
+        return self._calibration_mode
+
+    @calibration_mode.setter
+    def calibration_mode(self, mode: ThreePoints | FourPoints | TwoPoints) -> None:
+        self._calibration_mode = mode
 
     def _add_position(self) -> None:
         if not self._mmc.getXYStageDevice():
@@ -193,12 +336,40 @@ class _CalibrationTable(QWidget):
         for idx in sorted(rows, reverse=True):
             self.tb.removeRow(idx)
 
-    def _clear_table(self) -> None:
+    def _clear(self) -> None:
         self.tb.clearContents()
         self.tb.setRowCount(0)
 
-    def _write_to_label(self, colunm: int) -> None:
-        self._well_label.setText(f" Well A{colunm + 1} ")
+    def _get_table_values(self) -> list[tuple[float, float]]:
+        _range = self.tb.rowCount()
+        pos: list[tuple[float, float]] = [
+            (self.tb.cellWidget(r, 0).value(), self.tb.cellWidget(r, 1).value())
+            for r in range(_range)
+        ]
+        return pos
+
+    def setValue(
+        self,
+        plate: WellPlate,
+        calibration_mode: ThreePoints | FourPoints | TwoPoints,
+        well_name: str,
+        list_of_points: list[tuple[float, float]] | None = None,
+    ) -> None:
+        self._clear()
+        self._plate = plate
+        self._calibration_mode = calibration_mode
+        self._well_label.setText(well_name)
+        if list_of_points is None:
+            return
+        for x, y in list_of_points:
+            row = self._add_row()
+            self._add_table_value(x, row, 0)
+            self._add_table_value(y, row, 1)
+
+    def value(self) -> list[tuple[float, float]] | None:
+        if self._plate is None or self._calibration_mode is None:
+            return None
+        return self._get_table_values()
 
 
 class _TestCalibrationWidget(QGroupBox):
@@ -293,13 +464,14 @@ class _CalibrationWidget(QWidget):
 
         self._mmc = mmcore or CMMCorePlus.instance()
         self._plate: WellPlate | None = None
+        self._calibration_info: CalibrationInfo | None = None
 
         # calibration mode
-        self._mode = _CalibrationMode()
+        self._calibration_mode = _CalibrationModeWidget()
 
         # calibration tables
         self._table_a1 = _CalibrationTable()
-        self._table_a1._write_to_label(colunm=0)
+        # self._table_a1._write_to_label(colunm=0)
         self._table_an = _CalibrationTable()
         _table_group = QGroupBox()
         _table_group.setLayout(QHBoxLayout())
@@ -344,40 +516,192 @@ class _CalibrationWidget(QWidget):
         self.setLayout(QVBoxLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)
         self.layout().setSpacing(10)
-        self.layout().addWidget(self._mode)
+        self.layout().addWidget(self._calibration_mode)
         self.layout().addWidget(_table_and_btn_wdg)
         self.layout().addWidget(_bottom_group)
 
         # connect
+        self._calibration_mode.valueChanged.connect(self._on_calibration_mode_changed)
         self._calibrate_button.clicked.connect(self._on_calibrate_button_clicked)
+        self._test_calibration._test_button.clicked.connect(self._test_well_calibration)
 
-    def _clear(self) -> None:
-        """Clear the calibration tables."""
-        self._table_a1._clear_table()
-        self._table_an._clear_table()
+    @property
+    def calibration_info(self) -> CalibrationInfo | None:
+        return self._calibration_info
+
+    @calibration_info.setter
+    def calibration_info(self, info: CalibrationInfo) -> None:
+        self._calibration_info = info
+
+    def _on_calibration_mode_changed(
+        self, calibration_mode: ThreePoints | FourPoints | TwoPoints
+    ) -> None:
+        self._table_a1.calibration_mode = calibration_mode
+        self._table_an.calibration_mode = calibration_mode
 
     def _update(self, plate: WellPlate) -> None:
         self._plate = plate
         # update calibration mode
-        self._mode.setValue(plate.circular)
+        calibration_mode: list[ThreePoints | FourPoints | TwoPoints] = (
+            [ThreePoints()] if plate.circular else [TwoPoints(), FourPoints()]
+        )
+        self._calibration_mode.setValue(calibration_mode)
         # update tables
-        self._clear()
-        if plate.columns > 1:
-            self._table_an._write_to_label(colunm=plate.columns - 1)
-        self._table_an.show() if plate.columns > 1 else self._table_an.hide()
+        self._update_tables(self._plate, self._calibration_mode.value())
+        # update test calibration
+        self._test_calibration._update(self._plate)
         # update calibration label
         self._set_calibration_label(False)
-        # update test calibration
-        self._test_calibration._update(plate)
+
+    def _update_tables(
+        self, plate: WellPlate, calibration_mode: ThreePoints | FourPoints | TwoPoints
+    ) -> None:
+        """Update the calibration tables."""
+        self._table_a1.setValue(plate, calibration_mode, " Well A1 ")
+        self._table_an.setValue(plate, calibration_mode, f" Well A{plate.columns} ")
+        self._table_an.show() if plate.columns > 1 else self._table_an.hide()
 
     def _on_calibrate_button_clicked(self) -> None:
         """Calibrate the plate."""
-        # get calibration points
-        # a1 = self._table_a1._get_calibration_point()
-        # an = self._table_an._get_calibration_point()
+        if self._plate is None:
+            self._set_calibration_label(False)
+            return
+
+        # get calibration well centers
+        a1_center, an_center = self._get_calibration_well_centers()
+
+        # return if any of the necessary well centers are None
+        if None in a1_center or (None in an_center and self._plate.columns > 1):
+            self._set_calibration_label(False)
+            # TODO: add warning
+            return
+
+        # get plate rotation matrix
+        rotation_matrix = (
+            None
+            if None in an_center
+            else _get_plate_rotation_matrix(a1_center, an_center)  # type: ignore
+        )
+
+        # set calibration_info property
+        a1_x, a1_y = cast(tuple[float, float], a1_center)
+        self.calibration_info = CalibrationInfo(a1_x, a1_y, rotation_matrix)
 
         # update calibration label
         self._set_calibration_label(True)
+
+    def _get_calibration_well_centers(
+        self,
+    ) -> tuple[tuple[float | None, float | None], tuple[float | None, float | None]]:
+        """Get the centers in stage coordinates of the calibration wells."""
+        if self._plate is None:
+            return (None, None), (None, None)
+
+        a1_x, a1_y = self._get_well_center(self._table_a1)
+        an_x, an_y = (
+            self._get_well_center(self._table_an)
+            if self._plate.columns > 1
+            else (None, None)
+        )
+        return (a1_x, a1_y), (an_x, an_y)
+
+    def _get_well_center(
+        self, table: _CalibrationTable
+    ) -> tuple[float | None, float | None]:
+        """Get the well center from the calibration table."""
+        pos = table.value()
+
+        if pos is None or table.calibration_mode is None:
+            return None, None
+
+        points = table.calibration_mode.points
+        if len(pos) != points:
+            raise ValueError(
+                "Invalid number of points for "
+                f"'{table._well_label.text().replace(' ', '')}'. "
+                f"Expected {points}, got {len(pos)}."
+            )
+
+        return (
+            _get_circle_center_(*pos)
+            if points == CIRCLE_MODE_POINTS
+            else _get_rectangle_center(*pos)
+        )
+
+    def _test_well_calibration(self) -> None:
+        """Move to the edge of the selected well to test the calibratiion."""
+        if self._plate is None:
+            return
+
+        # well name, row and col
+        well_letter = self._test_calibration._well_letter_combo.currentText()
+        well_number = self._test_calibration._well_number_combo.currentText()
+        row = self._test_calibration._well_letter_combo.currentIndex()
+        col = self._test_calibration._well_number_combo.currentIndex()
+
+        # well spacing
+        spacing_x = self._plate.well_spacing_x * 1000  # µm
+        spacing_y = self._plate.well_spacing_y * 1000  # µm
+
+        cal_info = self.calibration_info
+        if cal_info is None:
+            return
+
+        a1_x, a1_y = cal_info.well_a1_center_x, cal_info.well_a1_center_x
+        center = np.array([[a1_x], [a1_y]])
+        rotation_matrix = cal_info.rotation_matrix
+
+        well_name = well_letter + well_number
+        x, y = get_well_center_stage_coordinates(
+            self._plate, well_name, row, col, (a1_x, a1_y), rotation_matrix
+        )
+
+        if well_name == "A1":
+            x, y = (a1_x, a1_y)
+        else:
+            x = a1_x + (spacing_x * col)
+            y = a1_y - (spacing_y * row)  # TODO: check sign
+
+        # apply rotation matrix
+        if rotation_matrix is not None:
+            coords = [[x], [y]]
+            transformed = np.linalg.inv(rotation_matrix).dot(coords - center) + center
+            x_rotated, y_rotated = transformed
+            x, y = (x_rotated[0], y_rotated[0])
+
+            self._mmc.waitForDevice(self._mmc.getXYStageDevice())
+
+            if self._plate.circular:
+                x, y = _get_random_circle_edge_point(
+                    x, y, self._plate.well_size_x * 1000 / 2
+                )
+            else:
+                x, y = _get_random_rectangle_edge_point(
+                    x, y, self._plate.well_size_x * 1000, self._plate.well_size_y * 1000
+                )
+
+            self._mmc.setXYPosition(x, y)
+
+            # this is only for testing, remove later____________________________________
+            plt.plot(a1_x, a1_y, "mo")
+            plt.plot(x, y, "go")
+        sx, sy = (x, y)
+        for _ in range(50):
+            if self._plate.circular:
+                x, y = _get_random_circle_edge_point(
+                    sx, sy, self._plate.well_size_x * 1000 / 2
+                )
+            else:
+                x, y = _get_random_rectangle_edge_point(
+                    sx,
+                    sy,
+                    self._plate.well_size_x * 1000,
+                    self._plate.well_size_y * 1000,
+                )
+            plt.plot(x, y, "ko")
+        plt.axis("equal")
+        plt.show()
+        # ______________________________________________________________________________
 
     def _set_calibration_label(self, state: bool) -> None:
         """Set the calibration label."""
@@ -390,3 +714,7 @@ class _CalibrationWidget(QWidget):
             text=text,
         )
         self._test_calibration._test_button.setEnabled(state)
+
+    def value(self) -> CalibrationInfo | None:
+        """Get the calibration information."""
+        return self.calibration_info

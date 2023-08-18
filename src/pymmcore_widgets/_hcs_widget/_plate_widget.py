@@ -16,13 +16,9 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
-from pymmcore_widgets._util import (
-    ResizingGraphicsView,
-    draw_well_plate,
-)
-
 from ._custom_plate_widget import _CustomPlateWidget
 from ._plate_graphics_scene import _HCSGraphicsScene
+from ._util import ResizingGraphicsView, draw_well_plate
 
 if TYPE_CHECKING:
     from pathlib import Path

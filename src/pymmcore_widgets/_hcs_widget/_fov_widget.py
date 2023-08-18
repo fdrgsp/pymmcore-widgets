@@ -33,9 +33,8 @@ from superqt.utils import signals_blocked
 from useq import GridRelative
 from useq._grid import OrderMode
 
-from pymmcore_widgets._util import ResizingGraphicsView
-
 from ._graphics_items import FOV, _FOVCoordinates, _WellArea
+from ._util import ResizingGraphicsView
 from ._well_plate_model import WellPlate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
