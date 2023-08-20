@@ -11,7 +11,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from ._graphics_items import _Well
+from ._graphics_items import WellInfo, _Well
 
 if TYPE_CHECKING:
     from qtpy.QtGui import QBrush, QPen, QResizeEvent
@@ -96,30 +96,28 @@ def draw_well_plate(
     view.fitInView(scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
 
-def get_well_center_stage_coordinates(
-    plate: WellPlate,
-    well_name: str,
-    row: int,
-    col: int,
-    a1_center: tuple[float, float],
-    rotation_matrix: np.ndarray | None,
+def get_well_center(
+    plate: WellPlate, well: WellInfo, a1_center_x: float, a1_center_y: float
 ) -> tuple[float, float]:
     """Calculate the x, y stage coordinates of a well."""
-    a1_x, a1_y = a1_center
-    center = np.array([[a1_x], [a1_y]])
+    a1_x, a1_y = (a1_center_x, a1_center_y)
     spacing_x = plate.well_spacing_x * 1000  # µm
     spacing_y = plate.well_spacing_y * 1000  # µm
 
-    if well_name == "A1":
+    if well.name == "A1":
         x, y = (a1_x, a1_y)
     else:
-        x = a1_x + (spacing_x * col)
-        y = a1_y - (spacing_y * row)  # TODO: check sign
-
-    # apply rotation matrix
-    if rotation_matrix is not None:
-        coords = [[x], [y]]
-        transformed = np.linalg.inv(rotation_matrix).dot(coords - center) + center
-        x_rotated, y_rotated = transformed
-        x, y = (x_rotated[0], y_rotated[0])
+        x = a1_x + (spacing_x * well.column)
+        y = a1_y - (spacing_y * well.row)  # TODO: check sign
     return x, y
+
+
+def apply_rotation_matrix(
+    rotation_matrix: np.ndarray, center_x: float, center_y: float, x: float, y: float
+) -> tuple[float, float]:
+    """Apply rotation matrix to x, y coordinates."""
+    center = np.array([[center_x], [center_y]])
+    coords = [[x], [y]]
+    transformed = np.linalg.inv(rotation_matrix).dot(coords - center) + center
+    x_rotated, y_rotated = transformed
+    return x_rotated[0], y_rotated[0]

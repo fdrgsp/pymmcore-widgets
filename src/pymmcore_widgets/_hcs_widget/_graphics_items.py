@@ -10,19 +10,39 @@ POINT_SIZE = 5
 
 
 class WellInfo(NamedTuple):
-    """Tuple to store the well name, row and column."""
+    """Tuple to store the well name, row and column.
 
-    well_name: str
+    Attributes
+    ----------
+    name : str
+        Well name.
+    row : int
+        Well row.
+    column : int
+        Well column.
+    """
+
+    name: str
     row: int
-    col: int
-    well_shape: QRectF
+    column: int
 
 
 class FOV(NamedTuple):
-    """FOV x and y coordinates."""
+    """FOV x and y coordinates.
+
+    Attributes
+    ----------
+    x : float
+        FOV x coordinate.
+    y : float
+        FOV y coordinate.
+    center : QPointF
+        QGraphicsScene center.
+    """
 
     x: float
     y: float
+    scene_rect: QRectF
 
 
 class _Well(QGraphicsItem):
@@ -107,7 +127,7 @@ class _Well(QGraphicsItem):
         row = self._row
         col = self._col
         well = f"{ALPHABET[self._row]}{self._col + 1}"
-        return WellInfo(well_name=well, row=row, col=col, well_shape=self._well_shape)
+        return WellInfo(name=well, row=row, column=col)
 
 
 class _WellArea(QGraphicsItem):
@@ -174,4 +194,4 @@ class _FOVCoordinates(QGraphicsItem):
 
     def value(self) -> FOV:
         """Return the center of the FOV."""
-        return FOV(self._center_x, self._center_y)
+        return FOV(self._center_x, self._center_y, self._rect)

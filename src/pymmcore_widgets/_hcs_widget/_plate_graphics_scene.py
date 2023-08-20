@@ -121,14 +121,14 @@ class _HCSGraphicsScene(QGraphicsScene):
     def _snake_row_wise_ordered(self, wells: list[WellInfo]) -> list[WellInfo]:
         """Return a snake-row-wise ordered list of the selected wells."""
         max_row = max(wells, key=lambda well: well.row).row + 1
-        max_column = max(wells, key=lambda well: well.col).col + 1
+        max_column = max(wells, key=lambda well: well.column).column + 1
 
         # create an array with the max number of rows and columns
         _c, _r = np.arange(max_column), np.arange(max_row)
 
         # remove rows and columns that are not in the selected wells
         row_list = [item.row for item in wells]
-        col_list = [item.col for item in wells]
+        col_list = [item.column for item in wells]
         row_list_updated = _r[np.isin(_r, row_list)]
         col_list_updated = _c[np.isin(_c, col_list)]
 
@@ -143,6 +143,6 @@ class _HCSGraphicsScene(QGraphicsScene):
         snake_ordered: list[WellInfo] = []
         for row, col in list(zip(r.ravel(), c.ravel())):
             snake_ordered.extend(
-                well for well in wells if well.row == row and well.col == col
+                well for well in wells if well.row == row and well.column == col
             )
         return snake_ordered

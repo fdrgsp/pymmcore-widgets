@@ -51,7 +51,15 @@ WELL_PLATE = WellPlate("", True, 0, 0, 0, 0, 0, 0)
 
 
 class FOVs(NamedTuple):
-    """FOVs of the well plate."""
+    """FOVs of the well plate.
+
+    Attributes
+    ----------
+    fov_info : Center | Random | GridRelative | None
+        Information about the FOV selection mode.
+    fov_list : list[FOV]
+        List of FOV.
+    """
 
     fov_info: Center | Random | GridRelative | None
     fov_list: list[FOV]
@@ -450,8 +458,8 @@ class _FOVSelectrorWidget(QWidget):
 
         # set the position of the well plate in the scene using the center of the view
         # QRectF as reference
-        x = self.view.sceneRect().center().x() - size_x / 2
-        y = self.view.sceneRect().center().y() - size_y / 2
+        x = self.view.sceneRect().center().x() - (size_x / 2)
+        y = self.view.sceneRect().center().y() - (size_y / 2)
         w = size_x
         h = size_y
 
@@ -564,6 +572,7 @@ class _FOVSelectrorWidget(QWidget):
                 FOV(
                     self.scene.sceneRect().center().x(),
                     self.scene.sceneRect().center().y(),
+                    self._reference_well_area,
                 )
             ]
         )
@@ -596,10 +605,11 @@ class _FOVSelectrorWidget(QWidget):
             self.scene.sceneRect().center().x(),
             self.scene.sceneRect().center().y(),
         )
+        rect = self._reference_well_area
 
         # create a list of FOV points by shifting the grid by the center coords
         # and invert the y axis (because (0,0) in the scene is the top left corner)
-        points = [FOV(g.x + x, (g.y - y) * (-1)) for g in grid]  # type: ignore
+        points = [FOV(g.x + x, (g.y - y) * (-1), rect) for g in grid]  # type: ignore
 
         self._draw_fovs(points)
 
@@ -654,9 +664,7 @@ class _FOVSelectrorWidget(QWidget):
             pen = self._get_pen(idx)
             # draw the fovs
             img_w, img_h = self._get_image_size_in_px()
-            fovs = _FOVCoordinates(
-                fov.x, fov.y, img_w, img_h, self.scene.sceneRect(), pen
-            )
+            fovs = _FOVCoordinates(fov.x, fov.y, img_w, img_h, fov.scene_rect, pen)
             self.scene.addItem(fovs)
             # draw the lines connecting the fovs
             if x is not None and y is not None:
@@ -714,9 +722,7 @@ class _FOVSelectrorWidget(QWidget):
             min_dist_px_y = (self._well_size_y_px * image_height_mm) / area_y_mm
 
         # generate random points
-        points = self._generate_random_points(
-            nFOV, area._rect, min_dist_px_x, min_dist_px_y
-        )
+        points = self._generate_random_points(nFOV, rect, min_dist_px_x, min_dist_px_y)
 
         return self._order_points(points)
 
@@ -724,7 +730,7 @@ class _FOVSelectrorWidget(QWidget):
         self, nFOV: int, rect: QRectF, min_dist_x: float, min_dist_y: float
     ) -> list[FOV]:
         """Generate a list of random points in a circle or in a rectangle."""
-        # points: list[tuple[float, float]] = []
+        print(rect)
         points: list[FOV] = []
 
         t = time.time()
@@ -734,9 +740,9 @@ class _FOVSelectrorWidget(QWidget):
                 x, y = self._random_point_in_circle(rect)
             else:
                 x, y = self._random_point_in_rectangle(rect)
-
-            if self.is_a_valid_point(FOV(x, y), points, min_dist_x, min_dist_y):
-                points.append(FOV(x, y))
+            point = FOV(x, y, rect)
+            if self.is_a_valid_point(point, points, min_dist_x, min_dist_y):
+                points.append(point)
             # raise a warning if it takes longer than 200ms to generate the points.
             if time.time() - t > 0.25:
                 self._raise_points_warning(nFOV, len(points))

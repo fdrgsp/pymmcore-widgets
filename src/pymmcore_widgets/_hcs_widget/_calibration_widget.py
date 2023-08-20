@@ -30,7 +30,8 @@ from qtpy.QtWidgets import (
 )
 from superqt.fonticon import icon
 
-from ._util import get_well_center_stage_coordinates
+from ._graphics_items import WellInfo
+from ._util import apply_rotation_matrix, get_well_center
 
 if TYPE_CHECKING:
     from ._well_plate_model import WellPlate
@@ -348,19 +349,20 @@ class _CalibrationTable(QWidget):
         ]
         return pos
 
-    def setValue(
+    def _update(
         self,
         plate: WellPlate,
         calibration_mode: ThreePoints | FourPoints | TwoPoints,
         well_name: str,
-        list_of_points: list[tuple[float, float]] | None = None,
     ) -> None:
+        """Update the widget with the given plate calibration mode and well name."""
         self._clear()
         self._plate = plate
         self._calibration_mode = calibration_mode
         self._well_label.setText(well_name)
-        if list_of_points is None:
-            return
+
+    def setValue(self, list_of_points: list[tuple[float, float]]) -> None:
+        self._clear()
         for x, y in list_of_points:
             row = self._add_row()
             self._add_table_value(x, row, 0)
@@ -385,15 +387,15 @@ class _TestCalibrationWidget(QGroupBox):
         lbl = QLabel("Move to the edge of well:")
         lbl.setSizePolicy(*FixedSizePolicy)
         # combo to select plate
-        self._well_letter_combo = QComboBox()
-        self._well_letter_combo.setEditable(True)
-        self._well_letter_combo.lineEdit().setReadOnly(True)
-        self._well_letter_combo.lineEdit().setAlignment(AlignCenter)
+        self._letter_combo = QComboBox()
+        self._letter_combo.setEditable(True)
+        self._letter_combo.lineEdit().setReadOnly(True)
+        self._letter_combo.lineEdit().setAlignment(AlignCenter)
         # combo to select well number
-        self._well_number_combo = QComboBox()
-        self._well_number_combo.setEditable(True)
-        self._well_number_combo.lineEdit().setReadOnly(True)
-        self._well_number_combo.lineEdit().setAlignment(AlignCenter)
+        self._number_combo = QComboBox()
+        self._number_combo.setEditable(True)
+        self._number_combo.lineEdit().setReadOnly(True)
+        self._number_combo.lineEdit().setAlignment(AlignCenter)
         # test button
         self._test_button = QPushButton("Go")
         self._test_button.setEnabled(False)
@@ -403,8 +405,8 @@ class _TestCalibrationWidget(QGroupBox):
         test_calibration.layout().setSpacing(10)
         test_calibration.layout().setContentsMargins(10, 10, 10, 10)
         test_calibration.layout().addWidget(lbl)
-        test_calibration.layout().addWidget(self._well_letter_combo)
-        test_calibration.layout().addWidget(self._well_number_combo)
+        test_calibration.layout().addWidget(self._letter_combo)
+        test_calibration.layout().addWidget(self._number_combo)
         test_calibration.layout().addWidget(self._test_button)
 
         # main
@@ -413,13 +415,26 @@ class _TestCalibrationWidget(QGroupBox):
         self.layout().addWidget(test_calibration)
 
     def _update(self, plate: WellPlate) -> None:
-        self._well_letter_combo.clear()
+        self._letter_combo.clear()
         letters = [ALPHABET[letter] for letter in range(plate.rows)]
-        self._well_letter_combo.addItems(letters)
+        self._letter_combo.addItems(letters)
 
-        self._well_number_combo.clear()
+        self._number_combo.clear()
         numbers = [str(c) for c in range(1, plate.columns + 1)]
-        self._well_number_combo.addItems(numbers)
+        self._number_combo.addItems(numbers)
+
+    def value(self) -> WellInfo:
+        """Return the selected test well as `WellInfo` object."""
+        return WellInfo(
+            self._letter_combo.currentText() + self._number_combo.currentText(),
+            self._letter_combo.currentIndex(),
+            self._number_combo.currentIndex(),
+        )
+
+    def setValue(self, well: WellInfo) -> None:
+        """Set the selected test well."""
+        self._letter_combo.setCurrentIndex(well.row)
+        self._number_combo.setCurrentIndex(well.column)
 
 
 class _CalibrationLabel(QGroupBox):
@@ -523,7 +538,7 @@ class _CalibrationWidget(QWidget):
         # connect
         self._calibration_mode.valueChanged.connect(self._on_calibration_mode_changed)
         self._calibrate_button.clicked.connect(self._on_calibrate_button_clicked)
-        self._test_calibration._test_button.clicked.connect(self._test_well_calibration)
+        self._test_calibration._test_button.clicked.connect(self._move_to_well_edge)
 
     @property
     def calibration_info(self) -> CalibrationInfo | None:
@@ -541,6 +556,8 @@ class _CalibrationWidget(QWidget):
 
     def _update(self, plate: WellPlate) -> None:
         self._plate = plate
+        # reset calibration state
+        self._reset_calibration()
         # update calibration mode
         calibration_mode: list[ThreePoints | FourPoints | TwoPoints] = (
             [ThreePoints()] if plate.circular else [TwoPoints(), FourPoints()]
@@ -550,21 +567,24 @@ class _CalibrationWidget(QWidget):
         self._update_tables(self._plate, self._calibration_mode.value())
         # update test calibration
         self._test_calibration._update(self._plate)
-        # update calibration label
-        self._set_calibration_label(False)
 
     def _update_tables(
         self, plate: WellPlate, calibration_mode: ThreePoints | FourPoints | TwoPoints
     ) -> None:
         """Update the calibration tables."""
-        self._table_a1.setValue(plate, calibration_mode, " Well A1 ")
-        self._table_an.setValue(plate, calibration_mode, f" Well A{plate.columns} ")
+        self._table_a1._update(plate, calibration_mode, " Well A1 ")
+        self._table_an._update(plate, calibration_mode, f" Well A{plate.columns} ")
         self._table_an.show() if plate.columns > 1 else self._table_an.hide()
+
+    def _reset_calibration(self) -> None:
+        """Reset to not calibrated state."""
+        self._set_calibration_label(False)
+        self._calibration_info = None
 
     def _on_calibrate_button_clicked(self) -> None:
         """Calibrate the plate."""
         if self._plate is None:
-            self._set_calibration_label(False)
+            self._reset_calibration()
             return
 
         # get calibration well centers
@@ -572,7 +592,7 @@ class _CalibrationWidget(QWidget):
 
         # return if any of the necessary well centers are None
         if None in a1_center or (None in an_center and self._plate.columns > 1):
-            self._set_calibration_label(False)
+            self._reset_calibration()
             # TODO: add warning
             return
 
@@ -628,63 +648,22 @@ class _CalibrationWidget(QWidget):
             else _get_rectangle_center(*pos)
         )
 
-    def _test_well_calibration(self) -> None:
+    def _move_to_well_edge(self) -> None:
         """Move to the edge of the selected well to test the calibratiion."""
         if self._plate is None:
             return
-
-        # well name, row and col
-        well_letter = self._test_calibration._well_letter_combo.currentText()
-        well_number = self._test_calibration._well_number_combo.currentText()
-        row = self._test_calibration._well_letter_combo.currentIndex()
-        col = self._test_calibration._well_number_combo.currentIndex()
-
-        # well spacing
-        spacing_x = self._plate.well_spacing_x * 1000  # µm
-        spacing_y = self._plate.well_spacing_y * 1000  # µm
-
         cal_info = self.calibration_info
         if cal_info is None:
             return
 
+        well = self._test_calibration.value()
         a1_x, a1_y = cal_info.well_a1_center_x, cal_info.well_a1_center_x
-        center = np.array([[a1_x], [a1_y]])
-        rotation_matrix = cal_info.rotation_matrix
-
-        well_name = well_letter + well_number
-        x, y = get_well_center_stage_coordinates(
-            self._plate, well_name, row, col, (a1_x, a1_y), rotation_matrix
-        )
-
-        if well_name == "A1":
-            x, y = (a1_x, a1_y)
-        else:
-            x = a1_x + (spacing_x * col)
-            y = a1_y - (spacing_y * row)  # TODO: check sign
-
-        # apply rotation matrix
-        if rotation_matrix is not None:
-            coords = [[x], [y]]
-            transformed = np.linalg.inv(rotation_matrix).dot(coords - center) + center
-            x_rotated, y_rotated = transformed
-            x, y = (x_rotated[0], y_rotated[0])
-
-            self._mmc.waitForDevice(self._mmc.getXYStageDevice())
-
-            if self._plate.circular:
-                x, y = _get_random_circle_edge_point(
-                    x, y, self._plate.well_size_x * 1000 / 2
-                )
-            else:
-                x, y = _get_random_rectangle_edge_point(
-                    x, y, self._plate.well_size_x * 1000, self._plate.well_size_y * 1000
-                )
-
-            self._mmc.setXYPosition(x, y)
-
-            # this is only for testing, remove later____________________________________
-            plt.plot(a1_x, a1_y, "mo")
-            plt.plot(x, y, "go")
+        x, y = get_well_center(self._plate, well, a1_x, a1_y)
+        if rotation_matrix := cal_info.rotation_matrix:
+            x, y = apply_rotation_matrix(rotation_matrix, a1_x, a1_y, x, y)
+        # this is only for testing, remove later____________________________________
+        plt.plot(a1_x, a1_y, "mo")
+        plt.plot(x, y, "go")
         sx, sy = (x, y)
         for _ in range(50):
             if self._plate.circular:
@@ -702,6 +681,18 @@ class _CalibrationWidget(QWidget):
         plt.axis("equal")
         plt.show()
         # ______________________________________________________________________________
+        self._mmc.waitForDevice(self._mmc.getXYStageDevice())
+
+        if self._plate.circular:
+            x, y = _get_random_circle_edge_point(
+                x, y, self._plate.well_size_x * 1000 / 2
+            )
+        else:
+            x, y = _get_random_rectangle_edge_point(
+                x, y, self._plate.well_size_x * 1000, self._plate.well_size_y * 1000
+            )
+
+        self._mmc.setXYPosition(x, y)
 
     def _set_calibration_label(self, state: bool) -> None:
         """Set the calibration label."""
@@ -718,3 +709,9 @@ class _CalibrationWidget(QWidget):
     def value(self) -> CalibrationInfo | None:
         """Get the calibration information."""
         return self.calibration_info
+
+    def setValue(self, value: CalibrationInfo | None) -> None:
+        """Set the calibration information."""
+        if value is None:
+            self.calibration_info = value
+            self._set_calibration_label(True)

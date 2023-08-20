@@ -15,8 +15,9 @@ from rich import print
 
 from ._calibration_widget import _CalibrationWidget
 from ._fov_widget import _FOVSelectrorWidget
+from ._graphics_items import WellInfo
 from ._plate_widget import _PlateWidget
-from ._util import get_well_center_stage_coordinates
+from ._util import apply_rotation_matrix, get_well_center
 from ._well_plate_model import PLATE_DB_PATH, WellPlate, load_database
 
 
@@ -135,36 +136,85 @@ class HCSWizard(QWizard):
     def _on_finish_clicked(self) -> None:
         print("__________________________")
         print(self.plate_page._plate_widget.value())
-        print(self.fov_page._fov_widget.value())
         print(self.calibration_page._calibration.value())
+        print(self.fov_page._fov_widget.value())
         print("__________________________")
 
+        well_centers = self._get_well_center_stage_coordinates()
+        if not well_centers:
+            return
+
+        self._get_fovs_stage_coords(well_centers)
+
+    def _get_well_center_stage_coordinates(
+        self,
+    ) -> list[tuple[WellInfo, float, float]] | None:
         well_list = self.plate_page._plate_widget.value().wells
         if well_list is None:
-            return
+            return None
+
+        calib_info = self.calibration_page._calibration.value()
+
+        if calib_info is None:
+            return None
 
         plate = self.plate_page._plate_widget.value().plate
 
+        a1_x, a1_y = (calib_info.well_a1_center_x, calib_info.well_a1_center_x)
+        wells_center_stage_coords = []
+        for well in well_list:
+            x, y = get_well_center(plate, well, a1_x, a1_y)
+            wells_center_stage_coords.append((well, x, y))
+
+        return wells_center_stage_coords
+
+    def _get_fovs_stage_coords(
+        self, wells_center: list[tuple[WellInfo, float, float]]
+    ) -> None:
+        """Get the calibrated stage coords of each FOV of the selected wells."""
         calib_info = self.calibration_page._calibration.value()
         if calib_info is None:
             return
 
-        center_a1 = (calib_info.well_a1_center_x, calib_info.well_a1_center_x)
+        plate = self.plate_page._plate_widget.value().plate
+        _, fov_list = self.fov_page._fov_widget.value()
+        a1_x, a1_y = (calib_info.well_a1_center_x, calib_info.well_a1_center_x)
         rotation_matrix = calib_info.rotation_matrix
+        plt.cla()
+        plt.plot(a1_x, a1_y, "ko")
+        for well, well_center_x, well_center_y in wells_center:
+            print(well)
+            for fov in fov_list:
+                # well_size_x in px is the width of the graphics view
+                well_size_x_px = self.fov_page._fov_widget.view.sceneRect().width()
+                # calculate the the value of 1px in µm
+                px_um = plate.well_size_x * 1000 / well_size_x_px
+                # get the stage coordinates of the top left corner of the well
+                well_stage_coord_left = well_center_x - (plate.well_size_x * 1000 / 2)
+                well_stage_coord_top = well_center_y - (plate.well_size_y * 1000 / 2)
+                # get the stage coordinates of the fov
+                fov_stage_coord_x = well_stage_coord_left + (fov.x * px_um)
+                # fov_stage_coord_y = (well_stage_coord_top + (fov.y * px_um)) * -1
+                fov_stage_coord_y = well_stage_coord_top + (fov.y * px_um)
+                # apply rotation matrix
+                if rotation_matrix is not None:
+                    fov_stage_coord_x, fov_stage_coord_y = apply_rotation_matrix(
+                        rotation_matrix,
+                        a1_x,
+                        a1_y,
+                        fov_stage_coord_x,
+                        fov_stage_coord_y,
+                    )
 
-        for well in well_list:
-            x, y = get_well_center_stage_coordinates(
-                plate,
-                well.well_name,
-                well.row,
-                well.col,
-                center_a1,
-                rotation_matrix,
-            )
+                plt.plot(fov_stage_coord_x, fov_stage_coord_y, "go")
 
-            # this is just for testing, remove later____________________________________
-            plt.plot(x, y, "go")
-        plt.plot(center_a1[0], center_a1[1], "ko")
+            # to remove, here it is only to visualize the well center
+            if rotation_matrix is not None:
+                well_center_x, well_center_y = apply_rotation_matrix(
+                    rotation_matrix, a1_x, a1_y, well_center_x, well_center_y
+                )
+
+            plt.plot(well_center_x, well_center_y, "ko")
+
         plt.axis("equal")
         plt.show()
-        # ______________________________________________________________________________
