@@ -166,8 +166,8 @@ def _get_plate_rotation_matrix(
     x2, y2 = xy_well_2
 
     m = (y2 - y1) / (x2 - x1)  # slope from y = mx + q
-    # plate_angle_rad = -np.arctan(m)
-    plate_angle_rad = np.arctan(m)
+    plate_angle_rad = -np.arctan(m)
+    # plate_angle_rad = np.arctan(m)
     # this is to test only, should be removed_____________________________
     print(f"plate_angle: {np.rad2deg(plate_angle_rad)}")
     # ____________________________________________________________________

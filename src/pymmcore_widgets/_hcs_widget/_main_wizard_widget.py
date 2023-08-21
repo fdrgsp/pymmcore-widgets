@@ -2,7 +2,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtCore import Qt, Signal
+from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QSizePolicy,
     QSpacerItem,
@@ -119,7 +119,8 @@ class HCSWizard(QWizard):
         self.addPage(self.fov_page)
 
         _run = self.button(QWizard.WizardButton.FinishButton)  # name set in self.page3
-        _run.disconnect(self)  # disconnect default behavior
+        # _run.disconnect(self)  # disconnect default behavior
+        _run.disconnect()  # disconnect default behavior
         _run.clicked.connect(self._on_finish_clicked)
 
         self._on_plate_combo_changed(
@@ -153,6 +154,8 @@ class HCSWizard(QWizard):
         # this is only for testing, remove later____________________________________
         plt.cla()
         calib_info = self.calibration_page._calibration.value()
+        if calib_info is None:
+            return None
         a1_x, a1_y = (calib_info.well_a1_center_x, calib_info.well_a1_center_y)
         plt.plot(a1_x, a1_y, "ko")
         for fx, fy in fovs:
@@ -189,19 +192,21 @@ class HCSWizard(QWizard):
 
     def _get_fovs_stage_coords(
         self, wells_center: list[tuple[WellInfo, float, float]]
-    ) -> None:
+    ) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
         """Get the calibrated stage coords of each FOV of the selected wells."""
         calib_info = self.calibration_page._calibration.value()
         if calib_info is None:
-            return
+            return [], []
 
         plate = self.plate_page._plate_widget.value().plate
         _, fov_list = self.fov_page._fov_widget.value()
         a1_x, a1_y = (calib_info.well_a1_center_x, calib_info.well_a1_center_y)
         rotation_matrix = calib_info.rotation_matrix
-        c = []
-        fovs = []
-        for well, well_center_x, well_center_y in wells_center:
+        # this will be removed, it's just to test_____________________________________
+        c: list[tuple[float, float]] = []
+        # _____________________________________________________________________________
+        fovs: list[tuple[float, float]] = []
+        for _well, well_center_x, well_center_y in wells_center:
             for fov in fov_list:
                 # well_size_x in px is the width of the graphics view
                 well_size_x_px = self.fov_page._fov_widget.view.sceneRect().width()
@@ -211,9 +216,9 @@ class HCSWizard(QWizard):
                 well_stage_coord_left = well_center_x - (plate.well_size_x * 1000 / 2)
                 well_stage_coord_top = well_center_y + (plate.well_size_y * 1000 / 2)
 
-                print('top left:', well_stage_coord_left, well_stage_coord_top)
-                print('move x:', (fov.x * px_um))
-                print('move y:', (fov.y * px_um))
+                print("top left:", well_stage_coord_left, well_stage_coord_top)
+                print("move x:", (fov.x * px_um))
+                print("move y:", (fov.y * px_um))
 
                 # get the stage coordinates of the fov
                 fov_stage_coord_x = well_stage_coord_left + (fov.x * px_um)
