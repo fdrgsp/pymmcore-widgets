@@ -15,6 +15,7 @@ from qtpy.QtCore import QSize, Qt, Signal
 from qtpy.QtGui import QIcon, QPixmap
 from qtpy.QtWidgets import (
     QAbstractSpinBox,
+    QAction,
     QComboBox,
     QDoubleSpinBox,
     QGroupBox,
@@ -27,7 +28,6 @@ from qtpy.QtWidgets import (
     QToolBar,
     QVBoxLayout,
     QWidget,
-    QAction
 )
 from superqt.fonticon import icon
 
@@ -91,31 +91,49 @@ class CalibrationInfo(NamedTuple):
     rotation_matrix: np.ndarray | None
 
 
-def _get_circle_center(
+def _find_circle_center(
     point1: tuple[float, float],
     point2: tuple[float, float],
     point3: tuple[float, float],
 ) -> tuple[float, float]:
-    """Find the center of a round well given 3 circonference points.
-
-    Circle Equation: (x - x1)^2 + (y - y1)^2 = r^2
-    - solve for point a: (x - ax)^2 + (y - ay)^2 = r^2
-    - solve for point b: = (x - bx)^2 + (y - by)^2 = r^2
-    - solve for point c: = (x - cx)^2 + (y - cy)^2 = r^2
     """
-    A = np.array([[*point1, 1], [*point2, 1], [*point3, 1]])
-    B = np.array(
-        [
-            point1[0] ** 2 + point1[1] ** 2,
-            point2[0] ** 2 + point2[1] ** 2,
-            point3[0] ** 2 + point3[1] ** 2,
-        ]
-    )
-    xc, yc, _ = np.linalg.solve(A, B)
-    return float(xc), float(yc)
+    Calculate the center of a circle passing through three given points.
+
+    The function uses the formula for the circumcenter of a triangle to find
+    the center of the circle that passes through the given points.
+    """
+    x1, y1 = point1
+    x2, y2 = point2
+    x3, y3 = point3
+
+    # Calculate determinant D
+    D = 2 * (x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2))
+
+    # Calculate x and y coordinates of the circle's center
+    x = (
+        ((x1**2 + y1**2) * (y2 - y3))
+        + ((x2**2 + y2**2) * (y3 - y1))
+        + ((x3**2 + y3**2) * (y1 - y2))
+    ) / D
+    y = (
+        ((x1**2 + y1**2) * (x3 - x2))
+        + ((x2**2 + y2**2) * (x1 - x3))
+        + ((x3**2 + y3**2) * (x2 - x1))
+    ) / D
+
+    # this is to test only, should be removed_____________________________
+    plt.plot(x1, y1, "mo")
+    plt.plot(x2, y2, "mo")
+    plt.plot(x3, y3, "mo")
+    plt.plot(x, y, "go")
+    plt.axis("equal")
+    plt.show()
+    # ____________________________________________________________________
+
+    return x, y
 
 
-def _get_rectangle_center(*args: tuple[float, ...]) -> tuple[float, float]:
+def _find_rectangle_center(*args: tuple[float, ...]) -> tuple[float, float]:
     """
     Find the center of a rectangle/square well.
 
@@ -134,6 +152,7 @@ def _get_rectangle_center(*args: tuple[float, ...]) -> tuple[float, float]:
     # this is to test only, should be removed_____________________________
     plt.plot(x_list, y_list, "o")
     plt.plot(x, y, "o")
+    plt.axis("equal")
     plt.show()
     # ____________________________________________________________________
     return x, y
@@ -648,9 +667,9 @@ class _CalibrationWidget(QWidget):
             )
 
         return (
-            _get_circle_center(*pos)
+            _find_circle_center(*pos)
             if points == CIRCLE_MODE_POINTS
-            else _get_rectangle_center(*pos)
+            else _find_rectangle_center(*pos)
         )
 
     def _move_to_well_edge(self) -> None:
