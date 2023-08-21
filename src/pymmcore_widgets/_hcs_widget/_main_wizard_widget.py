@@ -2,7 +2,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtCore import Qt
+from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import (
     QSizePolicy,
     QSpacerItem,
@@ -119,7 +119,7 @@ class HCSWizard(QWizard):
         self.addPage(self.fov_page)
 
         _run = self.button(QWizard.WizardButton.FinishButton)  # name set in self.page3
-        _run.disconnect()  # disconnect default behavior
+        _run.disconnect(self)  # disconnect default behavior
         _run.clicked.connect(self._on_finish_clicked)
 
         self._on_plate_combo_changed(
@@ -146,7 +146,24 @@ class HCSWizard(QWizard):
 
         print(well_centers)
 
-        self._get_fovs_stage_coords(well_centers)
+        fovs, c = self._get_fovs_stage_coords(well_centers)
+
+        print(fovs)
+
+        # this is only for testing, remove later____________________________________
+        plt.cla()
+        calib_info = self.calibration_page._calibration.value()
+        a1_x, a1_y = (calib_info.well_a1_center_x, calib_info.well_a1_center_y)
+        plt.plot(a1_x, a1_y, "ko")
+        for fx, fy in fovs:
+            plt.plot(fx, fy, "go")
+        for cx, cy in c:
+            plt.plot(cx, cy, "bo")
+        plt.axis("equal")
+        # ax = plt.gca()
+        # ax.invert_yaxis()
+        plt.show()
+        # ______________________________________________________________________________
 
     def _get_well_center_stage_coordinates(
         self,
@@ -162,7 +179,7 @@ class HCSWizard(QWizard):
 
         plate = self.plate_page._plate_widget.value().plate
 
-        a1_x, a1_y = (calib_info.well_a1_center_x, calib_info.well_a1_center_x)
+        a1_x, a1_y = (calib_info.well_a1_center_x, calib_info.well_a1_center_y)
         wells_center_stage_coords = []
         for well in well_list:
             x, y = get_well_center(plate, well, a1_x, a1_y)
@@ -180,12 +197,11 @@ class HCSWizard(QWizard):
 
         plate = self.plate_page._plate_widget.value().plate
         _, fov_list = self.fov_page._fov_widget.value()
-        a1_x, a1_y = (calib_info.well_a1_center_x, calib_info.well_a1_center_x)
+        a1_x, a1_y = (calib_info.well_a1_center_x, calib_info.well_a1_center_y)
         rotation_matrix = calib_info.rotation_matrix
-        plt.cla()
-        plt.plot(a1_x, a1_y, "ko")
+        c = []
+        fovs = []
         for well, well_center_x, well_center_y in wells_center:
-            print(well)
             for fov in fov_list:
                 # well_size_x in px is the width of the graphics view
                 well_size_x_px = self.fov_page._fov_widget.view.sceneRect().width()
@@ -207,17 +223,16 @@ class HCSWizard(QWizard):
                         fov_stage_coord_y,
                     )
 
-                plt.plot(fov_stage_coord_x, fov_stage_coord_y, "go")
+                fovs.append((fov_stage_coord_x, fov_stage_coord_y))
 
             # to remove, here it is only to visualize the well center
             if rotation_matrix is not None:
                 well_center_x, well_center_y = apply_rotation_matrix(
                     rotation_matrix, a1_x, a1_y, well_center_x, well_center_y
                 )
+            c.append((well_center_x, well_center_y))
 
-            plt.plot(well_center_x, well_center_y, "ko")
+            print()
+            print('well center:', well_center_x, well_center_y, 'a1:', a1_x, a1_y)
 
-        plt.axis("equal")
-        ax = plt.gca()
-        ax.invert_yaxis()
-        plt.show()
+        return fovs, c

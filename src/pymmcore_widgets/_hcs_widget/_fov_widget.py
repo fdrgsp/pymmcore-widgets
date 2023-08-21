@@ -730,7 +730,6 @@ class _FOVSelectrorWidget(QWidget):
         self, nFOV: int, rect: QRectF, min_dist_x: float, min_dist_y: float
     ) -> list[FOV]:
         """Generate a list of random points in a circle or in a rectangle."""
-        print(rect)
         points: list[FOV] = []
 
         t = time.time()

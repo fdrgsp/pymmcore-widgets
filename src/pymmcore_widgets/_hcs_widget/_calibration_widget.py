@@ -12,7 +12,7 @@ import numpy as np
 from fonticon_mdi6 import MDI6
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import QSize, Qt, Signal
-from qtpy.QtGui import QAction, QIcon, QPixmap
+from qtpy.QtGui import QIcon, QPixmap
 from qtpy.QtWidgets import (
     QAbstractSpinBox,
     QComboBox,
@@ -27,6 +27,7 @@ from qtpy.QtWidgets import (
     QToolBar,
     QVBoxLayout,
     QWidget,
+    QAction
 )
 from superqt.fonticon import icon
 
@@ -130,13 +131,11 @@ def _get_rectangle_center(*args: tuple[float, ...]) -> tuple[float, float]:
     # get center coordinates
     x = sum(x_list) / 2
     y = sum(y_list) / 2
-
+    # this is to test only, should be removed_____________________________
     plt.plot(x_list, y_list, "o")
     plt.plot(x, y, "o")
-    ax = plt.gca()
-    ax.invert_yaxis()
     plt.show()
-
+    # ____________________________________________________________________
     return x, y
 
 
@@ -150,7 +149,9 @@ def _get_plate_rotation_matrix(
     m = (y2 - y1) / (x2 - x1)  # slope from y = mx + q
     # plate_angle_rad = -np.arctan(m)
     plate_angle_rad = np.arctan(m)
+    # this is to test only, should be removed_____________________________
     print(f"plate_angle: {np.rad2deg(plate_angle_rad)}")
+    # ____________________________________________________________________
     return np.array(
         [
             [np.cos(plate_angle_rad), -np.sin(plate_angle_rad)],
@@ -180,14 +181,15 @@ def _get_random_rectangle_edge_point(
 
     ...with center (xc, yc) and size (well_size_x, well_size_y).
     """
-    x_top_left, y_top_left = xc - (well_size_x / 2), yc + (well_size_y / 2)
-    x_bottom_right, y_bottom_right = xc + (well_size_x / 2), yc - (well_size_y / 2)
+    x_left, y_top = xc - (well_size_x / 2), yc + (well_size_y / 2)
+    x_right, y_bottom = xc + (well_size_x / 2), yc - (well_size_y / 2)
+
     # random 4 edge points
     edge_points = [
-        (x_top_left, np.random.uniform(y_top_left, y_bottom_right)),  # left
-        (np.random.uniform(x_top_left, x_bottom_right), y_top_left),  # top
-        (x_bottom_right, np.random.uniform(y_top_left, y_bottom_right)),  # right
-        (np.random.uniform(x_top_left, x_bottom_right), y_bottom_right),  # bottom
+        (x_left, np.random.uniform(y_top, y_bottom)),  # left
+        (np.random.uniform(x_left, x_right), y_top),  # top
+        (x_right, np.random.uniform(y_top, y_bottom)),  # right
+        (np.random.uniform(x_left, x_right), y_bottom),  # bottom
     ]
     return edge_points[np.random.randint(0, 4)]
 
@@ -660,44 +662,44 @@ class _CalibrationWidget(QWidget):
             return
 
         well = self._test_calibration.value()
-        a1_x, a1_y = cal_info.well_a1_center_x, cal_info.well_a1_center_x
-        x, y = get_well_center(self._plate, well, a1_x, a1_y)
+        a1_x, a1_y = cal_info.well_a1_center_x, cal_info.well_a1_center_y
+        cx, cy = get_well_center(self._plate, well, a1_x, a1_y)
+
         if cal_info.rotation_matrix is not None:
-            x, y = apply_rotation_matrix(cal_info.rotation_matrix, a1_x, a1_y, x, y)
+            cx, cy = apply_rotation_matrix(cal_info.rotation_matrix, a1_x, a1_y, cx, cy)
+
+        self._mmc.waitForDevice(self._mmc.getXYStageDevice())
+
+        if self._plate.circular:
+            x, y = _get_random_circle_edge_point(
+                cx, cy, self._plate.well_size_x * 1000 / 2
+            )
+        else:
+            x, y = _get_random_rectangle_edge_point(
+                cx, cy, self._plate.well_size_x * 1000, self._plate.well_size_y * 1000
+            )
+
+        self._mmc.setXYPosition(x, y)
         # this is only for testing, remove later____________________________________
         plt.plot(a1_x, a1_y, "mo")
+        plt.plot(cx, cy, "mo")
         plt.plot(x, y, "go")
-        sx, sy = (x, y)
         for _ in range(50):
             if self._plate.circular:
                 x, y = _get_random_circle_edge_point(
-                    sx, sy, self._plate.well_size_x * 1000 / 2
+                    cx, cy, self._plate.well_size_x * 1000 / 2
                 )
             else:
                 x, y = _get_random_rectangle_edge_point(
-                    sx,
-                    sy,
+                    cx,
+                    cy,
                     self._plate.well_size_x * 1000,
                     self._plate.well_size_y * 1000,
                 )
             plt.plot(x, y, "ko")
         plt.axis("equal")
-        ax = plt.gca()
-        ax.invert_yaxis()
         plt.show()
         # ______________________________________________________________________________
-        self._mmc.waitForDevice(self._mmc.getXYStageDevice())
-
-        if self._plate.circular:
-            x, y = _get_random_circle_edge_point(
-                x, y, self._plate.well_size_x * 1000 / 2
-            )
-        else:
-            x, y = _get_random_rectangle_edge_point(
-                x, y, self._plate.well_size_x * 1000, self._plate.well_size_y * 1000
-            )
-
-        self._mmc.setXYPosition(x, y)
 
     def _set_calibration_label(self, state: bool) -> None:
         """Set the calibration label."""
