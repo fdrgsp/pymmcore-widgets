@@ -209,10 +209,15 @@ class HCSWizard(QWizard):
                 px_um = plate.well_size_x * 1000 / well_size_x_px
                 # get the stage coordinates of the top left corner of the well
                 well_stage_coord_left = well_center_x - (plate.well_size_x * 1000 / 2)
-                well_stage_coord_top = well_center_y - (plate.well_size_y * 1000 / 2)
+                well_stage_coord_top = well_center_y + (plate.well_size_y * 1000 / 2)
+
+                print('top left:', well_stage_coord_left, well_stage_coord_top)
+                print('move x:', (fov.x * px_um))
+                print('move y:', (fov.y * px_um))
+
                 # get the stage coordinates of the fov
                 fov_stage_coord_x = well_stage_coord_left + (fov.x * px_um)
-                fov_stage_coord_y = well_stage_coord_top + (fov.y * px_um)
+                fov_stage_coord_y = well_stage_coord_top - (fov.y * px_um)
                 # apply rotation matrix
                 if rotation_matrix is not None:
                     fov_stage_coord_x, fov_stage_coord_y = apply_rotation_matrix(
@@ -231,8 +236,5 @@ class HCSWizard(QWizard):
                     rotation_matrix, a1_x, a1_y, well_center_x, well_center_y
                 )
             c.append((well_center_x, well_center_y))
-
-            print()
-            print('well center:', well_center_x, well_center_y, 'a1:', a1_x, a1_y)
 
         return fovs, c

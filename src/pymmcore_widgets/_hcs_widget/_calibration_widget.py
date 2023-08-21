@@ -91,7 +91,7 @@ class CalibrationInfo(NamedTuple):
     rotation_matrix: np.ndarray | None
 
 
-def _get_circle_center_(
+def _get_circle_center(
     point1: tuple[float, float],
     point2: tuple[float, float],
     point3: tuple[float, float],
@@ -648,7 +648,7 @@ class _CalibrationWidget(QWidget):
             )
 
         return (
-            _get_circle_center_(*pos)
+            _get_circle_center(*pos)
             if points == CIRCLE_MODE_POINTS
             else _get_rectangle_center(*pos)
         )
