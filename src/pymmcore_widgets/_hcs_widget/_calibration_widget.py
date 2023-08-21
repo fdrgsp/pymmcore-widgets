@@ -133,6 +133,8 @@ def _get_rectangle_center(*args: tuple[float, ...]) -> tuple[float, float]:
 
     plt.plot(x_list, y_list, "o")
     plt.plot(x, y, "o")
+    ax = plt.gca()
+    ax.invert_yaxis()
     plt.show()
 
     return x, y
@@ -146,7 +148,8 @@ def _get_plate_rotation_matrix(
     x2, y2 = xy_well_2
 
     m = (y2 - y1) / (x2 - x1)  # slope from y = mx + q
-    plate_angle_rad = -np.arctan(m)  # TODOL check if sign it's correct
+    # plate_angle_rad = -np.arctan(m)
+    plate_angle_rad = np.arctan(m)
     print(f"plate_angle: {np.rad2deg(plate_angle_rad)}")
     return np.array(
         [
@@ -659,8 +662,8 @@ class _CalibrationWidget(QWidget):
         well = self._test_calibration.value()
         a1_x, a1_y = cal_info.well_a1_center_x, cal_info.well_a1_center_x
         x, y = get_well_center(self._plate, well, a1_x, a1_y)
-        if rotation_matrix := cal_info.rotation_matrix:
-            x, y = apply_rotation_matrix(rotation_matrix, a1_x, a1_y, x, y)
+        if cal_info.rotation_matrix is not None:
+            x, y = apply_rotation_matrix(cal_info.rotation_matrix, a1_x, a1_y, x, y)
         # this is only for testing, remove later____________________________________
         plt.plot(a1_x, a1_y, "mo")
         plt.plot(x, y, "go")
@@ -679,6 +682,8 @@ class _CalibrationWidget(QWidget):
                 )
             plt.plot(x, y, "ko")
         plt.axis("equal")
+        ax = plt.gca()
+        ax.invert_yaxis()
         plt.show()
         # ______________________________________________________________________________
         self._mmc.waitForDevice(self._mmc.getXYStageDevice())

@@ -144,6 +144,8 @@ class HCSWizard(QWizard):
         if not well_centers:
             return
 
+        print(well_centers)
+
         self._get_fovs_stage_coords(well_centers)
 
     def _get_well_center_stage_coordinates(
@@ -194,7 +196,6 @@ class HCSWizard(QWizard):
                 well_stage_coord_top = well_center_y - (plate.well_size_y * 1000 / 2)
                 # get the stage coordinates of the fov
                 fov_stage_coord_x = well_stage_coord_left + (fov.x * px_um)
-                # fov_stage_coord_y = (well_stage_coord_top + (fov.y * px_um)) * -1
                 fov_stage_coord_y = well_stage_coord_top + (fov.y * px_um)
                 # apply rotation matrix
                 if rotation_matrix is not None:
@@ -217,4 +218,6 @@ class HCSWizard(QWizard):
             plt.plot(well_center_x, well_center_y, "ko")
 
         plt.axis("equal")
+        ax = plt.gca()
+        ax.invert_yaxis()
         plt.show()
