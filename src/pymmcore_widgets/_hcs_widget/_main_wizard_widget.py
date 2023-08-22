@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import NamedTuple
 
 import matplotlib.pyplot as plt
 from pymmcore_plus import CMMCorePlus
@@ -13,6 +12,7 @@ from qtpy.QtWidgets import (
     QWizardPage,
 )
 from rich import print
+from useq import Position
 
 from ._calibration_widget import _CalibrationWidget
 from ._fov_widget import _FOVSelectrorWidget
@@ -20,25 +20,6 @@ from ._graphics_items import WellInfo
 from ._plate_widget import _PlateWidget
 from ._util import apply_rotation_matrix, get_well_center
 from ._well_plate_model import PLATE_DB_PATH, WellPlate, load_database
-
-
-class Position(NamedTuple):
-    """Positions of the FOV.
-
-    Attributes
-    ----------
-    name : str
-        Well name.
-    x : float
-        FOV x stage coordinate.
-    y : float
-        FOV y stage coordinate.
-    """
-
-    well_name: str
-    position_index: int
-    x: float
-    y: float
 
 
 class PlatePage(QWizardPage):
@@ -253,7 +234,11 @@ class HCSWizard(QWizard):
                     )
 
                 positions.append(
-                    Position(well.name, idx, fov_stage_coord_x, fov_stage_coord_y)
+                    Position(
+                        x=fov_stage_coord_x,
+                        y=fov_stage_coord_y,
+                        name=f"{well.name}_{idx:04d}",
+                    )
                 )
 
             # to remove, here it is only to visualize the well center
