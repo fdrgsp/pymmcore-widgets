@@ -116,6 +116,7 @@ class _HCSGraphicsScene(QGraphicsScene):
         """
         wells = [item.value() for item in reversed(self.items()) if item.isSelected()]
 
+        # this has to be fixed. Maybe at thgis point the order does not matter
         return self._snake_row_wise_ordered(wells) if wells else None
 
     def _snake_row_wise_ordered(self, wells: list[WellInfo]) -> list[WellInfo]:

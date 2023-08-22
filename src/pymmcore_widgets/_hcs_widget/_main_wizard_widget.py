@@ -17,7 +17,7 @@ from useq import Position
 from ._calibration_widget import _CalibrationWidget
 from ._fov_widget import _FOVSelectrorWidget
 from ._graphics_items import WellInfo
-from ._plate_widget import _PlateWidget
+from ._plate_widget import WellPlateInfo, _PlateWidget
 from ._util import apply_rotation_matrix, get_well_center
 from ._well_plate_model import PLATE_DB_PATH, WellPlate, load_database
 
@@ -46,6 +46,17 @@ class PlatePage(QWizardPage):
         self.layout().addWidget(self._plate_widget)
 
         self.setButtonText(QWizard.WizardButton.NextButton, "Calibration >")
+
+    def value(self) -> WellPlateInfo:
+        """Return the selected well plate and the selected wells."""
+        return self._plate_widget.value()
+
+    def setValue(self, plateinfo: WellPlateInfo) -> None:
+        """Set the current plate and the selected wells.
+
+        `value` is a list of (well_name, row, column).
+        """
+        self._plate_widget.setValue(plateinfo)
 
 
 class PlateCalibrationPage(QWizardPage):

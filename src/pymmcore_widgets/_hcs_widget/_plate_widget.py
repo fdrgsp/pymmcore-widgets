@@ -19,6 +19,7 @@ from superqt.utils import signals_blocked
 from ._custom_plate_widget import _CustomPlateWidget
 from ._plate_graphics_scene import _HCSGraphicsScene
 from ._util import ResizingGraphicsView, draw_well_plate
+from ._well_plate_model import load_database
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -57,13 +58,13 @@ class _PlateWidget(QWidget):
         self,
         parent: QWidget | None = None,
         *,
-        plate_database: dict[str, WellPlate],
         plate_database_path: Path | str,
+        plate_database: dict[str, WellPlate] | None = None,
     ) -> None:
         super().__init__(parent)
 
-        self._plate_db = plate_database
         self._plate_db_path = plate_database_path
+        self._plate_db = plate_database or load_database(self._plate_db_path)
 
         # well plate combobox
         combo_label = QLabel()
@@ -151,7 +152,7 @@ class _PlateWidget(QWidget):
         return WellPlateInfo(self.current_plate(), self.scene.value())
 
     def setValue(self, plateinfo: WellPlateInfo) -> None:
-        """Set the current selected wells.
+        """Set the current plate and the selected wells.
 
         `value` is a list of (well_name, row, column).
         """
