@@ -27,7 +27,7 @@ from qtpy.QtWidgets import (
 )
 
 from ._util import ResizingGraphicsView, draw_well_plate
-from ._well_plate_model import WellPlate
+from ._well_plate_model import WellPlate, load_database
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 StyleSheet = "background:grey; border: 0px; border-radius: 5px;"
@@ -76,13 +76,13 @@ class _CustomPlateWidget(QDialog):
         self,
         parent: QWidget | None = None,
         *,
-        plate_database: dict[str, WellPlate],
         plate_database_path: Path | str,
+        plate_database: dict[str, WellPlate] | None = None,
     ) -> None:
         super().__init__(parent)
 
         self._plate_db_path = plate_database_path
-        self._plate_db = plate_database
+        self._plate_db = plate_database or load_database(self._plate_db_path)
 
         # plate name
         id_label = QLabel()
@@ -246,11 +246,11 @@ class _CustomPlateWidget(QDialog):
         for row, plate_name in enumerate(self._plate_db):
             item = QTableWidgetItem(plate_name)
             self.plate_table.setItem(row, 0, item)
-        self._update_values(row=1, col=0)
+        self._update_values(row=0)
         draw_well_plate(
             self.view,
             self.scene,
-            self._plate_db[plate_name],
+            self._plate_db[self.plate_table.item(0, 0).text()],
             brush=BRUSH,
             pen=PEN,
             opacity=OPACITY,
@@ -258,13 +258,13 @@ class _CustomPlateWidget(QDialog):
         )
         self._id.adjustSize()
 
-    def _update_values(self, row: int, col: int) -> None:
+    def _update_values(self, row: int) -> None:
         """Update the values of the well plate in the widget."""
-        plate_item = self.plate_table.item(row, col)
+        plate_item = self.plate_table.item(row, 0)
         if not plate_item:
             return
         plate = self._plate_db[plate_item.text()]
-        self.set_value(plate)
+        self.setValue(plate)
 
     def _draw_well_plate(self) -> None:
         """Draw the well plate."""
@@ -320,7 +320,7 @@ class _CustomPlateWidget(QDialog):
 
         if self.plate_table.rowCount():
             self.plate_table.setCurrentCell(0, 0)
-            self._update_values(0, 0)
+            self._update_values(row=0)
         else:
             self.reset_values()
 
@@ -335,7 +335,7 @@ class _CustomPlateWidget(QDialog):
         self._well_size_y.setValue(0.0)
         self._circular_checkbox.setChecked(False)
 
-    def set_value(self, plate: WellPlate) -> None:
+    def setValue(self, plate: WellPlate) -> None:
         """Set the values of the well plate."""
         self._id.setText(plate.id)
         self._rows.setValue(plate.rows)
