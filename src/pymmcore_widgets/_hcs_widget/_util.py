@@ -11,7 +11,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from ._graphics_items import WellInfo, _Well
+from ._graphics_items import WellInfo, _WellGraphicsItem
 
 if TYPE_CHECKING:
     from qtpy.QtGui import QBrush, QPen, QResizeEvent
@@ -76,7 +76,7 @@ def draw_well_plate(
         _x = (well_width * col) + (dx_px * col)
         _y = (well_height * row) + (dy_px * row)
         rect = QRectF(_x, _y, well_width, well_height)
-        w = _Well(rect, row, col, plate.circular, text_size)
+        w = _WellGraphicsItem(rect, row, col, plate.circular, text_size)
         w.brush = brush
         w.pen = pen
         w.setOpacity(opacity)

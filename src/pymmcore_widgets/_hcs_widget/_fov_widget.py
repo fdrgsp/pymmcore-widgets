@@ -33,7 +33,7 @@ from superqt.utils import signals_blocked
 from useq import GridRelative
 from useq._grid import OrderMode
 
-from ._graphics_items import FOV, _FOVCoordinates, _WellArea
+from ._graphics_items import FOV, _FOVGraphicsItem, _WellAreaGraphicsItem
 from ._util import ResizingGraphicsView
 from ._well_plate_model import WellPlate
 
@@ -525,27 +525,29 @@ class _FOVSelectrorWidget(QWidget):
     def _on_px_size_changed(self) -> None:
         """Update the scene when the pixel size is changed."""
         with contextlib.suppress(AttributeError):
-            self._remove_items((_WellArea, _FOVCoordinates, QGraphicsLineItem))
+            self._remove_items(
+                (_WellAreaGraphicsItem, _FOVGraphicsItem, QGraphicsLineItem)
+            )
             self._update_scene(self._get_mode())
 
     def _on_radiobutton_toggled(self, radio_btn: QRadioButton) -> None:
         """Update the scene when the tab is changed."""
-        self._remove_items((_WellArea, _FOVCoordinates, QGraphicsLineItem))
+        self._remove_items((_WellAreaGraphicsItem, _FOVGraphicsItem, QGraphicsLineItem))
         if radio_btn.isChecked():
             self._update_scene(self._get_mode())
 
     def _on_random_area_changed(self) -> None:
         """Update the _RandomWidget scene when the usable plate area is changed."""
-        self._remove_items((_WellArea, _FOVCoordinates, QGraphicsLineItem))
+        self._remove_items((_WellAreaGraphicsItem, _FOVGraphicsItem, QGraphicsLineItem))
         self._update_random_fovs(self.random_wdg.value())
 
     def _on_nFOV_changed(self) -> None:
         """Update the _RandomWidget scene when the number of FOVVs is changed."""
-        self._remove_items((_FOVCoordinates, QGraphicsLineItem))
+        self._remove_items((_FOVGraphicsItem, QGraphicsLineItem))
         self._update_random_fovs(self.random_wdg.value())
 
     def _on_grid_changed(self) -> None:
-        self._remove_items((_FOVCoordinates, QGraphicsLineItem))
+        self._remove_items((_FOVGraphicsItem, QGraphicsLineItem))
         self._update_grid_fovs(self.grid_wdg.value())
 
     def _update_plate_area_y(self, value: float) -> None:
@@ -655,7 +657,7 @@ class _FOVSelectrorWidget(QWidget):
         The scene will have fovs as `_FOVPoints` and lines conncting the fovs that
         represent the fovs acquidition order.
         """
-        self._remove_items((_FOVCoordinates, QGraphicsLineItem))
+        self._remove_items((_FOVGraphicsItem, QGraphicsLineItem))
         line_pen = QPen(Qt.GlobalColor.black)
         line_pen.setWidth(2)
         x = y = None
@@ -664,7 +666,7 @@ class _FOVSelectrorWidget(QWidget):
             pen = self._get_pen(idx)
             # draw the fovs
             img_w, img_h = self._get_image_size_in_px()
-            fovs = _FOVCoordinates(fov.x, fov.y, img_w, img_h, fov.scene_rect, pen)
+            fovs = _FOVGraphicsItem(fov.x, fov.y, img_w, img_h, fov.bounding_rect, pen)
             self.scene.addItem(fovs)
             # draw the lines connecting the fovs
             if x is not None and y is not None:
@@ -711,7 +713,7 @@ class _FOVSelectrorWidget(QWidget):
         y = self._reference_well_area.center().y() - (well_area_y_px / 2)
         rect = QRectF(x, y, well_area_x_px, well_area_y_px)
         # draw the well area
-        area = _WellArea(rect, self._plate.circular, PEN_WIDTH)
+        area = _WellAreaGraphicsItem(rect, self._plate.circular, PEN_WIDTH)
         self.scene.addItem(area)
 
         # minimum distance between the fovs in px depending on the image size
@@ -782,7 +784,7 @@ class _FOVSelectrorWidget(QWidget):
         )
 
     def _on_random_button_pressed(self) -> None:
-        self._remove_items((_FOVCoordinates, QGraphicsLineItem))
+        self._remove_items((_FOVGraphicsItem, QGraphicsLineItem))
         self._update_random_fovs(self.random_wdg.value())
 
     def _raise_points_warning(self, nFOV: int, points: int) -> None:
@@ -816,7 +818,7 @@ class _FOVSelectrorWidget(QWidget):
         points = [
             item.value()
             for item in self.scene.items()
-            if isinstance(item, _FOVCoordinates)
+            if isinstance(item, _FOVGraphicsItem)
         ]
         fov_info = self._get_fov_info()
         # if randon, the points are ordered from the top-left one
@@ -843,7 +845,7 @@ class _FOVSelectrorWidget(QWidget):
         if plate is not None:
             self._plate = plate
 
-        self._remove_items((_FOVCoordinates, QGraphicsLineItem))
+        self._remove_items((_FOVGraphicsItem, QGraphicsLineItem))
 
         # in case the radio button is already checked, call _update_scene to directly
         # update the scene

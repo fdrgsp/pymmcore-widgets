@@ -29,7 +29,6 @@ if TYPE_CHECKING:
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 
 ALPHABET = string.ascii_uppercase
-CALIBRATED_PLATE: WellPlate | None = None
 PLATE_GRAPHICS_VIEW_HEIGHT = 440
 BRUSH = QBrush(Qt.GlobalColor.green)
 PEN = QPen(Qt.GlobalColor.black)
@@ -37,14 +36,22 @@ PEN.setWidth(1)
 
 
 class WellPlateInfo(NamedTuple):
-    """Information about a well plate."""
+    """Information about a well plate.
+
+    Attributes
+    ----------
+    plate : WellPlate
+        The well plate object.
+    wells : list[WellInfo] | None
+        The list of selected wells in the well plate.
+    """
 
     plate: WellPlate
     wells: list[WellInfo] | None
 
 
 class _PlateWidget(QWidget):
-    # valueChanged = Signal(WellPlate)
+    """Widget for selecting the well plate and its wells."""
 
     def __init__(
         self,
@@ -118,7 +125,6 @@ class _PlateWidget(QWidget):
         draw_well_plate(
             self.view, self.scene, self._plate_db[plate_name], brush=BRUSH, pen=PEN
         )
-        # self.valueChanged.emit(self.current_plate())
 
     def current_plate(self) -> WellPlate:
         """Return the current selected plate."""

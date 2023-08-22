@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import NamedTuple
 
 import matplotlib.pyplot as plt
 from pymmcore_plus import CMMCorePlus
@@ -19,6 +20,25 @@ from ._graphics_items import WellInfo
 from ._plate_widget import _PlateWidget
 from ._util import apply_rotation_matrix, get_well_center
 from ._well_plate_model import PLATE_DB_PATH, WellPlate, load_database
+
+
+class Position(NamedTuple):
+    """Positions of the FOV.
+
+    Attributes
+    ----------
+    name : str
+        Well name.
+    x : float
+        FOV x stage coordinate.
+    y : float
+        FOV y stage coordinate.
+    """
+
+    well_name: str
+    position_index: int
+    x: float
+    y: float
 
 
 class PlatePage(QWizardPage):
@@ -139,17 +159,16 @@ class HCSWizard(QWizard):
         print(self.plate_page._plate_widget.value())
         print(self.calibration_page._calibration.value())
         print(self.fov_page._fov_widget.value())
-        print("__________________________")
 
         well_centers = self._get_well_center_stage_coordinates()
         if not well_centers:
             return
 
-        print(well_centers)
+        positions, c = self._get_fovs_stage_coords(well_centers)
 
-        fovs, c = self._get_fovs_stage_coords(well_centers)
-
-        print(fovs)
+        print(c)
+        print(positions)
+        print("__________________________")
 
         # this is only for testing, remove later____________________________________
         plt.cla()
@@ -158,20 +177,20 @@ class HCSWizard(QWizard):
             return None
         a1_x, a1_y = (calib_info.well_a1_center_x, calib_info.well_a1_center_y)
         plt.plot(a1_x, a1_y, "ko")
-        for fx, fy in fovs:
-            plt.plot(fx, fy, "go")
+        for p in positions:
+            plt.plot(p.x, p.y, "go")
         for cx, cy in c:
             plt.plot(cx, cy, "bo")
         plt.axis("equal")
-        # ax = plt.gca()
-        # ax.invert_yaxis()
         plt.show()
         # ______________________________________________________________________________
 
     def _get_well_center_stage_coordinates(
         self,
     ) -> list[tuple[WellInfo, float, float]] | None:
-        well_list = self.plate_page._plate_widget.value().wells
+        plate_info = self.plate_page._plate_widget.value()
+
+        well_list = plate_info.wells
         if well_list is None:
             return None
 
@@ -180,7 +199,7 @@ class HCSWizard(QWizard):
         if calib_info is None:
             return None
 
-        plate = self.plate_page._plate_widget.value().plate
+        plate = plate_info.plate
 
         a1_x, a1_y = (calib_info.well_a1_center_x, calib_info.well_a1_center_y)
         wells_center_stage_coords = []
@@ -192,7 +211,7 @@ class HCSWizard(QWizard):
 
     def _get_fovs_stage_coords(
         self, wells_center: list[tuple[WellInfo, float, float]]
-    ) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
+    ) -> tuple[list[Position], list[tuple[float, float]]]:
         """Get the calibrated stage coords of each FOV of the selected wells."""
         calib_info = self.calibration_page._calibration.value()
         if calib_info is None:
@@ -205,9 +224,9 @@ class HCSWizard(QWizard):
         # this will be removed, it's just to test_____________________________________
         c: list[tuple[float, float]] = []
         # _____________________________________________________________________________
-        fovs: list[tuple[float, float]] = []
-        for _well, well_center_x, well_center_y in wells_center:
-            for fov in fov_list:
+        positions: list[Position] = []
+        for well, well_center_x, well_center_y in wells_center:
+            for idx, fov in enumerate(fov_list):
                 # well_size_x in px is the width of the graphics view
                 well_size_x_px = self.fov_page._fov_widget.view.sceneRect().width()
                 # calculate the the value of 1px in µm
@@ -233,7 +252,9 @@ class HCSWizard(QWizard):
                         fov_stage_coord_y,
                     )
 
-                fovs.append((fov_stage_coord_x, fov_stage_coord_y))
+                positions.append(
+                    Position(well.name, idx, fov_stage_coord_x, fov_stage_coord_y)
+                )
 
             # to remove, here it is only to visualize the well center
             if rotation_matrix is not None:
@@ -242,4 +263,4 @@ class HCSWizard(QWizard):
                 )
             c.append((well_center_x, well_center_y))
 
-        return fovs, c
+        return positions, c

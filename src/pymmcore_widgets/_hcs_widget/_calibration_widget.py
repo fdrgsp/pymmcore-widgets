@@ -223,12 +223,6 @@ class _CalibrationModeWidget(QGroupBox):
 
         self._mode_combo = QComboBox()
         self._mode_combo.currentIndexChanged.connect(self._on_value_changed)
-        # self._mode_combo.setIconSize(QSize(30, 30))
-        # self._mode_combo.setStyleSheet("QComboBox {font-size: 40px;}")
-        # align text to center
-        # self._mode_combo.setEditable(True)
-        # self._mode_combo.lineEdit().setReadOnly(True)
-        # self._mode_combo.lineEdit().setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         lbl = QLabel(text="Calibration Mode:")
         lbl.setSizePolicy(*FixedSizePolicy)
@@ -319,6 +313,8 @@ class _CalibrationTable(QWidget):
         self.layout().setSpacing(0)
         self.layout().addWidget(self._toolbar)
         self.layout().addWidget(self.tb)
+
+    # TODO: make plate property
 
     @property
     def calibration_mode(self) -> ThreePoints | FourPoints | TwoPoints | None:
@@ -612,7 +608,7 @@ class _CalibrationWidget(QWidget):
             return
 
         # get calibration well centers
-        a1_center, an_center = self._get_calibration_well_centers()
+        a1_center, an_center = self._find_calibration_well_centers()
 
         # return if any of the necessary well centers are None
         if None in a1_center or (None in an_center and self._plate.columns > 1):
@@ -634,25 +630,25 @@ class _CalibrationWidget(QWidget):
         # update calibration label
         self._set_calibration_label(True)
 
-    def _get_calibration_well_centers(
+    def _find_calibration_well_centers(
         self,
     ) -> tuple[tuple[float | None, float | None], tuple[float | None, float | None]]:
-        """Get the centers in stage coordinates of the calibration wells."""
+        """Find the centers in stage coordinates of the calibration wells."""
         if self._plate is None:
             return (None, None), (None, None)
 
-        a1_x, a1_y = self._get_well_center(self._table_a1)
+        a1_x, a1_y = self._find_well_center(self._table_a1)
         an_x, an_y = (
-            self._get_well_center(self._table_an)
+            self._find_well_center(self._table_an)
             if self._plate.columns > 1
             else (None, None)
         )
         return (a1_x, a1_y), (an_x, an_y)
 
-    def _get_well_center(
+    def _find_well_center(
         self, table: _CalibrationTable
     ) -> tuple[float | None, float | None]:
-        """Get the well center from the calibration table."""
+        """Find the well center from the calibration table."""
         pos = table.value()
 
         if pos is None or table.calibration_mode is None:
