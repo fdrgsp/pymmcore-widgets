@@ -187,10 +187,12 @@ def _get_random_circle_edge_point(
     ...with center (xc, yc) and radius `radius`.
     """
     # random angle
-    alpha = 2 * math.pi * random.random()
-    move_x = radius * math.cos(alpha) + xc
-    move_y = radius * math.sin(alpha) + yc
-    return move_x, move_y
+    angle = random.uniform(0, 2 * math.pi)
+    # coordinates of the edge point using trigonometry
+    x = radius * math.cos(angle) + xc
+    y = radius * math.sin(angle) + yc
+
+    return x, y
 
 
 def _get_random_rectangle_edge_point(
