@@ -67,7 +67,9 @@ class FOVs(NamedTuple):
 class Center(NamedTuple):
     """Center of the well as FOV of the plate."""
 
-    ...
+    scene_center_x: float = FOV_GRAPHICS_VIEW_SIZE / 2
+    scene_center_y: float = FOV_GRAPHICS_VIEW_SIZE / 2
+    scene_rect: QRectF = QRectF(0, 0, FOV_GRAPHICS_VIEW_SIZE, FOV_GRAPHICS_VIEW_SIZE)
 
 
 class Random(NamedTuple):
@@ -558,7 +560,7 @@ class _FOVSelectrorWidget(QWidget):
     def _update_scene(self, mode: str | None) -> None:
         """Update the scene depending on the selected tab."""
         if mode == CENTER:
-            self._update_center_fov()
+            self._update_center_fov(self.center_wdg.value())
         elif mode == RANDOM:
             self._update_random_fovs(self.random_wdg.value())
         elif mode == GRID:
@@ -566,16 +568,10 @@ class _FOVSelectrorWidget(QWidget):
         else:
             return
 
-    def _update_center_fov(self) -> None:
+    def _update_center_fov(self, value: Center) -> None:
         """Update the _CenterWidget scene."""
         self._draw_fovs(
-            [
-                FOV(
-                    self.scene.sceneRect().center().x(),
-                    self.scene.sceneRect().center().y(),
-                    self._reference_well_area,
-                )
-            ]
+            [FOV(value.scene_center_x, value.scene_center_y, value.scene_rect)]
         )
 
     def _update_random_fovs(self, value: Random) -> None:
@@ -591,15 +587,8 @@ class _FOVSelectrorWidget(QWidget):
         """Update the _GridWidget scene."""
         # camera fov size in scene pixels
         fov_width_px, fov_height_px = self._get_image_size_in_px()
-
-        grid = GridRelative(
-            rows=value.rows,
-            columns=value.columns,
-            fov_width=fov_width_px,
-            fov_height=fov_height_px,
-            overlap=value.overlap,
-            mode=value.mode,
-        )
+        # update the grid with the camera fov size in px
+        grid = value.replace(fov_width=fov_width_px, fov_height=fov_height_px)
 
         # x and y center coords of the scene in px
         x, y = (
