@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import random
 import string
 import warnings
 from pathlib import Path
@@ -187,7 +186,7 @@ def _get_random_circle_edge_point(
     ...with center (xc, yc) and radius `radius`.
     """
     # random angle
-    angle = random.uniform(0, 2 * math.pi)
+    angle = 2 * math.pi * np.random.random()
     # coordinates of the edge point using trigonometry
     x = radius * math.cos(angle) + xc
     y = radius * math.sin(angle) + yc

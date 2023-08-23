@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import math
-import random
 import time
 import warnings
 from typing import Any, NamedTuple, cast
@@ -729,7 +728,11 @@ class _FOVSelectrorWidget(QWidget):
         return self._order_points(points)
 
     def _generate_random_points(
-        self, nFOV: int, rect: QRectF, min_dist_x: float, min_dist_y: float
+        self,
+        nFOV: int,
+        rect: QRectF,
+        min_dist_x: float,
+        min_dist_y: float,
     ) -> list[FOV]:
         """Generate a list of random points in a circle or in a rectangle."""
         points: list[FOV] = []
@@ -754,9 +757,9 @@ class _FOVSelectrorWidget(QWidget):
     def _random_point_in_circle(self, rect: QRectF) -> tuple[float, float]:
         """Generate a random point in a circle."""
         radius = rect.width() / 2
-        angle = random.uniform(0, 2 * math.pi)
-        x = rect.center().x() + random.uniform(0, radius) * math.cos(angle)
-        y = rect.center().y() + random.uniform(0, radius) * math.sin(angle)
+        angle = np.random.uniform(0, 2 * math.pi)
+        x = rect.center().x() + np.random.uniform(0, radius) * math.cos(angle)
+        y = rect.center().y() + np.random.uniform(0, radius) * math.sin(angle)
         return (x, y)
 
     def _random_point_in_rectangle(self, rect: QRectF) -> tuple[float, float]:
