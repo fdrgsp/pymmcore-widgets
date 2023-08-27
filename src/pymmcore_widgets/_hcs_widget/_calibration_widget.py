@@ -85,8 +85,8 @@ class TwoPoints(NamedTuple):
 class CalibrationInfo(NamedTuple):
     """Calibration information for the plate."""
 
-    well_a1_center_x: float
-    well_a1_center_y: float
+    well_A1_center_x: float
+    well_A1_center_y: float
     rotation_matrix: np.ndarray | None
 
 
@@ -315,7 +315,13 @@ class _CalibrationTable(QWidget):
         self.layout().addWidget(self._toolbar)
         self.layout().addWidget(self.tb)
 
-    # TODO: make plate property
+    @property
+    def plate(self) -> WellPlate | None:
+        return self._plate
+
+    @plate.setter
+    def plate(self, plate: WellPlate) -> None:
+        self._plate = plate
 
     @property
     def calibration_mode(self) -> ThreePoints | FourPoints | TwoPoints | None:
@@ -390,7 +396,7 @@ class _CalibrationTable(QWidget):
             self._add_table_value(y, row, 1)
 
     def value(self) -> list[tuple[float, float]] | None:
-        if self._plate is None or self._calibration_mode is None:
+        if self.plate is None or self._calibration_mode is None:
             return None
         return self._get_table_values()
 
@@ -562,6 +568,14 @@ class _CalibrationWidget(QWidget):
         self._test_calibration._test_button.clicked.connect(self._move_to_well_edge)
 
     @property
+    def plate(self) -> WellPlate | None:
+        return self._plate
+
+    @plate.setter
+    def plate(self, plate: WellPlate) -> None:
+        self._plate = plate
+
+    @property
     def calibration_info(self) -> CalibrationInfo | None:
         return self._calibration_info
 
@@ -576,7 +590,7 @@ class _CalibrationWidget(QWidget):
         self._table_an.calibration_mode = calibration_mode
 
     def _update(self, plate: WellPlate) -> None:
-        self._plate = plate
+        self.plate = plate
         # reset calibration state
         self._reset_calibration()
         # update calibration mode
@@ -585,9 +599,9 @@ class _CalibrationWidget(QWidget):
         )
         self._calibration_mode.setValue(calibration_mode)
         # update tables
-        self._update_tables(self._plate, self._calibration_mode.value())
+        self._update_tables(self.plate, self._calibration_mode.value())
         # update test calibration
-        self._test_calibration._update(self._plate)
+        self._test_calibration._update(self.plate)
 
     def _update_tables(
         self, plate: WellPlate, calibration_mode: ThreePoints | FourPoints | TwoPoints
@@ -604,7 +618,7 @@ class _CalibrationWidget(QWidget):
 
     def _on_calibrate_button_clicked(self) -> None:
         """Calibrate the plate."""
-        if self._plate is None:
+        if self.plate is None:
             self._reset_calibration()
             return
 
@@ -612,7 +626,7 @@ class _CalibrationWidget(QWidget):
         a1_center, an_center = self._find_calibration_well_centers()
 
         # return if any of the necessary well centers are None
-        if None in a1_center or (None in an_center and self._plate.columns > 1):
+        if None in a1_center or (None in an_center and self.plate.columns > 1):
             self._reset_calibration()
             # TODO: add warning
             return
@@ -635,13 +649,13 @@ class _CalibrationWidget(QWidget):
         self,
     ) -> tuple[tuple[float | None, float | None], tuple[float | None, float | None]]:
         """Find the centers in stage coordinates of the calibration wells."""
-        if self._plate is None:
+        if self.plate is None:
             return (None, None), (None, None)
 
         a1_x, a1_y = self._find_well_center(self._table_a1)
         an_x, an_y = (
             self._find_well_center(self._table_an)
-            if self._plate.columns > 1
+            if self.plate.columns > 1
             else (None, None)
         )
         return (a1_x, a1_y), (an_x, an_y)
@@ -671,28 +685,28 @@ class _CalibrationWidget(QWidget):
 
     def _move_to_well_edge(self) -> None:
         """Move to the edge of the selected well to test the calibratiion."""
-        if self._plate is None:
+        if self.plate is None:
             return
         cal_info = self.calibration_info
         if cal_info is None:
             return
 
         well = self._test_calibration.value()
-        a1_x, a1_y = cal_info.well_a1_center_x, cal_info.well_a1_center_y
-        cx, cy = get_well_center(self._plate, well, a1_x, a1_y)
+        a1_x, a1_y = cal_info.well_A1_center_x, cal_info.well_A1_center_y
+        cx, cy = get_well_center(self.plate, well, a1_x, a1_y)
 
         if cal_info.rotation_matrix is not None:
             cx, cy = apply_rotation_matrix(cal_info.rotation_matrix, a1_x, a1_y, cx, cy)
 
         self._mmc.waitForDevice(self._mmc.getXYStageDevice())
 
-        if self._plate.circular:
+        if self.plate.circular:
             x, y = _get_random_circle_edge_point(
-                cx, cy, self._plate.well_size_x * 1000 / 2
+                cx, cy, self.plate.well_size_x * 1000 / 2
             )
         else:
             x, y = _get_random_rectangle_edge_point(
-                cx, cy, self._plate.well_size_x * 1000, self._plate.well_size_y * 1000
+                cx, cy, self.plate.well_size_x * 1000, self.plate.well_size_y * 1000
             )
 
         self._mmc.setXYPosition(x, y)
@@ -701,16 +715,16 @@ class _CalibrationWidget(QWidget):
         plt.plot(cx, cy, "mo")
         plt.plot(x, y, "go")
         for _ in range(50):
-            if self._plate.circular:
+            if self.plate.circular:
                 x, y = _get_random_circle_edge_point(
-                    cx, cy, self._plate.well_size_x * 1000 / 2
+                    cx, cy, self.plate.well_size_x * 1000 / 2
                 )
             else:
                 x, y = _get_random_rectangle_edge_point(
                     cx,
                     cy,
-                    self._plate.well_size_x * 1000,
-                    self._plate.well_size_y * 1000,
+                    self.plate.well_size_x * 1000,
+                    self.plate.well_size_y * 1000,
                 )
             plt.plot(x, y, "ko")
         plt.axis("equal")

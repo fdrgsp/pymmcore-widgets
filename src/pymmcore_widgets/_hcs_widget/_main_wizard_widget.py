@@ -12,11 +12,11 @@ from qtpy.QtWidgets import (
     QWizardPage,
 )
 from rich import print
-from useq import Position
+from useq import GridRelative, Position, RandomPoints  # type: ignore
 
 from ._calibration_widget import CalibrationInfo, _CalibrationWidget
-from ._fov_widget import _FOVSelectrorWidget
-from ._graphics_items import WellInfo
+from ._fov_widget import Center, FOVInfo, _FOVSelectrorWidget
+from ._graphics_items import FOV, WellInfo
 from ._plate_widget import WellPlateInfo, _PlateWidget
 from ._util import apply_rotation_matrix, get_well_center
 from ._well_plate_model import PLATE_DB_PATH, WellPlate, load_database
@@ -100,6 +100,23 @@ class FOVSelectorPage(QWizardPage):
 
         self.setButtonText(QWizard.WizardButton.FinishButton, "Run")
 
+    def get_center_point(self, mode: Center) -> list[FOV]:
+        return self._fov_widget._get_center_point(mode)
+
+    def get_random_points(self, mode: RandomPoints) -> list[FOV]:
+        return self._fov_widget._get_random_points(mode)
+
+    def get_grid_points(self, mode: GridRelative) -> list[FOV]:
+        return self._fov_widget._get_grid_points(mode)
+
+    def value(self) -> FOVInfo:
+        """Return the list of FOVs."""
+        return self._fov_widget.value()
+
+    def setValue(self, mode: Center | RandomPoints | GridRelative) -> None:
+        """Set the list of FOVs."""
+        self._fov_widget.setValue(mode)
+
 
 class HCSWizard(QWizard):
     def __init__(
@@ -152,13 +169,13 @@ class HCSWizard(QWizard):
     def _on_plate_combo_changed(self, plate_id: str) -> None:
         plate = self._plate_db[plate_id]
         self.calibration_page._calibration._update(plate)
-        self.fov_page._fov_widget.plate = plate
+        self.fov_page._fov_widget._update(plate)
 
     def _on_finish_clicked(self) -> None:
         print("__________________________")
-        print(self.plate_page._plate_widget.value())
-        print(self.calibration_page._calibration.value())
-        print(self.fov_page._fov_widget.value())
+        print(self.plate_page.value())
+        print(self.calibration_page.value())
+        print(self.fov_page.value())
 
         well_centers = self._get_well_center_stage_coordinates()
         if not well_centers:
@@ -175,7 +192,7 @@ class HCSWizard(QWizard):
         calib_info = self.calibration_page._calibration.value()
         if calib_info is None:
             return None
-        a1_x, a1_y = (calib_info.well_a1_center_x, calib_info.well_a1_center_y)
+        a1_x, a1_y = (calib_info.well_A1_center_x, calib_info.well_A1_center_y)
         plt.plot(a1_x, a1_y, "ko")
         for p in positions:
             plt.plot(p.x, p.y, "go")
@@ -201,7 +218,7 @@ class HCSWizard(QWizard):
 
         plate = plate_info.plate
 
-        a1_x, a1_y = (calib_info.well_a1_center_x, calib_info.well_a1_center_y)
+        a1_x, a1_y = (calib_info.well_A1_center_x, calib_info.well_A1_center_y)
         wells_center_stage_coords = []
         for well in well_list:
             x, y = get_well_center(plate, well, a1_x, a1_y)
@@ -218,12 +235,13 @@ class HCSWizard(QWizard):
             return [], []
 
         plate = self.plate_page._plate_widget.value().plate
-        _, fov_list = self.fov_page._fov_widget.value()
-        a1_x, a1_y = (calib_info.well_a1_center_x, calib_info.well_a1_center_y)
+        a1_x, a1_y = (calib_info.well_A1_center_x, calib_info.well_A1_center_y)
         rotation_matrix = calib_info.rotation_matrix
         # this will be removed, it's just to test_____________________________________
         c: list[tuple[float, float]] = []
         # _____________________________________________________________________________
+        # _, fov_list = self.fov_page._fov_widget.value()
+        fov_list = self._get_points_list()
         positions: list[Position] = []
         for well, well_center_x, well_center_y in wells_center:
             for idx, fov in enumerate(fov_list):
@@ -234,11 +252,6 @@ class HCSWizard(QWizard):
                 # get the stage coordinates of the top left corner of the well
                 well_stage_coord_left = well_center_x - (plate.well_size_x * 1000 / 2)
                 well_stage_coord_top = well_center_y + (plate.well_size_y * 1000 / 2)
-
-                print("top left:", well_stage_coord_left, well_stage_coord_top)
-                print("move x:", (fov.x * px_um))
-                print("move y:", (fov.y * px_um))
-
                 # get the stage coordinates of the fov
                 fov_stage_coord_x = well_stage_coord_left + (fov.x * px_um)
                 fov_stage_coord_y = well_stage_coord_top - (fov.y * px_um)
@@ -268,3 +281,12 @@ class HCSWizard(QWizard):
             c.append((well_center_x, well_center_y))
 
         return positions, c
+
+    def _get_points_list(self) -> list[FOV]:
+        _, mode = self.fov_page.value()
+        if isinstance(mode, RandomPoints):
+            return self.fov_page.get_random_points(mode)
+        elif isinstance(mode, GridRelative):
+            return self.fov_page.get_grid_points(mode)
+        else:  # isinstance(mode, Center):
+            return self.fov_page.get_center_point(mode)
