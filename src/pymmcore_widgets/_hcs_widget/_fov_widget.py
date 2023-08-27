@@ -55,11 +55,6 @@ class Center(NamedTuple):
     scene_rect: QRectF = QRectF(0, 0, FOV_GRAPHICS_VIEW_SIZE, FOV_GRAPHICS_VIEW_SIZE)
 
 
-class FOVInfo(NamedTuple):
-    plate: WellPlate
-    mode: Center | RandomPoints | GridRelative
-
-
 def _create_label(label_text: str) -> QLabel:
     """Create a QLabel with fixed QSizePolicy."""
     lbl = QLabel()
@@ -241,7 +236,6 @@ class _RandomFOVWidget(QWidget):
     def _update(self, plate: WellPlate) -> None:
         """Update the widget."""
         self.plate = plate
-        # with signals_blocked(self):
         self.plate_area_x.setMaximum(self.plate.well_size_x)
         self.plate_area_x.setValue(self.plate.well_size_x)
         self.plate_area_y.setMaximum(self.plate.well_size_y)
@@ -521,7 +515,7 @@ class _FOVSelectrorWidget(QWidget):
         # update the scene with the new pl,ate information
         self._update_scene(self._get_mode())
 
-    def _get_mode(self) -> str | None:
+    def _get_mode(self) -> str | None:  # sourcery skip: use-next
         """Return the current mode."""
         for btn in self._mode_btn_group.buttons():
             if btn.isChecked():
@@ -549,16 +543,6 @@ class _FOVSelectrorWidget(QWidget):
         if radio_btn.isChecked():
             self._update_scene(self._get_mode())
 
-    def _on_random_changed(self) -> None:
-        self._remove_items((_WellAreaGraphicsItem, _FOVGraphicsItem, QGraphicsLineItem))
-        # reset the random seed
-        self.random_wdg.random_seed = np.random.randint(0, 2**32 - 1)
-        self._update_random_fovs(self.random_wdg.value())
-
-    def _on_grid_changed(self) -> None:
-        self._remove_items((_FOVGraphicsItem, QGraphicsLineItem))
-        self._update_grid_fovs(self.grid_wdg.value())
-
     def _update_scene(self, mode: str | None) -> None:
         """Update the scene depending on the selected tab."""
         if mode == CENTER:
@@ -572,23 +556,33 @@ class _FOVSelectrorWidget(QWidget):
 
     def _update_center_fov(self, value: Center) -> None:
         """Update the _CenterWidget scene."""
-        points = self._get_center_point(value)
+        points = self.get_center_point(value)
         self._draw_fovs(points)
+
+    def _on_random_changed(self) -> None:
+        self._remove_items((_WellAreaGraphicsItem, _FOVGraphicsItem, QGraphicsLineItem))
+        # reset the random seed
+        self.random_wdg.random_seed = np.random.randint(0, 2**32 - 1)
+        self._update_random_fovs(self.random_wdg.value())
+
+    def _on_grid_changed(self) -> None:
+        self._remove_items((_FOVGraphicsItem, QGraphicsLineItem))
+        self._update_grid_fovs(self.grid_wdg.value())
 
     def _update_random_fovs(self, value: RandomPoints) -> None:
         """Update the _RandomWidget scene."""
-        points = self._get_random_points(value)
+        points = self.get_random_points(value)
         self._draw_fovs(points)
 
     def _update_grid_fovs(self, value: GridRelative) -> None:
         """Update the _GridWidget scene."""
-        points = self._get_grid_points(value)
+        points = self.get_grid_points(value)
         self._draw_fovs(points)
 
-    def _get_center_point(self, mode: Center) -> list[FOV]:
+    def get_center_point(self, mode: Center) -> list[FOV]:
         return [FOV(mode.scene_center_x, mode.scene_center_y, mode.scene_rect)]
 
-    def _get_random_points(self, mode: RandomPoints) -> list[FOV]:
+    def get_random_points(self, mode: RandomPoints) -> list[FOV]:
         """Create the points for the mode scene.
 
         They can be either mode points in a circle or in a square/rectangle depending
@@ -609,6 +603,7 @@ class _FOVSelectrorWidget(QWidget):
         x = self._reference_well_area.center().x() - (well_area_x_px / 2)
         y = self._reference_well_area.center().y() - (well_area_y_px / 2)
         rect = QRectF(x, y, well_area_x_px, well_area_y_px)
+
         # draw the well area
         area = _WellAreaGraphicsItem(rect, self.plate.circular, PEN_WIDTH)
         self.scene.addItem(area)
@@ -629,7 +624,7 @@ class _FOVSelectrorWidget(QWidget):
 
         return self._order_points(points)
 
-    def _get_grid_points(self, mode: GridRelative) -> list[FOV]:
+    def get_grid_points(self, mode: GridRelative) -> list[FOV]:
         """Create the points for the grid scene."""
         # camera fov size in scene pixels
         fov_width_px, fov_height_px = self._get_image_size_in_px()
@@ -717,133 +712,11 @@ class _FOVSelectrorWidget(QWidget):
             else None
         )
 
-    # def _get_random_points(self, random: RandomPoints) -> list[FOV]:
-    #     """Create the points for the _RandomWidget scene.
-
-    #     They can be either random points in a circle or in a square/rectangle depending  # noqa: E501
-    #     on the well shape.
-    #     """
-    #     # convert the well area from mm to px depending on the image size and the well
-    #     # reference area (size of the well in pixel in the scene)
-    #     well_area_x_px = (
-    #         self._reference_well_area.width()
-    #         * random.area.width
-    #         / self.plate.well_size_x
-    #     )
-    #     well_area_y_px = (
-    #         self._reference_well_area.height()
-    #         * random.area.height
-    #         / self.plate.well_size_y
-    #     )
-
-    #     # calculate the starting point of the well area
-    #     x = self._reference_well_area.center().x() - (well_area_x_px / 2)
-    #     y = self._reference_well_area.center().y() - (well_area_y_px / 2)
-    #     rect = QRectF(x, y, well_area_x_px, well_area_y_px)
-    #     # draw the well area
-    #     area = _WellAreaGraphicsItem(rect, self.plate.circular, PEN_WIDTH)
-    #     self.scene.addItem(area)
-
-    #     random_area = RandomArea(
-    #         x=rect.x(), y=rect.y(), width=rect.width(), height=rect.height()
-    #     )
-    #     random = random.replace(area=random_area)
-
-    #     points = list(random.iterate_random_points())
-    #     return [FOV(x, y, rect) for x, y in points]
-
-    # # minimum distance between the fovs in px depending on the image size
-    # image_width_mm, image_height_mm = self._get_image_size_in_mm()
-    # if image_width_mm is None or image_height_mm is None:
-    #     min_dist_px_x = min_dist_px_y = 0.0
-    # else:
-    #     min_dist_px_x = (FOV_GRAPHICS_VIEW_SIZE * image_width_mm) / mode.area_x_mm
-    #     min_dist_px_y = (FOV_GRAPHICS_VIEW_SIZE * image_height_mm) / mode.area_y_mm  # noqa: E501
-
-    # generate random points
-    # points = self._generate_random_points(
-    #     mode.nFOV, rect, min_dist_px_x, min_dist_px_y
-    # )
-
-    # return self._order_points(points)
-
-    # def _generate_random_points(
-    #     self,
-    #     nFOV: int,
-    #     rect: QRectF,
-    #     min_dist_x: float,
-    #     min_dist_y: float,
-    # ) -> list[FOV]:
-    #     """Generate a list of random points in a circle or in a rectangle."""
-    #     points: list[FOV] = []
-
-    #     t = time.time()
-    #     while len(points) < nFOV:
-    #         # random point in circle
-    #         if self.plate.circular:
-    #             x, y = self._random_point_in_circle(rect)
-    #         else:
-    #             x, y = self._random_point_in_rectangle(rect)
-    #         point = FOV(x, y, rect)
-    #         if self.is_a_valid_point(point, points, min_dist_x, min_dist_y):
-    #             points.append(point)
-    #         # raise a warning if it takes longer than 200ms to generate the points.
-    #         if time.time() - t > 0.25:
-    #             self._raise_points_warning(nFOV, len(points))
-    #             return points
-
-    #     return points
-
-    # def _random_point_in_circle(self, rect: QRectF) -> tuple[float, float]:
-    #     """Generate a random point in a circle."""
-    #     radius = rect.width() / 2
-    #     angle = np.random.uniform(0, 2 * math.pi)
-    #     x = rect.center().x() + np.random.uniform(0, radius) * math.cos(angle)
-    #     y = rect.center().y() + np.random.uniform(0, radius) * math.sin(angle)
-    #     return (x, y)
-
-    # def _random_point_in_rectangle(self, rect: QRectF) -> tuple[float, float]:
-    #     """Generate a random point in a rectangle."""
-    #     x = np.random.uniform(rect.left(), rect.right())
-    #     y = np.random.uniform(rect.top(), rect.bottom())
-    #     return (x, y)
-
-    # def is_a_valid_point(
-    #     self,
-    #     new_point: FOV,
-    #     existing_points: list[FOV],
-    #     min_dist_x: float,
-    #     min_dist_y: float,
-    # ) -> bool:
-    #     """Check if the distance between the `new point` and the `existing_points` is
-    #     greater than the minimum disrtance required.
-    #     """
-    #     return not any(
-    #         (
-    #             _distance(new_point, point) < min_dist_x
-    #             or _distance(new_point, point) < min_dist_y
-    #         )
-    #         for point in existing_points
-    #     )
-
-    # def _on_random_button_pressed(self) -> None:
-    #     self._remove_items((_FOVGraphicsItem, QGraphicsLineItem))
-    #     self._update_random_fovs(self.random_wdg.value())
-
-    # def _raise_points_warning(self, nFOV: int, points: int) -> None:
-    #     """Display a warning the set number of points cannot be generated."""
-    #     warnings.warn(
-    #         f"Unable to generate {nFOV} fovs. Only {points} were generated.",
-    #         stacklevel=2,
-    #     )
-    #     with signals_blocked(self.random_wdg.number_of_FOV):
-    #         self.random_wdg.number_of_FOV.setValue(points or 1)
-
     def _order_points(self, fovs: list[FOV]) -> list[FOV]:
         """Orders a list of points starting from the top-left and then moving towards
         the nearest point.
         """  # noqa: D205
-        # TODO: find a better way
+        # TODO: maybe find a better way?
         top_left = min(fovs, key=lambda fov: (fov.x, fov.y))
         ordered_points = [top_left]
         fovs.remove(top_left)
@@ -855,17 +728,15 @@ class _FOVSelectrorWidget(QWidget):
 
         return ordered_points
 
-    def value(self) -> FOVInfo:
+    def value(self) -> Center | RandomPoints | GridRelative:
         mode_name = self._get_mode()
         if mode_name == RANDOM:
-            mode = self.random_wdg.value()
+            return self.random_wdg.value()
         elif mode_name == GRID:
-            mode = self.grid_wdg.value()
+            return self.grid_wdg.value()
         else:  # mode_name == CENTER
-            mode = self.center_wdg.value()
-        return FOVInfo(self.plate, mode)
+            return self.center_wdg.value()
 
-    # def setValue(self, fovs: FOVs, plate: WellPlate | None = None) -> None:
     def setValue(self, mode: Center | RandomPoints | GridRelative) -> None:
         """Set the value of the widget."""
         self._remove_items((_FOVGraphicsItem, QGraphicsLineItem))

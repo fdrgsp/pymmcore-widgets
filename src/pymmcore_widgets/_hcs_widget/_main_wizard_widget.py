@@ -15,7 +15,7 @@ from rich import print
 from useq import GridRelative, Position, RandomPoints  # type: ignore
 
 from ._calibration_widget import CalibrationInfo, _CalibrationWidget
-from ._fov_widget import Center, FOVInfo, _FOVSelectrorWidget
+from ._fov_widget import Center, _FOVSelectrorWidget
 from ._graphics_items import FOV, WellInfo
 from ._plate_widget import WellPlateInfo, _PlateWidget
 from ._util import apply_rotation_matrix, get_well_center
@@ -100,16 +100,16 @@ class FOVSelectorPage(QWizardPage):
 
         self.setButtonText(QWizard.WizardButton.FinishButton, "Run")
 
-    def get_center_point(self, mode: Center) -> list[FOV]:
-        return self._fov_widget._get_center_point(mode)
+    def get_points_list(self) -> list[FOV]:
+        mode = self._fov_widget.value()
+        if isinstance(mode, RandomPoints):
+            return self._fov_widget.get_random_points(mode)
+        elif isinstance(mode, GridRelative):
+            return self._fov_widget.get_grid_points(mode)
+        else:  # isinstance(mode, Center):
+            return self._fov_widget.get_center_point(mode)
 
-    def get_random_points(self, mode: RandomPoints) -> list[FOV]:
-        return self._fov_widget._get_random_points(mode)
-
-    def get_grid_points(self, mode: GridRelative) -> list[FOV]:
-        return self._fov_widget._get_grid_points(mode)
-
-    def value(self) -> FOVInfo:
+    def value(self) -> Center | RandomPoints | GridRelative:
         """Return the list of FOVs."""
         return self._fov_widget.value()
 
@@ -241,7 +241,7 @@ class HCSWizard(QWizard):
         c: list[tuple[float, float]] = []
         # _____________________________________________________________________________
         # _, fov_list = self.fov_page._fov_widget.value()
-        fov_list = self._get_points_list()
+        fov_list = self.fov_page.get_points_list()
         positions: list[Position] = []
         for well, well_center_x, well_center_y in wells_center:
             for idx, fov in enumerate(fov_list):
@@ -281,12 +281,3 @@ class HCSWizard(QWizard):
             c.append((well_center_x, well_center_y))
 
         return positions, c
-
-    def _get_points_list(self) -> list[FOV]:
-        _, mode = self.fov_page.value()
-        if isinstance(mode, RandomPoints):
-            return self.fov_page.get_random_points(mode)
-        elif isinstance(mode, GridRelative):
-            return self.fov_page.get_grid_points(mode)
-        else:  # isinstance(mode, Center):
-            return self.fov_page.get_center_point(mode)
