@@ -619,6 +619,14 @@ class _FOVSelectrorWidget(QWidget):
         mode = mode.replace(area=random_area)
 
         points = [FOV(x, y, rect) for x, y in list(mode.iterate_random_points())]
+
+        # TODO: find a way to get points that aew at lest min_dist apart
+        # image_size_px = self._get_image_size_in_px()
+        # min_dist = (
+        #     (0.0, 0.0) if image_size_px == (1.0, 1.0)
+        #     else (image_size_px[0] / 2, image_size_px[1] / 2)
+        # )
+
         return self._order_points(points)
 
     def _get_grid_points(self, mode: GridRelative) -> list[FOV]:
