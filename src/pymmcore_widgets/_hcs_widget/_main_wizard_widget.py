@@ -14,7 +14,7 @@ from qtpy.QtWidgets import (
 from rich import print
 from useq import Position
 
-from ._calibration_widget import _CalibrationWidget
+from ._calibration_widget import CalibrationInfo, _CalibrationWidget
 from ._fov_widget import _FOVSelectrorWidget
 from ._graphics_items import WellInfo
 from ._plate_widget import WellPlateInfo, _PlateWidget
@@ -71,6 +71,14 @@ class PlateCalibrationPage(QWizardPage):
         self.layout().addWidget(self._calibration)
 
         self.setButtonText(QWizard.WizardButton.NextButton, "FOVs >")
+
+    def value(self) -> CalibrationInfo | None:
+        """Return the calibration info."""
+        return self._calibration.value()
+
+    def setValue(self, calibration_info: CalibrationInfo) -> None:
+        """Set the calibration info."""
+        self._calibration.setValue(calibration_info)
 
 
 class FOVSelectorPage(QWizardPage):
@@ -144,7 +152,7 @@ class HCSWizard(QWizard):
     def _on_plate_combo_changed(self, plate_id: str) -> None:
         plate = self._plate_db[plate_id]
         self.calibration_page._calibration._update(plate)
-        self.fov_page._fov_widget._update(plate)
+        self.fov_page._fov_widget.plate = plate
 
     def _on_finish_clicked(self) -> None:
         print("__________________________")
