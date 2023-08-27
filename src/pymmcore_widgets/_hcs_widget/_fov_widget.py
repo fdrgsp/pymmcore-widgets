@@ -618,8 +618,8 @@ class _FOVSelectrorWidget(QWidget):
         )
         mode = mode.replace(area=random_area)
 
-        points = list(mode.iterate_random_points())
-        return [FOV(x, y, rect) for x, y in points]
+        points = [FOV(x, y, rect) for x, y in list(mode.iterate_random_points())]
+        return self._order_points(points)
 
     def _get_grid_points(self, mode: GridRelative) -> list[FOV]:
         """Create the points for the grid scene."""
