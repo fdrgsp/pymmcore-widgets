@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
+    QDialog,
     QSizePolicy,
     QSpacerItem,
     QVBoxLayout,
@@ -20,6 +21,8 @@ from useq import (  # type: ignore
     RandomArea,
     RandomPoints,
 )
+
+from pymmcore_widgets._mda import PositionTable
 
 from ._calibration_widget import CalibrationInfo, _CalibrationWidget
 from ._fov_widget import Center, _FOVSelectrorWidget
@@ -172,6 +175,8 @@ class HCSWizard(QWizard):
             self.plate_page._plate_widget.plate_combo.currentText()
         )
 
+        self.pt = PT(self)
+
     def _on_plate_combo_changed(self, plate_id: str) -> None:
         plate = self._plate_db[plate_id]
         self.calibration_page._calibration._update(plate)
@@ -189,11 +194,14 @@ class HCSWizard(QWizard):
         well_centers = self._get_well_center_in_stage_coordinates()
         if well_centers is None:
             return
-        positions = self._get_fovs_in_stage_coords(well_centers)
+        positions = self._get_fovs_in_stage_coords(well_centers, False)
 
         print("__________________________")
         print(positions)
         print("__________________________")
+
+        self.pt.set_state(positions)
+        self.pt.show()
 
     def _get_well_center_in_stage_coordinates(
         self,
@@ -220,7 +228,7 @@ class HCSWizard(QWizard):
         return wells_center_stage_coords
 
     def _get_fovs_in_stage_coords(
-        self, wells_center: list[tuple[WellInfo, float, float]]
+        self, wells_center: list[tuple[WellInfo, float, float]], _show: bool
     ) -> list[Position]:
         """Get the calibrated stage coords of each FOV of the selected wells."""
         _, _, _, mode = self.value()
@@ -264,6 +272,21 @@ class HCSWizard(QWizard):
 
         plt.axis("equal")
         plt.gca().invert_yaxis()
-        plt.show()
+        if _show:
+            plt.show()
 
         return positions
+
+
+class PT(QDialog):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+
+        self._pt = PositionTable()
+
+        self.setLayout(QVBoxLayout())
+        self.layout().setContentsMargins(0, 0, 0, 0)
+        self.layout().addWidget(self._pt)
+
+    def set_state(self, positions: list[Position]) -> None:
+        self._pt.set_state(positions)
