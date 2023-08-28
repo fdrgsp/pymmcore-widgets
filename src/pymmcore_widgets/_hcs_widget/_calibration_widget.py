@@ -126,6 +126,7 @@ def _find_circle_center(
     plt.plot(x3, y3, "mo")
     plt.plot(x, y, "go")
     plt.axis("equal")
+    plt.gca().invert_yaxis()
     plt.show()
     # ____________________________________________________________________
 
@@ -152,6 +153,7 @@ def _find_rectangle_center(*args: tuple[float, ...]) -> tuple[float, float]:
     plt.plot(x_list, y_list, "o")
     plt.plot(x, y, "o")
     plt.axis("equal")
+    plt.gca().invert_yaxis()
     plt.show()
     # ____________________________________________________________________
     return x, y
@@ -165,8 +167,8 @@ def _get_plate_rotation_matrix(
     x2, y2 = xy_well_2
 
     m = (y2 - y1) / (x2 - x1)  # slope from y = mx + q
-    plate_angle_rad = -np.arctan(m)
-    # plate_angle_rad = np.arctan(m)
+    # plate_angle_rad = -np.arctan(m)
+    plate_angle_rad = np.arctan(m)
     # this is to test only, should be removed_____________________________
     print(f"plate_angle: {np.rad2deg(plate_angle_rad)}")
     # ____________________________________________________________________
@@ -671,6 +673,7 @@ class _CalibrationWidget(QWidget):
 
         points = table.calibration_mode.points
         if len(pos) != points:
+            self._reset_calibration()
             raise ValueError(
                 "Invalid number of points for "
                 f"'{table._well_label.text().replace(' ', '')}'. "
@@ -728,6 +731,7 @@ class _CalibrationWidget(QWidget):
                 )
             plt.plot(x, y, "ko")
         plt.axis("equal")
+        plt.gca().invert_yaxis()
         plt.show()
         # ______________________________________________________________________________
 
