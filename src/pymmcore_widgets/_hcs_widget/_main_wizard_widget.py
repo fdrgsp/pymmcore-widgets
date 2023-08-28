@@ -267,9 +267,7 @@ class HCSWizard(QWizard):
                 )
                 plt.plot(well_center_x, well_center_y, "mo")
                 for idx, (x, y) in enumerate(mode):
-                    positions.append(
-                        Position(x=x, y=y, name=f"{well.name}_pos{idx:04d}")
-                    )
+                    positions.append(Position(x=x, y=y, name=f"{well.name}_{idx:04d}"))
                     plt.plot(x, y, "go")
 
         plt.axis("equal")

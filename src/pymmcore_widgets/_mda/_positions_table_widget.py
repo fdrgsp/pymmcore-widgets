@@ -582,7 +582,7 @@ class PositionTable(QWidget):
     def _has_default_name(self, name: str) -> bool:
         with contextlib.suppress(ValueError):
             int(name[3:6])
-            return True
+            return POS in name
         return False
 
     def _update_number(self, number: int, exixting_numbers: list[int]) -> int:
