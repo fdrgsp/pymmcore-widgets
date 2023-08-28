@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 from qtpy.QtWidgets import QFileDialog, QTableWidget
+from useq import Position
 
 from pymmcore_widgets._mda import PositionTable
 
@@ -616,3 +617,17 @@ def test_set_state_autofocus_wrong_name(global_mmcore: CMMCorePlus, qtbot: QtBot
     assert not p._autofocus_wdg._af_checkbox.isChecked()
     assert p._autofocus_wdg.value() == {"autofocus_device_name": None}
     assert _get_values(tb, 0) == ["Pos000", 10.0, 20.0, 30.0]
+
+
+def test_positions_naming(qtbot: QtBot):
+    p = PositionTable()
+    qtbot.addWidget(p)
+    tb = p._table
+
+    pos = [Position(name="Pos000"), Position(name="Pos000")]
+    p.set_state(pos)
+    assert tb.item(1, 0).text() == "Pos001"
+
+    pos = [Position(name="Pos000"), Position(name="A1_0000")]
+    p.set_state(pos)
+    assert tb.item(1, 0).text() == "A1_0000"
