@@ -46,7 +46,6 @@ FOV_GRAPHICS_VIEW_SIZE = 300
 OFFSET = 20
 PEN_WIDTH = 4
 WELL_PLATE = WellPlate("", True, 0, 0, 0, 0, 0, 0)
-RANDOM_SEED = np.random.randint(0, 2**32 - 1, dtype=np.uint32)
 
 
 class Center(NamedTuple):
@@ -154,7 +153,7 @@ class _RandomFOVWidget(QWidget):
         super().__init__(parent)
 
         self._plate: WellPlate | None = None
-        self._random_seed: int = RANDOM_SEED
+        self._random_seed: int = np.random.randint(0, 2**32 - 1, dtype=np.uint32)
 
         # well area doublespinbox along x
         self.plate_area_x = QDoubleSpinBox()
@@ -591,7 +590,7 @@ class _FOVSelectrorWidget(QWidget):
     def _on_random_changed(self) -> None:
         self._remove_items((_WellAreaGraphicsItem, _FOVGraphicsItem, QGraphicsLineItem))
         # reset the random seed
-        self.random_wdg.random_seed = RANDOM_SEED
+        self.random_wdg.random_seed = np.random.randint(0, 2**32 - 1, dtype=np.uint32)
         self._update_random_fovs(self.random_wdg.value())
 
     def _on_grid_changed(self) -> None:
