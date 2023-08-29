@@ -27,5 +27,4 @@
 # plt.plot(space_x, space_y + r, "go")
 # plt.plot(space_x + r, space_y, "go")
 # plt.axis("equal")
-# plt.gca().invert_yaxis()
 # plt.show()

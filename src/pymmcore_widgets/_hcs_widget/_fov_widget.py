@@ -28,7 +28,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 from superqt.utils import signals_blocked
-from useq import GridRelative, Point, RandomArea, RandomPoints  # type: ignore
+from useq import GridRelative, Point, RandomPoints  # type: ignore
 from useq._grid import OrderMode
 
 from ._graphics_items import FOV, _FOVGraphicsItem, _WellAreaGraphicsItem
@@ -51,8 +51,9 @@ WELL_PLATE = WellPlate("", True, 0, 0, 0, 0, 0, 0)
 class Center(NamedTuple):
     """Center of the well as FOV of the plate."""
 
-    center_x: float
-    center_y: float
+    # center_x: float
+    # center_y: float
+    ...
 
 
 def _create_label(label_text: str) -> QLabel:
@@ -132,12 +133,13 @@ class _CenterFOVWidget(QWidget):
 
     def value(self) -> Center:
         """Return the values of the widgets."""
-        if self.plate is None:
-            center_x, center_y = (0.0, 0.0)
-        else:
-            center_x = self.plate.well_size_x / 2
-            center_y = self.plate.well_size_y / 2
-        return Center(center_x, center_y)
+        # if self.plate is None:
+        #     center_x, center_y = (0.0, 0.0)
+        # else:
+        #     center_x = self.plate.well_size_x / 2
+        #     center_y = self.plate.well_size_y / 2
+        # return Center(center_x, center_y)
+        return Center()
 
     def setValue(self, center: Center) -> None:
         """Set the values of the widgets."""
@@ -282,12 +284,8 @@ class _RandomFOVWidget(QWidget):
             circular=self.plate.circular,
             nFOV=self.number_of_FOV.value(),
             random_seed=self.random_seed,
-            area=RandomArea(
-                x=(self.plate.well_size_x - self.plate_area_x.value()) / 2,
-                y=(self.plate.well_size_y - self.plate_area_y.value()) / 2,
-                width=self.plate_area_x.value(),
-                height=self.plate_area_y.value(),
-            ),
+            area_width=self.plate_area_x.value(),
+            area_height=self.plate_area_y.value(),
         )
 
     def setValue(self, value: RandomPoints) -> None:
@@ -295,8 +293,8 @@ class _RandomFOVWidget(QWidget):
         self._radio_btn.setChecked(True)
         self.random_seed = value.random_seed
         self.number_of_FOV.setValue(value.nFOV)
-        self.plate_area_x.setValue(value.area.width)
-        self.plate_area_y.setValue(value.area.width)
+        self.plate_area_x.setValue(value.area_width)
+        self.plate_area_y.setValue(value.area_height)
 
 
 class _GridFovWidget(QWidget):
@@ -463,7 +461,13 @@ class _FOVSelectrorWidget(QWidget):
         self.view = ResizingGraphicsView(self.scene, self)
         self.view.setStyleSheet("background:grey; border-radius: 5px;")
         self.view.setMinimumSize(FOV_GRAPHICS_VIEW_SIZE, FOV_GRAPHICS_VIEW_SIZE)
-        self.view.setSceneRect(0, 0, FOV_GRAPHICS_VIEW_SIZE, FOV_GRAPHICS_VIEW_SIZE)
+        # set the scene rect so that the center is (0, 0)
+        self.view.setSceneRect(
+            -FOV_GRAPHICS_VIEW_SIZE / 2,
+            -FOV_GRAPHICS_VIEW_SIZE / 2,
+            FOV_GRAPHICS_VIEW_SIZE,
+            FOV_GRAPHICS_VIEW_SIZE,
+        )
         # contral, random and grid widgets
         self.center_wdg = _CenterFOVWidget()
         self.center_wdg._radio_btn.setChecked(True)
@@ -623,12 +627,8 @@ class _FOVSelectrorWidget(QWidget):
         self.scene.addItem(area)
         # update the RandomPoints area with the well area in scene pixel
         mode = value.replace(
-            area=RandomArea(
-                x=area.boundingRect().x(),
-                y=area.boundingRect().y(),
-                width=area.boundingRect().width(),
-                height=area.boundingRect().height(),
-            )
+            area_width=area.boundingRect().width(),
+            area_height=area.boundingRect().height(),
         )
         # get the random points list
         points = self._get_random_points(mode, area.boundingRect())
@@ -650,11 +650,11 @@ class _FOVSelectrorWidget(QWidget):
         # convert the well area from mm to px depending on the image size and the well
         # reference area (size of the well in pixel in the scene)
         well_area_x_px = (
-            self._reference_well_area.width() * mode.area.width / self.plate.well_size_x
+            self._reference_well_area.width() * mode.area_width / self.plate.well_size_x
         )
         well_area_y_px = (
             self._reference_well_area.height()
-            * mode.area.height
+            * mode.area_height
             / self.plate.well_size_y
         )
 
@@ -669,7 +669,9 @@ class _FOVSelectrorWidget(QWidget):
         self, random_mode: RandomPoints, area: QRectF
     ) -> list[Point]:
         """Create the points for the random scene."""
-        points = [FOV(x, y, area) for x, y in list(random_mode)]
+        # note: inverting the y axis because in scene, y up is negative and y down is
+        # positive.
+        points = [FOV(x, y * (-1), area) for x, y in list(random_mode)]
         # TODO: find a way to get points that aew at lest min_dist apart
         # maybe add this feature to the useq RandomPoints
         # image_size_px = self._get_image_size_in_px()

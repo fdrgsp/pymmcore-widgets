@@ -18,7 +18,6 @@ from useq import (  # type: ignore
     GridRelative,
     MDASequence,
     Position,
-    RandomArea,
     RandomPoints,
 )
 
@@ -34,7 +33,7 @@ from ._well_plate_model import PLATE_DB_PATH, WellPlate, load_database
 
 class HCSInfo(NamedTuple):
     plate: WellPlate
-    wells: list[WellInfo] | None
+    wells: list[str] | None
     calibration: CalibrationInfo | None
     fov_mode: Center | RandomPoints | GridRelative
 
@@ -175,7 +174,9 @@ class HCSWizard(QWizard):
             self.plate_page._plate_widget.plate_combo.currentText()
         )
 
+        # this is just for testing, remove later ______________
         self.pt = PT(self)
+        # ______________________________________________________
 
     def _on_plate_combo_changed(self, plate_id: str) -> None:
         plate = self._plate_db[plate_id]
@@ -183,7 +184,8 @@ class HCSWizard(QWizard):
         self.fov_page._fov_widget._update(plate)
 
     def value(self) -> HCSInfo:
-        plate, wells = self.plate_page.value()
+        plate, well_list = self.plate_page.value()
+        wells = [well.name for well in well_list] if well_list else None
         calibration = self.calibration_page.value()
         fov_mode = self.fov_page.value()
         return HCSInfo(plate, wells, calibration, fov_mode)
@@ -194,19 +196,22 @@ class HCSWizard(QWizard):
         well_centers = self._get_well_center_in_stage_coordinates()
         if well_centers is None:
             return
-        positions = self._get_fovs_in_stage_coords(well_centers, False)
+        positions = self._get_fovs_in_stage_coords(well_centers)
 
         print("__________________________")
         print(positions)
         print("__________________________")
 
+        # this is just for testing, remove later ______________
         self.pt.set_state(positions)
         self.pt.show()
+        # ______________________________________________________
 
     def _get_well_center_in_stage_coordinates(
         self,
     ) -> list[tuple[WellInfo, float, float]] | None:
-        plate, wells, calibration, _ = self.value()
+        plate, _, calibration, _ = self.value()
+        _, wells = self.plate_page.value()
 
         if wells is None or calibration is None:
             return None
@@ -228,7 +233,7 @@ class HCSWizard(QWizard):
         return wells_center_stage_coords
 
     def _get_fovs_in_stage_coords(
-        self, wells_center: list[tuple[WellInfo, float, float]], _show: bool
+        self, wells_center: list[tuple[WellInfo, float, float]], _show: bool = True
     ) -> list[Position]:
         """Get the calibrated stage coords of each FOV of the selected wells."""
         _, _, _, mode = self.value()
@@ -251,33 +256,26 @@ class HCSWizard(QWizard):
                         sequence=MDASequence(grid_plan=mode),
                     )
                 )
+                for idx, fov in enumerate(mode):
+                    cl = "yo" if idx == 0 else "go"
+                    plt.plot((fov.x * 1000) + well_center_x, (fov.y * 1000) + well_center_y, cl)  # type: ignore  # noqa: E501
                 plt.plot(well_center_x, well_center_y, "mo")
-                for fov in mode:
-                    plt.plot(fov.x + well_center_x, fov.y + well_center_y, "go")  # type: ignore  # noqa: E501
 
             elif isinstance(mode, RandomPoints):
-                # shift the area to the well center in stage coords
-                mode = mode.replace(
-                    area=RandomArea(
-                        x=well_center_x - (mode.area.width / 2),
-                        y=well_center_y - (mode.area.height / 2),
-                        width=mode.area.width,
-                        height=mode.area.height,
-                    )
-                )
-                plt.plot(well_center_x, well_center_y, "mo")
-                for idx, (x, y) in enumerate(mode):
+                for idx, fov in enumerate(mode):
+                    x, y = (fov.x * 1000) + well_center_x, (fov.y * 1000) + well_center_y  # type: ignore  # noqa: E501
                     positions.append(Position(x=x, y=y, name=f"{well.name}_{idx:04d}"))
                     plt.plot(x, y, "go")
+                plt.plot(well_center_x, well_center_y, "mo")
 
         plt.axis("equal")
-        plt.gca().invert_yaxis()
         if _show:
             plt.show()
 
         return positions
 
 
+# this is just for testing, remove later _______________________
 class PT(QDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -290,3 +288,6 @@ class PT(QDialog):
 
     def set_state(self, positions: list[Position]) -> None:
         self._pt.set_state(positions)
+
+
+# _______________________________________________________________

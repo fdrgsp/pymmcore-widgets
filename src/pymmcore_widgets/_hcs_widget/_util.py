@@ -108,8 +108,7 @@ def get_well_center(
         x, y = (a1_x, a1_y)
     else:
         x = a1_x + (spacing_x * well.column)
-        # y = a1_y - (spacing_y * well.row)
-        y = a1_y + (spacing_y * well.row)
+        y = a1_y - (spacing_y * well.row)
     return x, y
 
 
