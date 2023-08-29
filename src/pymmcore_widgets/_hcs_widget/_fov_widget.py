@@ -753,9 +753,9 @@ class _FOVSelectrorWidget(QWidget):
             x, y = (fov.x, fov.y)
 
     def _get_pen(self, index: int) -> QPen:
-        """Return the pen for the fovs.
+        """Return the pen for the random mode fovs.
 
-        Return black color for the first fov if the tab is the random one.
+        Return the Qt.GlobalColor.black color for the first fov.
         """
         return (
             QPen(Qt.GlobalColor.black)
