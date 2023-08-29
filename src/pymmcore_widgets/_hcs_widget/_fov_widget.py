@@ -42,7 +42,7 @@ RANDOM = "Random"
 RANDOM_BTN_ID = 1
 GRID = "Grid"
 GRID_BTN_ID = 2
-FOV_GRAPHICS_VIEW_SIZE = 300
+VIEW_SIZE = 300
 OFFSET = 20
 PEN_WIDTH = 4
 WELL_PLATE = WellPlate("", True, 0, 0, 0, 0, 0, 0)
@@ -460,14 +460,9 @@ class _FOVSelectrorWidget(QWidget):
         self.scene = QGraphicsScene()
         self.view = ResizingGraphicsView(self.scene, self)
         self.view.setStyleSheet("background:grey; border-radius: 5px;")
-        self.view.setMinimumSize(FOV_GRAPHICS_VIEW_SIZE, FOV_GRAPHICS_VIEW_SIZE)
+        self.view.setMinimumSize(VIEW_SIZE, VIEW_SIZE)
         # set the scene rect so that the center is (0, 0)
-        self.view.setSceneRect(
-            -FOV_GRAPHICS_VIEW_SIZE / 2,
-            -FOV_GRAPHICS_VIEW_SIZE / 2,
-            FOV_GRAPHICS_VIEW_SIZE,
-            FOV_GRAPHICS_VIEW_SIZE,
-        )
+        self.view.setSceneRect(-VIEW_SIZE / 2, -VIEW_SIZE / 2, VIEW_SIZE, VIEW_SIZE)
         # contral, random and grid widgets
         self.center_wdg = _CenterFOVWidget()
         self.center_wdg._radio_btn.setChecked(True)
@@ -525,7 +520,7 @@ class _FOVSelectrorWidget(QWidget):
         # set the size of the well in pixel maintaining the ratio between
         # the well size x and y. The offset is used to leave some space between the
         # well plate and the border of the scene (scene SceneRect set in __init__).
-        well_size_px = FOV_GRAPHICS_VIEW_SIZE - OFFSET
+        well_size_px = VIEW_SIZE - OFFSET
         if plate.well_size_x == plate.well_size_y:
             size_x = size_y = well_size_px
         elif plate.well_size_x > plate.well_size_y:
@@ -730,8 +725,8 @@ class _FOVSelectrorWidget(QWidget):
         max_well_size_mm = max(self.plate.well_size_x, self.plate.well_size_y)
 
         # calculating the image size in scene px
-        image_width_px = (FOV_GRAPHICS_VIEW_SIZE * image_width_mm) / max_well_size_mm
-        image_height_px = (FOV_GRAPHICS_VIEW_SIZE * image_height_mm) / max_well_size_mm
+        image_width_px = (VIEW_SIZE * image_width_mm) / max_well_size_mm
+        image_height_px = (VIEW_SIZE * image_height_mm) / max_well_size_mm
 
         return image_width_px, image_height_px
 
