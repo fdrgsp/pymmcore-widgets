@@ -187,6 +187,7 @@ class HCSWizard(QWizard):
         plate, well_list = self.plate_page.value()
         wells = [well.name for well in well_list] if well_list else None
         calibration = self.calibration_page.value()
+        # TODO: add warning if not calibtared
         fov_mode = self.fov_page.value()
         return HCSInfo(plate, wells, calibration, fov_mode)
 
