@@ -68,25 +68,5 @@
         "well_spacing_y": 9.0,
         "well_size_x": 6.4,
         "well_size_y": 6.4
-    },
-    {
-        "id": "_rectangle_1",
-        "circular": false,
-        "rows": 1,
-        "columns": 1,
-        "well_spacing_x": 0.0,
-        "well_spacing_y": 0.0,
-        "well_size_x": 3.0,
-        "well_size_y": 1.0
-    },
-    {
-        "id": "_rectangle_2",
-        "circular": false,
-        "rows": 1,
-        "columns": 1,
-        "well_spacing_x": 0.0,
-        "well_spacing_y": 0.0,
-        "well_size_x": 1.0,
-        "well_size_y": 3.0
     }
 ]

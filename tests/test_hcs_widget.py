@@ -5,15 +5,27 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from pymmcore_widgets._hcs_widget._calibration_widget import (
+    ROLE,
+    CalibrationInfo,
+    FourPoints,
+    ThreePoints,
+    TwoPoints,
+    _CalibrationModeWidget,
+    _CalibrationTable,
+    _CalibrationWidget,
+    _TestCalibrationWidget,
+)
 from pymmcore_widgets._hcs_widget._graphics_items import WellInfo, _WellGraphicsItem
 from pymmcore_widgets._hcs_widget._plate_widget import (
     WellPlateInfo,
     _CustomPlateWidget,
     _PlateWidget,
 )
-from pymmcore_widgets._hcs_widget._well_plate_model import WellPlate
+from pymmcore_widgets._hcs_widget._well_plate_model import WellPlate, load_database
 
 if TYPE_CHECKING:
+    from pymmcore_plus import CMMCorePlus
     from pytestqt.qtbot import QtBot
 
 
@@ -76,3 +88,118 @@ def test_custom_plate_widget_set_get_value(qtbot: QtBot, database_path: Path):
     scene_items = list(wdg.scene.items())
     assert len(scene_items) == 8
     assert all(isinstance(item, _WellGraphicsItem) for item in scene_items)
+
+
+def test_calibration_mode_widget(qtbot: QtBot):
+    wdg = _CalibrationModeWidget()
+    qtbot.addWidget(wdg)
+
+    modes = [TwoPoints(), ThreePoints(), FourPoints()]
+    wdg.setValue(modes)
+
+    assert wdg._mode_combo.count() == 3
+
+    for i in range(wdg._mode_combo.count()):
+        assert wdg._mode_combo.itemData(i, ROLE) == modes[i]
+
+
+def test_calibration_table_widget(
+    global_mmcore: CMMCorePlus, qtbot: QtBot, database_path: Path
+):
+    mmc = global_mmcore
+    db = load_database(database_path)
+
+    wdg = _CalibrationTable(mmc=mmc)
+    qtbot.addWidget(wdg)
+
+    assert wdg.tb.rowCount() == 0
+    assert wdg._well_label.text() == ""
+
+    wdg._update(db["coverslip 22mm"], TwoPoints(), "A1")
+    assert wdg.calibration_mode == TwoPoints()
+    assert wdg._well_label.text() == "A1"
+    assert wdg.plate == db["coverslip 22mm"]
+
+    mmc.waitForSystem()
+
+    mmc.setXYPosition(mmc.getXYStageDevice(), -10, 10)
+    mmc.waitForDevice(mmc.getXYStageDevice())
+    wdg.act_add_row.trigger()
+    assert wdg.tb.rowCount() == 1
+    assert wdg.tb.cellWidget(0, 0).value() == -10
+    assert wdg.tb.cellWidget(0, 1).value() == 10
+
+    mmc.setXYPosition(mmc.getXYStageDevice(), 10, -10)
+    mmc.waitForDevice(mmc.getXYStageDevice())
+    wdg.act_add_row.trigger()
+    assert wdg.tb.rowCount() == 2
+    assert wdg.tb.cellWidget(1, 0).value() == 10
+    assert wdg.tb.cellWidget(1, 1).value() == -10
+
+    assert wdg.value() == [(-10.0, 10.0), (10.0, -10.0)]
+
+
+def test_calibration_move_to_edge_widget(
+    global_mmcore: CMMCorePlus, qtbot: QtBot, database_path: Path
+):
+    mmc = global_mmcore
+    db = load_database(database_path)
+
+    wdg = _TestCalibrationWidget(mmcore=mmc)
+    qtbot.addWidget(wdg)
+
+    assert wdg._letter_combo.count() == 0
+    assert wdg._number_combo.count() == 0
+
+    wdg._update(db["standard 96 wp"])
+    assert wdg._letter_combo.count() == 8
+    assert wdg._number_combo.count() == 12
+
+    well = WellInfo(name="C3", row=2, column=2)
+    wdg.setValue(well)
+    assert wdg.value() == well
+
+
+def test_calibration_widget(
+    global_mmcore: CMMCorePlus, qtbot: QtBot, database_path: Path
+):
+    db = load_database(database_path)
+
+    wdg = _CalibrationWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+
+    wdg._update(db["coverslip 22mm"])
+
+    assert wdg._calibration_mode._mode_combo.count() == 2
+    assert wdg._calibration_mode._mode_combo.itemData(0, ROLE) == TwoPoints()
+    assert wdg._calibration_mode._mode_combo.itemData(1, ROLE) == FourPoints()
+    assert isinstance(wdg._calibration_mode.value(), TwoPoints)
+
+    assert not wdg._table_a1.isHidden()
+    assert not wdg._table_a1.value()
+    assert wdg._table_an.isHidden()
+    assert wdg._calibration_label.value() == "Plate Not Calibrated!"
+    assert wdg.value() is None
+
+    with pytest.raises(ValueError, match="Invalid number of points"):
+        wdg._on_calibrate_button_clicked()
+
+    wdg._table_a1.setValue([(-210, 170), (100, -100)])
+    assert len(wdg._table_a1.value()) == 2
+
+    wdg._on_calibrate_button_clicked()
+    assert wdg._calibration_label.value() == "Plate Calibrated!"
+
+    assert wdg.value() == CalibrationInfo(
+        well_A1_center_x=-55.0, well_A1_center_y=35.0, rotation_matrix=None
+    )
+
+    wdg._update(db["standard 96 wp"])
+
+    assert wdg._calibration_mode._mode_combo.count() == 1
+    assert wdg._calibration_mode._mode_combo.itemData(0, ROLE) == ThreePoints()
+
+    assert not wdg._table_a1.isHidden()
+    assert not wdg._table_a1.value()
+    assert not wdg._table_an.isHidden()
+    assert not wdg._table_an.value()
