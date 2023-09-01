@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, NamedTuple, cast
 import numpy as np
 from fonticon_mdi6 import MDI6
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtCore import QEvent, QObject, QSize, Qt, Signal
+from qtpy.QtCore import QSize, Qt, Signal
 from qtpy.QtGui import QIcon, QPixmap
 from qtpy.QtWidgets import (
     QAbstractSpinBox,
@@ -250,19 +250,6 @@ class _CalibrationModeWidget(QGroupBox):
         return self._mode_combo.itemData(self._mode_combo.currentIndex(), ROLE)  # type: ignore  # noqa E501
 
 
-class Filter(QObject):
-    """Filter to select the entire table row when a cell is selected."""
-
-    def __init__(self, parent: QObject | None = None) -> None:
-        super().__init__(parent)
-
-    def eventFilter(self, widget: QWidget, event: QEvent) -> bool:
-        if event.type() == QEvent.Type.FocusIn:
-            table = cast(QTableWidget, widget.parent().parent())
-            table.selectRow(table.currentRow())
-        return False
-
-
 class _CalibrationTable(QWidget):
     """Table for the calibration widget."""
 
@@ -270,7 +257,6 @@ class _CalibrationTable(QWidget):
         super().__init__()
 
         self._mmc = mmcore or CMMCorePlus.instance()
-        self._focus_filter = Filter()
 
         self._plate: WellPlate | None = None
         self._calibration_mode: ThreePoints | FourPoints | TwoPoints | None = None
@@ -363,7 +349,6 @@ class _CalibrationTable(QWidget):
 
     def _add_table_value(self, value: float, row: int, col: int) -> None:
         spin = QDoubleSpinBox()
-        spin.installEventFilter(self._focus_filter)
         spin.setAlignment(AlignCenter)
         spin.setMaximum(1000000.0)
         spin.setMinimum(-1000000.0)
