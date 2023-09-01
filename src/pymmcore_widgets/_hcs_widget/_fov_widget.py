@@ -28,8 +28,8 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 from superqt.utils import signals_blocked
-from useq import GridRelative, Point, RandomPoints  # type: ignore
-from useq._grid import OrderMode
+from useq import GridRelative, RandomPoints  # type: ignore
+from useq._grid import OrderMode, Shape  # type: ignore
 
 from ._graphics_items import FOV, _FOVGraphicsItem, _WellAreaGraphicsItem
 from ._util import ResizingGraphicsView
@@ -78,6 +78,21 @@ def _make_wdg_with_label(label: QLabel, wdg: QWidget) -> QWidget:
 def _distance(point1: FOV, point2: FOV) -> float:
     """Return the Euclidean distance between two points."""
     return math.sqrt((point2.x - point1.x) ** 2 + (point2.y - point1.y) ** 2)
+
+
+def _get_fov_size_mm(
+    mmcore: CMMCorePlus | None = None,
+) -> tuple[float | None, float | None]:
+    """Return the image size in mm depending on the camera device."""
+    if mmcore is None or not mmcore.getCameraDevice() or not mmcore.getPixelSizeUm():
+        return None, None
+
+    _cam_x = mmcore.getImageWidth()
+    _cam_y = mmcore.getImageHeight()
+    image_width_mm = (_cam_x * mmcore.getPixelSizeUm()) / 1000
+    image_height_mm = (_cam_y * mmcore.getPixelSizeUm()) / 1000
+
+    return image_width_mm, image_height_mm
 
 
 class _CenterFOVWidget(QWidget):
@@ -154,7 +169,10 @@ class _RandomFOVWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
+        self._mmc = CMMCorePlus.instance()
+
         self._plate: WellPlate | None = None
+        # setting a random seed for point generation reproducibility
         self._random_seed: int = np.random.randint(0, 2**32 - 1, dtype=np.uint32)
 
         # well area doublespinbox along x
@@ -280,21 +298,26 @@ class _RandomFOVWidget(QWidget):
         if self.plate is None:
             return None
 
+        fov_width, fov_height = _get_fov_size_mm(self._mmc)
+
         return RandomPoints(
-            circular=self.plate.circular,
-            nFOV=self.number_of_FOV.value(),
+            num_points=self.number_of_FOV.value(),
+            shape=Shape.ELLIPSE if self.plate.circular else Shape.RECTANGLE,
             random_seed=self.random_seed,
-            area_width=self.plate_area_x.value(),
-            area_height=self.plate_area_y.value(),
+            max_width=self.plate_area_x.value(),
+            max_height=self.plate_area_y.value(),
+            allow_overlap=False,
+            fov_width=fov_width,
+            fov_height=fov_height,
         )
 
     def setValue(self, value: RandomPoints) -> None:
         """Set the values of the widgets."""
         self._radio_btn.setChecked(True)
         self.random_seed = value.random_seed
-        self.number_of_FOV.setValue(value.nFOV)
-        self.plate_area_x.setValue(value.area_width)
-        self.plate_area_y.setValue(value.area_height)
+        self.number_of_FOV.setValue(value.num_points)
+        self.plate_area_x.setValue(value.max_width)
+        self.plate_area_y.setValue(value.max_height)
 
 
 class _GridFovWidget(QWidget):
@@ -396,21 +419,9 @@ class _GridFovWidget(QWidget):
         self.layout().addWidget(title)
         self.layout().addWidget(wdg_radio)
 
-    def _get_fov_size_mm(self) -> tuple[float | None, float | None]:
-        """Return the image size in mm depending on the camera device."""
-        if not self._mmc.getCameraDevice() or not self._mmc.getPixelSizeUm():
-            return None, None
-
-        _cam_x = self._mmc.getImageWidth()
-        _cam_y = self._mmc.getImageHeight()
-        image_width_mm = (_cam_x * self._mmc.getPixelSizeUm()) / 1000
-        image_height_mm = (_cam_y * self._mmc.getPixelSizeUm()) / 1000
-
-        return image_width_mm, image_height_mm
-
     def value(self) -> GridRelative:
         """Return the values of the widgets."""
-        fov_width, fov_height = self._get_fov_size_mm()
+        fov_width, fov_height = _get_fov_size_mm(self._mmc)
         return GridRelative(
             rows=self.rows.value(),
             columns=self.cols.value(),
@@ -620,10 +631,14 @@ class _FOVSelectrorWidget(QWidget):
         area = self._well_area_in_pixel(value)
         # draw the well area
         self.scene.addItem(area)
-        # update the RandomPoints area with the well area in scene pixel
+        # update the RandomPoints area with the well area in scene pixel and thecamera
+        # fov size in scene pixels
+        fov_width_px, fov_height_px = self._get_image_size_in_px()
         mode = value.replace(
-            area_width=area.boundingRect().width(),
-            area_height=area.boundingRect().height(),
+            max_width=area.boundingRect().width(),
+            max_height=area.boundingRect().height(),
+            fov_width=fov_width_px,
+            fov_height=fov_height_px,
         )
         # get the random points list
         points = self._get_random_points(mode, area.boundingRect())
@@ -635,21 +650,23 @@ class _FOVSelectrorWidget(QWidget):
         points = self._get_grid_points(value)
         self._draw_fovs(points)
 
-    def _get_center_point(self, mode: Center) -> list[FOV]:
+    def _get_center_point(self, center_mode: Center) -> list[FOV]:
         scene_center_x: float = self.scene.sceneRect().center().x()
         scene_center_y: float = self.scene.sceneRect().center().y()
         scene_rect: QRectF = self.view.sceneRect()
         return [FOV(scene_center_x, scene_center_y, scene_rect)]
 
-    def _well_area_in_pixel(self, mode: RandomPoints) -> _WellAreaGraphicsItem:
+    def _well_area_in_pixel(self, random_mode: RandomPoints) -> _WellAreaGraphicsItem:
         # convert the well area from mm to px depending on the image size and the well
         # reference area (size of the well in pixel in the scene)
         well_area_x_px = (
-            self._reference_well_area.width() * mode.area_width / self.plate.well_size_x
+            self._reference_well_area.width()
+            * random_mode.max_width
+            / self.plate.well_size_x
         )
         well_area_y_px = (
             self._reference_well_area.height()
-            * mode.area_height
+            * random_mode.max_height
             / self.plate.well_size_y
         )
 
@@ -660,20 +677,19 @@ class _FOVSelectrorWidget(QWidget):
 
         return _WellAreaGraphicsItem(rect, self.plate.circular, PEN_WIDTH)
 
-    def _get_random_points(
-        self, random_mode: RandomPoints, area: QRectF
-    ) -> list[Point]:
+    def _get_random_points(self, random_mode: RandomPoints, area: QRectF) -> list[FOV]:
         """Create the points for the random scene."""
-        # note: inverting the y axis because in scene, y up is negative and y down is
-        # positive.
-        points = [FOV(x, y * (-1), area) for x, y in list(random_mode)]
-        # TODO: find a way to get points that aew at lest min_dist apart
-        # maybe add this feature to the useq RandomPoints
-        # image_size_px = self._get_image_size_in_px()
-        # min_dist = (
-        #     (0.0, 0.0) if image_size_px == (1.0, 1.0)
-        #     else (image_size_px[0] / 2, image_size_px[1] / 2)
-        # )
+        # catch the warning raised by the RandomPoints class if the max number of
+        # iterations is reached.
+        with warnings.catch_warnings(record=True) as w:
+            # note: inverting the y axis because in scene, y up is negative and y down
+            # is positive.
+            points = [FOV(x, y * (-1), area) for x, y, _, _, _ in random_mode]
+            with signals_blocked(self.random_wdg.number_of_FOV):
+                self.random_wdg.number_of_FOV.setValue(len(points))
+        if len(w):
+            warnings.warn(w[0].message, w[0].category, stacklevel=2)
+
         return self._order_points(points)
 
     def _get_grid_points(self, grid_mode: GridRelative) -> list[FOV]:
@@ -695,30 +711,12 @@ class _FOVSelectrorWidget(QWidget):
         # positive.
         return [FOV(g.x + x, (g.y - y) * (-1), rect) for g in grid_mode]  # type: ignore
 
-    def _get_image_size_in_mm(self) -> tuple[float | None, float | None]:
-        """Return the image size in mm depending on the camera device."""
-        if not self._mmc.getCameraDevice():
-            warnings.warn("Camera Device not found!", stacklevel=2)
-            return None, None
-
-        if not self._mmc.getPixelSizeUm():
-            warnings.warn("Pixel Size not defined!", stacklevel=2)
-            return None, None
-
-        _cam_x = self._mmc.getImageWidth()
-        _cam_y = self._mmc.getImageHeight()
-        image_width_mm = (_cam_x * self._mmc.getPixelSizeUm()) / 1000
-        image_height_mm = (_cam_y * self._mmc.getPixelSizeUm()) / 1000
-
-        return image_width_mm, image_height_mm
-
     def _get_image_size_in_px(self) -> tuple[float, float]:
         """Return the image size in px depending on the camera device.
 
         If no Camera Device is found, the image size is set to 1x1 px.
         """
-        image_width_mm, image_height_mm = self._get_image_size_in_mm()
-
+        image_width_mm, image_height_mm = _get_fov_size_mm(self._mmc)
         if image_width_mm is None or image_height_mm is None:
             return 1.0, 1.0
 
