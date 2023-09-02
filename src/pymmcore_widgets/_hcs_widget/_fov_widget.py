@@ -46,6 +46,8 @@ VIEW_SIZE = 300
 OFFSET = 20
 PEN_WIDTH = 4
 WELL_PLATE = WellPlate("", True, 0, 0, 0, 0, 0, 0)
+RECT = Shape.RECTANGLE
+ELLIPSE = Shape.ELLIPSE
 
 
 class Center(NamedTuple):
@@ -99,7 +101,7 @@ class _CenterFOVWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        self._plate: WellPlate | None = None
+        # self._plate: WellPlate | None = None
 
         lbl = QLabel(text="Center of the Well.")
         lbl.setStyleSheet("font-weight: bold;")
@@ -134,15 +136,15 @@ class _CenterFOVWidget(QWidget):
         self.layout().setContentsMargins(0, 0, 0, 0)
         self.layout().addWidget(wdg_radio)
 
-    @property
-    def plate(self) -> WellPlate | None:
-        """Return the well plate."""
-        return self._plate
+    # @property
+    # def plate(self) -> WellPlate | None:
+    #     """Return the well plate."""
+    #     return self._plate
 
-    @plate.setter
-    def plate(self, well_plate: WellPlate) -> None:
-        """Set the well plate."""
-        self._plate = well_plate
+    # @plate.setter
+    # def plate(self, well_plate: WellPlate) -> None:
+    #     """Set the well plate."""
+    #     self._plate = well_plate
 
     def value(self) -> Center:
         """Return the values of the widgets."""
@@ -158,12 +160,13 @@ class _RandomFOVWidget(QWidget):
 
     valueChanged = Signal(object)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, parent: QWidget | None = None, *, mmcore: CMMCorePlus | None = None
+    ) -> None:
         super().__init__(parent)
 
-        self._mmc = CMMCorePlus.instance()
-
-        self._plate: WellPlate | None = None
+        self._mmc = mmcore or CMMCorePlus.instance()
+        self._is_circular: bool = False
         # setting a random seed for point generation reproducibility
         self._random_seed: int = np.random.randint(0, 2**32 - 1, dtype=np.uint32)
 
@@ -241,14 +244,14 @@ class _RandomFOVWidget(QWidget):
         self.plate_area_x.valueChanged.connect(self._update_plate_area_y)
 
     @property
-    def plate(self) -> WellPlate | None:
-        """Return the well plate."""
-        return self._plate
+    def is_circular(self) -> bool:
+        """Return True if the well is circular."""
+        return self._is_circular
 
-    @plate.setter
-    def plate(self, well_plate: WellPlate) -> None:
-        """Set the well plate."""
-        self._plate = well_plate
+    @is_circular.setter
+    def is_circular(self, circular: bool) -> None:
+        """Set True if the well is circular."""
+        self._is_circular = circular
 
     @property
     def random_seed(self) -> int:
@@ -262,40 +265,32 @@ class _RandomFOVWidget(QWidget):
 
     def _update(self, plate: WellPlate) -> None:
         """Update the widget."""
-        self.plate = plate
-        well_size_x = plate.well_size_x if self.plate is not None else 0
-        well_size_y = plate.well_size_y if self.plate is not None else 0
-        circular = plate.circular if self.plate is not None else True
-        self.plate_area_x.setMaximum(well_size_x)
-        self.plate_area_x.setValue(well_size_x)
-        self.plate_area_y.setMaximum(well_size_y)
-        self.plate_area_y.setValue(well_size_y)
-        self.plate_area_y.setEnabled(not circular)
-        self.plate_area_y.setButtonSymbols(
-            QAbstractSpinBox.ButtonSymbols.NoButtons
-            if circular
-            else QAbstractSpinBox.ButtonSymbols.UpDownArrows
-        )
+        self.plate_area_x.setMaximum(plate.well_size_x)
+        self.plate_area_x.setValue(plate.well_size_x)
+        self.plate_area_y.setMaximum(plate.well_size_y)
+        self.plate_area_y.setValue(plate.well_size_y)
+        self._enable_plate_area_y(not plate.circular)
 
     def _update_plate_area_y(self, value: float) -> None:
         """Update the plate area y value if the plate has circular wells."""
-        if self.plate is None or not self.plate.circular:
-            return
-        self.plate_area_y.setValue(value)
+        if self._is_circular:
+            self.plate_area_y.setValue(value)
+
+    def _enable_plate_area_y(self, enable: bool) -> None:
+        """Enable or disable the plate area y widget."""
+        self.plate_area_y.setEnabled(enable)
+        self.plate_area_y.setButtonSymbols(
+            QAbstractSpinBox.ButtonSymbols.UpDownArrows
+            if enable
+            else QAbstractSpinBox.ButtonSymbols.NoButtons
+        )
 
     def value(self) -> RandomPoints | None:
         """Return the values of the widgets."""
         fov_width, fov_height = _get_fov_size_mm(self._mmc)
-
-        shape = (
-            Shape.RECTANGLE
-            if self.plate is None or not self.plate.circular
-            else Shape.ELLIPSE
-        )
-
         return RandomPoints(
             num_points=self.number_of_FOV.value(),
-            shape=shape,
+            shape=ELLIPSE if self._is_circular else RECT,
             random_seed=self.random_seed,
             max_width=self.plate_area_x.value(),
             max_height=self.plate_area_y.value(),
@@ -304,15 +299,23 @@ class _RandomFOVWidget(QWidget):
             fov_height=fov_height,
         )
 
-    def setValue(self, value: RandomPoints) -> None:
+    def setValue(self, value: RandomPoints | WellPlate) -> None:
         """Set the values of the widgets."""
         self._radio_btn.setChecked(True)
-        self.random_seed = value.random_seed
-        self.number_of_FOV.setValue(value.num_points)
-        self.plate_area_x.setMaximum(value.max_width)
-        self.plate_area_x.setValue(value.max_width)
-        self.plate_area_y.setMaximum(value.max_height)
-        self.plate_area_y.setValue(value.max_height)
+
+        plate: bool = isinstance(value, WellPlate)
+
+        # why mypy complains about the following lines?
+        self.is_circular = value.circular if plate else value.shape == RECT  # type: ignore  # noqa: E501
+        self.plate_area_x.setMaximum(value.well_size_x if plate else value.max_width)  # type: ignore  # noqa: E501
+        self.plate_area_x.setValue(value.well_size_x if plate else value.max_width)  # type: ignore  # noqa: E501
+        self.plate_area_y.setMaximum(value.well_size_y if plate else value.max_height)  # type: ignore  # noqa: E501
+        self.plate_area_y.setValue(value.well_size_y if plate else value.max_height)  # type: ignore  # noqa: E501
+        self._enable_plate_area_y(not self.is_circular)
+
+        if not plate:
+            self.number_of_FOV.setValue(value.num_points)  # type: ignore
+            self.random_seed = value.random_seed  # type: ignore
 
 
 class _GridFovWidget(QWidget):
@@ -320,10 +323,12 @@ class _GridFovWidget(QWidget):
 
     valueChanged = Signal(object)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, parent: QWidget | None = None, *, mmcore: CMMCorePlus | None = None
+    ) -> None:
         super().__init__(parent)
 
-        self._mmc = CMMCorePlus.instance()
+        self._mmc = mmcore or CMMCorePlus.instance()
 
         self.rows = QSpinBox()
         self.rows.setAlignment(AlignCenter)
@@ -518,8 +523,11 @@ class _FOVSelectrorWidget(QWidget):
         """
         self.scene.clear()
 
-        # set the plate property to all the widgets
-        self._set_plate(plate)
+        # set the plate property
+        self.plate = plate
+
+        # set the plate values to random widget
+        self.random_wdg.setValue(plate)
 
         # set the size of the well in pixel maintaining the ratio between
         # the well size x and y. The offset is used to leave some space between the
@@ -555,12 +563,6 @@ class _FOVSelectrorWidget(QWidget):
 
         # update the scene with the new pl,ate information
         self._update_scene()
-
-    def _set_plate(self, plate: WellPlate) -> None:
-        self.plate = plate
-        self.center_wdg.plate = plate
-        self.random_wdg.plate = plate
-        self.random_wdg._update(plate)
 
     def _get_mode(self) -> str | None:  # sourcery skip: use-next
         """Return the current mode."""
@@ -652,6 +654,7 @@ class _FOVSelectrorWidget(QWidget):
     def _well_area_in_pixel(self, random_mode: RandomPoints) -> _WellAreaGraphicsItem:
         # convert the well area from mm to px depending on the image size and the well
         # reference area (size of the well in pixel in the scene)
+
         well_area_x_px = (
             self._reference_well_area.width()
             * random_mode.max_width

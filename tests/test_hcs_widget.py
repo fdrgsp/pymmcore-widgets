@@ -232,6 +232,9 @@ def test_random_widget(
     qtbot.addWidget(wdg)
     wdg._radio_btn.setChecked(True)
 
+    assert not wdg.is_circular
+    assert wdg.plate_area_y.isEnabled()
+
     value = wdg.value()
     assert value.fov_width == value.fov_height == 0.512
     assert value.num_points == 1
@@ -250,22 +253,17 @@ def test_random_widget(
     assert value.max_height == 30
     assert value.random_seed == 0
 
-    wdg._update(database["standard 96 wp"])
-    value = wdg.value()
-    assert value.fov_width == value.fov_height == 0.512
-    assert value.num_points == 10
-    assert value.max_width == value.max_height == database["standard 96 wp"].well_size_x
-    assert value.shape.value == "ellipse"
-    assert isinstance(value.random_seed, int)
-    assert wdg.plate_area_y.value() == database["standard 96 wp"].well_size_y
+    wdg.setValue(database["standard 96 wp"])
+    assert wdg.is_circular
     assert not wdg.plate_area_y.isEnabled()
+    value = wdg.value()
+    assert value.max_width == 6.4
+    assert value.max_height == 6.4
+    assert value.shape.value == "ellipse"
+    assert value.random_seed == 0
 
     wdg.plate_area_x.setValue(5)
     assert wdg.plate_area_y.value() == 5
-
-    wdg._update(database["standard 384 wp"])
-    assert wdg.plate_area_y.value() == database["standard 384 wp"].well_size_y
-    assert wdg.plate_area_y.isEnabled()
 
 
 def test_grid_widget(global_mmcore: CMMCorePlus, qtbot: QtBot):
