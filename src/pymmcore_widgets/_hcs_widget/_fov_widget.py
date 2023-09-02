@@ -101,8 +101,6 @@ class _CenterFOVWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        # self._plate: WellPlate | None = None
-
         lbl = QLabel(text="Center of the Well.")
         lbl.setStyleSheet("font-weight: bold;")
         lbl.setAlignment(AlignCenter)
@@ -135,16 +133,6 @@ class _CenterFOVWidget(QWidget):
         self.layout().setSpacing(0)
         self.layout().setContentsMargins(0, 0, 0, 0)
         self.layout().addWidget(wdg_radio)
-
-    # @property
-    # def plate(self) -> WellPlate | None:
-    #     """Return the well plate."""
-    #     return self._plate
-
-    # @plate.setter
-    # def plate(self, well_plate: WellPlate) -> None:
-    #     """Set the well plate."""
-    #     self._plate = well_plate
 
     def value(self) -> Center:
         """Return the values of the widgets."""
