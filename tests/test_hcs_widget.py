@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+from useq import RandomPoints  # type: ignore
 
 from pymmcore_widgets._hcs_widget._calibration_widget import (
     ROLE,
@@ -16,7 +17,15 @@ from pymmcore_widgets._hcs_widget._calibration_widget import (
     _CalibrationWidget,
     _TestCalibrationWidget,
 )
+from pymmcore_widgets._hcs_widget._fov_widget import (
+    Center,
+    _CenterFOVWidget,
+    _FOVSelectrorWidget,
+    _GridFovWidget,
+    _RandomFOVWidget,
+)
 from pymmcore_widgets._hcs_widget._graphics_items import WellInfo, _WellGraphicsItem
+from pymmcore_widgets._hcs_widget._main_wizard_widget import HCSWizard
 from pymmcore_widgets._hcs_widget._plate_widget import (
     WellPlateInfo,
     _CustomPlateWidget,
@@ -32,6 +41,11 @@ if TYPE_CHECKING:
 @pytest.fixture()
 def database_path():
     return Path(__file__).parent / "plate_database_for_tests.json"
+
+
+@pytest.fixture()
+def database(database_path):
+    return load_database(database_path)
 
 
 def test_plate_widget_set_get_value(qtbot: QtBot, database_path: Path):
@@ -104,21 +118,20 @@ def test_calibration_mode_widget(qtbot: QtBot):
 
 
 def test_calibration_table_widget(
-    global_mmcore: CMMCorePlus, qtbot: QtBot, database_path: Path
+    global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, WellPlate]
 ):
     mmc = global_mmcore
-    db = load_database(database_path)
 
-    wdg = _CalibrationTable(mmc=mmc)
+    wdg = _CalibrationTable(mmcore=mmc)
     qtbot.addWidget(wdg)
 
     assert wdg.tb.rowCount() == 0
     assert wdg._well_label.text() == ""
 
-    wdg._update(db["coverslip 22mm"], TwoPoints(), "A1")
+    wdg._update(database["coverslip 22mm"], TwoPoints(), "A1")
     assert wdg.calibration_mode == TwoPoints()
     assert wdg._well_label.text() == "A1"
-    assert wdg.plate == db["coverslip 22mm"]
+    assert wdg.plate == database["coverslip 22mm"]
 
     mmc.waitForSystem()
 
@@ -140,10 +153,9 @@ def test_calibration_table_widget(
 
 
 def test_calibration_move_to_edge_widget(
-    global_mmcore: CMMCorePlus, qtbot: QtBot, database_path: Path
+    global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, WellPlate]
 ):
     mmc = global_mmcore
-    db = load_database(database_path)
 
     wdg = _TestCalibrationWidget(mmcore=mmc)
     qtbot.addWidget(wdg)
@@ -151,7 +163,7 @@ def test_calibration_move_to_edge_widget(
     assert wdg._letter_combo.count() == 0
     assert wdg._number_combo.count() == 0
 
-    wdg._update(db["standard 96 wp"])
+    wdg._update(database["standard 96 wp"])
     assert wdg._letter_combo.count() == 8
     assert wdg._number_combo.count() == 12
 
@@ -161,14 +173,12 @@ def test_calibration_move_to_edge_widget(
 
 
 def test_calibration_widget(
-    global_mmcore: CMMCorePlus, qtbot: QtBot, database_path: Path
+    global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, WellPlate]
 ):
-    db = load_database(database_path)
-
     wdg = _CalibrationWidget(mmcore=global_mmcore)
     qtbot.addWidget(wdg)
 
-    wdg._update(db["coverslip 22mm"])
+    wdg._update(database["coverslip 22mm"])
 
     assert wdg._calibration_mode._mode_combo.count() == 2
     assert wdg._calibration_mode._mode_combo.itemData(0, ROLE) == TwoPoints()
@@ -194,7 +204,7 @@ def test_calibration_widget(
         well_A1_center_x=-55.0, well_A1_center_y=35.0, rotation_matrix=None
     )
 
-    wdg._update(db["standard 96 wp"])
+    wdg._update(database["standard 96 wp"])
 
     assert wdg._calibration_mode._mode_combo.count() == 1
     assert wdg._calibration_mode._mode_combo.itemData(0, ROLE) == ThreePoints()
@@ -203,3 +213,71 @@ def test_calibration_widget(
     assert not wdg._table_a1.value()
     assert not wdg._table_an.isHidden()
     assert not wdg._table_an.value()
+
+
+def test_center_widget(qtbot: QtBot):
+    wdg = _CenterFOVWidget()
+    qtbot.addWidget(wdg)
+
+    assert not wdg._radio_btn.isChecked()
+    assert wdg.value() == Center()
+    wdg.setValue(Center())
+    assert wdg._radio_btn.isChecked()
+
+
+def test_random_widget(
+    global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, WellPlate]
+):
+    wdg = _RandomFOVWidget()
+    qtbot.addWidget(wdg)
+    wdg._radio_btn.setChecked(True)
+
+    value = wdg.value()
+    assert value.fov_width == value.fov_height == 0.512
+    assert value.num_points == 1
+    assert value.max_width == value.max_height == 0.0
+    assert value.shape.value == "rectangle"
+    assert isinstance(value.random_seed, int)
+
+    wdg.setValue(
+        RandomPoints(
+            num_points=10, max_width=20, max_height=30, shape="ellipse", random_seed=0
+        )
+    )
+    value = wdg.value()
+    assert value.num_points == 10
+    assert value.max_width == 20
+    assert value.max_height == 30
+    assert value.random_seed == 0
+
+    wdg._update(database["standard 96 wp"])
+    value = wdg.value()
+    assert value.fov_width == value.fov_height == 0.512
+    assert value.num_points == 10
+    assert value.max_width == value.max_height == database["standard 96 wp"].well_size_x
+    assert value.shape.value == "ellipse"
+    assert isinstance(value.random_seed, int)
+    assert wdg.plate_area_y.value() == database["standard 96 wp"].well_size_y
+    assert not wdg.plate_area_y.isEnabled()
+
+    wdg.plate_area_x.setValue(5)
+    assert wdg.plate_area_y.value() == 5
+
+    wdg._update(database["standard 384 wp"])
+    assert wdg.plate_area_y.value() == database["standard 384 wp"].well_size_y
+    assert wdg.plate_area_y.isEnabled()
+
+
+def test_grid_widget(global_mmcore: CMMCorePlus, qtbot: QtBot):
+    wdg = _GridFovWidget()
+    qtbot.addWidget(wdg)
+
+
+def test_fov_selector_widget(global_mmcore: CMMCorePlus, qtbot: QtBot):
+    wdg = _FOVSelectrorWidget()
+    qtbot.addWidget(wdg)
+
+
+def test_hcs_wizard(global_mmcore: CMMCorePlus, qtbot: QtBot, database_path: Path):
+    wdg = HCSWizard(plate_database_path=database_path)
+    qtbot.addWidget(wdg)
