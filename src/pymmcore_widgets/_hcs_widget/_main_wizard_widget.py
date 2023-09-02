@@ -30,6 +30,8 @@ from ._plate_widget import WellPlateInfo, _PlateWidget
 from ._util import apply_rotation_matrix, get_well_center
 from ._well_plate_model import PLATE_DB_PATH, WellPlate, load_database
 
+EXPANDING = (QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
 
 class HCSInfo(NamedTuple):
     plate: WellPlate
@@ -104,16 +106,13 @@ class FOVSelectorPage(QWizardPage):
 
         self._fov_widget = _FOVSelectrorWidget()
 
-        spacer = QSpacerItem(
-            0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
-        )
-
         self.setLayout(QVBoxLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)
-        self.layout().addItem(spacer)
+        self.layout().addItem(QSpacerItem(0, 0, *EXPANDING))
         self.layout().addWidget(self._fov_widget)
-        self.layout().addItem(spacer)
+        self.layout().addItem(QSpacerItem(0, 0, *EXPANDING))
 
+        # rename finish button
         # self.setButtonText(QWizard.WizardButton.FinishButton, "Run")
 
     def value(self) -> Center | RandomPoints | GridRelative:
@@ -163,9 +162,7 @@ class HCSWizard(QWizard):
         self.addPage(self.calibration_page)
         self.addPage(self.fov_page)
 
-        _finish = self.button(
-            QWizard.WizardButton.FinishButton
-        )  # name set in self.page3
+        _finish = self.button(QWizard.WizardButton.FinishButton)
         # _finish.disconnect(self)  # disconnect default behavior
         _finish.disconnect()  # disconnect default behavior
         _finish.clicked.connect(self._on_finish_clicked)

@@ -148,12 +148,6 @@ class _CenterFOVWidget(QWidget):
 
     def value(self) -> Center:
         """Return the values of the widgets."""
-        # if self.plate is None:
-        #     center_x, center_y = (0.0, 0.0)
-        # else:
-        #     center_x = self.plate.well_size_x / 2
-        #     center_y = self.plate.well_size_y / 2
-        # return Center(center_x, center_y)
         return Center()
 
     def setValue(self, center: Center) -> None:
@@ -162,9 +156,9 @@ class _CenterFOVWidget(QWidget):
 
 
 class _RandomFOVWidget(QWidget):
-    valueChanged = Signal(object)
-
     """Widget to select random FOVVs per well of the plate."""
+
+    valueChanged = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -178,7 +172,7 @@ class _RandomFOVWidget(QWidget):
         # well area doublespinbox along x
         self.plate_area_x = QDoubleSpinBox()
         self.plate_area_x.setAlignment(AlignCenter)
-        self.plate_area_x.setMinimum(0.01)
+        self.plate_area_x.setMinimum(0.0)
         self.plate_area_x.setSingleStep(0.1)
         plate_area_label_x = _create_label("Area x (mm):")
         _plate_area_x = _make_wdg_with_label(plate_area_label_x, self.plate_area_x)
@@ -187,7 +181,7 @@ class _RandomFOVWidget(QWidget):
         # well area doublespinbox along y
         self.plate_area_y = QDoubleSpinBox()
         self.plate_area_y.setAlignment(AlignCenter)
-        self.plate_area_y.setMinimum(0.01)
+        self.plate_area_y.setMinimum(0.0)
         self.plate_area_y.setSingleStep(0.1)
         plate_area_label_y = _create_label("Area y (mm):")
         _plate_area_y = _make_wdg_with_label(plate_area_label_y, self.plate_area_y)
@@ -248,8 +242,6 @@ class _RandomFOVWidget(QWidget):
         # connect
         self.plate_area_x.valueChanged.connect(self._update_plate_area_y)
 
-        # self._update(self.plate)
-
     @property
     def plate(self) -> WellPlate | None:
         """Return the well plate."""
@@ -275,7 +267,7 @@ class _RandomFOVWidget(QWidget):
         self.plate = plate
         well_size_x = plate.well_size_x if self.plate is not None else 0
         well_size_y = plate.well_size_y if self.plate is not None else 0
-        circular = plate.circular if self.plate is not None else False
+        circular = plate.circular if self.plate is not None else True
         self.plate_area_x.setMaximum(well_size_x)
         self.plate_area_x.setValue(well_size_x)
         self.plate_area_y.setMaximum(well_size_y)
@@ -289,20 +281,23 @@ class _RandomFOVWidget(QWidget):
 
     def _update_plate_area_y(self, value: float) -> None:
         """Update the plate area y value if the plate has circular wells."""
-        if self.plate is None or not self.plate.circular:
-            return
+        self.plate_area_y.setEnabled(self.plate is None or not self.plate.circular)
+        self.plate_area_y.setMaximum(value)
         self.plate_area_y.setValue(value)
 
     def value(self) -> RandomPoints | None:
         """Return the values of the widgets."""
-        if self.plate is None:
-            return None
-
         fov_width, fov_height = _get_fov_size_mm(self._mmc)
+
+        shape = (
+            Shape.RECTANGLE
+            if self.plate is None or not self.plate.circular
+            else Shape.ELLIPSE
+        )
 
         return RandomPoints(
             num_points=self.number_of_FOV.value(),
-            shape=Shape.ELLIPSE if self.plate.circular else Shape.RECTANGLE,
+            shape=shape,
             random_seed=self.random_seed,
             max_width=self.plate_area_x.value(),
             max_height=self.plate_area_y.value(),
@@ -316,8 +311,9 @@ class _RandomFOVWidget(QWidget):
         self._radio_btn.setChecked(True)
         self.random_seed = value.random_seed
         self.number_of_FOV.setValue(value.num_points)
+        self.plate_area_x.setMaximum(value.max_width)
         self.plate_area_x.setValue(value.max_width)
-        self.plate_area_y.setValue(value.max_height)
+        self._update_plate_area_y(value.max_height)
 
 
 class _GridFovWidget(QWidget):
@@ -505,8 +501,6 @@ class _FOVSelectrorWidget(QWidget):
         self.random_wdg.valueChanged.connect(self._on_random_changed)
         self.random_wdg.random_button.clicked.connect(self._on_random_changed)
         self.grid_wdg.valueChanged.connect(self._on_grid_changed)
-
-        # self._update(plate=self.plate)
 
     @property
     def plate(self) -> WellPlate:
