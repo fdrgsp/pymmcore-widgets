@@ -51,8 +51,6 @@ WELL_PLATE = WellPlate("", True, 0, 0, 0, 0, 0, 0)
 class Center(NamedTuple):
     """Center of the well as FOV of the plate."""
 
-    # center_x: float
-    # center_y: float
     ...
 
 
