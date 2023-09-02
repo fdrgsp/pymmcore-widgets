@@ -191,7 +191,7 @@ class _RandomFOVWidget(QWidget):
         self.number_of_FOV = QSpinBox()
         self.number_of_FOV.setAlignment(AlignCenter)
         self.number_of_FOV.setMinimum(1)
-        self.number_of_FOV.setMaximum(100)
+        self.number_of_FOV.setMaximum(1000)
         number_of_FOV_label = _create_label("FOVs:")
         nFOV = _make_wdg_with_label(number_of_FOV_label, self.number_of_FOV)
         self.number_of_FOV.valueChanged.connect(self.valueChanged.emit)
@@ -281,8 +281,8 @@ class _RandomFOVWidget(QWidget):
 
     def _update_plate_area_y(self, value: float) -> None:
         """Update the plate area y value if the plate has circular wells."""
-        self.plate_area_y.setEnabled(self.plate is None or not self.plate.circular)
-        self.plate_area_y.setMaximum(value)
+        if self.plate is None or not self.plate.circular:
+            return
         self.plate_area_y.setValue(value)
 
     def value(self) -> RandomPoints | None:
@@ -313,7 +313,8 @@ class _RandomFOVWidget(QWidget):
         self.number_of_FOV.setValue(value.num_points)
         self.plate_area_x.setMaximum(value.max_width)
         self.plate_area_x.setValue(value.max_width)
-        self._update_plate_area_y(value.max_height)
+        self.plate_area_y.setMaximum(value.max_height)
+        self.plate_area_y.setValue(value.max_height)
 
 
 class _GridFovWidget(QWidget):
