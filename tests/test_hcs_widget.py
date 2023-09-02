@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from useq import RandomPoints  # type: ignore
+from useq import GridRelative, RandomPoints  # type: ignore
 
 from pymmcore_widgets._hcs_widget._calibration_widget import (
     ROLE,
@@ -269,6 +269,23 @@ def test_random_widget(
 def test_grid_widget(global_mmcore: CMMCorePlus, qtbot: QtBot):
     wdg = _GridFovWidget()
     qtbot.addWidget(wdg)
+
+    wdg._radio_btn.setChecked(True)
+
+    value = wdg.value()
+    assert value.fov_width == value.fov_height == 0.512
+    assert value.overlap == (0.0, 0.0)
+    assert value.mode.value == "row_wise_snake"
+    assert value.rows == value.columns == 1
+    assert value.relative_to.value == "center"
+
+    wdg.setValue(GridRelative(overlap=10.0, mode="row_wise", rows=2, columns=3))
+    value = wdg.value()
+    assert value.overlap == (10.0, 10.0)
+    assert value.mode.value == "row_wise"
+    assert value.rows == 2
+    assert value.columns == 3
+    assert value.relative_to.value == "center"
 
 
 def test_fov_selector_widget(global_mmcore: CMMCorePlus, qtbot: QtBot):
