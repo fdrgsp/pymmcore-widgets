@@ -287,23 +287,17 @@ class _RandomFOVWidget(QWidget):
             fov_height=fov_height,
         )
 
-    def setValue(self, value: RandomPoints | WellPlate) -> None:
+    def setValue(self, value: RandomPoints) -> None:
         """Set the values of the widgets."""
         self._radio_btn.setChecked(True)
-
-        plate: bool = isinstance(value, WellPlate)
-
-        # why mypy complains about the following lines?
-        self.is_circular = value.circular if plate else value.shape == RECT  # type: ignore  # noqa: E501
-        self.plate_area_x.setMaximum(value.well_size_x if plate else value.max_width)  # type: ignore  # noqa: E501
-        self.plate_area_x.setValue(value.well_size_x if plate else value.max_width)  # type: ignore  # noqa: E501
-        self.plate_area_y.setMaximum(value.well_size_y if plate else value.max_height)  # type: ignore  # noqa: E501
-        self.plate_area_y.setValue(value.well_size_y if plate else value.max_height)  # type: ignore  # noqa: E501
+        self.is_circular = value.shape == ELLIPSE
+        self.random_seed = value.random_seed
+        self.number_of_FOV.setValue(value.num_points)
+        self.plate_area_x.setMaximum(value.max_width)
+        self.plate_area_x.setValue(value.max_width)
+        self.plate_area_y.setMaximum(value.max_height)
+        self.plate_area_y.setValue(value.max_height)
         self._enable_plate_area_y(not self.is_circular)
-
-        if not plate:
-            self.number_of_FOV.setValue(value.num_points)  # type: ignore
-            self.random_seed = value.random_seed  # type: ignore
 
 
 class _GridFovWidget(QWidget):
@@ -504,6 +498,16 @@ class _FOVSelectrorWidget(QWidget):
         """Set the well plate."""
         self._plate = well_plate
 
+    def _plate_to_random(self, plate: WellPlate) -> RandomPoints:
+        """Convert a WellPlate object to a RandomPoints object."""
+        return RandomPoints(
+            num_points=self.random_wdg.number_of_FOV.value(),
+            max_width=plate.well_size_x,
+            max_height=plate.well_size_y,
+            shape=ELLIPSE if plate.circular else RECT,
+            random_seed=self.random_wdg.random_seed,
+        )
+
     def _update(self, plate: WellPlate) -> None:
         """Load the information of the well plate.
 
@@ -515,7 +519,8 @@ class _FOVSelectrorWidget(QWidget):
         self.plate = plate
 
         # set the plate values to random widget
-        self.random_wdg.setValue(plate)
+        self.random_wdg.setValue(self._plate_to_random(plate))
+        self.center_wdg._radio_btn.setChecked(True)
 
         # set the size of the well in pixel maintaining the ratio between
         # the well size x and y. The offset is used to leave some space between the

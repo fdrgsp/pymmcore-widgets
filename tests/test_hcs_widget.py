@@ -252,15 +252,7 @@ def test_random_widget(
     assert value.max_width == 20
     assert value.max_height == 30
     assert value.random_seed == 0
-
-    wdg.setValue(database["standard 96 wp"])
     assert wdg.is_circular
-    assert not wdg.plate_area_y.isEnabled()
-    value = wdg.value()
-    assert value.max_width == 6.4
-    assert value.max_height == 6.4
-    assert value.shape.value == "ellipse"
-    assert value.random_seed == 0
 
     wdg.plate_area_x.setValue(5)
     assert wdg.plate_area_y.value() == 5
@@ -288,9 +280,13 @@ def test_grid_widget(global_mmcore: CMMCorePlus, qtbot: QtBot):
     assert value.relative_to.value == "center"
 
 
-def test_fov_selector_widget(global_mmcore: CMMCorePlus, qtbot: QtBot):
+def test_fov_selector_widget(
+    global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, WellPlate]
+):
     wdg = _FOVSelectrorWidget()
     qtbot.addWidget(wdg)
+
+    wdg._update(database["standard 96 wp"])
 
 
 def test_hcs_wizard(global_mmcore: CMMCorePlus, qtbot: QtBot, database_path: Path):
