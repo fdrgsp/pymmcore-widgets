@@ -8,7 +8,9 @@ from useq import GridRelative, RandomPoints  # type: ignore
 
 from pymmcore_widgets._hcs_widget._calibration_widget import (
     ROLE,
+    CalibrationData,
     CalibrationInfo,
+    CalibrationTableData,
     FourPoints,
     ThreePoints,
     TwoPoints,
@@ -128,7 +130,9 @@ def test_calibration_table_widget(
     assert wdg.tb.rowCount() == 0
     assert wdg._well_label.text() == ""
 
-    wdg._update(database["coverslip 22mm"], TwoPoints(), "A1")
+    wdg.setValue(
+        CalibrationTableData([], database["coverslip 22mm"], TwoPoints(), "A1")
+    )
     assert wdg.calibration_mode == TwoPoints()
     assert wdg._well_label.text() == "A1"
     assert wdg.plate == database["coverslip 22mm"]
@@ -149,7 +153,11 @@ def test_calibration_table_widget(
     assert wdg.tb.cellWidget(1, 0).value() == 10
     assert wdg.tb.cellWidget(1, 1).value() == -10
 
-    assert wdg.value() == [(-10.0, 10.0), (10.0, -10.0)]
+    value = wdg.value()
+    assert value.list_of_points == [(-10.0, 10.0), (10.0, -10.0)]
+    assert value.plate == database["coverslip 22mm"]
+    assert value.calibration_mode == TwoPoints()
+    assert value.well_name == "A1"
 
 
 def test_calibration_move_to_edge_widget(
@@ -163,12 +171,10 @@ def test_calibration_move_to_edge_widget(
     assert wdg._letter_combo.count() == 0
     assert wdg._number_combo.count() == 0
 
-    wdg._update(database["standard 96 wp"])
+    well = WellInfo(name="C3", row=2, column=2)
+    wdg.setValue(database["standard 96 wp"], well)
     assert wdg._letter_combo.count() == 8
     assert wdg._number_combo.count() == 12
-
-    well = WellInfo(name="C3", row=2, column=2)
-    wdg.setValue(well)
     assert wdg.value() == well
 
 
@@ -178,7 +184,10 @@ def test_calibration_widget(
     wdg = _CalibrationWidget(mmcore=global_mmcore)
     qtbot.addWidget(wdg)
 
-    wdg._update(database["coverslip 22mm"])
+    assert wdg.value() == (None, None)
+    assert wdg._calibration_label.value() == "Plate Not Calibrated!"
+
+    wdg.setValue(CalibrationInfo(database["coverslip 22mm"], None))
 
     assert wdg._calibration_mode._mode_combo.count() == 2
     assert wdg._calibration_mode._mode_combo.itemData(0, ROLE) == TwoPoints()
@@ -186,33 +195,50 @@ def test_calibration_widget(
     assert isinstance(wdg._calibration_mode.value(), TwoPoints)
 
     assert not wdg._table_a1.isHidden()
-    assert not wdg._table_a1.value()
     assert wdg._table_an.isHidden()
     assert wdg._calibration_label.value() == "Plate Not Calibrated!"
-    assert wdg.value() is None
+    assert wdg.value() == (database["coverslip 22mm"], None)
 
     with pytest.raises(ValueError, match="Invalid number of points"):
         wdg._on_calibrate_button_clicked()
 
-    wdg._table_a1.setValue([(-210, 170), (100, -100)])
-    assert len(wdg._table_a1.value()) == 2
+    wdg._table_a1.setValue(
+        CalibrationTableData(
+            list_of_points=[(-210, 170), (100, -100)],
+            plate=database["coverslip 22mm"],
+            calibration_mode=TwoPoints(),
+            well_name="A1",
+        )
+    )
+    assert len(wdg._table_a1.value().list_of_points) == 2
 
     wdg._on_calibrate_button_clicked()
+
     assert wdg._calibration_label.value() == "Plate Calibrated!"
 
-    assert wdg.value() == CalibrationInfo(
+    cal_data = CalibrationData(
         well_A1_center_x=-55.0, well_A1_center_y=35.0, rotation_matrix=None
     )
+    assert wdg.value() == CalibrationInfo(database["coverslip 22mm"], cal_data)
 
-    wdg._update(database["standard 96 wp"])
+    wdg.setValue(CalibrationInfo(database["standard 96 wp"], None))
 
     assert wdg._calibration_mode._mode_combo.count() == 1
     assert wdg._calibration_mode._mode_combo.itemData(0, ROLE) == ThreePoints()
 
     assert not wdg._table_a1.isHidden()
-    assert not wdg._table_a1.value()
     assert not wdg._table_an.isHidden()
-    assert not wdg._table_an.value()
+
+    tb_A1_value = wdg._table_a1.value()
+    tb_An_value = wdg._table_an.value()
+    assert tb_A1_value.well_name == " Well A1 "
+    assert tb_An_value.well_name == " Well A12 "
+    assert tb_A1_value.calibration_mode == tb_An_value.calibration_mode == ThreePoints()
+
+    wdg.setValue(CalibrationInfo(None, None))
+    assert wdg._table_a1.isHidden()
+    assert wdg._table_an.isHidden()
+    assert wdg.value() == CalibrationInfo(None, None)
 
 
 def test_center_widget(qtbot: QtBot):
@@ -233,7 +259,7 @@ def test_random_widget(
     wdg._radio_btn.setChecked(True)
 
     assert not wdg.is_circular
-    assert wdg.plate_area_y.isEnabled()
+    assert wdg._area_y.isEnabled()
 
     value = wdg.value()
     assert value.fov_width == value.fov_height == 0.512
@@ -254,8 +280,8 @@ def test_random_widget(
     assert value.random_seed == 0
     assert wdg.is_circular
 
-    wdg.plate_area_x.setValue(5)
-    assert wdg.plate_area_y.value() == 5
+    wdg.area_x.setValue(5)
+    assert wdg._area_y.value() == 5
 
 
 def test_grid_widget(global_mmcore: CMMCorePlus, qtbot: QtBot):
@@ -286,7 +312,51 @@ def test_fov_selector_widget(
     wdg = _FOVSelectrorWidget()
     qtbot.addWidget(wdg)
 
-    wdg._update(database["standard 96 wp"])
+    # center
+    assert wdg.value() == (WellPlate(), Center())
+
+    # grid
+    grid = GridRelative(overlap=10.0, mode="row_wise", rows=2, columns=3)
+    wdg.setValue(database["coverslip 22mm"], grid)
+    plate, mode = wdg.value()
+    assert plate == database["coverslip 22mm"]
+    assert mode.fov_width == mode.fov_height == 0.512
+    assert mode.rows == 2
+    assert mode.columns == 3
+    assert mode.overlap == (10.0, 10.0)
+
+    # random
+    rnd = RandomPoints(
+        num_points=2, max_width=10, max_height=10, shape="rectangle", random_seed=0
+    )
+    wdg.setValue(database["coverslip 22mm"], rnd)
+
+    plate, mode = wdg.value()
+    assert mode.fov_width == mode.fov_height == 0.512
+    assert mode.num_points == 2
+    assert mode.max_width == mode.max_height == 10
+    assert mode.shape.value == "rectangle"
+    assert mode.random_seed == 0
+
+    # assertion error well plate shape != RandomPoints shape
+    with pytest.raises(AssertionError, match="Well plate shape is"):
+        rnd = RandomPoints(
+            num_points=2, max_width=10, max_height=10, shape="ellipse", random_seed=0
+        )
+        wdg.setValue(database["coverslip 22mm"], rnd)
+
+    # ok
+    rnd = RandomPoints(
+        num_points=2, max_width=5, max_height=5, shape="ellipse", random_seed=0
+    )
+    wdg.setValue(database["standard 96 wp"], rnd)
+
+    # assertion error well plate area_x < RandomPoints shape
+    with pytest.raises(AssertionError, match="RandomPoints max width"):
+        rnd = RandomPoints(
+            num_points=2, max_width=30, max_height=10, shape="ellipse", random_seed=0
+        )
+        wdg.setValue(database["standard 96 wp"], rnd)
 
 
 def test_hcs_wizard(global_mmcore: CMMCorePlus, qtbot: QtBot, database_path: Path):

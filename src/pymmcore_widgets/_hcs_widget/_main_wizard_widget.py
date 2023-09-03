@@ -23,7 +23,7 @@ from useq import (  # type: ignore
 
 from pymmcore_widgets._mda import PositionTable
 
-from ._calibration_widget import CalibrationInfo, _CalibrationWidget
+from ._calibration_widget import CalibrationData, CalibrationInfo, _CalibrationWidget
 from ._fov_widget import Center, _FOVSelectrorWidget
 from ._graphics_items import WellInfo
 from ._plate_widget import WellPlateInfo, _PlateWidget
@@ -36,7 +36,7 @@ EXPANDING = (QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 class HCSInfo(NamedTuple):
     plate: WellPlate
     wells: list[str] | None
-    calibration: CalibrationInfo | None
+    calibration: CalibrationData | None
     fov_mode: Center | RandomPoints | GridRelative
 
 
@@ -90,7 +90,7 @@ class PlateCalibrationPage(QWizardPage):
 
         self.setButtonText(QWizard.WizardButton.NextButton, "FOVs >")
 
-    def value(self) -> CalibrationInfo | None:
+    def value(self) -> CalibrationInfo:
         """Return the calibration info."""
         return self._calibration.value()
 
@@ -115,14 +115,15 @@ class FOVSelectorPage(QWizardPage):
         # rename finish button
         # self.setButtonText(QWizard.WizardButton.FinishButton, "Run")
 
-    def value(self) -> Center | RandomPoints | GridRelative:
-        # def value(self) -> tuple[Center | RandomPoints | GridRelative, list[FOV]]:
+    def value(self) -> tuple[WellPlate | None, Center | RandomPoints | GridRelative]:
         """Return the list of FOVs."""
         return self._fov_widget.value()
 
-    def setValue(self, mode: Center | RandomPoints | GridRelative) -> None:
+    def setValue(
+        self, plate: WellPlate, mode: Center | RandomPoints | GridRelative
+    ) -> None:
         """Set the list of FOVs."""
-        self._fov_widget.setValue(mode)
+        self._fov_widget.setValue(plate, mode)
 
 
 class HCSWizard(QWizard):
@@ -177,16 +178,16 @@ class HCSWizard(QWizard):
 
     def _on_plate_combo_changed(self, plate_id: str) -> None:
         plate = self._plate_db[plate_id]
-        self.calibration_page._calibration._update(plate)
-        self.fov_page._fov_widget._update(plate)
+        self.calibration_page._calibration.setValue(CalibrationInfo(plate, None))
+        self.fov_page._fov_widget.setValue(plate, Center())
 
     def value(self) -> HCSInfo:
         plate, well_list = self.plate_page.value()
         wells = [well.name for well in well_list] if well_list else None
-        calibration = self.calibration_page.value()
+        _, calibration_data = self.calibration_page.value()
         # TODO: add warning if not calibtared
-        fov_mode = self.fov_page.value()
-        return HCSInfo(plate, wells, calibration, fov_mode)
+        _, fov_mode = self.fov_page.value()
+        return HCSInfo(plate, wells, calibration_data, fov_mode)
 
     def _on_finish_clicked(self) -> None:
         print(self.value())
