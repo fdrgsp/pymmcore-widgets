@@ -51,13 +51,13 @@ dependencies = [
     'pymmcore-plus >=0.8.0',
     'qtpy >=2.0',
     'superqt[quantity] >=0.3.1',
-    'useq-schema >=0.4.1',
+    'useq-schema >=0.4.6',
 ]
 
 # extras
 # https://peps.python.org/pep-0621/#dependencies-optional-dependencies
 [project.optional-dependencies]
-test = ["pytest>=6.0", "pytest-cov", "pytest-qt"]
+test = ["pytest>=6.0", "pytest-cov", "pytest-qt", "PyYAML", "vispy"]
 pyqt5 = ["PyQt5"]
 pyside2 = ["PySide2"]
 pyqt6 = ["PyQt6"]
@@ -132,7 +132,6 @@ filterwarnings = [
     "error",
     "ignore:distutils Version classes are deprecated",
     # warning, but not error, that will show up on useq<0.3.3
-    "ignore:GridRelative got unknown keyword:UserWarning",
 ]
 
 # https://mypy.readthedocs.io/en/stable/config_file.html
