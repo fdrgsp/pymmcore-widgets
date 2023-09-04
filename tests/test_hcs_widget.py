@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from useq import GridRelative, RandomPoints  # type: ignore
+from useq import GridRowsColumns, RandomPoints  # type: ignore
 
 from pymmcore_widgets._hcs_widget._calibration_widget import (
     ROLE,
@@ -297,7 +297,7 @@ def test_grid_widget(global_mmcore: CMMCorePlus, qtbot: QtBot):
     assert value.rows == value.columns == 1
     assert value.relative_to.value == "center"
 
-    wdg.setValue(GridRelative(overlap=10.0, mode="row_wise", rows=2, columns=3))
+    wdg.setValue(GridRowsColumns(overlap=10.0, mode="row_wise", rows=2, columns=3))
     value = wdg.value()
     assert value.overlap == (10.0, 10.0)
     assert value.mode.value == "row_wise"
@@ -316,7 +316,7 @@ def test_fov_selector_widget(
     assert wdg.value() == (WellPlate(), Center())
 
     # grid
-    grid = GridRelative(overlap=10.0, mode="row_wise", rows=2, columns=3)
+    grid = GridRowsColumns(overlap=10.0, mode="row_wise", rows=2, columns=3)
     wdg.setValue(database["coverslip 22mm"], grid)
     plate, mode = wdg.value()
     assert plate == database["coverslip 22mm"]

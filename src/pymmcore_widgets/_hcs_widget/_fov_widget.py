@@ -28,7 +28,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 from superqt.utils import signals_blocked
-from useq import GridRelative, RandomPoints
+from useq import GridRowsColumns, RandomPoints
 from useq._grid import OrderMode, Shape  # type: ignore
 
 from ._graphics_items import FOV, _FOVGraphicsItem, _WellAreaGraphicsItem
@@ -395,10 +395,10 @@ class _GridFovWidget(QWidget):
         self.layout().addWidget(title)
         self.layout().addWidget(wdg_radio)
 
-    def value(self) -> GridRelative:
+    def value(self) -> GridRowsColumns:
         """Return the values of the widgets."""
         fov_width, fov_height = _get_fov_size_mm(self._mmc)
-        return GridRelative(
+        return GridRowsColumns(
             rows=self.rows.value(),
             columns=self.cols.value(),
             overlap=(self.overlap_x.value(), self.overlap_y.value()),
@@ -407,7 +407,7 @@ class _GridFovWidget(QWidget):
             mode=self.order_combo.currentText(),
         )
 
-    def setValue(self, value: GridRelative) -> None:
+    def setValue(self, value: GridRowsColumns) -> None:
         """Set the values of the widgets."""
         self._radio_btn.setChecked(True)
         self.rows.setValue(value.rows)
@@ -567,7 +567,7 @@ class _FOVSelectrorWidget(QWidget):
         # draw the random points
         self._draw_fovs(points)
 
-    def _update_grid_fovs(self, value: GridRelative) -> None:
+    def _update_grid_fovs(self, value: GridRowsColumns) -> None:
         """Update the _GridWidget scene."""
         points = self._get_grid_points(value)
         self._draw_fovs(points)
@@ -624,7 +624,7 @@ class _FOVSelectrorWidget(QWidget):
 
         return self._order_points(points)
 
-    def _get_grid_points(self, grid_mode: GridRelative) -> list[FOV]:
+    def _get_grid_points(self, grid_mode: GridRowsColumns) -> list[FOV]:
         """Create the points for the grid scene."""
         # camera fov size in scene pixels
         fov_width_px, fov_height_px = self._get_image_size_in_px()
@@ -714,7 +714,7 @@ class _FOVSelectrorWidget(QWidget):
 
         return ordered_points
 
-    def value(self) -> tuple[WellPlate | None, Center | RandomPoints | GridRelative]:
+    def value(self) -> tuple[WellPlate | None, Center | RandomPoints | GridRowsColumns]:
         mode_name = self._get_mode()
         if mode_name == RANDOM:
             return self.plate, self.random_wdg.value()
@@ -724,7 +724,7 @@ class _FOVSelectrorWidget(QWidget):
             return self.plate, self.center_wdg.value()
 
     def setValue(
-        self, plate: WellPlate, mode: Center | RandomPoints | GridRelative
+        self, plate: WellPlate, mode: Center | RandomPoints | GridRowsColumns
     ) -> None:
         """Set the value of the widget."""
         self.scene.clear()
@@ -748,7 +748,7 @@ class _FOVSelectrorWidget(QWidget):
         if isinstance(mode, Center):
             self.center_wdg.setValue(mode)
 
-        elif isinstance(mode, GridRelative):
+        elif isinstance(mode, GridRowsColumns):
             self.grid_wdg.setValue(mode)
             self._plate_to_random(plate)
 

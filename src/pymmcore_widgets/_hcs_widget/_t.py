@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Rectangle
 from rich import print
-from useq import GridRelative, RandomPoints  # type: ignore
+from useq import GridRowsColumns, RandomPoints
 
 circle = True
 pixel = False
@@ -95,7 +95,7 @@ plt.axis("equal")
 plt.show()
 
 
-grid_mm = GridRelative(
+grid_mm = GridRowsColumns(
     overlap=(0.0, 0.0),
     mode="row_wise_snake",
     fov_width=0.512,
@@ -104,7 +104,7 @@ grid_mm = GridRelative(
     columns=2,
     relative_to="center",
 )
-# grid_px = GridRelative(
+# grid_px = GridRowsColumns(
 #     overlap=(0.0, 0.0),
 #     mode="row_wise_snake",
 #     fov_width=8.533333333333333,
@@ -122,12 +122,12 @@ fig, ax = plt.subplots()
 
 for idx, g in enumerate(grid_mm):
     cl = "yo" if idx == 0 else "go"
-    plt.plot(g.x, g.y, cl)  # type: ignore
+    plt.plot(g.x, g.y, cl)
     ax.add_patch(
         Rectangle(
-            (g.x - (grid_mm.fov_width / 2), g.y - (grid_mm.fov_height / 2)),  # type: ignore  # noqa: E501
-            grid_mm.fov_width,  # type: ignore
-            grid_mm.fov_height,  # type: ignore
+            (g.x - (grid_mm.fov_width / 2), g.y - (grid_mm.fov_height / 2)),
+            grid_mm.fov_width,
+            grid_mm.fov_height,
             fill=False,
             color="g",
         )

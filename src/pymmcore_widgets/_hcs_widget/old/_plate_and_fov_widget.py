@@ -17,7 +17,7 @@
 # if TYPE_CHECKING:
 #     from pathlib import Path
 
-#     from useq import GridRelative
+#     from useq import GridRowsColumns
 
 #     from ._graphics_items import WellInfo
 
@@ -38,7 +38,7 @@
 #         The list of selected wells.
 #     fovs : list[tuple[float, float]]
 #         The list of (x, y) coordinates of the selected FOVs per well.
-#     fov_info : Center | Random | GridRelative
+#     fov_info : Center | Random | GridRowsColumns
 #         The FOV selection mode.
 #     fov_scene_px_size_mm : tuple[float, float]
 #         The (x, y) scene pixel size expressed in mm.
@@ -47,7 +47,7 @@
 #     plate: WellPlate
 #     wells: list[WellInfo] | None
 #     fovs: list[tuple[float, float]]
-#     fov_info: Center | Random | GridRelative
+#     fov_info: Center | Random | GridRowsColumns
 #     fov_scene_px_size_mm: tuple[float, float]
 
 

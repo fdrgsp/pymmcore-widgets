@@ -15,7 +15,7 @@ from qtpy.QtWidgets import (
 )
 from rich import print
 from useq import (
-    GridRelative,
+    GridRowsColumns,
     MDASequence,
     Position,
     RandomPoints,
@@ -37,7 +37,7 @@ class HCSInfo(NamedTuple):
     plate: WellPlate
     wells: list[str] | None
     calibration: CalibrationData | None
-    fov_mode: Center | RandomPoints | GridRelative
+    fov_mode: Center | RandomPoints | GridRowsColumns
 
 
 class PlatePage(QWizardPage):
@@ -115,12 +115,12 @@ class FOVSelectorPage(QWizardPage):
         # rename finish button
         # self.setButtonText(QWizard.WizardButton.FinishButton, "Run")
 
-    def value(self) -> tuple[WellPlate | None, Center | RandomPoints | GridRelative]:
+    def value(self) -> tuple[WellPlate | None, Center | RandomPoints | GridRowsColumns]:
         """Return the list of FOVs."""
         return self._fov_widget.value()
 
     def setValue(
-        self, plate: WellPlate, mode: Center | RandomPoints | GridRelative
+        self, plate: WellPlate, mode: Center | RandomPoints | GridRowsColumns
     ) -> None:
         """Set the list of FOVs."""
         self._fov_widget.setValue(plate, mode)
@@ -246,7 +246,7 @@ class HCSWizard(QWizard):
                 )
                 plt.plot(well_center_x, well_center_y, "mo")
 
-            elif isinstance(mode, GridRelative):
+            elif isinstance(mode, GridRowsColumns):
                 positions.append(
                     Position(
                         x=well_center_x,
