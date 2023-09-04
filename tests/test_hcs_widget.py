@@ -159,6 +159,12 @@ def test_calibration_table_widget(
     assert value.calibration_mode == TwoPoints()
     assert value.well_name == "A1"
 
+    wdg.tb.selectRow(0)
+    wdg.act_go_to.trigger()
+    mmc.waitForDevice(mmc.getXYStageDevice())
+    assert round(mmc.getXPosition()) == -10
+    assert round(mmc.getYPosition()) == 10
+
 
 def test_calibration_move_to_edge_widget(
     global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, WellPlate]

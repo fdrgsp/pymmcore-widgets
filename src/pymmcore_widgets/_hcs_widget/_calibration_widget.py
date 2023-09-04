@@ -316,6 +316,8 @@ class _CalibrationTable(QWidget):
             icon(MDI6.plus_thick, color=(0, 255, 0)), "Add new row", self
         )
         self.act_add_row.triggered.connect(self._add_position)
+        self.act_go_to = QAction(icon(MDI6.play, color="grey"), "Go to position", self)
+        self.act_go_to.triggered.connect(self._go_to_position)
         self.act_remove_row = QAction(
             icon(MDI6.close_box_outline, color="magenta"), "Remove selected row", self
         )
@@ -329,6 +331,7 @@ class _CalibrationTable(QWidget):
         self._toolbar.addWidget(self._well_label)
         self._toolbar.addWidget(spacer_2)
         self._toolbar.addAction(self.act_add_row)
+        self._toolbar.addAction(self.act_go_to)
         self._toolbar.addAction(self.act_remove_row)
         self._toolbar.addAction(self.act_clear)
 
@@ -372,9 +375,6 @@ class _CalibrationTable(QWidget):
             warnings.warn("XY Stage not selected!", stacklevel=2)
             return
 
-        if len(self._mmc.getLoadedDevices()) <= 1:
-            return
-
         row = self._add_row()
         self._add_table_value(self._mmc.getXPosition(), row, 0)
         self._add_table_value(self._mmc.getYPosition(), row, 1)
@@ -411,6 +411,15 @@ class _CalibrationTable(QWidget):
             for r in range(_range)
         ]
         return pos
+
+    def _go_to_position(self) -> None:
+        if not self._mmc.getXYStageDevice():
+            warnings.warn("XY Stage not selected!", stacklevel=2)
+            return
+
+        row = self.tb.currentRow()
+        x, y = self._get_table_values()[row]
+        self._mmc.setXYPosition(x, y)
 
     def setValue(self, value: CalibrationTableData) -> None:
         """Set the widget values."""
