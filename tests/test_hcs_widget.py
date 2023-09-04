@@ -175,7 +175,7 @@ def test_calibration_move_to_edge_widget(
     wdg.setValue(database["standard 96 wp"], well)
     assert wdg._letter_combo.count() == 8
     assert wdg._number_combo.count() == 12
-    assert wdg.value() == well
+    assert wdg.value() == (database["standard 96 wp"], well)
 
 
 def test_calibration_widget(

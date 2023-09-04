@@ -28,7 +28,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 from superqt.utils import signals_blocked
-from useq import GridRelative, RandomPoints  # type: ignore
+from useq import GridRelative, RandomPoints
 from useq._grid import OrderMode, Shape  # type: ignore
 
 from ._graphics_items import FOV, _FOVGraphicsItem, _WellAreaGraphicsItem
@@ -641,7 +641,7 @@ class _FOVSelectrorWidget(QWidget):
         # create a list of FOV points by shifting the grid by the center coords.
         # note: inverting the y axis because in scene, y up is negative and y down is
         # positive.
-        return [FOV(g.x + x, (g.y - y) * (-1), rect) for g in grid_mode]  # type: ignore
+        return [FOV(g.x + x, (g.y - y) * (-1), rect) for g in grid_mode]
 
     def _get_image_size_in_px(self) -> tuple[float, float]:
         """Return the image size in px depending on the camera device.

@@ -197,9 +197,8 @@ def _get_plate_rotation_matrix(
 
     m = (y2 - y1) / (x2 - x1)  # slope from y = mx + q
     plate_angle_rad = -np.arctan(m)
-    # plate_angle_rad = np.arctan(m)
     # this is to test only, should be removed_____________________________
-    print(f"plate_angle: {np.rad2deg(plate_angle_rad)}")
+    # print(f"plate_angle: {np.rad2deg(plate_angle_rad)}")
     # ____________________________________________________________________
     return np.array(
         [
@@ -446,6 +445,8 @@ class _TestCalibrationWidget(QGroupBox):
 
         self._mmc = mmcore or CMMCorePlus.instance()
 
+        self._plate: WellPlate | None = None
+
         # test calibration groupbox
         lbl = QLabel("Move to the edge of well:")
         lbl.setSizePolicy(*FixedSizePolicy)
@@ -477,9 +478,17 @@ class _TestCalibrationWidget(QGroupBox):
         self.layout().setContentsMargins(10, 10, 10, 10)
         self.layout().addWidget(test_calibration)
 
-    def value(self) -> WellInfo:
+    @property
+    def plate(self) -> WellPlate | None:
+        return self._plate
+
+    @plate.setter
+    def plate(self, plate: WellPlate) -> None:
+        self._plate = plate
+
+    def value(self) -> tuple[WellPlate | None, WellInfo]:
         """Return the selected test well as `WellInfo` object."""
-        return WellInfo(
+        return self.plate, WellInfo(
             self._letter_combo.currentText() + self._number_combo.currentText(),
             self._letter_combo.currentIndex(),
             self._number_combo.currentIndex(),
@@ -487,20 +496,20 @@ class _TestCalibrationWidget(QGroupBox):
 
     def setValue(self, plate: WellPlate | None, well: WellInfo | None) -> None:
         """Set the selected test well."""
-        self._update_combos(plate)
+        self.plate = plate
+        self._update_combos()
         self._letter_combo.setCurrentIndex(0 if well is None else well.row)
         self._number_combo.setCurrentIndex(0 if well is None else well.column)
 
-    def _update_combos(self, plate: WellPlate | None) -> None:
-        if plate is None:
+    def _update_combos(self) -> None:
+        if self.plate is None:
             return
-
         self._letter_combo.clear()
-        letters = [ALPHABET[letter] for letter in range(plate.rows)]
+        letters = [ALPHABET[letter] for letter in range(self.plate.rows)]
         self._letter_combo.addItems(letters)
 
         self._number_combo.clear()
-        numbers = [str(c) for c in range(1, plate.columns + 1)]
+        numbers = [str(c) for c in range(1, self.plate.columns + 1)]
         self._number_combo.addItems(numbers)
 
 
@@ -729,7 +738,7 @@ class _CalibrationWidget(QWidget):
         if cal_data is None:
             return
 
-        well = self._test_calibration.value()
+        _, well = self._test_calibration.value()
         a1_x, a1_y = cal_data.well_A1_center_x, cal_data.well_A1_center_y
         cx, cy = get_well_center(self.plate, well, a1_x, a1_y)
 

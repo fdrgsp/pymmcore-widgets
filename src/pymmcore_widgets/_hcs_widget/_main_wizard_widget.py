@@ -14,7 +14,7 @@ from qtpy.QtWidgets import (
     QWizardPage,
 )
 from rich import print
-from useq import (  # type: ignore
+from useq import (
     GridRelative,
     MDASequence,
     Position,
@@ -257,12 +257,18 @@ class HCSWizard(QWizard):
                 )
                 for idx, fov in enumerate(mode):
                     cl = "yo" if idx == 0 else "go"
-                    plt.plot((fov.x * 1000) + well_center_x, (fov.y * 1000) + well_center_y, cl)  # type: ignore  # noqa: E501
+                    plt.plot(
+                        (fov.x * 1000) + well_center_x,
+                        (fov.y * 1000) + well_center_y,
+                        cl,
+                    )
                 plt.plot(well_center_x, well_center_y, "mo")
 
             elif isinstance(mode, RandomPoints):
                 for idx, fov in enumerate(mode):
-                    x, y = (fov.x * 1000) + well_center_x, (fov.y * 1000) + well_center_y  # type: ignore  # noqa: E501
+                    x, y = (fov.x * 1000) + well_center_x, (
+                        fov.y * 1000
+                    ) + well_center_y
                     positions.append(Position(x=x, y=y, name=f"{well.name}_{idx:04d}"))
                     plt.plot(x, y, "go")
                 plt.plot(well_center_x, well_center_y, "mo")
