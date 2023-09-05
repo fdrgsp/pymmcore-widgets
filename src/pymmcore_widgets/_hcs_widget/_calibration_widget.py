@@ -253,6 +253,9 @@ class _CalibrationModeWidget(QGroupBox):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         self._mode_combo = QComboBox()
+        self._mode_combo.setEditable(True)
+        self._mode_combo.lineEdit().setReadOnly(True)
+        self._mode_combo.lineEdit().setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self._mode_combo.currentIndexChanged.connect(self._on_value_changed)
 
         lbl = QLabel(text="Calibration Mode:")
