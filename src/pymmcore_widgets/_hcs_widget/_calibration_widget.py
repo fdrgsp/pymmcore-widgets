@@ -460,7 +460,8 @@ class _TestCalibrationWidget(QGroupBox):
         self._plate: WellPlate | None = None
 
         # test calibration groupbox
-        lbl = QLabel("Move to the edge of well:")
+        # lbl = QLabel("Move to the edge of well:")
+        lbl = QLabel("Move to edge:")
         lbl.setSizePolicy(*FixedSizePolicy)
         # combo to select plate
         self._letter_combo = QComboBox()
@@ -481,6 +482,8 @@ class _TestCalibrationWidget(QGroupBox):
         # test button
         self._test_button = QPushButton("Go")
         self._test_button.setEnabled(False)
+        self._stop_button = QPushButton("Stop")
+        self._stop_button.setToolTip("Stop XY stage movement.")
         # groupbox
         test_calibration = QWidget()
         test_calibration.setLayout(QHBoxLayout())
@@ -490,11 +493,15 @@ class _TestCalibrationWidget(QGroupBox):
         test_calibration.layout().addWidget(self._letter_combo)
         test_calibration.layout().addWidget(self._number_combo)
         test_calibration.layout().addWidget(self._test_button)
+        test_calibration.layout().addWidget(self._stop_button)
 
         # main
         self.setLayout(QHBoxLayout())
         self.layout().setContentsMargins(10, 10, 10, 10)
         self.layout().addWidget(test_calibration)
+
+        # connect
+        self._stop_button.clicked.connect(self._stop_xy_stage)
 
     @property
     def plate(self) -> WellPlate | None:
@@ -503,6 +510,9 @@ class _TestCalibrationWidget(QGroupBox):
     @plate.setter
     def plate(self, plate: WellPlate) -> None:
         self._plate = plate
+
+    def _stop_xy_stage(self) -> None:
+        self._mmc.stop(self._mmc.getXYStageDevice())
 
     def value(self) -> tuple[WellPlate | None, WellInfo]:
         """Return the selected test well as `WellInfo` object."""
