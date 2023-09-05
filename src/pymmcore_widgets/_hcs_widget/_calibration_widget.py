@@ -467,11 +467,17 @@ class _TestCalibrationWidget(QGroupBox):
         self._letter_combo.setEditable(True)
         self._letter_combo.lineEdit().setReadOnly(True)
         self._letter_combo.lineEdit().setAlignment(AlignCenter)
+        self._letter_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToContents
+        )
         # combo to select well number
         self._number_combo = QComboBox()
         self._number_combo.setEditable(True)
         self._number_combo.lineEdit().setReadOnly(True)
         self._number_combo.lineEdit().setAlignment(AlignCenter)
+        self._number_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToContents
+        )
         # test button
         self._test_button = QPushButton("Go")
         self._test_button.setEnabled(False)
@@ -519,10 +525,12 @@ class _TestCalibrationWidget(QGroupBox):
         self._letter_combo.clear()
         letters = [ALPHABET[letter] for letter in range(self.plate.rows)]
         self._letter_combo.addItems(letters)
+        self._letter_combo.adjustSize()
 
         self._number_combo.clear()
         numbers = [str(c) for c in range(1, self.plate.columns + 1)]
         self._number_combo.addItems(numbers)
+        self._number_combo.adjustSize()
 
 
 class _CalibrationLabel(QGroupBox):
