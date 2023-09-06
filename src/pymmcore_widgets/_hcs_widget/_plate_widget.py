@@ -3,7 +3,7 @@ from __future__ import annotations
 import string
 from typing import TYPE_CHECKING, NamedTuple
 
-from qtpy.QtCore import Qt
+from qtpy.QtCore import Qt, Signal
 from qtpy.QtGui import QBrush, QPen
 from qtpy.QtWidgets import (
     QComboBox,
@@ -53,6 +53,8 @@ class WellPlateInfo(NamedTuple):
 
 class _PlateWidget(QWidget):
     """Widget for selecting the well plate and its wells."""
+
+    valueChanged = Signal()
 
     def __init__(
         self,
@@ -115,6 +117,7 @@ class _PlateWidget(QWidget):
         )
 
         # connect
+        self.scene.valueChanged.connect(self.valueChanged)
         self.clear_button.clicked.connect(self.scene._clear_selection)
         self.plate_combo.currentTextChanged.connect(self._update)
         self.custom_plate_button.clicked.connect(self._show_custom_plate_dialog)
@@ -126,6 +129,7 @@ class _PlateWidget(QWidget):
         draw_well_plate(
             self.view, self.scene, self._plate_db[plate_name], brush=BRUSH, pen=PEN
         )
+        self.valueChanged.emit()
 
     def current_plate(self) -> WellPlate:
         """Return the current selected plate."""

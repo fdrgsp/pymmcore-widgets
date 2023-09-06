@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
-from qtpy.QtCore import QRect, QRectF, Qt
+from qtpy.QtCore import QRect, QRectF, Qt, Signal
 from qtpy.QtGui import QBrush, QTransform
 from qtpy.QtWidgets import (
     QGraphicsItem,
@@ -26,6 +26,8 @@ class _HCSGraphicsScene(QGraphicsScene):
     To get the list of selected well info, use the `value` method
     that returns a list of snake-row-wise ordered tuples (name, row, column).
     """
+
+    valueChanged = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -62,6 +64,7 @@ class _HCSGraphicsScene(QGraphicsScene):
             else:
                 well.brush = SELECTED_COLOR
                 well.setSelected(True)
+        self.valueChanged.emit()
 
     def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         # update the rubber band geometry using the SCREEN origin point and the current
@@ -83,6 +86,7 @@ class _HCSGraphicsScene(QGraphicsScene):
                     self._set_selected(item, True)
             elif item not in self._selected_wells:
                 self._set_selected(item, False)
+        self.valueChanged.emit()
 
     def _set_selected(self, item: _WellGraphicsItem, state: bool) -> None:
         """Select or deselect the item."""
@@ -91,6 +95,7 @@ class _HCSGraphicsScene(QGraphicsScene):
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         self.rubber_band.hide()
+        self.valueChanged.emit()
 
     def _clear_selection(self) -> None:
         """Clear the selection of all wells."""
@@ -99,6 +104,7 @@ class _HCSGraphicsScene(QGraphicsScene):
             # if item.isSelected():
             item.setSelected(False)
             item.brush = UNSELECTED_COLOR
+        self.valueChanged.emit()
 
     def setValue(self, value: list[WellInfo]) -> None:
         """Select the wells listed in `value`."""
@@ -108,6 +114,7 @@ class _HCSGraphicsScene(QGraphicsScene):
             item = cast("_WellGraphicsItem", item)
             if item.value() in value:
                 self._set_selected(item, True)
+        self.valueChanged.emit()
 
     def value(self) -> list[WellInfo] | None:
         """Return the list of tuple (name, row, column) of the selected wells.

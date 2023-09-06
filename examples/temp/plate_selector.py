@@ -12,6 +12,7 @@ database_path = (
 app = QApplication([])
 
 plate_selector = _PlateWidget(plate_database_path=database_path)
+plate_selector.valueChanged.connect(lambda: print(plate_selector.value()))
 
 btn = QPushButton("Value")
 btn.clicked.connect(lambda: print(plate_selector.value()))
