@@ -23,8 +23,7 @@ mmc.loadSystemConfiguration()
 
 calibration_wdg = _CalibrationWidget(mmcore=mmc)
 
-# calibration_wdg.setValue(CalibrationInfo(database["coverslip 22mm"], None))
-calibration_wdg.setValue(CalibrationInfo(database["standard 96 wp"], None))
+calibration_wdg.setValue(CalibrationInfo(database["coverslip 22mm"], None))
 
 btn = QPushButton("Value")
 btn.clicked.connect(lambda: print(calibration_wdg.value()))
