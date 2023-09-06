@@ -48,6 +48,8 @@ PEN_WIDTH = 4
 WELL_PLATE = WellPlate("", True, 0, 0, 0, 0, 0, 0)
 RECT = Shape.RECTANGLE
 ELLIPSE = Shape.ELLIPSE
+PEN_AREA = QPen(Qt.GlobalColor.green)
+PEN_AREA.setWidth(PEN_WIDTH)
 
 
 class Center(NamedTuple):
@@ -415,6 +417,229 @@ class _GridFovWidget(QWidget):
         self.overlap_x.setValue(value.overlap[0])
         self.overlap_y.setValue(value.overlap[1])
         self.order_combo.setCurrentText(value.mode.value)
+
+
+class WellView(ResizingGraphicsView):
+    """Graphics view to draw the well and the fovs."""
+
+    pointsWarning: Signal = Signal(int)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        self._scene = QGraphicsScene()
+        super().__init__(self._scene, parent)
+
+        self.setStyleSheet("background:grey; border-radius: 5px;")
+        self.setMinimumSize(VIEW_SIZE, VIEW_SIZE)
+        # set the scene rect so that the center is (0, 0)
+        self.setSceneRect(-VIEW_SIZE / 2, -VIEW_SIZE / 2, VIEW_SIZE, VIEW_SIZE)
+
+        self._padding = OFFSET
+
+        self._is_circular: bool = False
+        self._well_aspect: float = 1.0
+        self._well_width: float = 0.0
+        self._well_height: float = 0.0
+        self._fov_width: float = 0.0
+        self._fov_height: float = 0.0
+
+    def setPadding(self, padding: int) -> None:
+        """Set the padding between the well and the view."""
+        self._padding = padding
+
+    def setWellSize(self, size: tuple[float, float]) -> None:
+        """Set the well size width and height."""
+        self._well_width, self._well_height = size
+
+    def setFOVSize(self, size: tuple[float, float]) -> None:
+        """Set the FOV size width and height."""
+        w, h = size
+        # convert size in scene pixel
+        self._fov_width = (VIEW_SIZE * w) / self._well_width
+        self._fov_height = (VIEW_SIZE * h) / self._well_height
+
+    def setCircular(self, is_circular: bool) -> None:
+        """Set True if the well is circular."""
+        self._is_circular = is_circular
+
+    def clear(self, *item_types: Any) -> None:
+        """Remove all items of `item_types` from the scene."""
+        scene = self.scene()
+        if not item_types:
+            scene.clear()
+        for item in scene.items():
+            if not item_types or isinstance(item, item_types):
+                scene.removeItem(item)
+        scene.update()
+
+    def _get_reference_well_area(self) -> QRectF:
+        """Return the well area in scene pixel as QRectF."""
+        well_size_px = VIEW_SIZE - self._padding
+        _well_aspect = self._well_width / self._well_height
+        size_x = size_y = well_size_px
+        if _well_aspect > 1:
+            # keep the ratio between well_size_x and well_size_y
+            size_y = int(well_size_px * 1 / self._well_aspect)
+        elif _well_aspect < 1:
+            # keep the ratio between well_size_x and well_size_y
+            size_x = int(well_size_px * self._well_aspect)
+        # set the position of the well plate in the scene using the center of the view
+        # QRectF as reference
+        x = self.sceneRect().center().x() - (size_x / 2)
+        y = self.sceneRect().center().y() - (size_y / 2)
+        w = size_x
+        h = size_y
+
+        return QRectF(x, y, w, h)
+
+    def _draw_well_area(self) -> None:
+        """Draw the well area in the scene."""
+        if self._is_circular:
+            self.scene().addEllipse(self._get_reference_well_area(), pen=PEN_AREA)
+        else:
+            self.scene().addRect(self._get_reference_well_area(), pen=PEN_AREA)
+
+    def setValue(self, value: Center | RandomPoints | GridRowsColumns) -> None:
+        """Set the value of the scene."""
+        self.clear()
+        self._draw_well_area()
+        if isinstance(value, Center):
+            self._update_center_fov(value)
+        elif isinstance(value, RandomPoints):
+            self._update_random_fovs(value)
+        elif isinstance(value, GridRowsColumns):
+            self._update_grid_fovs(value)
+        else:
+            raise ValueError(f"Invalid value: {value}")
+
+    def _update_center_fov(self, value: Center) -> None:
+        """Update the scene with the center point."""
+        points = self._get_scene_center()
+        self._draw_fovs(points)
+
+    def _get_scene_center(self) -> list[FOV]:
+        """Return the center point of the scene."""
+        scene_center_x: float = self.scene().sceneRect().center().x()
+        scene_center_y: float = self.scene().sceneRect().center().y()
+        scene_rect: QRectF = self.sceneRect()
+        return [FOV(scene_center_x, scene_center_y, scene_rect)]
+
+    def _update_random_fovs(self, value: RandomPoints) -> None:
+        """Update the scene with the random points."""
+        self.clear(_WellAreaGraphicsItem)
+
+        # make sure the RandomPoints shape is the same as the plate shape
+        assert value.shape == ELLIPSE if self._is_circular else value.shape == RECT, (
+            f"Well plate shape is '{'' if self._is_circular else 'NON '}circular', "
+            f"`RandomPoints` shape is '{value.shape.value}'. Use `setCircular()` to "
+            f"change the well plate shape or use a different shape in the "
+            f"`RandomPoints` object."
+        )
+
+        # get the well area in scene pixel
+        ref_area = self._get_reference_well_area()
+        well_area_x_px = ref_area.width() * value.max_width / self._well_width
+        well_area_y_px = ref_area.height() * value.max_height / self._well_height
+
+        # calculate the starting point of the well area
+        x = ref_area.center().x() - (well_area_x_px / 2)
+        y = ref_area.center().y() - (well_area_y_px / 2)
+
+        rect = QRectF(x, y, well_area_x_px, well_area_y_px)
+        area = _WellAreaGraphicsItem(rect, self._is_circular, PEN_WIDTH)
+
+        # draw the well area
+        self.scene().addItem(area)
+
+        val = value.replace(
+            max_width=area.boundingRect().width(),
+            max_height=area.boundingRect().height(),
+            fov_width=self._fov_width,
+            fov_height=self._fov_height,
+        )
+        # get the random points list
+        points = self._get_random_points(val, area.boundingRect())
+        # draw the random points
+        self._draw_fovs(points, random=True)
+
+    def _get_random_points(self, points: RandomPoints, area: QRectF) -> list[FOV]:
+        """Create the points for the random scene."""
+        # catch the warning raised by the RandomPoints class if the max number of
+        # iterations is reached.
+        with warnings.catch_warnings(record=True) as w:
+            # note: inverting the y axis because in scene, y up is negative and y down
+            # is positive.
+            coords = [FOV(x, y * (-1), area) for x, y, _, _, _ in points]
+            if len(coords) != points.num_points:
+                # TODO: connect this to whatever you want to in the other widget
+                self.pointsWarning.emit(len(coords))
+
+        if len(w):
+            warnings.warn(w[0].message, w[0].category, stacklevel=2)
+
+        # sort the points by distance from top-left corner
+        top_x, top_y = area.topLeft().x(), area.topLeft().y()
+        return sorted(
+            coords,
+            key=lambda coord: math.sqrt(
+                ((coord.x - top_x) ** 2) + ((coord.y - top_y) ** 2)
+            ),
+        )
+
+    def _update_grid_fovs(self, value: GridRowsColumns) -> None:
+        """Update the scene with the grid points."""
+        val = value.replace(fov_width=self._fov_width, fov_height=self._fov_height)
+
+        # x and y center coords of the scene in px
+        x, y = (
+            self.scene().sceneRect().center().x(),
+            self.scene().sceneRect().center().y(),
+        )
+        rect = self._get_reference_well_area()
+        # create a list of FOV points by shifting the grid by the center coords.
+        # note: inverting the y axis because in scene, y up is negative and y down is
+        # positive.
+        points = [FOV(g.x + x, (g.y - y) * (-1), rect) for g in val]
+
+        self._draw_fovs(points)
+
+    def _draw_fovs(self, points: list[FOV], random: bool = False) -> None:
+        """Draw the fovs in the scene.
+
+        The scene will have fovs as `_FOVPoints` and lines conncting the fovs that
+        represent the fovs acquidition order.
+
+        `random` should be set to True if the fovs are random and it is used to draw the
+        first of the random fovs with a black color.
+        """
+
+        def _get_pen(index: int) -> QPen:
+            """Return a black pen for the first position in the random fovs."""
+            return (
+                QPen(Qt.GlobalColor.black)
+                if index == 0 and random and len(points) > 1
+                else None
+            )
+
+        self.clear(_FOVGraphicsItem, QGraphicsLineItem)
+
+        line_pen = QPen(Qt.GlobalColor.black)
+        line_pen.setWidth(2)
+
+        x = y = None
+        for index, fov in enumerate(points):
+            fovs = _FOVGraphicsItem(
+                fov.x,
+                fov.y,
+                self._fov_width,
+                self._fov_height,
+                fov.bounding_rect,
+                _get_pen(index),
+            )
+            self.scene().addItem(fovs)
+            # draw the lines connecting the fovs
+            if x is not None and y is not None:
+                self.scene().addLine(x, y, fov.x, fov.y, pen=line_pen)
+            x, y = (fov.x, fov.y)
 
 
 class _SeparatorWidget(QWidget):
