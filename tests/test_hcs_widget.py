@@ -21,10 +21,10 @@ from pymmcore_widgets._hcs_widget._calibration_widget import (
 )
 from pymmcore_widgets._hcs_widget._fov_widget import (
     Center,
+    FOVSelectrorWidget,
+    RandomFOVWidget,
     _CenterFOVWidget,
-    _FOVSelectrorWidget,
     _GridFovWidget,
-    _RandomFOVWidget,
 )
 from pymmcore_widgets._hcs_widget._graphics_items import WellInfo, _WellGraphicsItem
 from pymmcore_widgets._hcs_widget._main_wizard_widget import HCSWizard
@@ -260,7 +260,7 @@ def test_center_widget(qtbot: QtBot):
 def test_random_widget(
     global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, WellPlate]
 ):
-    wdg = _RandomFOVWidget()
+    wdg = RandomFOVWidget()
     qtbot.addWidget(wdg)
     wdg._radio_btn.setChecked(True)
 
@@ -315,7 +315,7 @@ def test_grid_widget(global_mmcore: CMMCorePlus, qtbot: QtBot):
 def test_fov_selector_widget(
     global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, WellPlate]
 ):
-    wdg = _FOVSelectrorWidget()
+    wdg = FOVSelectrorWidget()
     qtbot.addWidget(wdg)
 
     # center

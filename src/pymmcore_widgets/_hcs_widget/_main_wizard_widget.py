@@ -24,7 +24,7 @@ from useq import (
 from pymmcore_widgets._mda import PositionTable
 
 from ._calibration_widget import CalibrationData, CalibrationInfo, _CalibrationWidget
-from ._fov_widget import Center, _FOVSelectrorWidget
+from ._fov_widget import Center, FOVSelectrorWidget
 from ._graphics_items import WellInfo
 from ._plate_widget import WellPlateInfo, _PlateWidget
 from ._util import apply_rotation_matrix, get_well_center
@@ -104,7 +104,7 @@ class FOVSelectorPage(QWizardPage):
         super().__init__(parent)
         self.setTitle("Field of View Selection")
 
-        self._fov_widget = _FOVSelectrorWidget()
+        self._fov_widget = FOVSelectrorWidget()
 
         self.setLayout(QVBoxLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)
@@ -163,11 +163,6 @@ class HCSWizard(QWizard):
         self.addPage(self.calibration_page)
         self.addPage(self.fov_page)
 
-        _finish = self.button(QWizard.WizardButton.FinishButton)
-        # _finish.disconnect(self)  # disconnect default behavior
-        _finish.disconnect()  # disconnect default behavior
-        _finish.clicked.connect(self._on_finish_clicked)
-
         self._on_plate_combo_changed(
             self.plate_page._plate_widget.plate_combo.currentText()
         )
@@ -176,20 +171,8 @@ class HCSWizard(QWizard):
         self.pt = PT(self)
         # ______________________________________________________
 
-    def _on_plate_combo_changed(self, plate_id: str) -> None:
-        plate = self._plate_db[plate_id]
-        self.calibration_page._calibration.setValue(CalibrationInfo(plate, None))
-        self.fov_page._fov_widget.setValue(plate, Center())
-
-    def value(self) -> HCSInfo:
-        plate, well_list = self.plate_page.value()
-        wells = [well.name for well in well_list] if well_list else None
-        _, calibration_data = self.calibration_page.value()
-        # TODO: add warning if not calibtared
-        _, fov_mode = self.fov_page.value()
-        return HCSInfo(plate, wells, calibration_data, fov_mode)
-
-    def _on_finish_clicked(self) -> None:
+    def accept(self) -> None:
+        """Override QWizard default accept method."""
         print(self.value())
 
         well_centers = self._get_well_center_in_stage_coordinates()
@@ -205,6 +188,19 @@ class HCSWizard(QWizard):
         self.pt.set_state(positions)
         self.pt.show()
         # ______________________________________________________
+
+    def _on_plate_combo_changed(self, plate_id: str) -> None:
+        plate = self._plate_db[plate_id]
+        self.calibration_page._calibration.setValue(CalibrationInfo(plate, None))
+        self.fov_page._fov_widget.setValue(plate, Center())
+
+    def value(self) -> HCSInfo:
+        plate, well_list = self.plate_page.value()
+        wells = [well.name for well in well_list] if well_list else None
+        _, calibration_data = self.calibration_page.value()
+        # TODO: add warning if not calibtared
+        _, fov_mode = self.fov_page.value()
+        return HCSInfo(plate, wells, calibration_data, fov_mode)
 
     def _get_well_center_in_stage_coordinates(
         self,
