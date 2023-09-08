@@ -9,12 +9,16 @@ on:
   pull_request: {}
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check-manifest:
     name: Check Manifest
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
         with:
           python-version: "3.x"
@@ -27,7 +31,7 @@ jobs:
       fail-fast: false
       matrix:
         platform: [macos-latest, windows-latest]
-        python-version: ["3.8", "3.10"]
+        python-version: ["3.8", "3.11"]
         backend: [pyside2, pyqt5]
         include:
           - platform: windows-latest
@@ -42,14 +46,12 @@ jobs:
           - platform: windows-latest
             python-version: "3.9"
             backend: pyqt5
+        exclude:
+          - python-version: "3.11"
+            backend: pyside2
 
     steps:
-      - name: Cancel Previous Runs
-        uses: styfle/cancel-workflow-action@0.11.0
-        with:
-          access_token: ${{ github.token }}
-
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
@@ -81,12 +83,12 @@ jobs:
     name: test napari-micromanager
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           path: pymmcore-widgets
           fetch-depth: 0
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           repository: pymmcore-plus/napari-micromanager
           path: napari-micromanager
@@ -115,7 +117,6 @@ jobs:
         run: python -m pytest -v --color=yes -W ignore
         working-directory: napari-micromanager
 
-
   deploy:
     name: Deploy
     needs: test
@@ -123,7 +124,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v4
