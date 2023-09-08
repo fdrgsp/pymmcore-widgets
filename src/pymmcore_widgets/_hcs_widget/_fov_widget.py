@@ -870,11 +870,11 @@ class FOVSelectrorWidget(QWidget):
         if self.plate is None:
             return
 
-        self.view.setCircular(plate.circular)
-        self.view.setWellSize((plate.well_size_x, plate.well_size_y))
-
+        # update view properties
         fov_size = _get_fov_size_mm(self._mmc)
         self.view.setFOVSize(fov_size)
+        self.view.setCircular(plate.circular)
+        self.view.setWellSize((plate.well_size_x, plate.well_size_y))
 
         if isinstance(mode, Center):
             self.center_radio_btn.setChecked(True)
@@ -887,23 +887,8 @@ class FOVSelectrorWidget(QWidget):
 
             if isinstance(mode, RandomPoints):
                 self.random_radio_btn.setChecked(True)
-                # if RandomPoints max width and height are grater than the plate well
-                # size, set them to the plate well size.
-                if (
-                    mode.max_width > self.plate.well_size_x
-                    or mode.max_height > self.plate.well_size_y
-                ):
-                    mode = mode.replace(
-                        max_width=self.plate.well_size_x,
-                        max_height=self.plate.well_size_y,
-                    )
-                    warnings.warn(
-                        "RandomPoints `max_width` and/or `max_height` are larger than "
-                        "the well size. They will be set to the well size.",
-                        stacklevel=2,
-                    )
-                # here blocking the random widget signals to not generate a new random
-                # seed
+                self._check_for_warnings(mode)
+                # here blocking random widget signals to not generate a new random seed
                 with signals_blocked(self.random_wdg):
                     self.random_wdg.setValue(mode)
 
@@ -914,6 +899,23 @@ class FOVSelectrorWidget(QWidget):
                 self.random_wdg.setValue(self._plate_to_random(plate))
 
         self.view.setValue(mode)
+
+    def _check_for_warnings(self, mode: RandomPoints) -> None:
+        # if RandomPoints max width and height are grater than the plate well
+        # size, set them to the plate well size.
+        if (
+            mode.max_width > self.plate.well_size_x
+            or mode.max_height > self.plate.well_size_y
+        ):
+            mode = mode.replace(
+                max_width=self.plate.well_size_x,
+                max_height=self.plate.well_size_y,
+            )
+            warnings.warn(
+                "RandomPoints `max_width` and/or `max_height` are larger than "
+                "the well size. They will be set to the well size.",
+                stacklevel=2,
+            )
 
     def _plate_to_random(self, plate: WellPlate) -> RandomPoints:
         """Convert a WellPlate object to a RandomPoints object."""
