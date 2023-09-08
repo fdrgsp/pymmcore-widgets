@@ -251,32 +251,36 @@ def test_center_widget(qtbot: QtBot):
     wdg = _CenterFOVWidget()
     qtbot.addWidget(wdg)
 
-    assert not wdg._radio_btn.isChecked()
     assert wdg.value() == Center()
     wdg.setValue(Center())
-    assert wdg._radio_btn.isChecked()
 
 
-def test_random_widget(
-    global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, WellPlate]
-):
+def test_random_widget(qtbot: QtBot, database: dict[str, WellPlate]):
     wdg = RandomFOVWidget()
     qtbot.addWidget(wdg)
-    wdg._radio_btn.setChecked(True)
 
     assert not wdg.is_circular
-    assert wdg._area_y.isEnabled()
 
     value = wdg.value()
-    assert value.fov_width == value.fov_height == 0.512
+    assert value.fov_width == value.fov_height is None
     assert value.num_points == 1
     assert value.max_width == value.max_height == 0.0
     assert value.shape.value == "rectangle"
     assert isinstance(value.random_seed, int)
 
+    wdg.fov_size = (2, 2)
+    value = wdg.value()
+    assert value.fov_width == value.fov_height == 2
+
     wdg.setValue(
         RandomPoints(
-            num_points=10, max_width=20, max_height=30, shape="ellipse", random_seed=0
+            num_points=10,
+            max_width=20,
+            max_height=30,
+            shape="ellipse",
+            random_seed=0,
+            fov_width=5,
+            fov_height=5,
         )
     )
     value = wdg.value()
@@ -285,33 +289,48 @@ def test_random_widget(
     assert value.max_height == 30
     assert value.random_seed == 0
     assert wdg.is_circular
-
-    wdg.area_x.setValue(5)
-    assert wdg._area_y.value() == 5
+    assert value.fov_width == value.fov_height == 5
 
 
-def test_grid_widget(global_mmcore: CMMCorePlus, qtbot: QtBot):
+def test_grid_widget(qtbot: QtBot):
     wdg = _GridFovWidget()
     qtbot.addWidget(wdg)
 
-    wdg._radio_btn.setChecked(True)
-
     value = wdg.value()
-    assert value.fov_width == value.fov_height == 0.512
+    assert value.fov_width == value.fov_height is None
     assert value.overlap == (0.0, 0.0)
     assert value.mode.value == "row_wise_snake"
     assert value.rows == value.columns == 1
     assert value.relative_to.value == "center"
 
-    wdg.setValue(GridRowsColumns(overlap=10.0, mode="row_wise", rows=2, columns=3))
+    wdg.fov_size = (0.512, 0.512)
+    value = wdg.value()
+    assert value.fov_width == value.fov_height == 0.512
+
+    wdg.setValue(
+        GridRowsColumns(
+            overlap=10.0,
+            mode="row_wise",
+            rows=2,
+            columns=3,
+            fov_width=2,
+            fov_height=2,
+        )
+    )
     value = wdg.value()
     assert value.overlap == (10.0, 10.0)
     assert value.mode.value == "row_wise"
     assert value.rows == 2
     assert value.columns == 3
     assert value.relative_to.value == "center"
+    assert value.fov_width == value.fov_height == 2
 
 
+def test_well_view_widget(qtbot: QtBot):
+    ...
+
+
+# TODO: to fix
 def test_fov_selector_widget(
     global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, WellPlate]
 ):
@@ -324,6 +343,7 @@ def test_fov_selector_widget(
     # grid
     grid = GridRowsColumns(overlap=10.0, mode="row_wise", rows=2, columns=3)
     wdg.setValue(database["coverslip 22mm"], grid)
+
     plate, mode = wdg.value()
     assert plate == database["coverslip 22mm"]
     assert mode.fov_width == mode.fov_height == 0.512
@@ -357,12 +377,16 @@ def test_fov_selector_widget(
     )
     wdg.setValue(database["standard 96 wp"], rnd)
 
-    # assertion error well plate area_x < RandomPoints shape
-    with pytest.raises(AssertionError, match="RandomPoints max width"):
+    # warning well RandomPoints shape > plate area_X
+    with pytest.raises(UserWarning, match="RandomPoints `max_width`"):
         rnd = RandomPoints(
             num_points=2, max_width=30, max_height=10, shape="ellipse", random_seed=0
         )
         wdg.setValue(database["standard 96 wp"], rnd)
+
+    global_mmcore.setPixelSizeUm("Res10x", 2)
+    _, mode = wdg.value()
+    assert mode.fov_width == mode.fov_height == 1.024
 
 
 def test_hcs_wizard(global_mmcore: CMMCorePlus, qtbot: QtBot, database_path: Path):

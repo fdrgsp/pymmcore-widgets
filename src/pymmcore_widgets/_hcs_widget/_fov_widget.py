@@ -26,6 +26,7 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from superqt.utils import signals_blocked
 from useq import GridRowsColumns, RandomPoints
 from useq._grid import OrderMode, Shape  # type: ignore
 
@@ -869,28 +870,43 @@ class FOVSelectrorWidget(QWidget):
 
         fov_size = _get_fov_size_mm(self._mmc)
         self.view.setFOVSize(fov_size)
-        self.grid_wdg.fov_size = fov_size
 
-        if isinstance(mode, RandomPoints):
-            # if RandomPoints max width and height are grater than the platewell size,
-            # set them to the plate well size.
-            if (
-                mode.max_width > self.plate.well_size_x
-                or mode.max_height > self.plate.well_size_y
-            ):
-                mode = mode.replace(
-                    max_width=self.plate.well_size_x, max_height=self.plate.well_size_y
-                )
-                warnings.warn(
-                    "RandomPoints `max_width` and/or `max_height` are larger than the "
-                    "well size. They will be set to the well size.",
-                    stacklevel=2,
-                )
-        else:
+        if isinstance(mode, Center):
+            self.center_radio_btn.setChecked(True)
+            self.center_wdg.setValue(mode)
             # update the randon widget values depending on the plate
             self.random_wdg.setValue(self._plate_to_random(plate))
+        else:
+            # update the fov size in the mode object
+            mode = mode.replace(fov_width=fov_size[0], fov_height=fov_size[1])
 
-        self.random_wdg.fov_size = fov_size
+            if isinstance(mode, RandomPoints):
+                self.random_radio_btn.setChecked(True)
+                # if RandomPoints max width and height are grater than the plate well
+                # size, set them to the plate well size.
+                if (
+                    mode.max_width > self.plate.well_size_x
+                    or mode.max_height > self.plate.well_size_y
+                ):
+                    mode = mode.replace(
+                        max_width=self.plate.well_size_x,
+                        max_height=self.plate.well_size_y,
+                    )
+                    warnings.warn(
+                        "RandomPoints `max_width` and/or `max_height` are larger than "
+                        "the well size. They will be set to the well size.",
+                        stacklevel=2,
+                    )
+                # here blocking the random widget signals to not generate a new random
+                # seed
+                with signals_blocked(self.random_wdg):
+                    self.random_wdg.setValue(mode)
+
+            elif isinstance(mode, GridRowsColumns):
+                self.grid_radio_btn.setChecked(True)
+                self.grid_wdg.setValue(mode)
+                # update the randon widget values depending on the plate
+                self.random_wdg.setValue(self._plate_to_random(plate))
 
         self.view.setValue(mode)
 
