@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+from qtpy.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsRectItem
 from useq import GridRowsColumns, RandomPoints  # type: ignore
 
 from pymmcore_widgets._hcs_widget._calibration_widget import (
@@ -23,10 +24,16 @@ from pymmcore_widgets._hcs_widget._fov_widget import (
     Center,
     FOVSelectrorWidget,
     RandomFOVWidget,
+    WellView,
     _CenterFOVWidget,
     _GridFovWidget,
 )
-from pymmcore_widgets._hcs_widget._graphics_items import WellInfo, _WellGraphicsItem
+from pymmcore_widgets._hcs_widget._graphics_items import (
+    WellInfo,
+    _FOVGraphicsItem,
+    _WellAreaGraphicsItem,
+    _WellGraphicsItem,
+)
 from pymmcore_widgets._hcs_widget._main_wizard_widget import HCSWizard
 from pymmcore_widgets._hcs_widget._plate_widget import (
     WellPlateInfo,
@@ -327,7 +334,38 @@ def test_grid_widget(qtbot: QtBot):
 
 
 def test_well_view_widget(qtbot: QtBot):
-    ...
+    wdg = WellView()
+    qtbot.addWidget(wdg)
+
+    wdg.setWellSize((18, 18))
+    wdg.setFOVSize((3, 3))
+    assert not wdg._is_circular
+
+    rnd = RandomPoints(num_points=3, max_width=18, max_height=13, shape="ellipse")
+
+    with pytest.raises(AssertionError, match="Well plate shape is"):
+        wdg.setValue(rnd)
+
+    rnd = rnd.replace(shape="rectangle")
+    wdg.setValue(rnd)
+
+    value = wdg.value()
+    assert len(value) == 7
+    assert len([t for t in value if isinstance(t, QGraphicsLineItem)]) == 2
+    assert len([t for t in value if isinstance(t, _FOVGraphicsItem)]) == 3
+    assert len([t for t in value if isinstance(t, _WellAreaGraphicsItem)]) == 1
+    assert len([t for t in value if isinstance(t, QGraphicsRectItem)]) == 1
+
+    wdg._is_circular = True
+    grid = GridRowsColumns(overlap=10.0, rows=2, columns=3)
+    wdg.setValue(grid)
+
+    value = wdg.value()
+    assert len(value) == 12
+    assert len([t for t in value if isinstance(t, QGraphicsLineItem)]) == 5
+    assert len([t for t in value if isinstance(t, _FOVGraphicsItem)]) == 6
+    assert not [t for t in value if isinstance(t, _WellAreaGraphicsItem)]
+    assert len([t for t in value if isinstance(t, QGraphicsEllipseItem)]) == 1
 
 
 # TODO: to fix

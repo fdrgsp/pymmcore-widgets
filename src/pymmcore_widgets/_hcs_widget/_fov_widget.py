@@ -12,6 +12,7 @@ from qtpy.QtWidgets import (
     QButtonGroup,
     QComboBox,
     QDoubleSpinBox,
+    QGraphicsItem,
     QGraphicsLineItem,
     QGraphicsScene,
     QGridLayout,
@@ -545,19 +546,6 @@ class WellView(ResizingGraphicsView):
         else:
             self.scene().addRect(self._get_reference_well_area(), pen=PEN_AREA)
 
-    def setValue(self, value: Center | RandomPoints | GridRowsColumns) -> None:
-        """Set the value of the scene."""
-        self.clear()
-        self._draw_well_area()
-        if isinstance(value, Center):
-            self._update_center_fov(value)
-        elif isinstance(value, RandomPoints):
-            self._update_random_fovs(value)
-        elif isinstance(value, GridRowsColumns):
-            self._update_grid_fovs(value)
-        else:
-            raise ValueError(f"Invalid value: {value}")
-
     def _update_center_fov(self, value: Center) -> None:
         """Update the scene with the center point."""
         points = self._get_scene_center()
@@ -685,6 +673,23 @@ class WellView(ResizingGraphicsView):
             if x is not None and y is not None:
                 self.scene().addLine(x, y, fov.x, fov.y, pen=line_pen)
             x, y = (fov.x, fov.y)
+
+    def value(self) -> list[QGraphicsItem]:
+        """Return a list of items in the scene."""
+        return self.scene().items()  # type: ignore
+
+    def setValue(self, value: Center | RandomPoints | GridRowsColumns) -> None:
+        """Set the value of the scene."""
+        self.clear()
+        self._draw_well_area()
+        if isinstance(value, Center):
+            self._update_center_fov(value)
+        elif isinstance(value, RandomPoints):
+            self._update_random_fovs(value)
+        elif isinstance(value, GridRowsColumns):
+            self._update_grid_fovs(value)
+        else:
+            raise ValueError(f"Invalid value: {value}")
 
 
 class FOVSelectrorWidget(QWidget):
