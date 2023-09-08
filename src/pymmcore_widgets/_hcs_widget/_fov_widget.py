@@ -872,9 +872,9 @@ class FOVSelectrorWidget(QWidget):
 
         # update view properties
         fov_size = _get_fov_size_mm(self._mmc)
-        self.view.setFOVSize(fov_size)
         self.view.setCircular(plate.circular)
         self.view.setWellSize((plate.well_size_x, plate.well_size_y))
+        self.view.setFOVSize(fov_size)
 
         if isinstance(mode, Center):
             self.center_radio_btn.setChecked(True)
