@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from qtpy.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsRectItem
-from useq import GridRowsColumns, RandomPoints  # type: ignore
+from useq import GridFromEdges, GridRowsColumns, RandomPoints  # type: ignore
 
 from pymmcore_widgets._hcs_widget._calibration_widget import (
     ROLE,
@@ -334,20 +334,29 @@ def test_grid_widget(qtbot: QtBot):
 
 
 def test_well_view_widget(qtbot: QtBot):
-    wdg = WellView()
+    wdg = WellView(size=(100, 100))
     qtbot.addWidget(wdg)
 
-    wdg.setWellSize((18, 18))
-    wdg.setFOVSize((3, 3))
+    assert wdg.wellSize() == (100, 100)
     assert not wdg._is_circular
 
-    rnd = RandomPoints(num_points=3, max_width=18, max_height=13, shape="ellipse")
+    rnd = RandomPoints(
+        num_points=3,
+        max_width=18,
+        max_height=13,
+        shape="ellipse",
+        fov_width=3,
+        fov_height=3,
+    )
 
     with pytest.raises(AssertionError, match="Well plate shape is"):
         wdg.setValue(rnd)
 
     rnd = rnd.replace(shape="rectangle")
     wdg.setValue(rnd)
+
+    assert not wdg._is_circular
+    assert wdg.fovSize() == (3, 3)
 
     value = wdg.value()
     assert len(value) == 7
@@ -357,13 +366,30 @@ def test_well_view_widget(qtbot: QtBot):
     assert len([t for t in value if isinstance(t, QGraphicsRectItem)]) == 1
 
     wdg._is_circular = True
-    grid = GridRowsColumns(overlap=10.0, rows=2, columns=3)
+    grid = GridRowsColumns(overlap=10.0, rows=2, columns=3, fov_width=10, fov_height=10)
     wdg.setValue(grid)
+
+    assert wdg._is_circular
+    assert wdg.fovSize() == (10, 10)
 
     value = wdg.value()
     assert len(value) == 12
     assert len([t for t in value if isinstance(t, QGraphicsLineItem)]) == 5
     assert len([t for t in value if isinstance(t, _FOVGraphicsItem)]) == 6
+    assert not [t for t in value if isinstance(t, _WellAreaGraphicsItem)]
+    assert len([t for t in value if isinstance(t, QGraphicsEllipseItem)]) == 1
+
+    wdg._is_circular = True
+    grid = GridFromEdges(top=-10, left=-10, bottom=10, right=10)
+    wdg.setValue(grid)
+
+    assert wdg._is_circular
+    assert wdg.fovSize() == (10, 10)
+
+    value = wdg.value()
+    assert len(value) == 18
+    assert len([t for t in value if isinstance(t, QGraphicsLineItem)]) == 8
+    assert len([t for t in value if isinstance(t, _FOVGraphicsItem)]) == 9
     assert not [t for t in value if isinstance(t, _WellAreaGraphicsItem)]
     assert len([t for t in value if isinstance(t, QGraphicsEllipseItem)]) == 1
 
