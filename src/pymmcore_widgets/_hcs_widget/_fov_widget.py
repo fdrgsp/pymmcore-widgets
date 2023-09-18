@@ -484,10 +484,13 @@ class WellView(ResizingGraphicsView):
         self._fov_width: float = 0.0
         self._fov_height: float = 0.0
 
-    # TODO: use @property?
     def setPadding(self, padding: int) -> None:
         """Set the padding between the well and the view."""
         self._padding = padding
+
+    def padding(self) -> int:
+        """Return the padding between the well and the view."""
+        return self._padding
 
     def setWellSize(self, size: tuple[float, float]) -> None:
         """Set the well size width and height."""
