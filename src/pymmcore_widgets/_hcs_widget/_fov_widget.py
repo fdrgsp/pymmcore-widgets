@@ -466,21 +466,27 @@ class WellView(ResizingGraphicsView):
 
     pointsWarning: Signal = Signal(int)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        size: tuple[int, int],
+        parent: QWidget | None = None,
+    ) -> None:
         self._scene = QGraphicsScene()
         super().__init__(self._scene, parent)
 
+        self._size_x, self._size_y = size
+
         self.setStyleSheet("background:grey; border-radius: 5px;")
-        self.setMinimumSize(VIEW_SIZE, VIEW_SIZE)
+        self.setMinimumSize(self._size_x, self._size_y)
         # set the scene rect so that the center is (0, 0)
-        self.setSceneRect(-VIEW_SIZE / 2, -VIEW_SIZE / 2, VIEW_SIZE, VIEW_SIZE)
+        self.setSceneRect(
+            -self._size_x / 2, -self._size_x / 2, self._size_x, self._size_y
+        )
 
-        self._padding = OFFSET
-
+        self._well_width: float = self._size_x
+        self._well_height: float = self._size_y
         self._is_circular: bool = False
-        self._well_aspect: float = 1.0
-        self._well_width: float = 0.0
-        self._well_height: float = 0.0
+        self._padding: int = 0
         self._fov_width: float = 0.0
         self._fov_height: float = 0.0
 
@@ -504,8 +510,8 @@ class WellView(ResizingGraphicsView):
         """Set the FOV size width and height."""
         w, h = size
         # convert size in scene pixel
-        self._fov_width = (VIEW_SIZE * w) / self._well_width
-        self._fov_height = (VIEW_SIZE * h) / self._well_height
+        self._fov_width = (self._size_x * w) / self._well_width
+        self._fov_height = (self._size_y * h) / self._well_height
 
     def fovSize(self) -> tuple[float, float]:
         """Return the FOV size width and height."""
@@ -531,15 +537,15 @@ class WellView(ResizingGraphicsView):
 
     def _get_reference_well_area(self) -> QRectF:
         """Return the well area in scene pixel as QRectF."""
-        well_size_px = VIEW_SIZE - self._padding
+        well_size_px = self._size_x - self._padding
         _well_aspect = self._well_width / self._well_height
         size_x = size_y = well_size_px
         if _well_aspect > 1:
             # keep the ratio between well_size_x and well_size_y
-            size_y = int(well_size_px * 1 / self._well_aspect)
+            size_y = int(well_size_px * 1 / _well_aspect)
         elif _well_aspect < 1:
             # keep the ratio between well_size_x and well_size_y
-            size_x = int(well_size_px * self._well_aspect)
+            size_x = int(well_size_px * _well_aspect)
         # set the position of the well plate in the scene using the center of the view
         # QRectF as reference
         x = self.sceneRect().center().x() - (size_x / 2)
@@ -691,7 +697,12 @@ class WellView(ResizingGraphicsView):
     def setValue(self, value: Center | RandomPoints | GridRowsColumns) -> None:
         """Set the value of the scene."""
         self.clear()
+
+        if hasattr(value, "fov_width") and hasattr(value, "fov_height"):
+            self.setFOVSize((value.fov_width, value.fov_height))  # type: ignore  # noqa E501
+
         self._draw_well_area()
+
         if isinstance(value, Center):
             self._update_center_fov(value)
         elif isinstance(value, RandomPoints):
@@ -713,12 +724,14 @@ class FOVSelectrorWidget(QWidget):
         super().__init__(parent=parent)
 
         self._mmc = mmcore or CMMCorePlus.instance()
+        self._fov_size: tuple[float, float] = _get_fov_size_mm(self._mmc)
 
         self._plate: WellPlate = WellPlate()
         self._reference_well_area: QRectF = QRectF()
 
         # graphics scene to draw the well and the fovs
-        self.view = WellView(self)
+        self.view = WellView(size=(VIEW_SIZE, VIEW_SIZE), parent=self)
+        self.view.setPadding(OFFSET)
         self.scene = self.view.scene()
 
         # centerwidget
@@ -816,10 +829,10 @@ class FOVSelectrorWidget(QWidget):
         """Update the scene when the pixel size is changed."""
         # with contextlib.suppress(AttributeError):
         self.view.clear(_WellAreaGraphicsItem, _FOVGraphicsItem, QGraphicsLineItem)
-        fov_size = _get_fov_size_mm(self._mmc)
-        self.view.setFOVSize(fov_size)
-        self.random_wdg.fov_size = fov_size
-        self.grid_wdg.fov_size = fov_size
+        self._fov_size = _get_fov_size_mm(self._mmc)
+        self.view.setFOVSize(self._fov_size)
+        self.random_wdg.fov_size = self._fov_size
+        self.grid_wdg.fov_size = self._fov_size
         self._update_scene()
 
         self.valueChanged.emit(self.value())
@@ -837,6 +850,8 @@ class FOVSelectrorWidget(QWidget):
     def _on_value_changed(self, value: RandomPoints | GridRowsColumns) -> None:
         self.view.clear(_WellAreaGraphicsItem, _FOVGraphicsItem, QGraphicsLineItem)
 
+        value = value.replace(fov_width=self._fov_size[0], fov_height=self._fov_size[1])
+
         # reset the random seed
         if isinstance(value, RandomPoints):
             self.random_wdg.random_seed = np.random.randint(
@@ -850,7 +865,13 @@ class FOVSelectrorWidget(QWidget):
         """Update the scene depending on the selected tab."""
         if self.plate is None:
             return
-        self.view.setValue(self._get_mode_widget().value())
+        mode_value = self._get_mode_widget().value()
+        if isinstance(mode_value, (RandomPoints, GridRowsColumns)):
+            mode_value = mode_value.replace(
+                fov_width=self._fov_size[0], fov_height=self._fov_size[1]
+            )
+
+        self.view.setValue(mode_value)
 
     def _get_grid_points(self, grid_mode: GridRowsColumns) -> list[FOV]:
         """Create the points for the grid scene."""
