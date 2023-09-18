@@ -701,7 +701,7 @@ class _CalibrationWidget(QWidget):
         # get calibration well centers
         a1_center, an_center = self._find_calibration_well_centers()
 
-        # return if any of the necessary well centers are None
+        # return if any of the necessary well centers is None
         if None in a1_center or (None in an_center and self.plate.columns > 1):
             self._reset_calibration()
             # TODO: add warning

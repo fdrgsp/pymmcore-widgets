@@ -80,11 +80,6 @@ def _make_wdg_with_label(label: QLabel, wdg: QWidget) -> QWidget:
     return widget
 
 
-def _distance(point1: FOV, point2: FOV) -> float:
-    """Return the Euclidean distance between two points."""
-    return math.sqrt((point2.x - point1.x) ** 2 + (point2.y - point1.y) ** 2)
-
-
 def _get_fov_size_mm(mmcore: CMMCorePlus | None = None) -> tuple[float, float]:
     """Return the image size in mm depending on the camera device."""
     if mmcore is None or not mmcore.getCameraDevice() or not mmcore.getPixelSizeUm():
@@ -498,6 +493,10 @@ class WellView(ResizingGraphicsView):
         """Set the well size width and height."""
         self._well_width, self._well_height = size
 
+    def wellSize(self) -> tuple[float, float]:
+        """Return the well size width and height."""
+        return self._well_width, self._well_height
+
     def setFOVSize(self, size: tuple[float, float]) -> None:
         """Set the FOV size width and height."""
         w, h = size
@@ -505,9 +504,17 @@ class WellView(ResizingGraphicsView):
         self._fov_width = (VIEW_SIZE * w) / self._well_width
         self._fov_height = (VIEW_SIZE * h) / self._well_height
 
+    def fovSize(self) -> tuple[float, float]:
+        """Return the FOV size width and height."""
+        return self._fov_width, self._fov_height
+
     def setCircular(self, is_circular: bool) -> None:
         """Set True if the well is circular."""
         self._is_circular = is_circular
+
+    def isCircular(self) -> bool:
+        """Return True if the well is circular."""
+        return self._is_circular
 
     def clear(self, *item_types: Any) -> None:
         """Remove all items of `item_types` from the scene."""
