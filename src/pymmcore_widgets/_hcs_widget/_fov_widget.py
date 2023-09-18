@@ -28,7 +28,13 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 from superqt.utils import signals_blocked
-from useq import GridRowsColumns, RandomPoints
+from useq import (
+    AnyGridPlan,
+    GridFromEdges,
+    GridRowsColumns,
+    GridWidthHeight,
+    RandomPoints,
+)
 from useq._grid import OrderMode, Shape  # type: ignore
 
 from pymmcore_widgets.useq_widgets._grid import _SeparatorWidget
@@ -635,7 +641,9 @@ class WellView(ResizingGraphicsView):
             ),
         )
 
-    def _update_grid_fovs(self, value: GridRowsColumns) -> None:
+    def _update_grid_fovs(
+        self, value: GridRowsColumns | GridWidthHeight | GridFromEdges
+    ) -> None:
         """Update the scene with the grid points."""
         val = value.replace(fov_width=self._fov_width, fov_height=self._fov_width)
 
@@ -694,12 +702,19 @@ class WellView(ResizingGraphicsView):
         """Return a list of items in the scene."""
         return self.scene().items()  # type: ignore
 
-    def setValue(self, value: Center | RandomPoints | GridRowsColumns) -> None:
+    def setValue(self, value: Center | AnyGridPlan) -> None:
         """Set the value of the scene."""
         self.clear()
 
-        if hasattr(value, "fov_width") and hasattr(value, "fov_height"):
-            self.setFOVSize((value.fov_width, value.fov_height))  # type: ignore  # noqa E501
+        if (
+            isinstance(
+                value,
+                (RandomPoints | GridRowsColumns | GridWidthHeight | GridFromEdges),
+            )
+            and value.fov_width is not None
+            and value.fov_height is not None
+        ):
+            self.setFOVSize((value.fov_width, value.fov_height))
 
         self._draw_well_area()
 
@@ -707,7 +722,7 @@ class WellView(ResizingGraphicsView):
             self._update_center_fov(value)
         elif isinstance(value, RandomPoints):
             self._update_random_fovs(value)
-        elif isinstance(value, GridRowsColumns):
+        elif isinstance(value, GridRowsColumns | GridWidthHeight | GridFromEdges):
             self._update_grid_fovs(value)
         else:
             raise ValueError(f"Invalid value: {value}")
