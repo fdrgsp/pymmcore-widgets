@@ -3,7 +3,7 @@ from typing import NamedTuple
 
 import matplotlib.pyplot as plt
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtCore import Qt
+from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import (
     QDialog,
     QSizePolicy,
@@ -127,6 +127,8 @@ class FOVSelectorPage(QWizardPage):
 
 
 class HCSWizard(QWizard):
+    valueChanged = Signal(object)
+
     def __init__(
         self,
         parent: QWidget | None = None,
@@ -173,6 +175,10 @@ class HCSWizard(QWizard):
 
     def accept(self) -> None:
         """Override QWizard default accept method."""
+        # this should be the only thing that this widget should do when finished
+        # button is pressed. Everything else should be done by the parent widget.
+        self.valueChanged.emit(self.value())
+
         print(self.value())
 
         well_centers = self._get_well_center_in_stage_coordinates()
