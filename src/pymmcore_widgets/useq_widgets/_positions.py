@@ -136,9 +136,10 @@ class PositionTable(DataTableWidget):
     """Table for editing a list of `useq.Positions`."""
 
     NAME = TextColumn(key="name", default=None, is_row_selector=True)
-    X = FloatColumn(key="x", header="X [µm]", default=0.0, maximum=MAX, minimum=-MAX)
-    Y = FloatColumn(key="y", header="Y [µm]", default=0.0, maximum=MAX, minimum=-MAX)
-    Z = FloatColumn(key="z", header="Z [µm]", default=0.0, maximum=MAX, minimum=-MAX)
+    X = FloatColumn(key="x", header="X [mm]", default=0.0, maximum=MAX, minimum=-MAX)
+    Y = FloatColumn(key="y", header="Y [mm]", default=0.0, maximum=MAX, minimum=-MAX)
+    Z = FloatColumn(key="z", header="Z [mm]", default=0.0, maximum=MAX, minimum=-MAX)
+    AF = FloatColumn(key="af", header="AF", default=0.0, maximum=MAX, minimum=-MAX)
     SEQ = SubSeqColumn(key="sequence", header="Sub-Sequence", default=None)
 
     def __init__(self, rows: int = 0, parent: QWidget | None = None):
@@ -148,19 +149,31 @@ class PositionTable(DataTableWidget):
         self.include_z.setChecked(True)
         self.include_z.toggled.connect(self._on_include_z_toggled)
 
+        self.use_af = QCheckBox("Use Autofocus")
+        self.use_af.toggled.connect(self._on_use_af_toggled)
+        # not calling _on_use_af_toggled here because it will create issue on the
+        # connected core version
+        af_col = self.table().indexOf(self.AF)
+        self.table().setColumnHidden(af_col, True)
+
         self._save_button = QPushButton("Save...")
         self._save_button.clicked.connect(self.save)
         self._load_button = QPushButton("Load...")
         self._load_button.clicked.connect(self.load)
 
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(15)
         btn_row.addWidget(self.include_z)
+        btn_row.addWidget(self.use_af)
         btn_row.addStretch()
         btn_row.addWidget(self._save_button)
         btn_row.addWidget(self._load_button)
 
         layout = cast("QVBoxLayout", self.layout())
         layout.addLayout(btn_row)
+
+    def _get_autofocus_plan(self, af_offset: float) -> useq.AxesBasedAF:
+        return useq.AxesBasedAF(autofocus_motor_offset=af_offset, axes=("p",))  # type: ignore  # noqa E501
 
     def value(
         self, exclude_unchecked: bool = True, exclude_hidden_cols: bool = True
@@ -172,16 +185,63 @@ class PositionTable(DataTableWidget):
         ):
             if not r.get(self.NAME.key, True):
                 r.pop(self.NAME.key, None)
-            out.append(useq.Position(**r))
+
+            if not self.use_af.isChecked():
+                pos = useq.Position(**r)
+            else:
+                pos = useq.Position(**r)
+                af_offset = r.get(self.AF.key, None)
+                if pos.sequence is None:
+                    # if there is no sub-sequence, create a new one with the autofocus
+                    pos = pos.replace(
+                        sequence=useq.MDASequence(
+                            autofocus_plan=self._get_autofocus_plan(af_offset)
+                        )
+                    )
+                else:
+                    # if there is a sub-sequence, add the autofocus plan to it
+                    pos = pos.replace(
+                        sequence=pos.sequence.replace(
+                            autofocus_plan=self._get_autofocus_plan(af_offset)
+                        )
+                    )
+
+            out.append(pos)
         return tuple(out)
 
     def setValue(self, value: Sequence[useq.Position]) -> None:  # type: ignore
         """Set the current value of the table."""
         _values = []
+        _use_af = False
+        # _af_z_devices: set[str] = set()
         for v in value:
             if not isinstance(v, useq.Position):  # pragma: no cover
                 raise TypeError(f"Expected useq.Position, got {type(v)}")
-            _values.append(v.model_dump(exclude_unset=True))
+
+            _af = {}
+            if v.sequence is not None and v.sequence.autofocus_plan is not None:
+                # if the sub-sequence is empty, set it to None. Else we simply
+                # exclude the autofocus plan
+                sub_seq_dict = v.sequence.model_dump(
+                    exclude_unset=True, exclude={"autofocus_plan"}
+                )
+                sub_seq = useq.MDASequence(**sub_seq_dict) if sub_seq_dict else None
+
+                # get autofocus plan device name and offset
+                _af_offset = v.sequence.autofocus_plan.autofocus_motor_offset
+
+                # set the autofocus offset that will be added to the table
+                _af = {self.AF.key: _af_offset}
+
+                # remopve autofocus plan from sub-sequence
+                v = v.replace(sequence=sub_seq)
+
+                _use_af = True
+
+            _values.append({**v.model_dump(exclude_unset=True), **_af})
+
+        self.use_af.setChecked(_use_af)
+
         super().setValue(_values)
 
     def save(self, file: str | Path | None = None) -> None:
@@ -226,4 +286,9 @@ class PositionTable(DataTableWidget):
     def _on_include_z_toggled(self, checked: bool) -> None:
         z_col = self.table().indexOf(self.Z)
         self.table().setColumnHidden(z_col, not checked)
+        self.valueChanged.emit()
+
+    def _on_use_af_toggled(self, checked: bool) -> None:
+        af_col = self.table().indexOf(self.AF)
+        self.table().setColumnHidden(af_col, not checked)
         self.valueChanged.emit()

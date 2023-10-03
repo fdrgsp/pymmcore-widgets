@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, Any
 
 from fonticon_mdi6 import MDI6
 from pymmcore_plus import CMMCorePlus
+from pymmcore_plus._logger import logger
+from pymmcore_plus._util import retry
 from qtpy.QtWidgets import QCheckBox, QWidget, QWidgetAction
 from superqt.utils import signals_blocked
 
@@ -12,6 +14,8 @@ from pymmcore_widgets.useq_widgets._column_info import ButtonColumn
 
 if TYPE_CHECKING:
     from typing import TypedDict
+
+    import useq
 
     class SaveInfo(TypedDict):
         save_dir: str
@@ -38,8 +42,12 @@ class CoreConnectedPositionTable(PositionTable):
         self._z_btn_col = ButtonColumn(
             key="z_btn", glyph=MDI6.arrow_left, on_click=self._set_z_from_core
         )
+        self._af_btn_col = ButtonColumn(
+            key="af_btn", glyph=MDI6.arrow_left, on_click=self._set_af_from_core
+        )
         self.table().addColumn(self._xy_btn_col, self.table().indexOf(self.X))
         self.table().addColumn(self._z_btn_col, self.table().indexOf(self.Z) + 1)
+        self.table().addColumn(self._af_btn_col, self.table().indexOf(self.AF) + 1)
 
         # when a new row is inserted, call _on_rows_inserted
         # to update the new values from the core position
@@ -59,12 +67,36 @@ class CoreConnectedPositionTable(PositionTable):
 
         self._on_sys_config_loaded()
 
+    def value(
+        self, exclude_unchecked: bool = True, exclude_hidden_cols: bool = True
+    ) -> tuple[useq.Position, ...]:
+        """Return the current value of the table as a list of channels.
+
+        Overridden to remove the X and Y values if the columns are hidden.
+        """
+        value = super().value(
+            exclude_unchecked=exclude_unchecked, exclude_hidden_cols=exclude_hidden_cols
+        )
+
+        x_col, y_col = self.table().indexOf(self.X), self.table().indexOf(self.Y)
+        if not self.table().isColumnHidden(x_col) or not self.table().isColumnHidden(
+            y_col
+        ):
+            return value
+
+        _value = [v.replace(x=None, y=None) for v in value]
+        return tuple(_value)
+
     # ----------------------- private methods -----------------------
 
     def _on_sys_config_loaded(self) -> None:
         """Update the table when the system configuration is loaded."""
         self._update_xy_enablement()
         self._update_z_enablement()
+        self._update_autofocus_enablement()
+        # need to trigger this manually since the autofocus checkbox is not checked
+        # by default
+        self._on_use_af_toggled(False)
 
     def _on_property_changed(self, device: str, prop: str, _val: str = "") -> None:
         """Update the autofocus device combo box when the autofocus device changes."""
@@ -73,6 +105,8 @@ class CoreConnectedPositionTable(PositionTable):
                 self._update_xy_enablement()
             elif prop == "Focus":
                 self._update_z_enablement()
+            elif prop == "AutoFocus":
+                self._update_autofocus_enablement()
 
     def _update_xy_enablement(self) -> None:
         """Enable/disable the XY columns and button."""
@@ -93,6 +127,14 @@ class CoreConnectedPositionTable(PositionTable):
             self.include_z.setChecked(False)
         self.include_z.setToolTip("" if z_device else "Focus device unavailable.")
 
+    def _update_autofocus_enablement(self) -> None:
+        """Update the autofocus device combo box."""
+        af_device = self._mmc.getAutoFocusDevice()
+        self.use_af.setText(f"Use {af_device}" or "Use Autofocus")
+        self.use_af.setEnabled(bool(af_device))
+        self.use_af.setEnabled(bool(af_device))
+        self.use_af.setToolTip("" if af_device else "AutoFocus device unavailable.")
+
     def _add_row(self) -> None:
         """Add a new to the end of the table and use the current core position."""
         # note: _add_row is only called when act_add_row is triggered
@@ -111,6 +153,7 @@ class CoreConnectedPositionTable(PositionTable):
             for row_idx in range(start, end + 1):
                 self._set_xy_from_core(row_idx)
                 self._set_z_from_core(row_idx)
+                self._set_af_from_core(row_idx)
         self.valueChanged.emit()
 
     def _set_xy_from_core(self, row: int, col: int = 0) -> None:
@@ -126,33 +169,65 @@ class CoreConnectedPositionTable(PositionTable):
             data = {self.Z.key: self._mmc.getPosition(self._mmc.getFocusDevice())}
             self.table().setRowData(row, data)
 
+    def _set_af_from_core(self, row: int, col: int = 0) -> None:
+        if self._mmc.getAutoFocusDevice():
+            data = {self.AF.key: self._mmc.getAutoFocusOffset()}
+            self.table().setRowData(row, data)
+
     def _on_selection_change(self) -> None:
         if not self.move_to_selection.isChecked():
             return
-
         if not self._mmc.getXYStageDevice() and not self._mmc.getFocusDevice():
             return
 
         selected_rows: set[int] = {i.row() for i in self.table().selectedItems()}
+
         if len(selected_rows) == 1:
             row = next(iter(selected_rows))
             data = self.table().rowData(row)
+
+            # check if autofocus is locked before moving
+            _af_locked = self._mmc.isContinuousFocusLocked()
 
             if self._mmc.getXYStageDevice():
                 x = data.get(self.X.key, self._mmc.getXPosition())
                 y = data.get(self.Y.key, self._mmc.getYPosition())
                 self._mmc.setXYPosition(x, y)
 
-            if self._mmc.getFocusDevice():
+            if self._mmc.getFocusDevice() and self.include_z.isChecked():
                 z = data.get(self.Z.key, self._mmc.getZPosition())
                 self._mmc.setZPosition(z)
 
+            if self._mmc.getAutoFocusDevice() and self.use_af.isChecked():
+                af = data.get(self.AF.key, self._mmc.getAutoFocusOffset())
+                self._mmc.setAutoFocusOffset(af)
+                try:
+                    self._perform_autofocus()
+                    self._mmc.enableContinuousFocus(_af_locked)
+                except RuntimeError as e:
+                    logger.warning("Hardware autofocus failed. %s", e)
+
             self._mmc.waitForSystem()
+
+    def _perform_autofocus(self) -> None:
+        # run autofocus (run 3 times in case it fails)
+        @retry(exceptions=RuntimeError, tries=3, logger=logger.warning)
+        def _perform_full_focus() -> None:
+            self._mmc.fullFocus()
+            self._mmc.waitForSystem()
+
+        self._mmc.waitForSystem()
+        _perform_full_focus()
 
     def _on_include_z_toggled(self, checked: bool) -> None:
         super()._on_include_z_toggled(checked)
         z_btn_col = self.table().indexOf(self._z_btn_col)
         self.table().setColumnHidden(z_btn_col, not checked)
+
+    def _on_use_af_toggled(self, checked: bool) -> None:
+        super()._on_use_af_toggled(checked)
+        af_btn_col = self.table().indexOf(self._af_btn_col)
+        self.table().setColumnHidden(af_btn_col, not checked)
 
     def _disconnect(self) -> None:
         self._mmc.events.systemConfigurationLoaded.disconnect(
