@@ -24,7 +24,7 @@ from useq import (
 from pymmcore_widgets._mda import PositionTable
 
 from ._calibration_widget import CalibrationData, CalibrationInfo, _CalibrationWidget
-from ._fov_widget import Center, FOVSelectrorWidget
+from ._fov_widget import Center, FOVSelectorWidget
 from ._graphics_items import WellInfo
 from ._plate_widget import WellPlateInfo, _PlateWidget
 from ._util import apply_rotation_matrix, get_well_center
@@ -104,7 +104,7 @@ class FOVSelectorPage(QWizardPage):
         super().__init__(parent)
         self.setTitle("Field of View Selection")
 
-        self._fov_widget = FOVSelectrorWidget()
+        self._fov_widget = FOVSelectorWidget()
 
         self.setLayout(QVBoxLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)

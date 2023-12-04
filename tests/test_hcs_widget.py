@@ -22,7 +22,7 @@ from pymmcore_widgets._hcs_widget._calibration_widget import (
 )
 from pymmcore_widgets._hcs_widget._fov_widget import (
     Center,
-    FOVSelectrorWidget,
+    FOVSelectorWidget,
     RandomFOVWidget,
     WellView,
     _CenterFOVWidget,
@@ -398,7 +398,7 @@ def test_well_view_widget(qtbot: QtBot):
 def test_fov_selector_widget(
     global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, WellPlate]
 ):
-    wdg = FOVSelectrorWidget()
+    wdg = FOVSelectorWidget()
     qtbot.addWidget(wdg)
 
     # center

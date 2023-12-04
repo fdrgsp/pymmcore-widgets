@@ -46,11 +46,8 @@ from ._well_plate_model import WellPlate
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 FIXED_POLICY = (QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 CENTER = "Center"
-CENTER_BTN_ID = 0
 RANDOM = "Random"
-RANDOM_BTN_ID = 1
 GRID = "Grid"
-GRID_BTN_ID = 2
 VIEW_SIZE = 300
 OFFSET = 20
 PEN_WIDTH = 4
@@ -728,7 +725,7 @@ class WellView(ResizingGraphicsView):
             raise ValueError(f"Invalid value: {value}")
 
 
-class FOVSelectrorWidget(QWidget):
+class FOVSelectorWidget(QWidget):
     """Widget to select the FOVVs per well of the plate."""
 
     valueChanged = Signal(object)
