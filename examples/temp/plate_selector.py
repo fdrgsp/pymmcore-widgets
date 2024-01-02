@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from qtpy.QtWidgets import QApplication, QPushButton
+from qtpy.QtWidgets import QApplication
 from rich import print
 
 from pymmcore_widgets._hcs_widget._plate_widget import _PlateWidget
@@ -13,10 +13,6 @@ app = QApplication([])
 
 plate_selector = _PlateWidget(plate_database_path=database_path)
 plate_selector.valueChanged.connect(lambda: print(plate_selector.value()))
-
-btn = QPushButton("Value")
-btn.clicked.connect(lambda: print(plate_selector.value()))
-plate_selector.layout().addWidget(btn)
 
 plate_selector.show()
 
