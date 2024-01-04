@@ -8,7 +8,6 @@ from fonticon_mdi6 import MDI6
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import (
     QButtonGroup,
-    QCheckBox,
     QDoubleSpinBox,
     QGridLayout,
     QHBoxLayout,
@@ -38,16 +37,15 @@ class Mode(enum.Enum):
 
 
 ROW_STEPS = 0
-ROW_RANGE_AROUND = 1
-ROW_TOP_BOTTOM = 2
-ROW_ABOVE_BELOW = 3
+ROW_RANGE_AROUND = 2
+ROW_TOP_BOTTOM = 4
+ROW_ABOVE_BELOW = 6
 
 UM = "\u00B5m"  # MICRO SIGN
-L_ARR = "\u2B05"  # LEFTWARDS BLACK ARROW
 
 
 class ZPlanWidget(QWidget):
-    """Widget representing a useq Zplan sequence."""
+    """Widget to edit a [useq.ZPlan](https://pymmcore-plus.github.io/useq-schema/schema/axes/#z-plans)."""
 
     valueChanged = Signal(object)
 
@@ -59,7 +57,7 @@ class ZPlanWidget(QWidget):
     range: QDoubleSpinBox
     above: QDoubleSpinBox
     below: QDoubleSpinBox
-    leave_shutter_open: QCheckBox
+    # leave_shutter_open: QCheckBox
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -68,7 +66,7 @@ class ZPlanWidget(QWidget):
         self._suggested: float | None = None
 
         # #################### Mode Buttons ####################
-        color = "#555"
+        color = "#363636"
 
         # ------------------- actions ----------
 
@@ -177,12 +175,10 @@ class ZPlanWidget(QWidget):
         self._direction_group.addButton(self._top_to_bottom)
         self._bottom_to_top.setChecked(True)
 
-        self.leave_shutter_open = QCheckBox("Leave shutter open across Z positions")
-        self.leave_shutter_open.setChecked(False)
-
         # #################### Other Widgets ####################
 
         self._use_suggested_btn = QPushButton()
+        self._use_suggested_btn.setIcon(icon(MDI6.arrow_left_thick))
         self._use_suggested_btn.clicked.connect(self.useSuggestedStep)
         self._use_suggested_btn.hide()
 
@@ -198,7 +194,7 @@ class ZPlanWidget(QWidget):
         self.above.valueChanged.connect(self._on_change)
         self.below.valueChanged.connect(self._on_change)
         self._direction_group.buttonToggled.connect(self._on_change)
-        self.leave_shutter_open.toggled.connect(self._on_change)
+        # self.leave_shutter_open.toggled.connect(self._on_change)
 
         self.range.valueChanged.connect(self._on_range_changed)
         self.steps.valueChanged.connect(self._on_steps_changed)
@@ -251,7 +247,7 @@ class ZPlanWidget(QWidget):
 
         left_half = QVBoxLayout()
         left_half.addWidget(self._range_readout)
-        left_half.addWidget(self.leave_shutter_open)
+        # left_half.addWidget(self.leave_shutter_open)
 
         right_half = QVBoxLayout()
         right_half.addWidget(self._bottom_to_top)
@@ -266,8 +262,8 @@ class ZPlanWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(btn_layout)
         layout.addLayout(self._grid_layout)
-        layout.addLayout(below_grid)
         layout.addStretch()
+        layout.addLayout(below_grid)
 
         # #################### Defaults ####################
 
@@ -282,11 +278,13 @@ class ZPlanWidget(QWidget):
     ) -> None:
         """Set the current mode.
 
+        One of "top_bottom", "range_around", or "above_below".
+
         Parameters
         ----------
-        mode : Mode |  Literal["top_bottom", "range_around", "above_below"]
-            The mode to set.
-            (If None, the mode is determined by the sender().data(), for internal usage)
+        mode : Mode | Literal["top_bottom", "range_around", "above_below"] | None
+            The mode to set. By default, None.
+            If None, the mode is determined by the sender().data(), for internal usage.
         """
         if isinstance(mode, str):
             mode = Mode(mode)
@@ -316,49 +314,71 @@ class ZPlanWidget(QWidget):
         self._on_change()
 
     def mode(self) -> Mode:
-        """Return the current mode."""
+        """Return the current mode.
+
+        One of "top_bottom", "range_around", or "above_below".
+        """
         return self._mode
 
     def setSuggestedStep(self, value: float | None) -> None:
-        """Set the suggested step size and update the button text."""
+        """Set the suggested z step size and update the button text."""
         self._suggested = value
         if value:
-            self._use_suggested_btn.setText(f"{L_ARR} {value} {UM}")
+            self._use_suggested_btn.setText(f"{value} {UM}")
             self._use_suggested_btn.show()
         else:
             self._use_suggested_btn.setText("")
             self._use_suggested_btn.hide()
 
     def suggestedStep(self) -> float | None:
-        """Return suggested step size."""
+        """Return suggested z step size."""
         return float(self._suggested) if self._suggested else None
 
     def useSuggestedStep(self) -> None:
-        """Apply the suggested step size to the step field."""
+        """Apply the suggested z step size to the step field."""
         if self._suggested:
             self.step.setValue(float(self._suggested))
 
     def value(self) -> useq.ZAboveBelow | useq.ZRangeAround | useq.ZTopBottom | None:
-        """Return the current value."""
+        """Return the current value of the widget as a [useq.ZPlan](https://pymmcore-plus.github.io/useq-schema/schema/axes/#z-plans).
+
+        Returns
+        -------
+        useq.ZAboveBelow | useq.ZRangeAround | useq.ZTopBottom | None
+        The current [useq.ZPlan](https://pymmcore-plus.github.io/useq-schema/schema/axes/#z-plans)
+        value of the widget.
+        """
         if self.step.value() == 0:
             return None
 
         common = {"step": self.step.value(), "go_up": self._bottom_to_top.isChecked()}
         if self._mode is Mode.TOP_BOTTOM:
             return useq.ZTopBottom(
-                top=self.top.value(), bottom=self.bottom.value(), **common
+                top=round(self.top.value(), 4),
+                bottom=round(self.bottom.value(), 4),
+                **common,
             )
         elif self._mode is Mode.RANGE_AROUND:
-            return useq.ZRangeAround(range=self.range.value(), **common)
+            return useq.ZRangeAround(range=round(self.range.value(), 4), **common)
         elif self._mode is Mode.ABOVE_BELOW:
             return useq.ZAboveBelow(
-                above=self.above.value(), below=self.below.value(), **common
+                above=round(self.above.value(), 4),
+                below=round(self.below.value(), 4),
+                **common,
             )
 
     def setValue(
         self, value: useq.ZAboveBelow | useq.ZRangeAround | useq.ZTopBottom
     ) -> None:
-        """Set the current value."""
+        """Set the current value of the widget from a [useq.ZPlan](https://pymmcore-plus.github.io/useq-schema/schema/axes/#z-plans).
+
+        Parameters
+        ----------
+        value : useq.ZAboveBelow | useq.ZRangeAround | useq.ZTopBottom
+            The
+            [useq.ZPlan](https://pymmcore-plus.github.io/useq-schema/schema/axes/#z-plans)
+            to set.
+        """
         if isinstance(value, useq.ZTopBottom):
             self.top.setValue(value.top)
             self.bottom.setValue(value.bottom)

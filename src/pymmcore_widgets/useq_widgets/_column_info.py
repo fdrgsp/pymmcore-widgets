@@ -15,12 +15,14 @@ from qtpy.QtWidgets import (
     QDoubleSpinBox,
     QHBoxLayout,
     QLineEdit,
+    QPushButton,
     QSizePolicy,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QWidget,
 )
+from superqt.fonticon import icon
 
 if TYPE_CHECKING:
     from typing import Any
@@ -37,9 +39,12 @@ class ColumnInfo:
     is_row_selector: bool = False
     hidden: bool = False
     default: Any = None
+    default_factory: Callable[[], Any] | None = None
 
     def header_text(self) -> str:
-        return self.header or self.key.title().replace("_", " ")
+        if self.header is None:
+            return self.key.title().replace("_", " ")
+        return self.header
 
     def init_cell(
         self, table: QTableWidget, row: int, col: int, change_signal: SignalInstance
@@ -156,7 +161,9 @@ class WidgetColumn(ColumnInfo, Generic[W, T]):
     ) -> None:
         new_wdg = self._init_widget()
 
-        if self.default is not None:
+        if self.default_factory:
+            self.data_type.setter(new_wdg, self.default_factory())
+        elif self.default is not None:
             self.data_type.setter(new_wdg, self.default)
 
         # if self.alignment and hasattr(new_wdg, "setAlignment"):
@@ -221,6 +228,7 @@ class _TableSpinboxMixin:
         self.setKeyboardTracking(False)
         self.setMinimumWidth(70)
         self.setStyleSheet("QAbstractSpinBox { border: none; }")
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
     def wheelEvent(self, event: Any) -> None:
         # disable mouse wheel scrolling on table spinboxes
@@ -255,7 +263,7 @@ TableFloatWidget = WdgGetSet(
 class _RangeColumn(WidgetColumn, Generic[W, T]):
     data_type: WdgGetSet[W, float]
     minimum: float = 0
-    maximum: float = 10_000
+    maximum: float = 999_999
 
     def _init_widget(self) -> W:
         wdg = self.data_type.widget()
@@ -317,20 +325,25 @@ class QQuantityValidator(QValidator):
         return None  # pragma: no cover
 
 
-pattern = r"(?:(?P<hours>\d+):)?(?:(?P<min>\d+):)?(?P<sec>\d+)([.,](?P<ms>\d+))?"
+time_pattern = re.compile(
+    r"^(?:(?P<hours>\d+):)?(?:(?P<min>\d+):)?(?P<sec>\d+)?(?:[.,](?P<frac>\d+))?$"
+)
 
 
+# dateutil is a better way to parse time intervals...
+# but it's an additional dependency for a tiny feature
 def parse_timedelta(time_str: str) -> timedelta:
-    match = re.match(pattern, time_str)
+    match = time_pattern.match(time_str)
 
     if not match:  # pragma: no cover
         raise ValueError(f"Invalid time interval format: {time_str}")
 
     hours = int(match["hours"]) if match["hours"] else 0
     minutes = int(match["min"]) if match["min"] else 0
-    seconds = int(match["sec"])
-    ms = int(match["ms"]) if match["ms"] else 0
-    return timedelta(hours=hours, minutes=minutes, seconds=seconds, microseconds=ms)
+    seconds = int(match["sec"]) if match["sec"] else 0
+    frac_sec = match["frac"]
+    frac_sec = float(f"0.{frac_sec}") if frac_sec else 0
+    return timedelta(hours=hours, minutes=minutes, seconds=seconds + frac_sec)
 
 
 class QQuantityLineEdit(QLineEdit):
@@ -383,7 +396,8 @@ class QQuantityLineEdit(QLineEdit):
     def _on_editing_finished(self) -> None:
         # When the editing is finished, check if the final text is valid
         before, final_text = self._last_val, self.text()
-        if valid_q := self._validator.text_to_quant(final_text):
+        valid_q = self._validator.text_to_quant(final_text)
+        if valid_q is not None:
             text = f"{valid_q:~P}"  # short pretty format
             if before != text:
                 self.setText(text)
@@ -396,8 +410,10 @@ class QQuantityLineEdit(QLineEdit):
 
 
 class QTimeLineEdit(QQuantityLineEdit):
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(None, parent)
+    def __init__(
+        self, contents: str | None = None, parent: QWidget | None = None
+    ) -> None:
+        super().__init__(contents, parent)
         self.setDimensionality("second")
         self.setStyleSheet("QLineEdit { border: none; }")
 
@@ -425,15 +441,12 @@ class TimeDeltaColumn(WidgetColumn):
 
 
 class CheckableCombo(QWidget):
-    currentTextChanged = Signal(str)
-
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._checkbox = QCheckBox()
         self._checkbox.setChecked(True)
         self._checkbox.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._combo = QComboBox()
-        self._combo.currentTextChanged.connect(self.currentTextChanged)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(5, 0, 0, 0)
         layout.addWidget(self._checkbox)
@@ -457,12 +470,16 @@ class CheckableCombo(QWidget):
     def setCheckState(self, state: Qt.CheckState) -> bool:
         return self._checkbox.setCheckState(state)  # type: ignore
 
+    def _connect(self, cb: Callable[[str], None]) -> None:
+        self._checkbox.toggled.connect(cb)
+        self._combo.currentTextChanged.connect(cb)
+
 
 ChoiceWidget = WdgGetSet(
     CheckableCombo,
     CheckableCombo.currentText,
     CheckableCombo.setCurrentText,
-    lambda w, cb: w.currentTextChanged.connect(cb),
+    CheckableCombo._connect,
 )
 
 
@@ -488,3 +505,68 @@ class ChoiceColumn(WidgetColumn):
     ) -> None:
         wdg = cast("CheckableCombo", table.cellWidget(row, col))
         wdg.setCheckState(state)
+
+
+ButtonWidget = WdgGetSet(
+    QPushButton,
+    QPushButton.text,
+    QPushButton.setText,
+    lambda w, cb: w.clicked.connect(cb),
+)
+
+
+@dataclass(frozen=True)
+class ButtonColumn(WidgetColumn):
+    data_type: WdgGetSet[QPushButton, str] = ButtonWidget
+    glyph: str = ""
+    text: str = ""
+    header: str = ""
+    checkable: bool = False
+    checked: bool = True
+    on_click: Callable[[int, int], Any] | None = None
+
+    def isChecked(self, table: QTableWidget, row: int, col: int) -> bool:
+        if wdg := table.cellWidget(row, col):
+            return cast("QPushButton", wdg).isChecked()  # type: ignore
+        return False
+
+    def setCheckState(
+        self, table: QTableWidget, row: int, col: int, checked: bool
+    ) -> None:
+        if wdg := table.cellWidget(row, col):
+            cast("QPushButton", wdg).setChecked(checked)
+
+    def init_cell(
+        self, table: QTableWidget, row: int, col: int, change_signal: SignalInstance
+    ) -> None:
+        new_wdg = self.data_type.widget()
+        if self.text:
+            new_wdg.setText(self.text)
+        if self.glyph:
+            new_wdg.setIcon(icon(self.glyph))
+        if self.checkable:
+            new_wdg.setCheckable(True)
+            new_wdg.setChecked(self.checked)
+
+        if callable(onclk := self.on_click):
+
+            def _cb(*_: Any, tbl: QTableWidget = table) -> None:
+                for row in range(tbl.rowCount()):
+                    for col in range(tbl.columnCount()):
+                        if tbl.cellWidget(row, col) is new_wdg:
+                            onclk(row, col)
+                            return
+
+            new_wdg.clicked.connect(_cb)
+
+        table.setCellWidget(row, col, new_wdg)
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(col, header.ResizeMode.Fixed)
+
+    def get_cell_data(self, table: QTableWidget, row: int, col: int) -> dict[str, Any]:
+        return {}
+
+    def set_cell_data(
+        self, table: QTableWidget, row: int, col: int, value: Any
+    ) -> None:
+        pass  # pragma: no cover
