@@ -12,7 +12,6 @@ from ._channel_widget import ChannelWidget
 from ._device_widget import DeviceWidget, StateDeviceWidget
 from ._exposure_widget import DefaultCameraExposureWidget, ExposureWidget
 from ._group_preset_widget._group_preset_table_widget import GroupPresetTableWidget
-from ._hcs_widget._main_wizard_widget import HCSWizard
 from ._image_widget import ImagePreview
 from ._install_widget import InstallWidget
 from ._live_button_widget import LiveButton
@@ -26,6 +25,7 @@ from ._property_widget import PropertyWidget
 from ._shutter_widget import ShuttersWidget
 from ._snap_button_widget import SnapButton
 from ._stage_widget import StageWidget
+from .hcs_widget import HCSWizard
 from .hcwizard import ConfigWizard
 from .mda import MDAWidget
 from .useq_widgets import (

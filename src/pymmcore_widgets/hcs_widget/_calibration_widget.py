@@ -6,7 +6,7 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, cast
 
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import numpy as np
 from fonticon_mdi6 import MDI6
 from pymmcore_plus import CMMCorePlus
@@ -153,12 +153,12 @@ def _find_circle_center(
     ) / D
 
     # # this is to test only, should be removed_____________________________
-    plt.plot(x1, y1, "mo")
-    plt.plot(x2, y2, "mo")
-    plt.plot(x3, y3, "mo")
-    plt.plot(x, y, "go")
-    plt.axis("equal")
-    plt.show()
+    # plt.plot(x1, y1, "mo")
+    # plt.plot(x2, y2, "mo")
+    # plt.plot(x3, y3, "mo")
+    # plt.plot(x, y, "go")
+    # plt.axis("equal")
+    # plt.show()
     # # ____________________________________________________________________
 
     return x, y
@@ -181,10 +181,10 @@ def _find_rectangle_center(*args: tuple[float, ...]) -> tuple[float, float]:
     x = sum(x_list) / 2
     y = sum(y_list) / 2
     # this is to test only, should be removed_____________________________
-    plt.plot(x_list, y_list, "o")
-    plt.plot(x, y, "o")
-    plt.axis("equal")
-    plt.show()
+    # plt.plot(x_list, y_list, "o")
+    # plt.plot(x, y, "o")
+    # plt.axis("equal")
+    # plt.show()
     # # ____________________________________________________________________
     return x, y
 
@@ -286,7 +286,7 @@ class _CalibrationModeWidget(QGroupBox):
 
     def value(self) -> ThreePoints | FourPoints | TwoPoints:
         """Return the selected calibration mode."""
-        return self._mode_combo.itemData(self._mode_combo.currentIndex(), ROLE)  # type: ignore  # noqa E501
+        return self._mode_combo.itemData(self._mode_combo.currentIndex(), ROLE)  # type: ignore  # E501
 
 
 class _CalibrationTable(QWidget):
@@ -789,24 +789,24 @@ class _CalibrationWidget(QWidget):
 
         self._mmc.setXYPosition(x, y)
         # this is only for testing, remove later____________________________________
-        plt.plot(a1_x, a1_y, "mo")
-        plt.plot(cx, cy, "mo")
-        plt.plot(x, y, "go")
-        for _ in range(50):
-            if self.plate.circular:
-                x, y = _get_random_circle_edge_point(
-                    cx, cy, self.plate.well_size_x * 1000 / 2
-                )
-            else:
-                x, y = _get_random_rectangle_edge_point(
-                    cx,
-                    cy,
-                    self.plate.well_size_x * 1000,
-                    self.plate.well_size_y * 1000,
-                )
-            plt.plot(x, y, "ko")
-        plt.axis("equal")
-        plt.show()
+        # plt.plot(a1_x, a1_y, "mo")
+        # plt.plot(cx, cy, "mo")
+        # plt.plot(x, y, "go")
+        # for _ in range(50):
+        #     if self.plate.circular:
+        #         x, y = _get_random_circle_edge_point(
+        #             cx, cy, self.plate.well_size_x * 1000 / 2
+        #         )
+        #     else:
+        #         x, y = _get_random_rectangle_edge_point(
+        #             cx,
+        #             cy,
+        #             self.plate.well_size_x * 1000,
+        #             self.plate.well_size_y * 1000,
+        #         )
+        #     plt.plot(x, y, "ko")
+        # plt.axis("equal")
+        # plt.show()
         # ______________________________________________________________________________
 
     def _set_calibration_label(self, state: bool) -> None:
