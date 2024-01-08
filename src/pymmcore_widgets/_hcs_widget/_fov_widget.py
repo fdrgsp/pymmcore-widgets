@@ -56,6 +56,7 @@ RECT = Shape.RECTANGLE
 ELLIPSE = Shape.ELLIPSE
 PEN_AREA = QPen(Qt.GlobalColor.green)
 PEN_AREA.setWidth(PEN_WIDTH)
+DEFAULT_FOV_SIZE = 0.5
 
 
 class Center(NamedTuple):
@@ -418,6 +419,11 @@ class WellView(ResizingGraphicsView):
         self._padding: int = 0
         self._fov_width: float = 0.0
         self._fov_height: float = 0.0
+        self._show_points_lines: bool = False
+
+        self._mode: Center | AnyGridPlan | None = None
+
+    # _________________________PUBLIC METHODS_________________________ #
 
     def setPadding(self, padding: int) -> None:
         """Set the padding between the well and the view."""
@@ -456,13 +462,56 @@ class WellView(ResizingGraphicsView):
 
     def clear(self, *item_types: Any) -> None:
         """Remove all items of `item_types` from the scene."""
-        scene = self.scene()
         if not item_types:
-            scene.clear()
-        for item in scene.items():
+            self.scene().clear()
+            self._mode = None
+        for item in self.scene().items():
             if not item_types or isinstance(item, item_types):
-                scene.removeItem(item)
-        scene.update()
+                self.scene().removeItem(item)
+        self.scene().update()
+
+    def showPointsLines(self, show: bool) -> None:
+        self._show_points_lines = show
+
+    def pointsLines(self) -> bool:
+        return self._show_points_lines
+
+    def getItems(self) -> list[QGraphicsItem]:
+        """Return a list of items in the scene."""
+        return self.scene().items()  # type: ignore
+
+    def value(self) -> Center | AnyGridPlan | None:
+        """Return the value of the scene."""
+        return self._mode
+
+    def setValue(self, value: Center | AnyGridPlan) -> None:
+        """Set the value of the scene."""
+        self.clear()
+
+        if (
+            isinstance(
+                value,
+                (RandomPoints | GridRowsColumns | GridWidthHeight | GridFromEdges),
+            )
+            and value.fov_width is not None
+            and value.fov_height is not None
+        ):
+            self.setFOVSize((value.fov_width, value.fov_height))
+
+        self._draw_well_area()
+
+        if isinstance(value, Center):
+            self._update_center_fov(value)
+        elif isinstance(value, RandomPoints):
+            self._update_random_fovs(value)
+        elif isinstance(value, GridRowsColumns | GridWidthHeight | GridFromEdges):
+            self._update_grid_fovs(value)
+        else:
+            raise ValueError(f"Invalid value: {value}")
+
+        self._mode = value
+
+    # _________________________PRIVATE METHODS_________________________ #
 
     def _get_reference_well_area(self) -> QRectF:
         """Return the well area in scene pixel as QRectF."""
@@ -592,7 +641,11 @@ class WellView(ResizingGraphicsView):
         """
 
         def _get_pen(index: int) -> QPen:
-            """Return a black pen for the first position in the random fovs."""
+            """Return the pen to use for the fovs."""
+            # return None if lines between points are not shown
+            if not self._show_points_lines:
+                return None
+            # return a black pen for the first position in the random fovs.
             return (
                 QPen(Qt.GlobalColor.black)
                 if index == 0 and random and len(points) > 1
@@ -609,45 +662,17 @@ class WellView(ResizingGraphicsView):
             fovs = _FOVGraphicsItem(
                 fov.x,
                 fov.y,
-                self._fov_width,
-                self._fov_height,
+                self._fov_width or DEFAULT_FOV_SIZE,
+                self._fov_height or DEFAULT_FOV_SIZE,
                 fov.bounding_rect,
                 _get_pen(index),
             )
+
             self.scene().addItem(fovs)
             # draw the lines connecting the fovs
-            if x is not None and y is not None:
+            if x is not None and y is not None and self._show_points_lines:
                 self.scene().addLine(x, y, fov.x, fov.y, pen=line_pen)
             x, y = (fov.x, fov.y)
-
-    def value(self) -> list[QGraphicsItem]:
-        """Return a list of items in the scene."""
-        return self.scene().items()  # type: ignore
-
-    def setValue(self, value: Center | AnyGridPlan) -> None:
-        """Set the value of the scene."""
-        self.clear()
-
-        if (
-            isinstance(
-                value,
-                (RandomPoints | GridRowsColumns | GridWidthHeight | GridFromEdges),
-            )
-            and value.fov_width is not None
-            and value.fov_height is not None
-        ):
-            self.setFOVSize((value.fov_width, value.fov_height))
-
-        self._draw_well_area()
-
-        if isinstance(value, Center):
-            self._update_center_fov(value)
-        elif isinstance(value, RandomPoints):
-            self._update_random_fovs(value)
-        elif isinstance(value, GridRowsColumns | GridWidthHeight | GridFromEdges):
-            self._update_grid_fovs(value)
-        else:
-            raise ValueError(f"Invalid value: {value}")
 
 
 class FOVSelectorWidget(QWidget):
@@ -669,6 +694,7 @@ class FOVSelectorWidget(QWidget):
         # graphics scene to draw the well and the fovs
         self.view = WellView(size=(VIEW_SIZE, VIEW_SIZE), parent=self)
         self.view.setPadding(OFFSET)
+        self.view.showPointsLines(True)
         self.scene = self.view.scene()
 
         # centerwidget

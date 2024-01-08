@@ -335,6 +335,7 @@ def test_grid_widget(qtbot: QtBot):
 
 def test_well_view_widget(qtbot: QtBot):
     wdg = WellView(size=(100, 100))
+    wdg.showPointsLines(True)
     qtbot.addWidget(wdg)
 
     assert wdg.wellSize() == (100, 100)
@@ -358,12 +359,14 @@ def test_well_view_widget(qtbot: QtBot):
     assert not wdg._is_circular
     assert wdg.fovSize() == (3, 3)
 
-    value = wdg.value()
-    assert len(value) == 7
-    assert len([t for t in value if isinstance(t, QGraphicsLineItem)]) == 2
-    assert len([t for t in value if isinstance(t, _FOVGraphicsItem)]) == 3
-    assert len([t for t in value if isinstance(t, _WellAreaGraphicsItem)]) == 1
-    assert len([t for t in value if isinstance(t, QGraphicsRectItem)]) == 1
+    assert wdg.value() == rnd
+
+    items = wdg.getItems()
+    assert len(items) == 7
+    assert len([t for t in items if isinstance(t, QGraphicsLineItem)]) == 2
+    assert len([t for t in items if isinstance(t, _FOVGraphicsItem)]) == 3
+    assert len([t for t in items if isinstance(t, _WellAreaGraphicsItem)]) == 1
+    assert len([t for t in items if isinstance(t, QGraphicsRectItem)]) == 1
 
     wdg._is_circular = True
     grid = GridRowsColumns(overlap=10.0, rows=2, columns=3, fov_width=10, fov_height=10)
@@ -372,12 +375,14 @@ def test_well_view_widget(qtbot: QtBot):
     assert wdg._is_circular
     assert wdg.fovSize() == (10, 10)
 
-    value = wdg.value()
-    assert len(value) == 12
-    assert len([t for t in value if isinstance(t, QGraphicsLineItem)]) == 5
-    assert len([t for t in value if isinstance(t, _FOVGraphicsItem)]) == 6
-    assert not [t for t in value if isinstance(t, _WellAreaGraphicsItem)]
-    assert len([t for t in value if isinstance(t, QGraphicsEllipseItem)]) == 1
+    assert wdg.value() == grid
+
+    items = wdg.getItems()
+    assert len(items) == 12
+    assert len([t for t in items if isinstance(t, QGraphicsLineItem)]) == 5
+    assert len([t for t in items if isinstance(t, _FOVGraphicsItem)]) == 6
+    assert not [t for t in items if isinstance(t, _WellAreaGraphicsItem)]
+    assert len([t for t in items if isinstance(t, QGraphicsEllipseItem)]) == 1
 
     wdg._is_circular = True
     grid = GridFromEdges(top=-10, left=-10, bottom=10, right=10)
@@ -386,12 +391,14 @@ def test_well_view_widget(qtbot: QtBot):
     assert wdg._is_circular
     assert wdg.fovSize() == (10, 10)
 
-    value = wdg.value()
-    assert len(value) == 18
-    assert len([t for t in value if isinstance(t, QGraphicsLineItem)]) == 8
-    assert len([t for t in value if isinstance(t, _FOVGraphicsItem)]) == 9
-    assert not [t for t in value if isinstance(t, _WellAreaGraphicsItem)]
-    assert len([t for t in value if isinstance(t, QGraphicsEllipseItem)]) == 1
+    assert wdg.value() == grid
+
+    items = wdg.getItems()
+    assert len(items) == 18
+    assert len([t for t in items if isinstance(t, QGraphicsLineItem)]) == 8
+    assert len([t for t in items if isinstance(t, _FOVGraphicsItem)]) == 9
+    assert not [t for t in items if isinstance(t, _WellAreaGraphicsItem)]
+    assert len([t for t in items if isinstance(t, QGraphicsEllipseItem)]) == 1
 
 
 # TODO: to fix
