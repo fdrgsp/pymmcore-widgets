@@ -767,6 +767,8 @@ class FOVSelectorWidget(QWidget):
         self.grid_wdg.valueChanged.connect(self._on_value_changed)
         self.view.pointsWarning.connect(self._on_points_warning)
 
+        self._on_px_size_changed()
+
     @property
     def plate(self) -> WellPlate:
         """Return the well plate."""
@@ -815,12 +817,6 @@ class FOVSelectorWidget(QWidget):
         value = value.replace(fov_width=self._fov_size[0], fov_height=self._fov_size[1])
         self.view.setValue(value)
         self.valueChanged.emit(self.value())
-
-        # # reset the random seed
-        # if isinstance(value, RandomPoints):
-        #     self.random_wdg.random_seed = np.random.randint(
-        #         0, 2**32 - 1, dtype=np.uint32
-        #     )
 
     def _update_scene(self) -> None:
         """Update the scene depending on the selected tab."""

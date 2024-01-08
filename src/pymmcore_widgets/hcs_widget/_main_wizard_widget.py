@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import NamedTuple
 
+import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import Qt, Signal
@@ -16,7 +17,6 @@ from qtpy.QtWidgets import (
 from rich import print
 from useq import (
     GridRowsColumns,
-    MDASequence,
     Position,
     RandomPoints,
 )
@@ -38,6 +38,7 @@ class HCSInfo(NamedTuple):
     wells: list[str] | None
     calibration: CalibrationData | None
     fov_mode: Center | RandomPoints | GridRowsColumns
+    positions: list[Position] | None = None
 
 
 class PlatePage(QWizardPage):
@@ -169,29 +170,22 @@ class HCSWizard(QWizard):
             self.plate_page._plate_widget.plate_combo.currentText()
         )
 
+        # important to set the correct size of the FOVs
+        self.fov_page._fov_widget._on_px_size_changed()
+
         # this is just for testing, remove later ______________
         self.pt = PT(self)
         # ______________________________________________________
 
     def accept(self) -> None:
         """Override QWizard default accept method."""
-        # this should be the only thing that this widget should do when finished
-        # button is pressed. Everything else should be done by the parent widget.
         self.valueChanged.emit(self.value())
 
-        print(self.value())
-
-        well_centers = self._get_well_center_in_stage_coordinates()
-        if well_centers is None:
-            return
-        positions = self._get_fovs_in_stage_coords(well_centers)
-
-        print("__________________________")
-        print(positions)
-        print("__________________________")
-
         # this is just for testing, remove later ______________
-        self.pt.set_state(positions)
+        print(self.value())
+        pos = self.value().positions
+        if pos is not None:
+            self.pt.set_state(pos)
         self.pt.show()
         # ______________________________________________________
 
@@ -206,12 +200,21 @@ class HCSWizard(QWizard):
         _, calibration_data = self.calibration_page.value()
         # TODO: add warning if not calibtared
         _, fov_mode = self.fov_page.value()
-        return HCSInfo(plate, wells, calibration_data, fov_mode)
+        positions = self._get_positions()
+        return HCSInfo(plate, wells, calibration_data, fov_mode, positions)
+
+    def _get_positions(self) -> list[Position] | None:
+        wells_centers = self._get_well_center_in_stage_coordinates()
+        if wells_centers is None:
+            return None
+        return self._get_fovs_in_stage_coords(wells_centers)
 
     def _get_well_center_in_stage_coordinates(
         self,
     ) -> list[tuple[WellInfo, float, float]] | None:
-        plate, _, calibration, _ = self.value()
+        plate, _ = self.plate_page.value()
+        _, calibration = self.calibration_page.value()
+
         _, wells = self.plate_page.value()
 
         if wells is None or calibration is None:
@@ -234,54 +237,73 @@ class HCSWizard(QWizard):
         return wells_center_stage_coords
 
     def _get_fovs_in_stage_coords(
-        self, wells_center: list[tuple[WellInfo, float, float]], _show: bool = True
+        self, wells_centers: list[tuple[WellInfo, float, float]]
     ) -> list[Position]:
         """Get the calibrated stage coords of each FOV of the selected wells."""
-        _, _, _, mode = self.value()
+        _, mode = self.fov_page.value()
 
         positions: list[Position] = []
 
-        for well, well_center_x, well_center_y in wells_center:
+        for well, well_center_x, well_center_y in wells_centers:
             if isinstance(mode, Center):
                 positions.append(
                     Position(x=well_center_x, y=well_center_y, name=f"{well.name}")
                 )
-                plt.plot(well_center_x, well_center_y, "mo")
-
-            elif isinstance(mode, GridRowsColumns):
-                positions.append(
-                    Position(
-                        x=well_center_x,
-                        y=well_center_y,
-                        name=f"{well.name}",
-                        sequence=MDASequence(grid_plan=mode),
-                    )
-                )
-                for idx, fov in enumerate(mode):
-                    cl = "yo" if idx == 0 else "go"
-                    plt.plot(
-                        (fov.x * 1000) + well_center_x,
-                        (fov.y * 1000) + well_center_y,
-                        cl,
-                    )
-                plt.plot(well_center_x, well_center_y, "mo")
-
-            elif isinstance(mode, RandomPoints):
+            else:
                 for idx, fov in enumerate(mode):
                     x = (fov.x * 1000) + well_center_x
                     y = (fov.y * 1000) + well_center_y
                     positions.append(Position(x=x, y=y, name=f"{well.name}_{idx:04d}"))
-                    plt.plot(x, y, "go")
-                plt.plot(well_center_x, well_center_y, "mo")
-
-        plt.axis("equal")
-        if _show:
-            plt.show()
 
         return positions
 
+    # this is just for testing, remove later _______________________
+    def drawPlateMap(self) -> None:
+        """Draw the plate map for the current experiment."""
+        # get the well centers in stage coordinates
+        well_centers = self._get_well_center_in_stage_coordinates()
 
-# this is just for testing, remove later _______________________
+        if well_centers is None:
+            return
+
+        _, ax = plt.subplots()
+
+        plate, _ = self.plate_page.value()
+
+        # draw wells
+        for _, well_center_x, well_center_y in well_centers:
+            plt.plot(well_center_x, well_center_y, "mo")
+
+            if plate.circular:
+                sh = patches.Circle(
+                    (well_center_x, well_center_y),
+                    radius=plate.well_size_x * 1000 / 2,
+                    fill=False,
+                )
+            else:
+                w = plate.well_size_x * 1000
+                h = plate.well_size_y * 1000
+                x = well_center_x - w / 2
+                y = well_center_y - h / 2
+                sh = patches.Rectangle((x, y), width=w, height=h, fill=False)
+
+            ax.add_patch(sh)
+
+        # draw FOVs
+        positions = self._get_positions()
+        if positions is None:
+            return
+
+        x = [p.x for p in positions]  # type: ignore
+        y = [p.y for p in positions]  # type: ignore
+        plt.scatter(x, y, color="green")
+
+        ax.axis("equal")
+        ax.xaxis.set_visible(False)
+        ax.yaxis.set_visible(False)
+        plt.show()
+
+
 class PT(QDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
