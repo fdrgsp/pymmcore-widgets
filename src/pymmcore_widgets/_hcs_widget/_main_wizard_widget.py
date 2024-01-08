@@ -268,9 +268,8 @@ class HCSWizard(QWizard):
 
             elif isinstance(mode, RandomPoints):
                 for idx, fov in enumerate(mode):
-                    x, y = (fov.x * 1000) + well_center_x, (
-                        fov.y * 1000
-                    ) + well_center_y
+                    x = (fov.x * 1000) + well_center_x
+                    y = (fov.y * 1000) + well_center_y
                     positions.append(Position(x=x, y=y, name=f"{well.name}_{idx:04d}"))
                     plt.plot(x, y, "go")
                 plt.plot(well_center_x, well_center_y, "mo")

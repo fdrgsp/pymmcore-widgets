@@ -35,7 +35,7 @@ from useq import (
     GridWidthHeight,
     RandomPoints,
 )
-from useq._grid import OrderMode, Shape  # type: ignore
+from useq._grid import OrderMode, Shape
 
 from pymmcore_widgets.useq_widgets._grid import _SeparatorWidget
 
@@ -137,7 +137,9 @@ class RandomFOVWidget(QWidget):
         super().__init__(parent)
 
         # setting a random seed for point generation reproducibility
-        self._random_seed: int = np.random.randint(0, 2**32 - 1, dtype=np.uint32)
+        self._random_seed: int | None = np.random.randint(
+            0, 2**32 - 1, dtype=np.uint32
+        )
         self._is_circular: bool = False
         self._fov_size: tuple[float | None, float | None] = (None, None)
 
@@ -222,7 +224,7 @@ class RandomFOVWidget(QWidget):
         self._fov_size = size
 
     @property
-    def random_seed(self) -> int:
+    def random_seed(self) -> int | None:
         """Return the random seed."""
         return self._random_seed
 
@@ -388,82 +390,6 @@ class _GridFovWidget(QWidget):
         self.fov_size = (value.fov_width, value.fov_height)
 
 
-# class GridFovWidget(QWidget):
-#     """Widget to select a grid FOV per well of the plate."""
-
-#     valueChanged = Signal(object)
-
-#     def __init__(
-#         self, parent: QWidget | None = None, *, mmcore: CMMCorePlus | None = None
-#     ) -> None:
-#         super().__init__(parent)
-
-#         title = QLabel(text="Fields of Views in a Grid.")
-#         title.setStyleSheet("font-weight: bold;")
-#         title.setAlignment(AlignCenter)
-
-#         self._grid_wdg = GridPlanWidget()
-#         self._grid_wdg.valueChanged.connect(self._on_value_changed)
-#         self._grid_wdg.layout().setContentsMargins(0, 0, 0, 0)
-#         self._grid_wdg.layout().setSpacing(5)
-#         self._update_widgets(self._grid_wdg.layout(), skip=[0, 6])
-
-#         self.wdg = QGroupBox()
-#         self.wdg.setLayout(QVBoxLayout())
-#         self.wdg.layout().setSpacing(5)
-#         self.wdg.layout().setContentsMargins(10, 10, 10, 10)
-#         self.wdg.layout().addWidget(title)
-#         self.wdg.layout().addItem(QSpacerItem(0, 10, *FIXED_POLICY))
-#         self.wdg.layout().addWidget(self._grid_wdg)
-
-#         # main
-#         self.setLayout(QVBoxLayout())
-#         self.layout().setSpacing(10)
-#         self.layout().setContentsMargins(0, 0, 0, 0)
-#         self.layout().addWidget(self.wdg)
-
-#     def _update_widgets(self, layout: QLayout, skip: list[int]) -> None:
-#         # TODO: to fix
-#         for i in range(layout.count()):
-#             item = layout.itemAt(i)
-
-#             if i in skip:
-#                 item.setContentsMargins(0, 0, 0, 0)
-#                 item.setSpacing(5)
-#                 if i == 0:
-#                     # hide radio button
-#                     item.itemAt(0).widget().hide()
-#                 if i == 6:
-#                     item.itemAt(0).setContentsMargins(0, 0, 0, 0)
-#                     # set max and min values the overlap spinbox
-#                     item.itemAt(0).itemAt(1).widget().setMaximum(100000)
-#                     item.itemAt(0).itemAt(1).widget().setMinimum(-100000)
-#                     # hide relative_to label and combo
-#                     item.itemAt(0).itemAt(4).widget().hide()
-#                     item.itemAt(0).itemAt(5).widget().hide()
-#                     # hide paint widget (_GridRendering)
-#                     item.itemAt(1).widget().hide()
-#                 continue
-
-#             wdg = item.widget()
-#             if wdg is not None:
-#                 wdg.hide()
-#             elif isinstance(item, QLayout):
-#                 self._update_widgets(item, [])
-
-#     def _on_value_changed(self) -> None:
-#         """Emit the valueChanged signal."""
-#         self.valueChanged.emit(self.value())
-
-#     def setValue(self, value: GridRowsColumns) -> None:
-#         """Set the values of the widgets."""
-#         return self._grid_wdg.setValue(value)
-
-#     def value(self) -> GridRowsColumns:
-#         """Return the values of the widgets."""
-#         return self._grid_wdg.value()
-
-
 class WellView(ResizingGraphicsView):
     """Graphics view to draw the well and the fovs."""
 
@@ -543,11 +469,10 @@ class WellView(ResizingGraphicsView):
         well_size_px = self._size_x - self._padding
         _well_aspect = self._well_width / self._well_height
         size_x = size_y = well_size_px
+        # keep the ratio between well_size_x and well_size_y
         if _well_aspect > 1:
-            # keep the ratio between well_size_x and well_size_y
             size_y = int(well_size_px * 1 / _well_aspect)
         elif _well_aspect < 1:
-            # keep the ratio between well_size_x and well_size_y
             size_x = int(well_size_px * _well_aspect)
         # set the position of the well plate in the scene using the center of the view
         # QRectF as reference
@@ -861,17 +786,15 @@ class FOVSelectorWidget(QWidget):
 
     def _on_value_changed(self, value: RandomPoints | GridRowsColumns) -> None:
         self.view.clear(_WellAreaGraphicsItem, _FOVGraphicsItem, QGraphicsLineItem)
-
         value = value.replace(fov_width=self._fov_size[0], fov_height=self._fov_size[1])
-
-        # reset the random seed
-        if isinstance(value, RandomPoints):
-            self.random_wdg.random_seed = np.random.randint(
-                0, 2**32 - 1, dtype=np.uint32
-            )
-
         self.view.setValue(value)
         self.valueChanged.emit(self.value())
+
+        # # reset the random seed
+        # if isinstance(value, RandomPoints):
+        #     self.random_wdg.random_seed = np.random.randint(
+        #         0, 2**32 - 1, dtype=np.uint32
+        #     )
 
     def _update_scene(self) -> None:
         """Update the scene depending on the selected tab."""
