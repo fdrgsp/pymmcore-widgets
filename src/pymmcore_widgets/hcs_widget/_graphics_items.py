@@ -6,7 +6,10 @@ from qtpy.QtGui import QBrush, QFont, QPainter, QPen, QTextOption
 from qtpy.QtWidgets import QGraphicsItem
 
 ALPHABET = string.ascii_uppercase
-POINT_SIZE = 5
+POINT_SIZE = 3
+DEFAULT_PEN = QPen(Qt.GlobalColor.white)
+DEFAULT_PEN.setWidth(3)
+DEFAULT_BRUSH = QBrush(Qt.GlobalColor.white)
 
 
 class WellInfo(NamedTuple):
@@ -166,28 +169,27 @@ class _FOVGraphicsItem(QGraphicsItem):
         fov_width: float,
         fov_height: float,
         bounding_rect: QRectF,
-        pen: QPen | None = None,
+        pen: QPen = DEFAULT_PEN,
     ) -> None:
         super().__init__()
 
         self._rect = bounding_rect
+
         # center of the FOV in scene px
         self._center_x = center_x
         self._center_y = center_y
 
-        self.fov_width = POINT_SIZE if fov_width == 1 else fov_width
-        self.fov_height = POINT_SIZE if fov_height == 1 else fov_height
-        self.pen = pen or QPen(Qt.GlobalColor.white)
-        self.pen.setWidth(2)
-        self._use_brush = fov_width == 1 or fov_height == 1
+        self.fov_width = fov_width or POINT_SIZE
+        self.fov_height = fov_height or POINT_SIZE
+
+        self._pen = pen
 
     def boundingRect(self) -> QRectF:
         return self._rect
 
     def paint(self, painter: QPainter, *args) -> None:  # type: ignore
-        painter.setPen(self.pen)
-        if self._use_brush:
-            painter.setBrush(QBrush(Qt.GlobalColor.white))
+        painter.setPen(self._pen)
+
         start_x = self._center_x - (self.fov_width / 2)
         start_y = self._center_y - (self.fov_height / 2)
         painter.drawRect(QRectF(start_x, start_y, self.fov_width, self.fov_height))

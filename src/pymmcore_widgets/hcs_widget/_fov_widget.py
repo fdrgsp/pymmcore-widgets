@@ -12,7 +12,6 @@ from qtpy.QtWidgets import (
     QButtonGroup,
     QComboBox,
     QDoubleSpinBox,
-    QGraphicsItem,
     QGraphicsLineItem,
     QGraphicsScene,
     QGridLayout,
@@ -56,13 +55,15 @@ RECT = Shape.RECTANGLE
 ELLIPSE = Shape.ELLIPSE
 PEN_AREA = QPen(Qt.GlobalColor.green)
 PEN_AREA.setWidth(PEN_WIDTH)
-DEFAULT_FOV_SIZE = 0.5
 
 
 class Center(NamedTuple):
-    """Center of the well as FOV of the plate."""
+    """Center of the well."""
 
-    ...
+    x: float = 0.0
+    y: float = 0.0
+    fov_width: float | None = None
+    fov_height: float | None = None
 
 
 def _create_label(label_text: str) -> QLabel:
@@ -103,6 +104,8 @@ class _CenterFOVWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
+        self._fov_size: tuple[float | None, float | None] = (None, None)
+
         lbl = QLabel(text="Center of the Well.")
         lbl.setStyleSheet("font-weight: bold;")
         lbl.setAlignment(AlignCenter)
@@ -120,13 +123,24 @@ class _CenterFOVWidget(QWidget):
         self.layout().setContentsMargins(0, 0, 0, 0)
         self.layout().addWidget(self.wdg)
 
+    @property
+    def fov_size(self) -> tuple[float | None, float | None]:
+        """Return the FOV size."""
+        return self._fov_size
+
+    @fov_size.setter
+    def fov_size(self, size: tuple[float | None, float | None]) -> None:
+        """Set the FOV size."""
+        self._fov_size = size
+
     def value(self) -> Center:
         """Return the values of the widgets."""
-        return Center()
+        fov_x, fov_y = self._fov_size
+        return Center(fov_width=fov_x, fov_height=fov_y)
 
     def setValue(self, center: Center) -> None:
         """Set the values of the widgets."""
-        ...
+        self.fov_size = (center.fov_width, center.fov_height)
 
 
 class RandomFOVWidget(QWidget):
@@ -419,7 +433,7 @@ class WellView(ResizingGraphicsView):
         self._padding: int = 0
         self._fov_width: float = 0.0
         self._fov_height: float = 0.0
-        self._show_points_lines: bool = False
+        self._show_fovs_order: bool = True
 
         self._mode: Center | AnyGridPlan | None = None
 
@@ -460,6 +474,14 @@ class WellView(ResizingGraphicsView):
         """Return True if the well is circular."""
         return self._is_circular
 
+    def showFOVsOrder(self, show: bool) -> None:
+        """Show the FOVs order in the scene by drawing lines connecting the FOVs."""
+        self._show_fovs_order = show
+
+    def FOVsOrder(self) -> bool:
+        """Return True if the FOVs order is shown."""
+        return self._show_fovs_order
+
     def clear(self, *item_types: Any) -> None:
         """Remove all items of `item_types` from the scene."""
         if not item_types:
@@ -470,16 +492,6 @@ class WellView(ResizingGraphicsView):
                 self.scene().removeItem(item)
         self.scene().update()
 
-    def showPointsLines(self, show: bool) -> None:
-        self._show_points_lines = show
-
-    def pointsLines(self) -> bool:
-        return self._show_points_lines
-
-    def getItems(self) -> list[QGraphicsItem]:
-        """Return a list of items in the scene."""
-        return self.scene().items()  # type: ignore
-
     def value(self) -> Center | AnyGridPlan | None:
         """Return the value of the scene."""
         return self._mode
@@ -488,14 +500,7 @@ class WellView(ResizingGraphicsView):
         """Set the value of the scene."""
         self.clear()
 
-        if (
-            isinstance(
-                value,
-                (RandomPoints | GridRowsColumns | GridWidthHeight | GridFromEdges),
-            )
-            and value.fov_width is not None
-            and value.fov_height is not None
-        ):
+        if value.fov_width is not None and value.fov_height is not None:
             self.setFOVSize((value.fov_width, value.fov_height))
 
         self._draw_well_area()
@@ -541,15 +546,8 @@ class WellView(ResizingGraphicsView):
 
     def _update_center_fov(self, value: Center) -> None:
         """Update the scene with the center point."""
-        points = self._get_scene_center()
+        points = [FOV(value.x, value.y, self.sceneRect())]
         self._draw_fovs(points)
-
-    def _get_scene_center(self) -> list[FOV]:
-        """Return the center point of the scene."""
-        scene_center_x: float = self.scene().sceneRect().center().x()
-        scene_center_y: float = self.scene().sceneRect().center().y()
-        scene_rect: QRectF = self.sceneRect()
-        return [FOV(scene_center_x, scene_center_y, scene_rect)]
 
     def _update_random_fovs(self, value: RandomPoints) -> None:
         """Update the scene with the random points."""
@@ -587,7 +585,7 @@ class WellView(ResizingGraphicsView):
         # get the random points list
         points = self._get_random_points(val, area.boundingRect())
         # draw the random points
-        self._draw_fovs(points, random=True)
+        self._draw_fovs(points)
 
     def _get_random_points(self, points: RandomPoints, area: QRectF) -> list[FOV]:
         """Create the points for the random scene."""
@@ -630,27 +628,23 @@ class WellView(ResizingGraphicsView):
         points = [FOV(g.x + x, (g.y - y) * (-1), rect) for g in val]
         self._draw_fovs(points)
 
-    def _draw_fovs(self, points: list[FOV], random: bool = False) -> None:
-        """Draw the fovs in the scene.
+    def _draw_fovs(self, points: list[FOV]) -> None:
+        """Draw the fovs in the scene as `_FOVPoints.
 
-        The scene will have fovs as `_FOVPoints` and lines conncting the fovs that
-        represent the fovs acquidition order.
-
-        `random` should be set to True if the fovs are random and it is used to draw the
-        first of the random fovs with a black color.
+        If 'showFOVsOrder' is True, the FOVs will be connected by black lines to
+        represent the order of acquisition. In addition, the first FOV will be drawn
+        with a black color, the others with a white color.
         """
 
         def _get_pen(index: int) -> QPen:
             """Return the pen to use for the fovs."""
-            # return None if lines between points are not shown
-            if not self._show_points_lines:
-                return None
-            # return a black pen for the first position in the random fovs.
-            return (
+            pen = (
                 QPen(Qt.GlobalColor.black)
-                if index == 0 and random and len(points) > 1
-                else None
+                if index == 0 and len(points) > 1
+                else QPen(Qt.GlobalColor.white)
             )
+            pen.setWidth(3)
+            return pen
 
         self.clear(_FOVGraphicsItem, QGraphicsLineItem)
 
@@ -662,15 +656,17 @@ class WellView(ResizingGraphicsView):
             fovs = _FOVGraphicsItem(
                 fov.x,
                 fov.y,
-                self._fov_width or DEFAULT_FOV_SIZE,
-                self._fov_height or DEFAULT_FOV_SIZE,
+                self._fov_width,
+                self._fov_height,
                 fov.bounding_rect,
-                _get_pen(index),
+                _get_pen(index)
+                if self._show_fovs_order
+                else QPen(Qt.GlobalColor.white),
             )
 
             self.scene().addItem(fovs)
             # draw the lines connecting the fovs
-            if x is not None and y is not None and self._show_points_lines:
+            if x is not None and y is not None and self._show_fovs_order:
                 self.scene().addLine(x, y, fov.x, fov.y, pen=line_pen)
             x, y = (fov.x, fov.y)
 
@@ -694,7 +690,6 @@ class FOVSelectorWidget(QWidget):
         # graphics scene to draw the well and the fovs
         self.view = WellView(size=(VIEW_SIZE, VIEW_SIZE), parent=self)
         self.view.setPadding(OFFSET)
-        self.view.showPointsLines(True)
         self.scene = self.view.scene()
 
         # centerwidget
@@ -798,6 +793,7 @@ class FOVSelectorWidget(QWidget):
         self.view.setFOVSize(self._fov_size)
         self.random_wdg.fov_size = self._fov_size
         self.grid_wdg.fov_size = self._fov_size
+        self.center_wdg.fov_size = self._fov_size
         self._update_scene()
 
         self.valueChanged.emit(self.value())
