@@ -60,8 +60,8 @@ PEN_AREA.setWidth(PEN_WIDTH)
 class Center(NamedTuple):
     """Center of the well."""
 
-    x: float = 0.0
-    y: float = 0.0
+    x: float
+    y: float
     fov_width: float | None = None
     fov_height: float | None = None
 
@@ -104,6 +104,9 @@ class _CenterFOVWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
+        self._x: float = 0.0
+        self._y: float = 0.0
+
         self._fov_size: tuple[float | None, float | None] = (None, None)
 
         lbl = QLabel(text="Center of the Well.")
@@ -136,11 +139,12 @@ class _CenterFOVWidget(QWidget):
     def value(self) -> Center:
         """Return the values of the widgets."""
         fov_x, fov_y = self._fov_size
-        return Center(fov_width=fov_x, fov_height=fov_y)
+        return Center(x=self._x, y=self._y, fov_width=fov_x, fov_height=fov_y)
 
-    def setValue(self, center: Center) -> None:
+    def setValue(self, value: Center) -> None:
         """Set the values of the widgets."""
-        self.fov_size = (center.fov_width, center.fov_height)
+        self._x, self._y = value.x, value.y
+        self.fov_size = (value.fov_width, value.fov_height)
 
 
 class RandomFOVWidget(QWidget):

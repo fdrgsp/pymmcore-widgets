@@ -258,8 +258,23 @@ def test_center_widget(qtbot: QtBot):
     wdg = _CenterFOVWidget()
     qtbot.addWidget(wdg)
 
-    assert wdg.value() == Center()
-    wdg.setValue(Center())
+    value = wdg.value()
+
+    assert value.x == value.y == 0.0
+    assert value.fov_width == value.fov_height is None
+
+    wdg.fov_size = (5, 7)
+    value = wdg.value()
+    assert value.fov_width == 5
+    assert value.fov_height == 7
+
+    wdg.setValue(Center(x=10, y=20, fov_width=2, fov_height=3))
+
+    value = wdg.value()
+    assert value.x == 10
+    assert value.y == 20
+    assert value.fov_width == 2
+    assert value.fov_height == 3
 
 
 def test_random_widget(qtbot: QtBot, database: dict[str, WellPlate]):
@@ -335,7 +350,7 @@ def test_grid_widget(qtbot: QtBot):
 
 def test_well_view_widget(qtbot: QtBot):
     wdg = WellView(size=(100, 100))
-    wdg.showPointsLines(True)
+    wdg.showFovsLines(True)
     qtbot.addWidget(wdg)
 
     assert wdg.wellSize() == (100, 100)
@@ -361,7 +376,7 @@ def test_well_view_widget(qtbot: QtBot):
 
     assert wdg.value() == rnd
 
-    items = wdg.getItems()
+    items = wdg.scene().items()
     assert len(items) == 7
     assert len([t for t in items if isinstance(t, QGraphicsLineItem)]) == 2
     assert len([t for t in items if isinstance(t, _FOVGraphicsItem)]) == 3
@@ -377,7 +392,7 @@ def test_well_view_widget(qtbot: QtBot):
 
     assert wdg.value() == grid
 
-    items = wdg.getItems()
+    items = wdg.scene().items()
     assert len(items) == 12
     assert len([t for t in items if isinstance(t, QGraphicsLineItem)]) == 5
     assert len([t for t in items if isinstance(t, _FOVGraphicsItem)]) == 6
@@ -393,7 +408,7 @@ def test_well_view_widget(qtbot: QtBot):
 
     assert wdg.value() == grid
 
-    items = wdg.getItems()
+    items = wdg.scene().items()
     assert len(items) == 18
     assert len([t for t in items if isinstance(t, QGraphicsLineItem)]) == 8
     assert len([t for t in items if isinstance(t, _FOVGraphicsItem)]) == 9
@@ -409,7 +424,7 @@ def test_fov_selector_widget(
     qtbot.addWidget(wdg)
 
     # center
-    assert wdg.value() == (WellPlate(), Center())
+    assert wdg.value() == (WellPlate(), Center(x=0, y=0))
 
     # grid
     grid = GridRowsColumns(overlap=10.0, mode="row_wise", rows=2, columns=3)

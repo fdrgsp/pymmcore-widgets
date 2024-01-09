@@ -192,7 +192,7 @@ class HCSWizard(QWizard):
     def _on_plate_combo_changed(self, plate_id: str) -> None:
         plate = self._plate_db[plate_id]
         self.calibration_page._calibration.setValue(CalibrationInfo(plate, None))
-        self.fov_page._fov_widget.setValue(plate, Center())
+        self.fov_page._fov_widget.setValue(plate, Center(x=0, y=0))
 
     def value(self) -> HCSInfo:
         plate, well_list = self.plate_page.value()
