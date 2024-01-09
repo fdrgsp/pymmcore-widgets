@@ -350,11 +350,20 @@ def test_grid_widget(qtbot: QtBot):
 
 def test_well_view_widget(qtbot: QtBot):
     wdg = WellView(size=(100, 100))
-    wdg.showFovsLines(True)
     qtbot.addWidget(wdg)
 
     assert wdg.wellSize() == (100, 100)
-    assert not wdg._is_circular
+
+    c = Center(x=0, y=0, fov_width=2, fov_height=2)
+    wdg.setValue(c)
+
+    assert wdg.fovSize() == (2, 2)
+    assert wdg.value() == c
+
+    items = wdg.scene().items()
+    assert len(items) == 2
+    assert len([t for t in items if isinstance(t, _FOVGraphicsItem)]) == 1
+    assert len([t for t in items if isinstance(t, QGraphicsRectItem)]) == 1
 
     rnd = RandomPoints(
         num_points=3,
@@ -364,6 +373,8 @@ def test_well_view_widget(qtbot: QtBot):
         fov_width=3,
         fov_height=3,
     )
+
+    assert not wdg._is_circular
 
     with pytest.raises(AssertionError, match="Well plate shape is"):
         wdg.setValue(rnd)
@@ -416,7 +427,6 @@ def test_well_view_widget(qtbot: QtBot):
     assert len([t for t in items if isinstance(t, QGraphicsEllipseItem)]) == 1
 
 
-# TODO: to fix
 def test_fov_selector_widget(
     global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, WellPlate]
 ):
@@ -424,7 +434,10 @@ def test_fov_selector_widget(
     qtbot.addWidget(wdg)
 
     # center
-    assert wdg.value() == (WellPlate(), Center(x=0, y=0))
+    assert wdg.value() == (
+        WellPlate(),
+        Center(x=0, y=0, fov_width=0.512, fov_height=0.512),
+    )
 
     # grid
     grid = GridRowsColumns(overlap=10.0, mode="row_wise", rows=2, columns=3)
