@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import (
-    QDialog,
     QSizePolicy,
     QSpacerItem,
     QVBoxLayout,
@@ -14,14 +13,11 @@ from qtpy.QtWidgets import (
     QWizard,
     QWizardPage,
 )
-from rich import print
 from useq import (
     GridRowsColumns,
     Position,
     RandomPoints,
 )
-
-from pymmcore_widgets._mda import PositionTable
 
 from ._calibration_widget import CalibrationData, CalibrationInfo, _CalibrationWidget
 from ._fov_widget import Center, FOVSelectorWidget
@@ -174,7 +170,7 @@ class HCSWizard(QWizard):
         self.fov_page._fov_widget._on_px_size_changed()
 
         # this is just for testing, remove later ______________
-        self.pt = PT(self)
+        # self.pt = PT(self)
         # ______________________________________________________
 
     def accept(self) -> None:
@@ -182,11 +178,11 @@ class HCSWizard(QWizard):
         self.valueChanged.emit(self.value())
 
         # this is just for testing, remove later ______________
-        print(self.value())
-        pos = self.value().positions
-        if pos is not None:
-            self.pt.set_state(pos)
-        self.pt.show()
+        # print(self.value())
+        # pos = self.value().positions
+        # if pos is not None:
+        #     self.pt.set_state(pos)
+        # self.pt.show()
         # ______________________________________________________
 
     def _on_plate_combo_changed(self, plate_id: str) -> None:
@@ -304,18 +300,18 @@ class HCSWizard(QWizard):
         plt.show()
 
 
-class PT(QDialog):
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
+# class PT(QDialog):
+#     def __init__(self, parent: QWidget | None = None) -> None:
+#         super().__init__(parent)
 
-        self._pt = PositionTable()
+#         self._pt = PositionTable()
 
-        self.setLayout(QVBoxLayout())
-        self.layout().setContentsMargins(0, 0, 0, 0)
-        self.layout().addWidget(self._pt)
+#         self.setLayout(QVBoxLayout())
+#         self.layout().setContentsMargins(0, 0, 0, 0)
+#         self.layout().addWidget(self._pt)
 
-    def set_state(self, positions: list[Position]) -> None:
-        self._pt.set_state(positions)
+#     def set_state(self, positions: list[Position]) -> None:
+#         self._pt.set_state(positions)
 
 
 # _______________________________________________________________
