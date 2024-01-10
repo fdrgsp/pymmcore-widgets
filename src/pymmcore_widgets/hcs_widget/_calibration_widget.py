@@ -64,6 +64,12 @@ LABEL_STYLE = """
 """
 
 
+class TwoPoints(NamedTuple):
+    icon: QIcon = VERTICES_ICON
+    item: str = VERTICES_ITEM
+    points: int = VERTICES_MODE_POINTS
+
+
 class ThreePoints(NamedTuple):
     icon: QIcon = CIRCLE_ICON
     item: str = CIRCLE_ITEM
@@ -74,12 +80,6 @@ class FourPoints(NamedTuple):
     icon: QIcon = SIDES_ICON
     item: str = SIDES_ITEM
     points: int = SIDES_MODE_POINTS
-
-
-class TwoPoints(NamedTuple):
-    icon: QIcon = VERTICES_ICON
-    item: str = VERTICES_ITEM
-    points: int = VERTICES_MODE_POINTS
 
 
 class CalibrationTableData(NamedTuple):
