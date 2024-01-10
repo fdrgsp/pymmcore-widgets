@@ -8,7 +8,7 @@ from qtpy.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsRec
 from useq import GridFromEdges, GridRowsColumns, RandomPoints  # type: ignore
 
 from pymmcore_widgets import HCSWizard
-from pymmcore_widgets.hcs_widget._calibration_widget import (
+from pymmcore_widgets.hcs._calibration_widget import (
     ROLE,
     CalibrationData,
     CalibrationInfo,
@@ -21,7 +21,7 @@ from pymmcore_widgets.hcs_widget._calibration_widget import (
     _CalibrationWidget,
     _TestCalibrationWidget,
 )
-from pymmcore_widgets.hcs_widget._fov_widget import (
+from pymmcore_widgets.hcs._fov_widget import (
     Center,
     FOVSelectorWidget,
     RandomFOVWidget,
@@ -29,18 +29,18 @@ from pymmcore_widgets.hcs_widget._fov_widget import (
     _CenterFOVWidget,
     _GridFovWidget,
 )
-from pymmcore_widgets.hcs_widget._graphics_items import (
+from pymmcore_widgets.hcs._graphics_items import (
     WellInfo,
     _FOVGraphicsItem,
     _WellAreaGraphicsItem,
     _WellGraphicsItem,
 )
-from pymmcore_widgets.hcs_widget._plate_widget import (
+from pymmcore_widgets.hcs._plate_widget import (
     WellPlateInfo,
     _CustomPlateWidget,
     _PlateWidget,
 )
-from pymmcore_widgets.hcs_widget._well_plate_model import WellPlate, load_database
+from pymmcore_widgets.hcs._well_plate_model import WellPlate, load_database
 
 if TYPE_CHECKING:
     from pymmcore_plus import CMMCorePlus

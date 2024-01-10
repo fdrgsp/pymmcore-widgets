@@ -3,7 +3,7 @@ from qtpy.QtWidgets import (
     QApplication,
 )
 
-from pymmcore_widgets.hcs_widget._main_wizard_widget import HCSWizard
+from pymmcore_widgets.hcs._main_wizard_widget import HCSWizard
 
 app = QApplication([])
 mmc = CMMCorePlus.instance()
