@@ -109,9 +109,6 @@ class FOVSelectorPage(QWizardPage):
         self.layout().addWidget(self._fov_widget)
         self.layout().addItem(QSpacerItem(0, 0, *EXPANDING))
 
-        # rename finish button
-        # self.setButtonText(QWizard.WizardButton.FinishButton, "Run")
-
     def value(self) -> tuple[WellPlate | None, Center | RandomPoints | GridRowsColumns]:
         """Return the list of FOVs."""
         return self._fov_widget.value()
