@@ -17,10 +17,12 @@ from qtpy.QtWidgets import (
     QMessageBox,
     QPushButton,
     QWidget,
+    QWizard,
 )
 from superqt.fonticon import icon
-from useq import MDASequence, Position
+from useq import AxesBasedAF, MDASequence, Position
 
+from pymmcore_widgets import HCSWizard
 from pymmcore_widgets.useq_widgets import MDASequenceWidget
 from pymmcore_widgets.useq_widgets._channels import ChannelTable
 from pymmcore_widgets.useq_widgets._mda_sequence import MDATabs
@@ -32,6 +34,8 @@ from ._core_z import CoreConnectedZPlanWidget
 
 if TYPE_CHECKING:
     from typing import TypedDict
+
+    from pymmcore_widgets.hcs._main_wizard_widget import HCSInfo
 
     class SaveInfo(TypedDict):
         save_dir: str
@@ -81,6 +85,18 @@ class MDAWidget(MDASequenceWidget):
         self.save_info.valueChanged.connect(self.valueChanged)
         self.control_btns = _MDAControlButtons(self._mmc, self)
 
+        # add HCS wizard
+        self.hcs = HCSWizard(parent=self)
+        # rename the finish button to "Add Positions"
+        self.hcs.fov_page.setButtonText(
+            QWizard.WizardButton.FinishButton, "Add Positions"
+        )
+        self.hcs_button = QPushButton("HCS Wizard")
+        self.hcs_button.setToolTip("Open the HCS wizard.")
+
+        pos_table_layout = self.stage_positions.layout().itemAt(2)
+        pos_table_layout.insertWidget(2, self.hcs_button)
+
         # -------- initialize -----------
 
         self._on_sys_config_loaded()
@@ -100,6 +116,12 @@ class MDAWidget(MDASequenceWidget):
         self._mmc.mda.events.sequenceFinished.connect(self._on_mda_finished)
         self._mmc.events.channelGroupChanged.connect(self._update_channel_groups)
         self._mmc.events.systemConfigurationLoaded.connect(self._on_sys_config_loaded)
+
+        # HCS wizard connections
+        self.hcs_button.clicked.connect(self._show_hcs)
+        # connect the HCS wizard valueChanged signal to the MDAWidget so that it can
+        # populate the Positions table with the new positions from the HCS wizard
+        self.hcs.valueChanged.connect(self._add_to_positios_table)
 
         self.destroyed.connect(self._disconnect)
 
@@ -142,6 +164,42 @@ class MDAWidget(MDASequenceWidget):
         self.save_info.setValue(value.metadata.get("pymmcore_widgets", {}))
 
     # ------------------- private API ----------------------
+
+    def _show_hcs(self) -> None:
+        # if hcs is open, raise it, otherwise show it
+        if self.hcs.isVisible():
+            self.hcs.raise_()
+        else:
+            self.hcs.show()
+
+    def _add_to_positios_table(self, value: HCSInfo) -> None:
+        """Add a list of positions to the Positions table."""
+        positions = value.positions
+
+        if not positions:
+            return
+
+        # get the current sequence from the MDAWidget
+        sequence = self.value()
+
+        # replace the stage_positions with the new positions form the HCS wizard
+        sequence = sequence.replace(stage_positions=positions)
+
+        # if autofocus is enabled and locked, add the autofocus plan
+        if (
+            self._mmc.getAutoFocusDevice()
+            and self.af_axis.value()
+            and self._mmc.isContinuousFocusLocked()
+        ):
+            sequence = sequence.replace(
+                autofocus_plan=AxesBasedAF(
+                    axes=self.af_axis.value(),
+                    autofocus_motor_offset=self._mmc.getAutoFocusOffset(),
+                )
+            )
+
+        # update the MDAWidget
+        self.setValue(sequence)
 
     def _get_current_stage_position(self) -> Position:
         """Return the current stage position."""
