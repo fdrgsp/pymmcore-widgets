@@ -2,7 +2,6 @@ from pathlib import Path
 
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtWidgets import QApplication, QPushButton
-from rich import print
 
 from pymmcore_widgets.hcs._calibration_widget import (
     CalibrationInfo,

@@ -1,7 +1,6 @@
 from pathlib import Path
 
 from qtpy.QtWidgets import QApplication
-from rich import print
 
 from pymmcore_widgets.hcs._plate_widget import _PlateWidget
 
