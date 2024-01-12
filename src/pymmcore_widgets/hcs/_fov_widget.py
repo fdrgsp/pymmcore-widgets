@@ -55,6 +55,7 @@ RECT = Shape.RECTANGLE
 ELLIPSE = Shape.ELLIPSE
 PEN_AREA = QPen(Qt.GlobalColor.green)
 PEN_AREA.setWidth(PEN_WIDTH)
+NO_PLATE = WellPlate()
 
 
 class Center(NamedTuple):
@@ -688,7 +689,7 @@ class FOVSelectorWidget(QWidget):
         self._mmc = mmcore or CMMCorePlus.instance()
         self._fov_size: tuple[float, float] = _get_fov_size_mm(self._mmc)
 
-        self._plate: WellPlate = WellPlate()
+        self._plate: WellPlate = NO_PLATE
         self._reference_well_area: QRectF = QRectF()
 
         # graphics scene to draw the well and the fovs
@@ -820,7 +821,7 @@ class FOVSelectorWidget(QWidget):
 
     def _update_scene(self) -> None:
         """Update the scene depending on the selected tab."""
-        if self.plate is None:
+        if self.plate == NO_PLATE:
             return
         mode_value = self._get_mode_widget().value()
         if isinstance(mode_value, (RandomPoints, GridRowsColumns)):
@@ -855,7 +856,7 @@ class FOVSelectorWidget(QWidget):
 
         self.plate = plate
 
-        if self.plate is None:
+        if self.plate == NO_PLATE:
             return
 
         # update view properties
