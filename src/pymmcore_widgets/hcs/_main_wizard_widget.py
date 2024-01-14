@@ -24,7 +24,7 @@ from ._calibration_widget import (
     CalibrationInfo,
     PlateCalibrationWidget,
 )
-from ._fov_widget import DEFAULT_FOV, DEFAULT_MODE, Center, FOVSelectorWidget
+from ._fov_widget import Center, FOVSelectorWidget
 from ._graphics_items import WellInfo
 from ._plate_widget import PlateSelectorWidget, WellPlateInfo
 from ._util import apply_rotation_matrix, get_well_center
@@ -105,7 +105,7 @@ class FOVSelectorPage(QWizardPage):
     def __init__(
         self,
         plate: WellPlate | None = None,
-        mode: Center | RandomPoints | GridRowsColumns = DEFAULT_MODE,
+        mode: Center | RandomPoints | GridRowsColumns | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -205,16 +205,15 @@ class HCSWizard(QWizard):
         # update the fov_page with the fov size
         self.fov_page.setValue(plate, mode)
 
-    def _get_fov_size(
-        self,
-    ) -> tuple[float, float]:
+    def _get_fov_size(self) -> tuple[float | None, float | None]:
         """Return the image size in mm depending on the camera device."""
         if (
             self._mmc is None
             or not self._mmc.getCameraDevice()
             or not self._mmc.getPixelSizeUm()
         ):
-            return DEFAULT_FOV, DEFAULT_FOV
+            # return DEFAULT_FOV, DEFAULT_FOV
+            return None, None
 
         _cam_x = self._mmc.getImageWidth()
         _cam_y = self._mmc.getImageHeight()

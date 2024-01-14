@@ -12,10 +12,10 @@ class WellPlate:
     circular: bool = False
     rows: int = 0
     columns: int = 0
-    well_spacing_x: float = 0.0
-    well_spacing_y: float = 0.0
-    well_size_x: float = 0.0
-    well_size_y: float = 0.0
+    well_spacing_x: float = 1.0
+    well_spacing_y: float = 1.0
+    well_size_x: float = 1.0
+    well_size_y: float = 1.0
 
 
 def load_database(database_path: Path | str) -> dict[str, WellPlate]:

@@ -11,7 +11,9 @@ from qtpy.QtWidgets import (
     QButtonGroup,
     QComboBox,
     QDoubleSpinBox,
+    QGraphicsEllipseItem,
     QGraphicsLineItem,
+    QGraphicsRectItem,
     QGraphicsScene,
     QGridLayout,
     QGroupBox,
@@ -46,15 +48,15 @@ FIXED_POLICY = (QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 CENTER = "Center"
 RANDOM = "Random"
 GRID = "Grid"
-VIEW_SIZE = 300
+DEFAULT_VIEW_SIZE = (300, 300)  # px
+DEFAULT_WELL_SIZE = (10, 10)  # mm
+DEFAULT_FOV_SIZE = (DEFAULT_WELL_SIZE[0] / 10, DEFAULT_WELL_SIZE[1] / 10)  # mm
 OFFSET = 20
 PEN_WIDTH = 4
 RECT = Shape.RECTANGLE
 ELLIPSE = Shape.ELLIPSE
 PEN_AREA = QPen(Qt.GlobalColor.green)
 PEN_AREA.setWidth(PEN_WIDTH)
-NO_PLATE = WellPlate()
-DEFAULT_FOV = 1.0
 
 
 class Center(NamedTuple):
@@ -85,9 +87,6 @@ class Center(NamedTuple):
             fov_width=args.get("fov_width", self.fov_width),
             fov_height=args.get("fov_height", self.fov_height),
         )
-
-
-DEFAULT_MODE = Center(0, 0, DEFAULT_FOV, DEFAULT_FOV)
 
 
 def _create_label(label_text: str) -> QLabel:
@@ -423,73 +422,107 @@ class WellView(ResizingGraphicsView):
 
     Parameters
     ----------
-    size : tuple[int, int]
-        The size of the ResizingGraphicsView.
     parent : QWidget | None
         The parent widget.
+    view_size : tuple[int, int]
+        The minimum size of the QGraphicsView in pixel. By default (300, 300).
+    well_size : tuple[float, float]
+        The size of the well in mm.
+    circular : bool
+        True if the well is circular. By default False.
+    fov_size : tuple[float, float]
+        The size of the FOV in mm.
+    padding : int
+        The padding in pixel between the well and the view. By default 0.
+    show_fovs_order : bool
+        If True, the FOVs will be connected by black lines to represent the order of
+        acquisition. In addition, the first FOV will be drawn with a black color, the
+        others with a white color.
+    mode : Center | AnyGridPlan | None
+        The mode to use to draw the FOVs. By default None.
     """
 
     pointsWarning: Signal = Signal(int)
 
     def __init__(
         self,
-        size: tuple[int, int],
         parent: QWidget | None = None,
+        view_size: tuple[int, int] = DEFAULT_VIEW_SIZE,
+        well_size: tuple[float, float] = DEFAULT_WELL_SIZE,
+        circular: bool = False,
+        fov_size: tuple[float, float] = DEFAULT_FOV_SIZE,
+        padding: int = 0,
+        show_fovs_order: bool = True,
+        mode: Center | AnyGridPlan | None = None,
     ) -> None:
         self._scene = QGraphicsScene()
         super().__init__(self._scene, parent)
 
-        self._size_x, self._size_y = size
-
         self.setStyleSheet("background:grey; border-radius: 5px;")
+
+        self._size_x, self._size_y = view_size
         self.setMinimumSize(self._size_x, self._size_y)
+
         # set the scene rect so that the center is (0, 0)
         self.setSceneRect(
             -self._size_x / 2, -self._size_x / 2, self._size_x, self._size_y
         )
 
-        self._well_width: float = self._size_x
-        self._well_height: float = self._size_y
-        self._is_circular: bool = False
-        self._padding: int = 0
-        self._fov_width: float = DEFAULT_FOV
-        self._fov_height: float = DEFAULT_FOV
-        self._show_fovs_order: bool = True
+        self._well_width, self._well_height = well_size
+        self._is_circular = circular
+        self._padding = padding
+        default_fov_size = (self._well_width / 10, self._well_height / 10)
+        self._fov_width, self._fov_height = (
+            fov_size if fov_size is not None else default_fov_size
+        )
+        self._fov_width_px = (self._size_x * self._fov_width) / self._well_width
+        self._fov_height_px = (self._size_y * self._fov_height) / self._well_height
+        self._show_fovs_order = show_fovs_order
+        self._mode = mode
 
-        self._mode: Center | AnyGridPlan | None = None
+        self.setValue(self._mode)
 
     # _________________________PUBLIC METHODS_________________________ #
 
     def setPadding(self, padding: int) -> None:
-        """Set the padding between the well and the view."""
+        """Set the padding in pixel between the well and the view."""
         self._padding = padding
 
     def padding(self) -> int:
-        """Return the padding between the well and the view."""
+        """Return the padding in pixel between the well and the view."""
         return self._padding
 
     def setWellSize(self, size: tuple[float, float]) -> None:
-        """Set the well size width and height."""
+        """Set the well size width and height in mm."""
         self._well_width, self._well_height = size
 
     def wellSize(self) -> tuple[float, float]:
-        """Return the well size width and height."""
+        """Return the well size width and height in mm."""
         return self._well_width, self._well_height
 
-    def setFOVSize(self, size: tuple[float, float]) -> None:
-        """Set the FOV size width and height."""
-        w, h = size
+    def setFovSize(self, size: tuple[float, float]) -> None:
+        """Set the FOV size width and height in mm."""
+        self._fov_width, self._fov_height = size
         # convert size in scene pixel
-        self._fov_width = (self._size_x * w) / self._well_width
-        self._fov_height = (self._size_y * h) / self._well_height
+        self._fov_width_px = (self._size_x * self._fov_width) / self._well_width
+        self._fov_height_px = (self._size_y * self._fov_height) / self._well_height
+        # update the mode fov size if a mode is set
+        if self._mode is not None:
+            self._mode = self._mode.replace(
+                fov_width=self._fov_width * 1000,
+                fov_height=self._fov_height * 1000,
+            )
 
     def fovSize(self) -> tuple[float, float]:
-        """Return the FOV size width and height."""
+        """Return the FOV size width and height in mm."""
         return self._fov_width, self._fov_height
 
     def setCircular(self, is_circular: bool) -> None:
         """Set True if the well is circular."""
         self._is_circular = is_circular
+        # update the mode fov size if a mode is set
+        if self._mode is not None and isinstance(self._mode, RandomPoints):
+            self._mode = self._mode.replace(shape=ELLIPSE if is_circular else RECT)
 
     def isCircular(self) -> bool:
         """Return True if the well is circular."""
@@ -499,7 +532,7 @@ class WellView(ResizingGraphicsView):
         """Show the FOVs order in the scene by drawing lines connecting the FOVs."""
         self._show_fovs_order = show
 
-    def FOVsOrder(self) -> bool:
+    def FovsOrder(self) -> bool:
         """Return True if the FOVs order is shown."""
         return self._show_fovs_order
 
@@ -513,34 +546,35 @@ class WellView(ResizingGraphicsView):
                 self.scene().removeItem(item)
         self.scene().update()
 
+    def refresh(self) -> None:
+        """Refresh the scene."""
+        self.scene().clear()
+        self._draw_well_area()
+        if self._mode is not None:
+            self._update_scene(self._mode)
+
     def value(self) -> Center | AnyGridPlan | None:
         """Return the value of the scene."""
         return self._mode
 
-    def setValue(self, value: Center | AnyGridPlan) -> None:
+    def setValue(self, value: Center | AnyGridPlan | None) -> None:
         """Set the value of the scene."""
         self.clear()
 
-        fov_width = (
-            (value.fov_width / 1000) if value.fov_width is not None else DEFAULT_FOV
-        )
-        fov_height = (
-            (value.fov_height / 1000) if value.fov_height is not None else DEFAULT_FOV
-        )
-        self.setFOVSize((fov_width, fov_height))
-
-        self._draw_well_area()
-
-        if isinstance(value, Center):
-            self._update_center_fov(value)
-        elif isinstance(value, RandomPoints):
-            self._update_random_fovs(value)
-        elif isinstance(value, GridRowsColumns | GridWidthHeight | GridFromEdges):
-            self._update_grid_fovs(value)
-        else:
-            raise ValueError(f"Invalid value: {value}")
+        if value is None:
+            return
 
         self._mode = value
+
+        if value.fov_height is None or value.fov_width is None:
+            fov_width, fov_height = self._fov_width, self._fov_height
+        else:
+            # value fov size is in µm, convert to mm
+            fov_width, fov_height = value.fov_width / 1000, value.fov_height / 1000
+
+        self.setFovSize((fov_width, fov_height))
+        self._draw_well_area()
+        self._update_scene(value)
 
     # _________________________PRIVATE METHODS_________________________ #
 
@@ -570,6 +604,17 @@ class WellView(ResizingGraphicsView):
         else:
             self.scene().addRect(self._get_reference_well_area(), pen=PEN_AREA)
 
+    def _update_scene(self, value: Center | AnyGridPlan) -> None:
+        """Update the scene with the given mode."""
+        if isinstance(value, Center):
+            self._update_center_fov(value)
+        elif isinstance(value, RandomPoints):
+            self._update_random_fovs(value)
+        elif isinstance(value, GridRowsColumns | GridWidthHeight | GridFromEdges):
+            self._update_grid_fovs(value)
+        else:
+            raise ValueError(f"Invalid value: {value}")
+
     def _update_center_fov(self, value: Center) -> None:
         """Update the scene with the center point."""
         points = [FOV(value.x, value.y, self.sceneRect())]
@@ -577,15 +622,10 @@ class WellView(ResizingGraphicsView):
 
     def _update_random_fovs(self, value: RandomPoints) -> None:
         """Update the scene with the random points."""
-        self.clear(_WellAreaGraphicsItem)
+        self.clear(_WellAreaGraphicsItem, QGraphicsEllipseItem, QGraphicsRectItem)
 
-        # make sure the RandomPoints shape is the same as the plate shape
-        assert value.shape == ELLIPSE if self._is_circular else value.shape == RECT, (
-            f"Well plate shape is '{'' if self._is_circular else 'NON '}circular', "
-            f"`RandomPoints` shape is '{value.shape.value}'. Use `setCircular()` to "
-            f"change the well plate shape or use a different shape in the "
-            f"`RandomPoints` object."
-        )
+        if isinstance(value, RandomPoints):
+            self._is_circular = value.shape == ELLIPSE
 
         # get the well area in scene pixel
         ref_area = self._get_reference_well_area()
@@ -599,14 +639,15 @@ class WellView(ResizingGraphicsView):
         rect = QRectF(x, y, well_area_x_px, well_area_y_px)
         area = _WellAreaGraphicsItem(rect, self._is_circular, PEN_WIDTH)
 
-        # draw the well area
+        # draw well and well area
+        self._draw_well_area()
         self.scene().addItem(area)
 
         val = value.replace(
             max_width=area.boundingRect().width(),
             max_height=area.boundingRect().height(),
-            fov_width=self._fov_width,
-            fov_height=self._fov_height,
+            fov_width=self._fov_width_px,
+            fov_height=self._fov_height_px,
         )
         # get the random points list
         points = self._get_random_points(val, area.boundingRect())
@@ -640,7 +681,7 @@ class WellView(ResizingGraphicsView):
         self, value: GridRowsColumns | GridWidthHeight | GridFromEdges
     ) -> None:
         """Update the scene with the grid points."""
-        val = value.replace(fov_width=self._fov_width, fov_height=self._fov_width)
+        val = value.replace(fov_width=self._fov_width_px, fov_height=self._fov_width_px)
 
         # x and y center coords of the scene in px
         x, y = (
@@ -682,8 +723,8 @@ class WellView(ResizingGraphicsView):
             fovs = _FOVGraphicsItem(
                 fov.x,
                 fov.y,
-                self._fov_width,
-                self._fov_height,
+                self._fov_width_px,
+                self._fov_height_px,
                 fov.bounding_rect,
                 _get_pen(index)
                 if self._show_fovs_order
@@ -705,18 +746,22 @@ class FOVSelectorWidget(QWidget):
     def __init__(
         self,
         plate: WellPlate | None = None,
-        mode: Center | RandomPoints | GridRowsColumns = DEFAULT_MODE,
+        mode: Center | RandomPoints | GridRowsColumns | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent=parent)
 
-        self._plate: WellPlate = plate or NO_PLATE
+        self._plate: WellPlate = plate or WellPlate()
 
         self._reference_well_area: QRectF = QRectF()
 
         # graphics scene to draw the well and the fovs
-        self.view = WellView(size=(VIEW_SIZE, VIEW_SIZE), parent=self)
-        self.view.setPadding(OFFSET)
+        self.view = WellView(
+            well_size=(self._plate.well_size_x, self._plate.well_size_y),
+            # set default fov_size to 1/10 of the well size
+            fov_size=(self._plate.well_size_x / 10, self._plate.well_size_y / 10),
+            padding=OFFSET,
+        )
         self.scene = self.view.scene()
 
         # centerwidget
@@ -788,7 +833,7 @@ class FOVSelectorWidget(QWidget):
         self.grid_wdg.valueChanged.connect(self._on_value_changed)
         self.view.pointsWarning.connect(self._on_points_warning)
 
-        self.setValue(self._plate, mode)
+        self.setValue(self._plate, mode or Center(0, 0))
 
     @property
     def plate(self) -> WellPlate:
@@ -800,69 +845,12 @@ class FOVSelectorWidget(QWidget):
         """Set the well plate."""
         self._plate = well_plate
 
-    def _get_mode_widget(self) -> _CenterFOVWidget | _RandomFOVWidget | _GridFovWidget:
-        """Return the current mode."""
-        for btn in self._mode_btn_group.buttons():
-            if btn.isChecked():
-                mode_name = cast(str, btn.objectName())
-                return self.MODE[mode_name]
-        raise ValueError("No mode selected.")
-
-    def _on_points_warning(self, num_points: int) -> None:
-        self.random_wdg.number_of_points.setValue(num_points)
-
-    def _enable_radio_buttons_wdgs(self) -> None:
-        """Enable any radio button that is checked if the plate is not NO_PLATE."""
-        for btn in self._mode_btn_group.buttons():
-            self.MODE[btn.objectName()].setEnabled(
-                btn.isChecked() and self.plate != NO_PLATE
-            )
-
-    def _on_radiobutton_toggled(self, radio_btn: QRadioButton) -> None:
-        """Update the scene when the tab is changed."""
-        self.view.clear(_WellAreaGraphicsItem, _FOVGraphicsItem, QGraphicsLineItem)
-        self._enable_radio_buttons_wdgs()
-        self._update_scene()
-
-        if radio_btn.isChecked():
-            self.valueChanged.emit(self.value())
-
-    def _on_value_changed(self, value: RandomPoints | GridRowsColumns) -> None:
-        self.view.clear(_WellAreaGraphicsItem, _FOVGraphicsItem, QGraphicsLineItem)
-        self.view.setValue(value)
-        self.valueChanged.emit(self.value())
-
-    def _update_scene(self) -> None:
-        """Update the scene depending on the selected tab."""
-        if self.plate == NO_PLATE:
-            with signals_blocked(self.random_wdg):
-                self.random_wdg.setValue(self._plate_to_random(self.plate))
-            return
-        mode_value = self._get_mode_widget().value()
-        self.view.setValue(mode_value)
-
-    def _get_grid_points(self, grid_mode: GridRowsColumns) -> list[FOV]:
-        """Create the points for the grid scene."""
-        # x and y center coords of the scene in px
-        x, y = (
-            self.scene.sceneRect().center().x(),
-            self.scene.sceneRect().center().y(),
-        )
-        rect = self._reference_well_area
-
-        # create a list of FOV points by shifting the grid by the center coords.
-        # note: inverting the y axis because in scene, y up is negative and y down is
-        # positive.
-        return [FOV(g.x + x, (g.y - y) * (-1), rect) for g in grid_mode]
+    # _________________________PUBLIC METHODS_________________________ #
 
     def value(
         self,
     ) -> tuple[WellPlate | None, Center | RandomPoints | GridRowsColumns | None]:
-        is_plate_valid = self.plate != NO_PLATE
-        return (
-            self.plate if is_plate_valid else None,
-            self._get_mode_widget().value() if is_plate_valid else None,
-        )
+        return self.plate, self._get_mode_widget().value()
 
     def setValue(
         self, plate: WellPlate, mode: Center | RandomPoints | GridRowsColumns
@@ -880,20 +868,12 @@ class FOVSelectorWidget(QWidget):
 
         self.plate = plate
 
-        if self.plate == NO_PLATE:
-            # disable all the widgets
-            self._enable_radio_buttons_wdgs()
-            # reset the random widget plate values
-            with signals_blocked(self.random_wdg):
-                self.random_wdg.setValue(self._plate_to_random(self.plate))
-            return
-
         # update view properties
         self.view.setCircular(self.plate.circular)
         self.view.setWellSize((self.plate.well_size_x, self.plate.well_size_y))
 
         # update the fov size
-        self._update_fov_info(mode)
+        mode = self._update_fov_info(mode)
 
         if isinstance(mode, Center):
             self._set_center_value(mode)
@@ -909,21 +889,85 @@ class FOVSelectorWidget(QWidget):
 
         self.view.setValue(mode)
 
-    def _update_fov_info(self, mode: Center | RandomPoints | GridRowsColumns) -> None:
+    # _________________________PRIVATE METHODS_________________________ #
+
+    def _get_mode_widget(self) -> _CenterFOVWidget | _RandomFOVWidget | _GridFovWidget:
+        """Return the current mode."""
+        for btn in self._mode_btn_group.buttons():
+            if btn.isChecked():
+                mode_name = cast(str, btn.objectName())
+                return self.MODE[mode_name]
+        raise ValueError("No mode selected.")
+
+    def _on_points_warning(self, num_points: int) -> None:
+        self.random_wdg.number_of_points.setValue(num_points)
+
+    def _enable_radio_buttons_wdgs(self) -> None:
+        """Enable any radio button that is checked."""
+        for btn in self._mode_btn_group.buttons():
+            self.MODE[btn.objectName()].setEnabled(btn.isChecked())
+
+    def _on_radiobutton_toggled(self, radio_btn: QRadioButton) -> None:
+        """Update the scene when the tab is changed."""
+        self.view.clear(_WellAreaGraphicsItem, _FOVGraphicsItem, QGraphicsLineItem)
+        self._enable_radio_buttons_wdgs()
+        self._update_scene()
+
+        if radio_btn.isChecked():
+            self.valueChanged.emit(self.value())
+
+    def _on_value_changed(self, value: RandomPoints | GridRowsColumns) -> None:
+        self.view.clear(_WellAreaGraphicsItem, _FOVGraphicsItem, QGraphicsLineItem)
+        self.view.setValue(value)
+        self.valueChanged.emit(self.value())
+
+    def _update_scene(self) -> None:
+        """Update the scene depending on the selected tab."""
+        mode_value = self._get_mode_widget().value()
+        self.view.setValue(mode_value)
+
+    def _get_grid_points(self, grid_mode: GridRowsColumns) -> list[FOV]:
+        """Create the points for the grid scene."""
+        # x and y center coords of the scene in px
+        x, y = (
+            self.scene.sceneRect().center().x(),
+            self.scene.sceneRect().center().y(),
+        )
+        rect = self._reference_well_area
+
+        # create a list of FOV points by shifting the grid by the center coords.
+        # note: inverting the y axis because in scene, y up is negative and y down is
+        # positive.
+        return [FOV(g.x + x, (g.y - y) * (-1), rect) for g in grid_mode]
+
+    def _update_fov_info(
+        self, mode: Center | RandomPoints | GridRowsColumns
+    ) -> Center | RandomPoints | GridRowsColumns:
         """Update the fov size in the view and in each mode widget."""
-        fov_w = mode.fov_width if mode.fov_width is not None else DEFAULT_FOV
-        fov_h = mode.fov_height if mode.fov_height is not None else DEFAULT_FOV
+        view_fov_width, view_fov_height = self.view.fovSize()  # mm
+
+        # set fov size as the mode one if not None, otherwise use the view stored one
+        fov_w, fov_h = (
+            (view_fov_width * 1000, view_fov_height * 1000)  # µm
+            if mode.fov_width is None or mode.fov_height is None
+            else (mode.fov_width, mode.fov_height)  # µm
+        )
 
         # update the fov size in each mode widget
         self.center_wdg.fov_size = (fov_w, fov_h)
         self.random_wdg.fov_size = (fov_w, fov_h)
         self.grid_wdg.fov_size = (fov_w, fov_h)
 
+        # update the fov size in the mode
+        mode = mode.replace(fov_width=fov_w, fov_height=fov_h)
+
         # mode fov size is in µm, view and fov size is in mm
-        fov_width = fov_w / 1000 if fov_w != DEFAULT_FOV else DEFAULT_FOV
-        fov_height = fov_h / 1000 if fov_h != DEFAULT_FOV else DEFAULT_FOV
-        # self._fov_size = (fov_width, fov_height)
-        self.view.setFOVSize((fov_width, fov_height))
+        fov_width = view_fov_width if fov_w == view_fov_width else fov_w / 1000
+        fov_height = view_fov_height if fov_h == view_fov_height else fov_h / 1000
+
+        self.view.setFovSize((fov_width, fov_height))
+
+        return mode
 
     def _set_center_value(self, mode: Center) -> None:
         """Set the center widget values."""
