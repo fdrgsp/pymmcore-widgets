@@ -20,7 +20,7 @@ from useq import (
 )
 
 from ._calibration_widget import CalibrationData, CalibrationInfo, _CalibrationWidget
-from ._fov_widget import Center, FOVSelectorWidget
+from ._fov_widget import DEFAULT_FOV, DEFAULT_MODE, Center, FOVSelectorWidget
 from ._graphics_items import WellInfo
 from ._plate_widget import WellPlateInfo, _PlateWidget
 from ._util import apply_rotation_matrix, get_well_center
@@ -30,20 +30,19 @@ EXPANDING = (QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
 
 class HCSInfo(NamedTuple):
-    plate: WellPlate
-    wells: list[str] | None
-    calibration: CalibrationData | None
-    fov_mode: Center | RandomPoints | GridRowsColumns
+    plate: WellPlate | None = None
+    wells: list[str] | None = None
+    calibration: CalibrationData | None = None
+    fov_mode: Center | RandomPoints | GridRowsColumns | None = None
     positions: list[Position] | None = None
 
 
 class PlatePage(QWizardPage):
     def __init__(
         self,
-        parent: QWidget | None = None,
-        *,
         plate_database_path: Path | str,
         plate_database: dict[str, WellPlate],
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
 
@@ -61,6 +60,8 @@ class PlatePage(QWizardPage):
         self.layout().addWidget(self._plate_widget)
 
         self.setButtonText(QWizard.WizardButton.NextButton, "Calibration >")
+
+        self.combo = self._plate_widget.plate_combo
 
     def value(self) -> WellPlateInfo:
         """Return the selected well plate and the selected wells."""
@@ -97,11 +98,16 @@ class PlateCalibrationPage(QWizardPage):
 
 
 class FOVSelectorPage(QWizardPage):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        plate: WellPlate | None = None,
+        mode: Center | RandomPoints | GridRowsColumns = DEFAULT_MODE,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setTitle("Field of View Selection")
 
-        self._fov_widget = FOVSelectorWidget()
+        self._fov_widget = FOVSelectorWidget(plate, mode, parent)
 
         self.setLayout(QVBoxLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)
@@ -109,7 +115,9 @@ class FOVSelectorPage(QWizardPage):
         self.layout().addWidget(self._fov_widget)
         self.layout().addItem(QSpacerItem(0, 0, *EXPANDING))
 
-    def value(self) -> tuple[WellPlate | None, Center | RandomPoints | GridRowsColumns]:
+    def value(
+        self,
+    ) -> tuple[WellPlate | None, Center | RandomPoints | GridRowsColumns | None]:
         """Return the list of FOVs."""
         return self._fov_widget.value()
 
@@ -141,51 +149,75 @@ class HCSWizard(QWizard):
 
         self._mmc = mmcore or CMMCorePlus.instance()
 
+        # load the plate from the database
         self._plate_db_path = plate_database_path or PLATE_DB_PATH
         self._plate_db = load_database(self._plate_db_path)
 
-        self.plate_page = PlatePage(
-            plate_database_path=self._plate_db_path, plate_database=self._plate_db
-        )
-        self.plate_page._plate_widget.plate_combo.currentTextChanged.connect(
-            self._on_plate_combo_changed
-        )
+        # setup plate page
+        self.plate_page = PlatePage(self._plate_db_path, self._plate_db)
 
+        # get currently selected plate
+        plate = self._plate_db[self.plate_page.combo.currentText()]
+
+        # setup calibration page
         self.calibration_page = PlateCalibrationPage()
+        self.calibration_page.setValue(CalibrationInfo(plate, None))
 
-        self.fov_page = FOVSelectorPage()
+        # setup fov page
+        fov_w, fov_h = self._get_fov_size()
+        mode = Center(0, 0, fov_w, fov_h)
+        self.fov_page = FOVSelectorPage(plate, mode)
 
+        # add pages to wizard
         self.addPage(self.plate_page)
         self.addPage(self.calibration_page)
         self.addPage(self.fov_page)
 
-        self._on_plate_combo_changed(
-            self.plate_page._plate_widget.plate_combo.currentText()
-        )
-
-        # important to set the correct size of the FOVs
-        self.fov_page._fov_widget._on_px_size_changed()
-
-        # this is just for testing, remove later ______________
-        # self.pt = PT(self)
-        # ______________________________________________________
+        # connections
+        self.plate_page.combo.currentTextChanged.connect(self._on_plate_combo_changed)
+        self._mmc.events.pixelSizeChanged.connect(self._on_px_size_changed)
 
     def accept(self) -> None:
         """Override QWizard default accept method."""
         self.valueChanged.emit(self.value())
 
-        # this is just for testing, remove later ______________
-        # print(self.value())
-        # pos = self.value().positions
-        # if pos is not None:
-        #     self.pt.set_state(pos)
-        # self.pt.show()
-        # ______________________________________________________
-
     def _on_plate_combo_changed(self, plate_id: str) -> None:
         plate = self._plate_db[plate_id]
-        self.calibration_page._calibration.setValue(CalibrationInfo(plate, None))
-        self.fov_page._fov_widget.setValue(plate, Center(x=0, y=0))
+        self.calibration_page.setValue(CalibrationInfo(plate, None))
+        fov_w, fov_h = self._get_fov_size()
+        self.fov_page.setValue(plate, Center(0, 0, fov_w, fov_h))
+
+    def _on_px_size_changed(self) -> None:
+        """Update the scene when the pixel size is changed."""
+        plate, mode = self.fov_page.value()
+
+        if plate is None or mode is None:
+            return
+
+        # update the mode with the new fov size
+        fov_w, fov_h = self._get_fov_size()
+        mode = mode.replace(fov_width=fov_w, fov_height=fov_h)
+
+        # update the fov_page with the fov size
+        self.fov_page.setValue(plate, mode)
+
+    def _get_fov_size(
+        self,
+    ) -> tuple[float, float]:
+        """Return the image size in mm depending on the camera device."""
+        if (
+            self._mmc is None
+            or not self._mmc.getCameraDevice()
+            or not self._mmc.getPixelSizeUm()
+        ):
+            return DEFAULT_FOV, DEFAULT_FOV
+
+        _cam_x = self._mmc.getImageWidth()
+        _cam_y = self._mmc.getImageHeight()
+        image_width_mm = _cam_x * self._mmc.getPixelSizeUm()
+        image_height_mm = _cam_y * self._mmc.getPixelSizeUm()
+
+        return image_width_mm, image_height_mm
 
     def value(self) -> HCSInfo:
         plate, well_list = self.plate_page.value()
@@ -234,6 +266,9 @@ class HCSWizard(QWizard):
     ) -> list[Position]:
         """Get the calibrated stage coords of each FOV of the selected wells."""
         _, mode = self.fov_page.value()
+
+        if mode is None:
+            return []
 
         positions: list[Position] = []
 
@@ -295,20 +330,6 @@ class HCSWizard(QWizard):
         ax.xaxis.set_visible(False)
         ax.yaxis.set_visible(False)
         plt.show()
-
-
-# class PT(QDialog):
-#     def __init__(self, parent: QWidget | None = None) -> None:
-#         super().__init__(parent)
-
-#         self._pt = PositionTable()
-
-#         self.setLayout(QVBoxLayout())
-#         self.layout().setContentsMargins(0, 0, 0, 0)
-#         self.layout().addWidget(self._pt)
-
-#     def set_state(self, positions: list[Position]) -> None:
-#         self._pt.set_state(positions)
 
 
 # _______________________________________________________________

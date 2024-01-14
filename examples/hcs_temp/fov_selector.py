@@ -17,10 +17,11 @@ app = QApplication([])
 mmc = CMMCorePlus.instance()
 mmc.loadSystemConfiguration()
 
-fov_selector_wdg = FOVSelectorWidget(mmcore=mmc)
-fov_selector_wdg.valueChanged.connect(lambda x: print(x))
+fov_selector_wdg = FOVSelectorWidget(
+    plate=database["standard 96 wp"], mode=Center(0, 0, 512, 512)
+)
 
-fov_selector_wdg.setValue(database["standard 96 wp"], Center())
+fov_selector_wdg.valueChanged.connect(lambda x: print(x))
 
 fov_selector_wdg.show()
 
