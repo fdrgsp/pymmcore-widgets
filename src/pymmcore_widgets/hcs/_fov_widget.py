@@ -58,7 +58,19 @@ DEFAULT_FOV = 1.0
 
 
 class Center(NamedTuple):
-    """Center of the well."""
+    """A NamedTuple to store center coordinates and FOV size.
+
+    Parameters
+    ----------
+    x : float
+        The x coordinate of the center.
+    y : float
+        The y coordinate of the center.
+    fov_width : float | None
+        The width of the FOV in µm.
+    fov_height : float | None
+        The height of the FOV in µm.
+    """
 
     x: float
     y: float
@@ -98,7 +110,7 @@ def _make_wdg_with_label(label: QLabel, wdg: QWidget) -> QWidget:
 
 
 class _CenterFOVWidget(QWidget):
-    """Widget to select the center of the well as FOV of the plate."""
+    """Widget to select the center of a specifiied area."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -288,7 +300,7 @@ class RandomFOVWidget(QWidget):
 
 
 class _GridFovWidget(QWidget):
-    """Widget to select a grid FOV per well of the plate."""
+    """Widget to generate a grid of FOVs within a specified area."""
 
     valueChanged = Signal(object)
 
@@ -407,7 +419,15 @@ class _GridFovWidget(QWidget):
 
 
 class WellView(ResizingGraphicsView):
-    """Graphics view to draw the well and the fovs."""
+    """Graphics view to draw a well and the FOVs.
+
+    Parameters
+    ----------
+    size : tuple[int, int]
+        The size of the ResizingGraphicsView.
+    parent : QWidget | None
+        The parent widget.
+    """
 
     pointsWarning: Signal = Signal(int)
 
