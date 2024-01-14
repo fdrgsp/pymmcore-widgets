@@ -5,7 +5,7 @@ from qtpy.QtWidgets import QApplication, QPushButton
 
 from pymmcore_widgets.hcs._calibration_widget import (
     CalibrationInfo,
-    _CalibrationWidget,
+    PlateCalibrationWidget,
 )
 from pymmcore_widgets.hcs._well_plate_model import load_database
 
@@ -20,7 +20,7 @@ app = QApplication([])
 mmc = CMMCorePlus.instance()
 mmc.loadSystemConfiguration()
 
-calibration_wdg = _CalibrationWidget(mmcore=mmc)
+calibration_wdg = PlateCalibrationWidget(mmcore=mmc)
 
 calibration_wdg.setValue(CalibrationInfo(database["coverslip 22mm"], None))
 

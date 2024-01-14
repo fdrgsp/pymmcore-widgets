@@ -19,10 +19,14 @@ from useq import (
     RandomPoints,
 )
 
-from ._calibration_widget import CalibrationData, CalibrationInfo, _CalibrationWidget
+from ._calibration_widget import (
+    CalibrationData,
+    CalibrationInfo,
+    PlateCalibrationWidget,
+)
 from ._fov_widget import DEFAULT_FOV, DEFAULT_MODE, Center, FOVSelectorWidget
 from ._graphics_items import WellInfo
-from ._plate_widget import WellPlateInfo, _PlateWidget
+from ._plate_widget import PlateSelectorWidget, WellPlateInfo
 from ._util import apply_rotation_matrix, get_well_center
 from ._well_plate_model import PLATE_DB_PATH, WellPlate, load_database
 
@@ -51,7 +55,7 @@ class PlatePage(QWizardPage):
         self._plate_db = plate_database
         self._plate_db_path = plate_database_path
 
-        self._plate_widget = _PlateWidget(
+        self._plate_widget = PlateSelectorWidget(
             plate_database_path=self._plate_db_path, plate_database=self._plate_db
         )
 
@@ -80,7 +84,7 @@ class PlateCalibrationPage(QWizardPage):
         super().__init__(parent)
         self.setTitle("Plate Calibration")
 
-        self._calibration = _CalibrationWidget()
+        self._calibration = PlateCalibrationWidget()
 
         self.setLayout(QVBoxLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)

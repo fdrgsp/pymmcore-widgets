@@ -19,7 +19,10 @@ class WellPlate:
 
 
 def load_database(database_path: Path | str) -> dict[str, WellPlate]:
-    """Load the database of well plates contained in well_plate_database.json."""
+    """Load the database of well plates contained in database_path.
+
+    The database must be a JSON file.
+    """
     import json
 
     with open(Path(database_path)) as f:

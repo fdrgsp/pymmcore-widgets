@@ -158,7 +158,7 @@ class _CenterFOVWidget(QWidget):
         self.fov_size = (value.fov_width, value.fov_height)
 
 
-class RandomFOVWidget(QWidget):
+class _RandomFOVWidget(QWidget):
     """Widget to generate random points within a specified area."""
 
     valueChanged = Signal(object)
@@ -733,7 +733,7 @@ class FOVSelectorWidget(QWidget):
         _center_wdg.layout().addWidget(self.center_wdg)
 
         # random widget
-        self.random_wdg = RandomFOVWidget()
+        self.random_wdg = _RandomFOVWidget()
         self.random_wdg.setEnabled(False)
         self.random_radio_btn = QRadioButton()
         self.random_radio_btn.setSizePolicy(*FIXED_POLICY)
@@ -763,7 +763,7 @@ class FOVSelectorWidget(QWidget):
         self._mode_btn_group.addButton(self.center_radio_btn)
         self._mode_btn_group.addButton(self.random_radio_btn)
         self._mode_btn_group.addButton(self.grid_radio_btn)
-        self.MODE: dict[str, _CenterFOVWidget | RandomFOVWidget | _GridFovWidget] = {
+        self.MODE: dict[str, _CenterFOVWidget | _RandomFOVWidget | _GridFovWidget] = {
             CENTER: self.center_wdg,
             RANDOM: self.random_wdg,
             GRID: self.grid_wdg,
@@ -800,7 +800,7 @@ class FOVSelectorWidget(QWidget):
         """Set the well plate."""
         self._plate = well_plate
 
-    def _get_mode_widget(self) -> _CenterFOVWidget | RandomFOVWidget | _GridFovWidget:
+    def _get_mode_widget(self) -> _CenterFOVWidget | _RandomFOVWidget | _GridFovWidget:
         """Return the current mode."""
         for btn in self._mode_btn_group.buttons():
             if btn.isChecked():

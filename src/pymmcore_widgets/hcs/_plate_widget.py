@@ -51,7 +51,7 @@ class WellPlateInfo(NamedTuple):
     wells: list[WellInfo] | None
 
 
-class _PlateWidget(QWidget):
+class PlateSelectorWidget(QWidget):
     """Widget for selecting the well plate and its wells."""
 
     valueChanged = Signal()

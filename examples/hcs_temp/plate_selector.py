@@ -2,7 +2,7 @@ from pathlib import Path
 
 from qtpy.QtWidgets import QApplication
 
-from pymmcore_widgets.hcs._plate_widget import _PlateWidget
+from pymmcore_widgets.hcs._plate_widget import PlateSelectorWidget
 
 database_path = (
     Path(__file__).parent.parent.parent / "tests" / "plate_database_for_tests.json"
@@ -10,7 +10,7 @@ database_path = (
 
 app = QApplication([])
 
-plate_selector = _PlateWidget(plate_database_path=database_path)
+plate_selector = PlateSelectorWidget(plate_database_path=database_path)
 plate_selector.valueChanged.connect(lambda: print(plate_selector.value()))
 
 plate_selector.show()

@@ -65,24 +65,46 @@ LABEL_STYLE = """
 
 
 class TwoPoints(NamedTuple):
+    """Two vertices points to calibrate a rectangular/square well."""
+
     icon: QIcon = VERTICES_ICON
     item: str = VERTICES_ITEM
     points: int = VERTICES_MODE_POINTS
 
 
 class ThreePoints(NamedTuple):
+    """Three edge points to calibrate a circular well."""
+
     icon: QIcon = CIRCLE_ICON
     item: str = CIRCLE_ITEM
     points: int = CIRCLE_MODE_POINTS
 
 
 class FourPoints(NamedTuple):
+    """Four edge points to calibrate a rectangular/square well."""
+
     icon: QIcon = SIDES_ICON
     item: str = SIDES_ITEM
     points: int = SIDES_MODE_POINTS
 
 
 class CalibrationTableData(NamedTuple):
+    """Named tuple to store the calibration data.
+
+    Parameters
+    ----------
+    list_of_points : list[tuple[float, float]]
+        List of points to calibrate the plate.
+    plate : WellPlate | None
+        The plate to calibrate.
+    calibration_mode : ThreePoints | FourPoints | TwoPoints | None
+        The calibration mode. Three edge points for circular wells, four edge points
+        for rectangular/square wells or two opposite vertices for rectangular/square
+        wells.
+    well_name : str
+        The name of the well.
+    """
+
     list_of_points: list[tuple[float, float]]
     plate: WellPlate | None
     calibration_mode: ThreePoints | FourPoints | TwoPoints | None
@@ -576,7 +598,7 @@ class _CalibrationLabel(QGroupBox):
         self._text_lbl.setText(text)
 
 
-class _CalibrationWidget(QWidget):
+class PlateCalibrationWidget(QWidget):
     """Widget to calibrate the sample plate."""
 
     def __init__(
