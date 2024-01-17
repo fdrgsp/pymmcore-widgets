@@ -41,7 +41,7 @@ from pymmcore_widgets.useq_widgets._grid import _SeparatorWidget
 
 from ._graphics_items import FOV, _FOVGraphicsItem, _WellAreaGraphicsItem
 from ._util import ResizingGraphicsView
-from ._well_plate_model import WellPlate
+from ._well_plate_model import Plate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 FIXED_POLICY = (QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -62,7 +62,7 @@ PEN_AREA.setWidth(PEN_WIDTH)
 class Center(NamedTuple):
     """A NamedTuple to store center coordinates and FOV size.
 
-    Parameters
+    Attributes
     ----------
     x : float
         The x coordinate of the center.
@@ -745,13 +745,13 @@ class FOVSelectorWidget(QWidget):
 
     def __init__(
         self,
-        plate: WellPlate | None = None,
+        plate: Plate | None = None,
         mode: Center | RandomPoints | GridRowsColumns | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent=parent)
 
-        self._plate: WellPlate = plate or WellPlate()
+        self._plate: Plate = plate or Plate()
 
         self._reference_well_area: QRectF = QRectF()
 
@@ -836,12 +836,12 @@ class FOVSelectorWidget(QWidget):
         self.setValue(self._plate, mode or Center(0, 0))
 
     @property
-    def plate(self) -> WellPlate:
+    def plate(self) -> Plate:
         """Return the well plate."""
         return self._plate
 
     @plate.setter
-    def plate(self, well_plate: WellPlate) -> None:
+    def plate(self, well_plate: Plate) -> None:
         """Set the well plate."""
         self._plate = well_plate
 
@@ -849,17 +849,17 @@ class FOVSelectorWidget(QWidget):
 
     def value(
         self,
-    ) -> tuple[WellPlate | None, Center | RandomPoints | GridRowsColumns | None]:
+    ) -> tuple[Plate | None, Center | RandomPoints | GridRowsColumns | None]:
         return self.plate, self._get_mode_widget().value()
 
     def setValue(
-        self, plate: WellPlate, mode: Center | RandomPoints | GridRowsColumns
+        self, plate: Plate, mode: Center | RandomPoints | GridRowsColumns
     ) -> None:
         """Set the value of the widget.
 
         Parameters
         ----------
-        plate : WellPlate
+        plate : Plate
             The well plate object.
         mode : Center | RandomPoints | GridRowsColumns
             The mode to use to select the FOVs.
@@ -1014,8 +1014,8 @@ class FOVSelectorWidget(QWidget):
                 stacklevel=2,
             )
 
-    def _plate_to_random(self, plate: WellPlate) -> RandomPoints:
-        """Convert a WellPlate object to a RandomPoints object."""
+    def _plate_to_random(self, plate: Plate) -> RandomPoints:
+        """Convert a Plate object to a RandomPoints object."""
         return RandomPoints(
             num_points=self.random_wdg.number_of_points.value(),
             max_width=plate.well_size_x,

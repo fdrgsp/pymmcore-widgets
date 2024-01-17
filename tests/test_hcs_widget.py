@@ -41,11 +41,11 @@ from pymmcore_widgets.hcs._graphics_items import (
     _WellGraphicsItem,
 )
 from pymmcore_widgets.hcs._plate_widget import (
+    PlateInfo,
     PlateSelectorWidget,
-    WellPlateInfo,
     _CustomPlateWidget,
 )
-from pymmcore_widgets.hcs._well_plate_model import WellPlate, load_database
+from pymmcore_widgets.hcs._well_plate_model import Plate, load_database
 
 if TYPE_CHECKING:
     from pymmcore_plus import CMMCorePlus
@@ -74,7 +74,7 @@ def test_plate_widget_set_get_value(qtbot: QtBot, database_path: Path):
         WellInfo("B4", 1, 3),
         WellInfo("C5", 2, 4),
     ]
-    info = WellPlateInfo(plate=plate, wells=wells)
+    info = PlateInfo(plate=plate, wells=wells)
 
     wdg.setValue(info)
     # sort the list of wells by name
@@ -99,7 +99,7 @@ def test_custom_plate_widget_set_get_value(qtbot: QtBot, database_path: Path):
     current_plate_id = wdg.plate_table.item(0, 0).text()
     assert wdg.value().id == current_plate_id
 
-    custom_plate = WellPlate(
+    custom_plate = Plate(
         id="custom plate",
         circular=True,
         rows=2,
@@ -132,7 +132,7 @@ def test_calibration_mode_widget(qtbot: QtBot):
 
 
 def test_calibration_table_widget(
-    global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, WellPlate]
+    global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, Plate]
 ):
     mmc = global_mmcore
 
@@ -179,7 +179,7 @@ def test_calibration_table_widget(
 
 
 def test_calibration_move_to_edge_widget(
-    global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, WellPlate]
+    global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, Plate]
 ):
     mmc = global_mmcore
 
@@ -197,7 +197,7 @@ def test_calibration_move_to_edge_widget(
 
 
 def test_calibration_widget(
-    global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, WellPlate]
+    global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, Plate]
 ):
     wdg = PlateCalibrationWidget(mmcore=global_mmcore)
     qtbot.addWidget(wdg)
@@ -235,7 +235,9 @@ def test_calibration_widget(
     assert wdg._calibration_label.value() == "Plate Calibrated!"
 
     cal_data = CalibrationData(
-        well_A1_center_x=-55.0, well_A1_center_y=35.0, rotation_matrix=None
+        well_A1_center=(-55.0, 35.0),
+        rotation_matrix=None,
+        calibration_position_a1=[(-210, 170), (100, -100)],
     )
     assert wdg.value() == CalibrationInfo(database["coverslip 22mm"], cal_data)
 
@@ -282,7 +284,7 @@ def test_center_widget(qtbot: QtBot):
     assert value.fov_height == 3
 
 
-def test_random_widget(qtbot: QtBot, database: dict[str, WellPlate]):
+def test_random_widget(qtbot: QtBot, database: dict[str, Plate]):
     wdg = _RandomFOVWidget()
     qtbot.addWidget(wdg)
 
@@ -463,7 +465,7 @@ def test_well_view_widget_update(qtbot: QtBot):
     assert well.rect().width() == well.rect().height() == 290
 
 
-def test_fov_selector_widget(qtbot: QtBot, database: dict[str, WellPlate]):
+def test_fov_selector_widget(qtbot: QtBot, database: dict[str, Plate]):
     wdg = FOVSelectorWidget(
         plate=database["standard 96 wp"],
         mode=Center(x=0, y=0, fov_width=500, fov_height=500),

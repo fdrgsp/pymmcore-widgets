@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from ._graphics_items import WellInfo
-    from ._well_plate_model import WellPlate
+    from ._well_plate_model import Plate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 
@@ -36,18 +36,18 @@ PEN = QPen(Qt.GlobalColor.black)
 PEN.setWidth(1)
 
 
-class WellPlateInfo(NamedTuple):
+class PlateInfo(NamedTuple):
     """Information about a well plate.
 
     Attributes
     ----------
-    plate : WellPlate
+    plate : Plate
         The well plate object.
     wells : list[WellInfo] | None
         The list of selected wells in the well plate.
     """
 
-    plate: WellPlate
+    plate: Plate
     wells: list[WellInfo] | None
 
 
@@ -61,7 +61,7 @@ class PlateSelectorWidget(QWidget):
         parent: QWidget | None = None,
         *,
         plate_database_path: Path | str,
-        plate_database: dict[str, WellPlate] | None = None,
+        plate_database: dict[str, Plate] | None = None,
     ) -> None:
         super().__init__(parent)
 
@@ -125,13 +125,36 @@ class PlateSelectorWidget(QWidget):
 
         self._update(self.plate_combo.currentText())
 
+    # _________________________PUBLIC METHODS_________________________ #
+
+    def value(self) -> PlateInfo:
+        """Return the current selected wells as a list of (name, row, column)."""
+        return PlateInfo(self.current_plate(), self.scene.value())
+
+    def setValue(self, plateinfo: PlateInfo) -> None:
+        """Set the current plate and the selected wells.
+
+        `value` is a list of (well_name, row, column).
+        """
+        if plateinfo.plate.id not in self._plate_db:
+            raise ValueError(f"Plate {plateinfo.plate.id} not in the database.")
+
+        self.plate_combo.setCurrentText(plateinfo.plate.id)
+
+        if not plateinfo.wells:
+            return
+
+        self.scene.setValue(plateinfo.wells)
+
+    # _________________________PRIVATE METHODS________________________ #
+
     def _update(self, plate_name: str) -> None:
         draw_well_plate(
             self.view, self.scene, self._plate_db[plate_name], brush=BRUSH, pen=PEN
         )
         self.valueChanged.emit()
 
-    def current_plate(self) -> WellPlate:
+    def current_plate(self) -> Plate:
         """Return the current selected plate."""
         return self._plate_db[self.plate_combo.currentText()]
 
@@ -143,26 +166,10 @@ class PlateSelectorWidget(QWidget):
         self._custom_plate.plate_table.clearSelection()
         self._custom_plate.reset_values()
 
-    def _update_well_plate_combo(self, new_plate: WellPlate | None) -> None:
+    def _update_well_plate_combo(self, new_plate: Plate | None) -> None:
         """Update the well plate combobox with the updated plate database."""
         with signals_blocked(self.plate_combo):
             self.plate_combo.clear()
         self.plate_combo.addItems(list(self._plate_db))
         if new_plate:
             self.plate_combo.setCurrentText(new_plate.id)
-
-    def value(self) -> WellPlateInfo:
-        """Return the current selected wells as a list of (name, row, column)."""
-        return WellPlateInfo(self.current_plate(), self.scene.value())
-
-    def setValue(self, plateinfo: WellPlateInfo) -> None:
-        """Set the current plate and the selected wells.
-
-        `value` is a list of (well_name, row, column).
-        """
-        self.plate_combo.setCurrentText(plateinfo.plate.id)
-
-        if not plateinfo.wells:
-            return
-
-        self.scene.setValue(plateinfo.wells)

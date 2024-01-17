@@ -35,7 +35,7 @@ from ._core_z import CoreConnectedZPlanWidget
 if TYPE_CHECKING:
     from typing import TypedDict
 
-    from pymmcore_widgets.hcs._main_wizard_widget import HCSInfo
+    from pymmcore_widgets.hcs._main_wizard_widget import HCSData
 
     class SaveInfo(TypedDict):
         save_dir: str
@@ -172,7 +172,7 @@ class MDAWidget(MDASequenceWidget):
         else:
             self.hcs.show()
 
-    def _add_to_positios_table(self, value: HCSInfo) -> None:
+    def _add_to_positios_table(self, value: HCSData) -> None:
         """Add a list of positions to the Positions table."""
         positions = value.positions
 

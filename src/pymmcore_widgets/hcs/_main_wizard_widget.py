@@ -26,18 +26,34 @@ from ._calibration_widget import (
 )
 from ._fov_widget import Center, FOVSelectorWidget
 from ._graphics_items import WellInfo
-from ._plate_widget import PlateSelectorWidget, WellPlateInfo
+from ._plate_widget import PlateInfo, PlateSelectorWidget
 from ._util import apply_rotation_matrix, get_well_center
-from ._well_plate_model import PLATE_DB_PATH, WellPlate, load_database
+from ._well_plate_model import PLATE_DB_PATH, Plate, load_database
 
 EXPANDING = (QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
 
-class HCSInfo(NamedTuple):
-    plate: WellPlate | None = None
-    wells: list[str] | None = None
+class HCSData(NamedTuple):
+    """NamedTuple to store all the info needed to setup an HCS experiment.
+
+    Attributes
+    ----------
+    plate : Plate
+        The selected well plate.
+    wells : list[str] | None
+        The selected wells.
+    calibration : CalibrationData | None
+        The data necessary to calibrate the plate.
+    mode : Center | RandomPoints | GridRowsColumns | None
+        The mode used to select the FOVs.
+    positions : list[Position] | None
+        The list of FOVs as useq.Positions expressed in stage coordinates.
+    """
+
+    plate: Plate
+    wells: list[WellInfo] | None = None
     calibration: CalibrationData | None = None
-    fov_mode: Center | RandomPoints | GridRowsColumns | None = None
+    mode: Center | RandomPoints | GridRowsColumns | None = None
     positions: list[Position] | None = None
 
 
@@ -45,7 +61,7 @@ class PlatePage(QWizardPage):
     def __init__(
         self,
         plate_database_path: Path | str,
-        plate_database: dict[str, WellPlate],
+        plate_database: dict[str, Plate],
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -67,11 +83,11 @@ class PlatePage(QWizardPage):
 
         self.combo = self._plate_widget.plate_combo
 
-    def value(self) -> WellPlateInfo:
+    def value(self) -> PlateInfo:
         """Return the selected well plate and the selected wells."""
         return self._plate_widget.value()
 
-    def setValue(self, plateinfo: WellPlateInfo) -> None:
+    def setValue(self, plateinfo: PlateInfo) -> None:
         """Set the current plate and the selected wells.
 
         `value` is a list of (well_name, row, column).
@@ -104,7 +120,7 @@ class PlateCalibrationPage(QWizardPage):
 class FOVSelectorPage(QWizardPage):
     def __init__(
         self,
-        plate: WellPlate | None = None,
+        plate: Plate | None = None,
         mode: Center | RandomPoints | GridRowsColumns | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -121,15 +137,21 @@ class FOVSelectorPage(QWizardPage):
 
     def value(
         self,
-    ) -> tuple[WellPlate | None, Center | RandomPoints | GridRowsColumns | None]:
+    ) -> tuple[Plate | None, Center | RandomPoints | GridRowsColumns | None]:
         """Return the list of FOVs."""
         return self._fov_widget.value()
 
     def setValue(
-        self, plate: WellPlate, mode: Center | RandomPoints | GridRowsColumns
+        self, plate: Plate, mode: Center | RandomPoints | GridRowsColumns | None
     ) -> None:
         """Set the list of FOVs."""
+        if mode is None:
+            return
         self._fov_widget.setValue(plate, mode)
+
+    def _fov_size_well_view(self) -> tuple[float, float]:
+        """Return the FOV size of the WellView in mm."""
+        return self._fov_widget.view.fovSize()
 
 
 class HCSWizard(QWizard):
@@ -180,13 +202,45 @@ class HCSWizard(QWizard):
         # connections
         self.plate_page.combo.currentTextChanged.connect(self._on_plate_combo_changed)
         self._mmc.events.pixelSizeChanged.connect(self._on_px_size_changed)
+        self._mmc.events.systemConfigurationLoaded.connect(
+            self._on_system_config_loaded
+        )
+
+    # _________________________PUBLIC METHODS_________________________ #
+
+    def setValue(self, value: HCSData) -> None:
+        """Set the values of the wizard.
+
+        Note: the `positions` attribute of the HCSData `value` is not necessary
+        and is not used.
+        """
+        self.plate_page.setValue(PlateInfo(value.plate, value.wells))
+        self.calibration_page.setValue(CalibrationInfo(value.plate, value.calibration))
+        self.fov_page.setValue(value.plate, value.mode)
+
+    def value(self) -> HCSData:
+        """Return the values of the wizard."""
+        plate, well_list = self.plate_page.value()
+        _, calibration_data = self.calibration_page.value()
+        _, mode = self.fov_page.value()
+        positions = self._get_positions()
+        return HCSData(plate, well_list, calibration_data, mode, positions)
 
     def accept(self) -> None:
         """Override QWizard default accept method."""
         self.valueChanged.emit(self.value())
 
+    # _________________________PRIVATE METHODS_________________________ #
+
+    def _on_system_config_loaded(self) -> None:
+        """Update the scene when the system configuration is loaded."""
+        plate = self.plate_page.value().plate
+        self._update_wizard_pages(plate)
+
     def _on_plate_combo_changed(self, plate_id: str) -> None:
-        plate = self._plate_db[plate_id]
+        self._update_wizard_pages(self._plate_db[plate_id])
+
+    def _update_wizard_pages(self, plate: Plate) -> None:
         self.calibration_page.setValue(CalibrationInfo(plate, None))
         fov_w, fov_h = self._get_fov_size()
         self.fov_page.setValue(plate, Center(0, 0, fov_w, fov_h))
@@ -205,15 +259,14 @@ class HCSWizard(QWizard):
         # update the fov_page with the fov size
         self.fov_page.setValue(plate, mode)
 
-    def _get_fov_size(self) -> tuple[float | None, float | None]:
+    def _get_fov_size(self) -> tuple[float, float]:
         """Return the image size in mm depending on the camera device."""
         if (
             self._mmc is None
             or not self._mmc.getCameraDevice()
             or not self._mmc.getPixelSizeUm()
         ):
-            # return DEFAULT_FOV, DEFAULT_FOV
-            return None, None
+            return (0.0, 0.0)
 
         _cam_x = self._mmc.getImageWidth()
         _cam_y = self._mmc.getImageHeight()
@@ -221,15 +274,6 @@ class HCSWizard(QWizard):
         image_height_mm = _cam_y * self._mmc.getPixelSizeUm()
 
         return image_width_mm, image_height_mm
-
-    def value(self) -> HCSInfo:
-        plate, well_list = self.plate_page.value()
-        wells = [well.name for well in well_list] if well_list else None
-        _, calibration_data = self.calibration_page.value()
-        # TODO: add warning if not calibtared
-        _, fov_mode = self.fov_page.value()
-        positions = self._get_positions()
-        return HCSInfo(plate, wells, calibration_data, fov_mode, positions)
 
     def _get_positions(self) -> list[Position] | None:
         wells_centers = self._get_well_center_in_stage_coordinates()
@@ -248,17 +292,13 @@ class HCSWizard(QWizard):
         if wells is None or calibration is None:
             return None
 
-        a1_x, a1_y = (calibration.well_A1_center_x, calibration.well_A1_center_y)
+        a1_x, a1_y = calibration.well_A1_center
         wells_center_stage_coords = []
         for well in wells:
             x, y = get_well_center(plate, well, a1_x, a1_y)
             if calibration.rotation_matrix is not None:
                 x, y = apply_rotation_matrix(
-                    calibration.rotation_matrix,
-                    calibration.well_A1_center_x,
-                    calibration.well_A1_center_y,
-                    x,
-                    y,
+                    calibration.rotation_matrix, a1_x, a1_y, x, y
                 )
             wells_center_stage_coords.append((well, x, y))
 
@@ -334,5 +374,4 @@ class HCSWizard(QWizard):
         ax.yaxis.set_visible(False)
         plt.show()
 
-
-# _______________________________________________________________
+    # _______________________________________________________________

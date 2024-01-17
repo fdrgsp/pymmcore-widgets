@@ -27,7 +27,7 @@ from qtpy.QtWidgets import (
 )
 
 from ._util import ResizingGraphicsView, draw_well_plate
-from ._well_plate_model import WellPlate, load_database
+from ._well_plate_model import Plate, load_database
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 StyleSheet = "background:grey; border: 0px; border-radius: 5px;"
@@ -77,7 +77,7 @@ class _CustomPlateWidget(QDialog):
         parent: QWidget | None = None,
         *,
         plate_database_path: Path | str,
-        plate_database: dict[str, WellPlate] | None = None,
+        plate_database: dict[str, Plate] | None = None,
     ) -> None:
         super().__init__(parent)
 
@@ -335,7 +335,7 @@ class _CustomPlateWidget(QDialog):
         self._well_size_y.setValue(0.0)
         self._circular_checkbox.setChecked(False)
 
-    def setValue(self, plate: WellPlate) -> None:
+    def setValue(self, plate: Plate) -> None:
         """Set the values of the well plate."""
         self._id.setText(plate.id)
         self._rows.setValue(plate.rows)
@@ -346,9 +346,9 @@ class _CustomPlateWidget(QDialog):
         self._well_size_y.setValue(plate.well_size_y)
         self._circular_checkbox.setChecked(plate.circular)
 
-    def value(self) -> WellPlate | None:
+    def value(self) -> Plate | None:
         """Return the well plate with the current values."""
-        return WellPlate(
+        return Plate(
             circular=self._circular_checkbox.isChecked(),
             id=self._id.text(),
             columns=self._cols.value(),
@@ -359,7 +359,7 @@ class _CustomPlateWidget(QDialog):
             well_spacing_y=self._well_spacing_y.value(),
         )
 
-    def add_to_database(self, well_plate: WellPlate) -> None:
+    def add_to_database(self, well_plate: Plate) -> None:
         """Add a well plate to the json database."""
         import json
 
@@ -369,11 +369,11 @@ class _CustomPlateWidget(QDialog):
         with open(Path(self._plate_db_path), "w") as file:
             json.dump(db, file)
 
-    def remove_from_database(self, well_plate: WellPlate | list[WellPlate]) -> None:
-        """Remove a WellPlate or a list WellPlate of from the json database."""
+    def remove_from_database(self, well_plate: Plate | list[Plate]) -> None:
+        """Remove a Plate or a list Plate of from the json database."""
         import json
 
-        if isinstance(well_plate, WellPlate):
+        if isinstance(well_plate, Plate):
             well_plate = [well_plate]
 
         with open(Path(self._plate_db_path)) as file:
