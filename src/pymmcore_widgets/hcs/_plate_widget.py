@@ -24,7 +24,7 @@ from ._well_plate_model import load_database
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from ._graphics_items import WellInfo
+    from ._graphics_items import Well
     from ._well_plate_model import Plate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
@@ -48,7 +48,7 @@ class PlateInfo(NamedTuple):
     """
 
     plate: Plate
-    wells: list[WellInfo] | None
+    wells: list[Well] | None
 
 
 class PlateSelectorWidget(QWidget):

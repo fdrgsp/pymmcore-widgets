@@ -35,7 +35,7 @@ from pymmcore_widgets.hcs._fov_widget import (
     _RandomFOVWidget,
 )
 from pymmcore_widgets.hcs._graphics_items import (
-    WellInfo,
+    Well,
     _FOVGraphicsItem,
     _WellAreaGraphicsItem,
     _WellGraphicsItem,
@@ -68,11 +68,11 @@ def test_plate_widget_set_get_value(qtbot: QtBot, database_path: Path):
 
     plate = wdg._plate_db["standard 96 wp"]
     wells = [
-        WellInfo("A1", 0, 0),
-        WellInfo("A2", 0, 1),
-        WellInfo("B3", 1, 2),
-        WellInfo("B4", 1, 3),
-        WellInfo("C5", 2, 4),
+        Well("A1", 0, 0),
+        Well("A2", 0, 1),
+        Well("B3", 1, 2),
+        Well("B4", 1, 3),
+        Well("C5", 2, 4),
     ]
     info = PlateInfo(plate=plate, wells=wells)
 
@@ -189,7 +189,7 @@ def test_calibration_move_to_edge_widget(
     assert wdg._letter_combo.count() == 0
     assert wdg._number_combo.count() == 0
 
-    well = WellInfo(name="C3", row=2, column=2)
+    well = Well(name="C3", row=2, column=2)
     wdg.setValue(database["standard 96 wp"], well)
     assert wdg._letter_combo.count() == 8
     assert wdg._number_combo.count() == 12

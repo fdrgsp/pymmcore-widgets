@@ -25,7 +25,7 @@ from ._calibration_widget import (
     PlateCalibrationWidget,
 )
 from ._fov_widget import Center, FOVSelectorWidget
-from ._graphics_items import WellInfo
+from ._graphics_items import Well
 from ._plate_widget import PlateInfo, PlateSelectorWidget
 from ._util import apply_rotation_matrix, get_well_center
 from ._well_plate_model import PLATE_DB_PATH, Plate, load_database
@@ -51,7 +51,7 @@ class HCSData(NamedTuple):
     """
 
     plate: Plate
-    wells: list[WellInfo] | None = None
+    wells: list[Well] | None = None
     calibration: CalibrationData | None = None
     mode: Center | RandomPoints | GridRowsColumns | None = None
     positions: list[Position] | None = None
@@ -283,7 +283,7 @@ class HCSWizard(QWizard):
 
     def _get_well_center_in_stage_coordinates(
         self,
-    ) -> list[tuple[WellInfo, float, float]] | None:
+    ) -> list[tuple[Well, float, float]] | None:
         plate, _ = self.plate_page.value()
         _, calibration = self.calibration_page.value()
 
@@ -305,7 +305,7 @@ class HCSWizard(QWizard):
         return wells_center_stage_coords
 
     def _get_fovs_in_stage_coords(
-        self, wells_centers: list[tuple[WellInfo, float, float]]
+        self, wells_centers: list[tuple[Well, float, float]]
     ) -> list[Position]:
         """Get the calibrated stage coords of each FOV of the selected wells."""
         _, mode = self.fov_page.value()

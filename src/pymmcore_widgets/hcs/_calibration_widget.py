@@ -30,7 +30,7 @@ from qtpy.QtWidgets import (
 )
 from superqt.fonticon import icon
 
-from ._graphics_items import WellInfo
+from ._graphics_items import Well
 from ._util import apply_rotation_matrix, get_well_center
 
 if TYPE_CHECKING:
@@ -539,15 +539,15 @@ class _TestCalibrationWidget(QGroupBox):
     def _stop_xy_stage(self) -> None:
         self._mmc.stop(self._mmc.getXYStageDevice())
 
-    def value(self) -> tuple[Plate | None, WellInfo]:
+    def value(self) -> tuple[Plate | None, Well]:
         """Return the selected test well as `WellInfo` object."""
-        return self.plate, WellInfo(
+        return self.plate, Well(
             self._letter_combo.currentText() + self._number_combo.currentText(),
             self._letter_combo.currentIndex(),
             self._number_combo.currentIndex(),
         )
 
-    def setValue(self, plate: Plate | None, well: WellInfo | None) -> None:
+    def setValue(self, plate: Plate | None, well: Well | None) -> None:
         """Set the selected test well."""
         self.plate = plate
         self._update_combos()

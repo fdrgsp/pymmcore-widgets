@@ -11,7 +11,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from ._graphics_items import WellInfo, _WellGraphicsItem
+from ._graphics_items import Well, _WellGraphicsItem
 
 if TYPE_CHECKING:
     from qtpy.QtGui import QBrush, QPen, QResizeEvent
@@ -97,7 +97,7 @@ def draw_well_plate(
 
 
 def get_well_center(
-    plate: Plate, well: WellInfo, a1_center_x: float, a1_center_y: float
+    plate: Plate, well: Well, a1_center_x: float, a1_center_y: float
 ) -> tuple[float, float]:
     """Calculate the x, y stage coordinates of a well."""
     a1_x, a1_y = (a1_center_x, a1_center_y)

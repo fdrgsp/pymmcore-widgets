@@ -12,8 +12,8 @@ DEFAULT_PEN.setWidth(3)
 DEFAULT_BRUSH = QBrush(Qt.GlobalColor.white)
 
 
-class WellInfo(NamedTuple):
-    """Tuple to store the well name, row and column.
+class Well(NamedTuple):
+    """NamedTuple to store well name, row and column.
 
     Attributes
     ----------
@@ -125,12 +125,12 @@ class _WellGraphicsItem(QGraphicsItem):
             self._well_shape, well_name, QTextOption(Qt.AlignmentFlag.AlignCenter)
         )
 
-    def value(self) -> WellInfo:
+    def value(self) -> Well:
         """Return the well name, row and column in a tuple."""
         row = self._row
         col = self._col
         well = f"{ALPHABET[self._row]}{self._col + 1}"
-        return WellInfo(name=well, row=row, column=col)
+        return Well(name=well, row=row, column=col)
 
 
 class _WellAreaGraphicsItem(QGraphicsItem):

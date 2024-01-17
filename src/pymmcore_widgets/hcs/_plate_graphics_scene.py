@@ -14,7 +14,7 @@ from qtpy.QtWidgets import (
 )
 
 if TYPE_CHECKING:
-    from ._graphics_items import WellInfo, _WellGraphicsItem
+    from ._graphics_items import Well, _WellGraphicsItem
 
 SELECTED_COLOR = QBrush(Qt.GlobalColor.magenta)
 UNSELECTED_COLOR = QBrush(Qt.GlobalColor.green)
@@ -106,7 +106,7 @@ class _HCSGraphicsScene(QGraphicsScene):
             item.brush = UNSELECTED_COLOR
         self.valueChanged.emit()
 
-    def setValue(self, value: list[WellInfo]) -> None:
+    def setValue(self, value: list[Well]) -> None:
         """Select the wells listed in `value`."""
         self._clear_selection()
 
@@ -116,7 +116,7 @@ class _HCSGraphicsScene(QGraphicsScene):
                 self._set_selected(item, True)
         self.valueChanged.emit()
 
-    def value(self) -> list[WellInfo] | None:
+    def value(self) -> list[Well] | None:
         """Return the list of tuple (name, row, column) of the selected wells.
 
         ...in a snake-row-wise order.
@@ -126,7 +126,7 @@ class _HCSGraphicsScene(QGraphicsScene):
         # this has to be fixed. Maybe at thgis point the order does not matter
         return self._snake_row_wise_ordered(wells) if wells else None
 
-    def _snake_row_wise_ordered(self, wells: list[WellInfo]) -> list[WellInfo]:
+    def _snake_row_wise_ordered(self, wells: list[Well]) -> list[Well]:
         """Return a snake-row-wise ordered list of the selected wells."""
         max_row = max(wells, key=lambda well: well.row).row + 1
         max_column = max(wells, key=lambda well: well.column).column + 1
@@ -148,7 +148,7 @@ class _HCSGraphicsScene(QGraphicsScene):
         # `list(zip(r.ravel(), c.ravel()))` creates a list of snake-row-wise ordered
         # (row, col). Now we use this (row, col) info to create a list of
         # (name, row, col) in a snake-row-wise order.
-        snake_ordered: list[WellInfo] = []
+        snake_ordered: list[Well] = []
         for row, col in list(zip(r.ravel(), c.ravel())):
             snake_ordered.extend(
                 well for well in wells if well.row == row and well.column == col
