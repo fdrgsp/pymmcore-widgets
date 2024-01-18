@@ -7,6 +7,7 @@ from qtpy.QtCore import Qt, Signal
 from qtpy.QtGui import QBrush, QPen
 from qtpy.QtWidgets import (
     QComboBox,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -16,10 +17,10 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
-from ._custom_plate_widget import _CustomPlateWidget
+from ._custom_plate_widget import CustomPlateWidget
 from ._plate_graphics_scene import _HCSGraphicsScene
-from ._util import _ResizingGraphicsView, draw_well_plate
-from ._well_plate_model import load_database
+from ._util import _ResizingGraphicsView, draw_plate
+from ._well_plate_model import PLATE_DB_PATH, load_database
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -59,8 +60,7 @@ class PlateSelectorWidget(QWidget):
     def __init__(
         self,
         parent: QWidget | None = None,
-        *,
-        plate_database_path: Path | str,
+        plate_database_path: Path | str = PLATE_DB_PATH,
         plate_database: dict[str, Plate] | None = None,
     ) -> None:
         super().__init__(parent)
@@ -84,12 +84,14 @@ class PlateSelectorWidget(QWidget):
         # clear and custom plate buttons
         self.custom_plate_button = QPushButton(text="Custom Plate")
         self.clear_button = QPushButton(text="Clear Selection")
+        self.load_plate_db_button = QPushButton(text="Load Plate Database")
         btns_wdg = QWidget()
         btns_wdg.setLayout(QHBoxLayout())
         btns_wdg.layout().setContentsMargins(0, 0, 0, 0)
         btns_wdg.layout().setSpacing(5)
-        btns_wdg.layout().addWidget(self.custom_plate_button)
         btns_wdg.layout().addWidget(self.clear_button)
+        btns_wdg.layout().addWidget(self.custom_plate_button)
+        btns_wdg.layout().addWidget(self.load_plate_db_button)
 
         top_wdg = QWidget()
         top_wdg.setLayout(QHBoxLayout())
@@ -110,7 +112,7 @@ class PlateSelectorWidget(QWidget):
         self.layout().addWidget(top_wdg)
         self.layout().addWidget(self.view)
 
-        self._custom_plate = _CustomPlateWidget(
+        self._custom_plate = CustomPlateWidget(
             parent=self,
             plate_database=self._plate_db,
             plate_database_path=self._plate_db_path,
@@ -119,11 +121,12 @@ class PlateSelectorWidget(QWidget):
         # connect
         self.scene.valueChanged.connect(self.valueChanged)
         self.clear_button.clicked.connect(self.scene._clear_selection)
-        self.plate_combo.currentTextChanged.connect(self._update)
+        self.plate_combo.currentTextChanged.connect(self._draw_plate)
         self.custom_plate_button.clicked.connect(self._show_custom_plate_dialog)
-        self._custom_plate.valueChanged.connect(self._update_well_plate_combo)
+        self._custom_plate.valueChanged.connect(self._update_wdg)
+        self.load_plate_db_button.clicked.connect(self._load_plate_database)
 
-        self._update(self.plate_combo.currentText())
+        self._draw_plate(self.plate_combo.currentText())
 
     # _________________________PUBLIC METHODS_________________________ #
 
@@ -146,10 +149,24 @@ class PlateSelectorWidget(QWidget):
 
         self.scene.setValue(plateinfo.wells)
 
+    def load_plate_database(self, plate_database_path: Path | str) -> None:
+        """Load a new plate database."""
+        # update the plate database
+        self._plate_db_path = plate_database_path
+        self._plate_db = load_database(self._plate_db_path)
+
+        # update the well plate combobox
+        with signals_blocked(self.plate_combo):
+            self.plate_combo.clear()
+        self.plate_combo.addItems(list(self._plate_db))
+
+        # update the custom plate widget
+        self._custom_plate.load_plate_database(self._plate_db_path)
+
     # _________________________PRIVATE METHODS________________________ #
 
-    def _update(self, plate_name: str) -> None:
-        draw_well_plate(
+    def _draw_plate(self, plate_name: str) -> None:
+        draw_plate(
             self.view, self.scene, self._plate_db[plate_name], brush=BRUSH, pen=PEN
         )
         self.valueChanged.emit()
@@ -166,10 +183,31 @@ class PlateSelectorWidget(QWidget):
         self._custom_plate.plate_table.clearSelection()
         self._custom_plate.reset_values()
 
-    def _update_well_plate_combo(self, new_plate: Plate | None) -> None:
-        """Update the well plate combobox with the updated plate database."""
+    def _update_wdg(
+        self,
+        new_plate: Plate | None,
+        plate_db: dict[str, Plate],
+        plate_db_path: Path | str,
+    ) -> None:
+        """Update the widget with the updated plate database."""
+        # if a new plate database is loaded in the custom plate widget, update this
+        # widget as well with the new plate database
+        if plate_db != self._plate_db:
+            self.load_plate_database(plate_db_path)
+            return
+
+        # if a new plate is created in the custom plate widget, add it to the
+        # plate_combo and set it as the current plate
         with signals_blocked(self.plate_combo):
             self.plate_combo.clear()
         self.plate_combo.addItems(list(self._plate_db))
         if new_plate:
-            self.plate_combo.setCurrentText(new_plate.id)
+            self.plate_combo.setCurrentText(new_plate.id)  # trigger _draw_plate
+
+    def _load_plate_database(self) -> None:
+        """Load a new plate database."""
+        (plate_database_path, _) = QFileDialog.getOpenFileName(
+            self, "Select a Plate Database", "", "json(*.json)"
+        )
+        if plate_database_path:
+            self.load_plate_database(plate_database_path)

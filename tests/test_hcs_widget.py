@@ -41,9 +41,9 @@ from pymmcore_widgets.hcs._graphics_items import (
     _WellGraphicsItem,
 )
 from pymmcore_widgets.hcs._plate_widget import (
+    CustomPlateWidget,
     PlateInfo,
     PlateSelectorWidget,
-    _CustomPlateWidget,
 )
 from pymmcore_widgets.hcs._well_plate_model import Plate, load_database
 
@@ -93,7 +93,7 @@ def test_plate_widget_combo(qtbot: QtBot, database_path: Path):
 
 
 def test_custom_plate_widget_set_get_value(qtbot: QtBot, database_path: Path):
-    wdg = _CustomPlateWidget(plate_database_path=database_path)
+    wdg = CustomPlateWidget(plate_database_path=database_path)
     qtbot.addWidget(wdg)
 
     current_plate_id = wdg.plate_table.item(0, 0).text()

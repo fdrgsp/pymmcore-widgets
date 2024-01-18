@@ -29,7 +29,7 @@ class _ResizingGraphicsView(QGraphicsView):
         self.fitInView(self.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
 
-def draw_well_plate(
+def draw_plate(
     view: QGraphicsView,
     scene: QGraphicsScene,
     plate: Plate,

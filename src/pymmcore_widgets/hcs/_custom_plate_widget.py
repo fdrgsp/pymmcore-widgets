@@ -10,6 +10,7 @@ from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
     QDoubleSpinBox,
+    QFileDialog,
     QGraphicsScene,
     QGridLayout,
     QGroupBox,
@@ -26,8 +27,8 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from ._util import _ResizingGraphicsView, draw_well_plate
-from ._well_plate_model import Plate, load_database
+from ._util import _ResizingGraphicsView, draw_plate
+from ._well_plate_model import PLATE_DB_PATH, Plate, load_database
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 StyleSheet = "background:grey; border: 0px; border-radius: 5px;"
@@ -67,16 +68,15 @@ class _Table(QTableWidget):
         self.cellClicked.emit(self.currentRow(), 0)
 
 
-class _CustomPlateWidget(QDialog):
+class CustomPlateWidget(QDialog):
     """Widget to create or edit a well plate in the database."""
 
-    valueChanged = Signal(object)
+    valueChanged = Signal(object, object, object)
 
     def __init__(
         self,
         parent: QWidget | None = None,
-        *,
-        plate_database_path: Path | str,
+        plate_database_path: Path | str = PLATE_DB_PATH,
         plate_database: dict[str, Plate] | None = None,
     ) -> None:
         super().__init__(parent)
@@ -213,8 +213,11 @@ class _CustomPlateWidget(QDialog):
         self._delete_btn.clicked.connect(self._delete_plate)
         self._ok_btn = QPushButton(text="Add/Update")
         self._ok_btn.clicked.connect(self._update_plate_db)
+        self.load_plate_db_button = QPushButton(text="Load Plate Database")
+        self.load_plate_db_button.clicked.connect(self._load_plate_database)
         btn_wdg.layout().addWidget(self._ok_btn)
         btn_wdg.layout().addWidget(self._delete_btn)
+        btn_wdg.layout().addWidget(self.load_plate_db_button)
 
         # main
         self.setLayout(QVBoxLayout())
@@ -235,94 +238,12 @@ class _CustomPlateWidget(QDialog):
             self._well_spacing_x,
             self._well_spacing_y,
         ):
-            wdg.valueChanged.connect(self._draw_well_plate)
-        self._circular_checkbox.toggled.connect(self._draw_well_plate)
+            wdg.valueChanged.connect(self._draw_plate)
+        self._circular_checkbox.toggled.connect(self._draw_plate)
 
         self._populate_table()
 
-    def _populate_table(self) -> None:
-        """Populate the table with the well plate in the database."""
-        self.plate_table.setRowCount(len(self._plate_db))
-        for row, plate_name in enumerate(self._plate_db):
-            item = QTableWidgetItem(plate_name)
-            self.plate_table.setItem(row, 0, item)
-        self._update_values(row=0)
-        draw_well_plate(
-            self.view,
-            self.scene,
-            self._plate_db[self.plate_table.item(0, 0).text()],
-            brush=BRUSH,
-            pen=PEN,
-            opacity=OPACITY,
-            text=False,
-        )
-        self._id.adjustSize()
-
-    def _update_values(self, row: int) -> None:
-        """Update the values of the well plate in the widget."""
-        plate_item = self.plate_table.item(row, 0)
-        if not plate_item:
-            return
-        plate = self._plate_db[plate_item.text()]
-        self.setValue(plate)
-
-    def _draw_well_plate(self) -> None:
-        """Draw the well plate."""
-        plate = self.value()
-        if plate is None:
-            return
-        draw_well_plate(
-            self.view,
-            self.scene,
-            plate,
-            brush=BRUSH,
-            pen=PEN,
-            opacity=OPACITY,
-            text=False,
-        )
-
-    def _update_plate_db(self) -> None:
-        """Update the well plate in database and in current session."""
-        if not self._id.text():
-            raise ValueError("'Plate name' field cannot be empty!")
-
-        new_plate = self.value()
-
-        if new_plate is None:
-            return
-
-        self.add_to_database(new_plate)
-
-        # update self._plate_db for the current session
-        self._plate_db[new_plate.id] = new_plate
-
-        self.valueChanged.emit(new_plate)
-        self._populate_table()
-
-        self.close()
-
-    def _delete_plate(self) -> None:
-        """Delete the selected well plate(s) from database and the current session."""
-        selected_rows = {r.row() for r in self.plate_table.selectedIndexes()}
-        if not selected_rows:
-            return
-
-        plate_names = [self.plate_table.item(r, 0).text() for r in selected_rows]
-        # delete plate in database
-        self.remove_from_database(plate_names)
-        # update self._plate_db for the current session
-        for plate_name in plate_names:
-            self._plate_db.pop(plate_name, None)
-            match = self.plate_table.findItems(plate_name, Qt.MatchExactly)
-            self.plate_table.removeRow(match[0].row())
-
-        self.valueChanged.emit(None)
-
-        if self.plate_table.rowCount():
-            self.plate_table.setCurrentCell(0, 0)
-            self._update_values(row=0)
-        else:
-            self.reset_values()
+    # _________________________PUBLIC METHODS_________________________ #
 
     def reset_values(self) -> None:
         """Reset the values of the well plate in the widget."""
@@ -381,3 +302,110 @@ class _CustomPlateWidget(QDialog):
             db = [plate for plate in db if plate["id"] not in well_plate]
         with open(Path(self._plate_db_path), "w") as file:
             json.dump(db, file)
+
+    def load_plate_database(self, plate_database_path: Path | str) -> None:
+        """Load a new plate database."""
+        self._plate_db_path = plate_database_path
+        self._plate_db = load_database(self._plate_db_path)
+        self._populate_table()
+        first_plate = self._plate_db[self.plate_table.item(0, 0).text()]
+        self.valueChanged.emit(first_plate, self._plate_db, self._plate_db_path)
+
+    # _________________________PRIVATE METHODS________________________ #
+
+    def _populate_table(self) -> None:
+        """Populate the table with the well plate in the database."""
+        if not self._plate_db:
+            return
+
+        self.plate_table.setRowCount(len(self._plate_db))
+        for row, plate_name in enumerate(self._plate_db):
+            item = QTableWidgetItem(plate_name)
+            self.plate_table.setItem(row, 0, item)
+        self._update_values(row=0)
+        draw_plate(
+            self.view,
+            self.scene,
+            self._plate_db[self.plate_table.item(0, 0).text()],
+            brush=BRUSH,
+            pen=PEN,
+            opacity=OPACITY,
+            text=False,
+        )
+        self._id.adjustSize()
+
+        self.plate_table.selectRow(0)
+
+    def _update_values(self, row: int) -> None:
+        """Update the values of the well plate in the widget."""
+        plate_item = self.plate_table.item(row, 0)
+        if not plate_item:
+            return
+        plate = self._plate_db[plate_item.text()]
+        self.setValue(plate)
+
+    def _draw_plate(self) -> None:
+        """Draw the plate."""
+        plate = self.value()
+        if plate is None:
+            return
+        draw_plate(
+            self.view,
+            self.scene,
+            plate,
+            brush=BRUSH,
+            pen=PEN,
+            opacity=OPACITY,
+            text=False,
+        )
+
+    def _update_plate_db(self) -> None:
+        """Update the well plate in database and in current session."""
+        if not self._id.text():
+            raise ValueError("'Plate name' field cannot be empty!")
+
+        new_plate = self.value()
+
+        if new_plate is None:
+            return
+
+        self.add_to_database(new_plate)
+
+        # update self._plate_db for the current session
+        self._plate_db[new_plate.id] = new_plate
+
+        self.valueChanged.emit(new_plate, self._plate_db, self._plate_db_path)
+        self._populate_table()
+
+        self.close()
+
+    def _delete_plate(self) -> None:
+        """Delete the selected well plate(s) from database and the current session."""
+        selected_rows = {r.row() for r in self.plate_table.selectedIndexes()}
+        if not selected_rows:
+            return
+
+        plate_names = [self.plate_table.item(r, 0).text() for r in selected_rows]
+        # delete plate in database
+        self.remove_from_database(plate_names)
+        # update self._plate_db for the current session
+        for plate_name in plate_names:
+            self._plate_db.pop(plate_name, None)
+            match = self.plate_table.findItems(plate_name, Qt.MatchExactly)
+            self.plate_table.removeRow(match[0].row())
+
+        self.valueChanged.emit(None, self._plate_db, self._plate_db_path)
+
+        if self.plate_table.rowCount():
+            self.plate_table.setCurrentCell(0, 0)
+            self._update_values(row=0)
+        else:
+            self.reset_values()
+
+    def _load_plate_database(self) -> None:
+        """Load a new plate database."""
+        (plate_database_path, _) = QFileDialog.getOpenFileName(
+            self, "Select a Plate Database", "", "json(*.json)"
+        )
+        if plate_database_path:
+            self.load_plate_database(plate_database_path)
