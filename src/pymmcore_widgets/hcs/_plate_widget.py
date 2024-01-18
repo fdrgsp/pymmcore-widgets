@@ -163,6 +163,10 @@ class PlateSelectorWidget(QWidget):
         # update the custom plate widget
         self._custom_plate.load_plate_database(self._plate_db_path)
 
+    def get_plate_database(self) -> dict[str, Plate]:
+        """Return the current plate database."""
+        return self._plate_db
+
     # _________________________PRIVATE METHODS________________________ #
 
     def _draw_plate(self, plate_name: str) -> None:

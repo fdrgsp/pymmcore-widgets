@@ -62,6 +62,31 @@ def database(database_path):
     return load_database(database_path)
 
 
+CUSTOM_PLATE = Plate(
+    id="custom plate",
+    circular=True,
+    rows=2,
+    columns=4,
+    well_spacing_x=15,
+    well_spacing_y=15,
+    well_size_x=10,
+    well_size_y=10,
+)
+
+
+def test_plate_widget_load_database(qtbot: QtBot, database_path: Path):
+    wdg = PlateSelectorWidget()
+    qtbot.addWidget(wdg)
+
+    assert "coverslip 10mm" not in wdg._plate_db
+    assert "coverslip 10mm" not in wdg._custom_plate._plate_db
+
+    wdg.load_plate_database(database_path)
+
+    assert "coverslip 10mm" in wdg._plate_db
+    assert "coverslip 10mm" in wdg._custom_plate._plate_db
+
+
 def test_plate_widget_set_get_value(qtbot: QtBot, database_path: Path):
     wdg = PlateSelectorWidget(plate_database_path=database_path)
     qtbot.addWidget(wdg)
@@ -92,6 +117,17 @@ def test_plate_widget_combo(qtbot: QtBot, database_path: Path):
     assert wdg.value().plate.id == "standard 96 wp"
 
 
+def test_custom_plate_widget_load_database(qtbot: QtBot, database_path: Path):
+    wdg = CustomPlateWidget()
+    qtbot.addWidget(wdg)
+
+    assert "coverslip 10mm" not in wdg._plate_db
+
+    wdg.load_plate_database(database_path)
+
+    assert "coverslip 10mm" in wdg._plate_db
+
+
 def test_custom_plate_widget_set_get_value(qtbot: QtBot, database_path: Path):
     wdg = CustomPlateWidget(plate_database_path=database_path)
     qtbot.addWidget(wdg)
@@ -99,23 +135,31 @@ def test_custom_plate_widget_set_get_value(qtbot: QtBot, database_path: Path):
     current_plate_id = wdg.plate_table.item(0, 0).text()
     assert wdg.value().id == current_plate_id
 
-    custom_plate = Plate(
-        id="custom plate",
-        circular=True,
-        rows=2,
-        columns=4,
-        well_spacing_x=15,
-        well_spacing_y=15,
-        well_size_x=10,
-        well_size_y=10,
-    )
-
-    wdg.setValue(custom_plate)
-    assert wdg.value() == custom_plate
+    wdg.setValue(CUSTOM_PLATE)
+    assert wdg.value() == CUSTOM_PLATE
 
     scene_items = list(wdg.scene.items())
     assert len(scene_items) == 8
     assert all(isinstance(item, _WellGraphicsItem) for item in scene_items)
+
+
+def test_custom_plate_widget_update_database(qtbot: QtBot, database_path: Path):
+    wdg = CustomPlateWidget(plate_database_path=database_path)
+    qtbot.addWidget(wdg)
+
+    wdg.add_to_database([CUSTOM_PLATE])
+    assert "custom plate" in wdg._plate_db
+    plates = [
+        wdg.plate_table.item(i, 0).text() for i in range(wdg.plate_table.rowCount())
+    ]
+    assert "custom plate" in plates
+
+    wdg.remove_from_database(["custom plate"])
+    assert "custom plate" not in wdg._plate_db
+    plates = [
+        wdg.plate_table.item(i, 0).text() for i in range(wdg.plate_table.rowCount())
+    ]
+    assert "custom plate" not in plates
 
 
 def test_calibration_mode_widget(qtbot: QtBot):

@@ -210,9 +210,9 @@ class CustomPlateWidget(QDialog):
         btn_wdg.layout().setContentsMargins(5, 5, 5, 5)
         btn_wdg.layout().setSpacing(5)
         self._delete_btn = QPushButton(text="Delete")
-        self._delete_btn.clicked.connect(self._delete_plate)
+        self._delete_btn.clicked.connect(self.remove_from_database)
         self._ok_btn = QPushButton(text="Add/Update")
-        self._ok_btn.clicked.connect(self._update_plate_db)
+        self._ok_btn.clicked.connect(self.add_to_database)
         self.load_plate_db_button = QPushButton(text="Load Plate Database")
         self.load_plate_db_button.clicked.connect(self._load_plate_database)
         btn_wdg.layout().addWidget(self._ok_btn)
@@ -280,28 +280,56 @@ class CustomPlateWidget(QDialog):
             well_spacing_y=self._well_spacing_y.value(),
         )
 
-    def add_to_database(self, well_plate: Plate) -> None:
-        """Add a well plate to the json database."""
-        import json
+    def add_to_database(self, plates: list[Plate] | None = None) -> None:
+        """Update the well plate in database and in current session."""
+        if not self._id.text():
+            raise ValueError("'Plate name' field cannot be empty!")
 
-        with open(Path(self._plate_db_path)) as file:
-            db = cast(list, json.load(file))
-            db.append(asdict(well_plate))
-        with open(Path(self._plate_db_path), "w") as file:
-            json.dump(db, file)
+        curr_plate = self.value()
+        plates = plates or ([curr_plate] if curr_plate else None)
 
-    def remove_from_database(self, well_plate: Plate | list[Plate]) -> None:
-        """Remove a Plate or a list Plate of from the json database."""
-        import json
+        if not plates:
+            return
 
-        if isinstance(well_plate, Plate):
-            well_plate = [well_plate]
+        for new_plate in plates:
+            self._add_to_database(new_plate)
 
-        with open(Path(self._plate_db_path)) as file:
-            db = cast(list, json.load(file))
-            db = [plate for plate in db if plate["id"] not in well_plate]
-        with open(Path(self._plate_db_path), "w") as file:
-            json.dump(db, file)
+            # update self._plate_db for the current session
+            self._plate_db[new_plate.id] = new_plate
+
+        self.valueChanged.emit(new_plate, self._plate_db, self._plate_db_path)
+        self._populate_table()
+
+        self.close()
+
+    def remove_from_database(self, plates: list[Plate] | None = None) -> None:
+        """Delete the plate_names from database and the current session."""
+        if not plates:
+            # get the names foprm the selected rows
+            selected_rows = {r.row() for r in self.plate_table.selectedIndexes()}
+            if not selected_rows:
+                return
+            plates = [
+                self._plate_db[self.plate_table.item(r, 0).text()]
+                for r in selected_rows
+            ]
+
+        # delete plate in database
+        self._remove_from_database(plates)
+
+        # update self._plate_db for the current session
+        for plate in plates:
+            self._plate_db.pop(plate.id, None)
+            match = self.plate_table.findItems(plate.id, Qt.MatchExactly)
+            self.plate_table.removeRow(match[0].row())
+
+        self.valueChanged.emit(None, self._plate_db, self._plate_db_path)
+
+        if self.plate_table.rowCount():
+            self.plate_table.setCurrentCell(0, 0)
+            self._update_values(row=0)
+        else:
+            self.reset_values()
 
     def load_plate_database(self, plate_database_path: Path | str) -> None:
         """Load a new plate database."""
@@ -310,6 +338,10 @@ class CustomPlateWidget(QDialog):
         self._populate_table()
         first_plate = self._plate_db[self.plate_table.item(0, 0).text()]
         self.valueChanged.emit(first_plate, self._plate_db, self._plate_db_path)
+
+    def get_plate_database(self) -> dict[str, Plate]:
+        """Return the current plate database."""
+        return self._plate_db
 
     # _________________________PRIVATE METHODS________________________ #
 
@@ -359,49 +391,6 @@ class CustomPlateWidget(QDialog):
             text=False,
         )
 
-    def _update_plate_db(self) -> None:
-        """Update the well plate in database and in current session."""
-        if not self._id.text():
-            raise ValueError("'Plate name' field cannot be empty!")
-
-        new_plate = self.value()
-
-        if new_plate is None:
-            return
-
-        self.add_to_database(new_plate)
-
-        # update self._plate_db for the current session
-        self._plate_db[new_plate.id] = new_plate
-
-        self.valueChanged.emit(new_plate, self._plate_db, self._plate_db_path)
-        self._populate_table()
-
-        self.close()
-
-    def _delete_plate(self) -> None:
-        """Delete the selected well plate(s) from database and the current session."""
-        selected_rows = {r.row() for r in self.plate_table.selectedIndexes()}
-        if not selected_rows:
-            return
-
-        plate_names = [self.plate_table.item(r, 0).text() for r in selected_rows]
-        # delete plate in database
-        self.remove_from_database(plate_names)
-        # update self._plate_db for the current session
-        for plate_name in plate_names:
-            self._plate_db.pop(plate_name, None)
-            match = self.plate_table.findItems(plate_name, Qt.MatchExactly)
-            self.plate_table.removeRow(match[0].row())
-
-        self.valueChanged.emit(None, self._plate_db, self._plate_db_path)
-
-        if self.plate_table.rowCount():
-            self.plate_table.setCurrentCell(0, 0)
-            self._update_values(row=0)
-        else:
-            self.reset_values()
-
     def _load_plate_database(self) -> None:
         """Load a new plate database."""
         (plate_database_path, _) = QFileDialog.getOpenFileName(
@@ -409,3 +398,26 @@ class CustomPlateWidget(QDialog):
         )
         if plate_database_path:
             self.load_plate_database(plate_database_path)
+
+    def _add_to_database(self, well_plate: Plate) -> None:
+        """Add a well plate to the json database."""
+        import json
+
+        with open(Path(self._plate_db_path)) as file:
+            db = cast(list, json.load(file))
+            db.append(asdict(well_plate))
+        with open(Path(self._plate_db_path), "w") as file:
+            json.dump(db, file)
+
+    def _remove_from_database(self, well_plate: Plate | list[Plate]) -> None:
+        """Remove a Plate or a list Plate of from the json database."""
+        import json
+
+        if isinstance(well_plate, Plate):
+            well_plate = [well_plate]
+
+        with open(Path(self._plate_db_path)) as file:
+            db = cast(list, json.load(file))
+            db = [plate for plate in db if plate["id"] not in well_plate]
+        with open(Path(self._plate_db_path), "w") as file:
+            json.dump(db, file)
