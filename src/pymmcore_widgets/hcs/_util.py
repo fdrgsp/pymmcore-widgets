@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from ._well_plate_model import Plate
 
 
-class ResizingGraphicsView(QGraphicsView):
+class _ResizingGraphicsView(QGraphicsView):
     """A QGraphicsView that resizes the scene to fit the view."""
 
     def __init__(self, scene: QGraphicsScene, parent: QWidget | None = None) -> None:

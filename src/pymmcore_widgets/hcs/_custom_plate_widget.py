@@ -26,7 +26,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from ._util import ResizingGraphicsView, draw_well_plate
+from ._util import _ResizingGraphicsView, draw_well_plate
 from ._well_plate_model import Plate, load_database
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
@@ -190,7 +190,7 @@ class _CustomPlateWidget(QDialog):
 
         # plate preview
         self.scene = QGraphicsScene()
-        self.view = ResizingGraphicsView(self.scene)
+        self.view = _ResizingGraphicsView(self.scene)
         self.view.setStyleSheet("background:grey; border-radius: 5px;")
         self.view.setMinimumWidth(self.plate_table.sizeHint().width())
         preview_wdg = QWidget()

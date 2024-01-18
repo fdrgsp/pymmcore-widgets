@@ -40,7 +40,7 @@ from useq._grid import OrderMode, Shape
 from pymmcore_widgets.useq_widgets._grid import _SeparatorWidget
 
 from ._graphics_items import FOV, _FOVGraphicsItem, _WellAreaGraphicsItem
-from ._util import ResizingGraphicsView
+from ._util import _ResizingGraphicsView
 from ._well_plate_model import Plate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
@@ -417,7 +417,7 @@ class _GridFovWidget(QWidget):
         self.fov_size = (value.fov_width, value.fov_height)
 
 
-class WellView(ResizingGraphicsView):
+class WellView(_ResizingGraphicsView):
     """Graphics view to draw a well and the FOVs.
 
     Parameters

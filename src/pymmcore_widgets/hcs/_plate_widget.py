@@ -18,7 +18,7 @@ from superqt.utils import signals_blocked
 
 from ._custom_plate_widget import _CustomPlateWidget
 from ._plate_graphics_scene import _HCSGraphicsScene
-from ._util import ResizingGraphicsView, draw_well_plate
+from ._util import _ResizingGraphicsView, draw_well_plate
 from ._well_plate_model import load_database
 
 if TYPE_CHECKING:
@@ -99,7 +99,7 @@ class PlateSelectorWidget(QWidget):
         top_wdg.layout().addWidget(btns_wdg)
 
         self.scene = _HCSGraphicsScene(parent=self)
-        self.view = ResizingGraphicsView(self.scene, self)
+        self.view = _ResizingGraphicsView(self.scene, self)
         self.view.setStyleSheet("background:grey; border-radius: 5px;")
         self.view.setMinimumHeight(PLATE_GRAPHICS_VIEW_HEIGHT)
         self.view.setMinimumWidth(int(PLATE_GRAPHICS_VIEW_HEIGHT * 1.5))
