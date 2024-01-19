@@ -26,6 +26,7 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from superqt.utils import signals_blocked
 
 from ._util import _ResizingGraphicsView, draw_plate
 from ._well_plate_model import PLATE_DB_PATH, Plate, load_database
@@ -299,8 +300,24 @@ class PlateDatabaseWidget(QDialog):
                 json.dump([], file)
             self.load_plate_database(plate_database_path)
 
-    def load_plate_database(self, plate_database_path: Path | str) -> None:
-        """Load a plate database."""
+    def load_plate_database(
+        self, plate_database_path: Path | str | None = None
+    ) -> None:
+        """Load a plate database.
+
+        Parameters
+        ----------
+        plate_database_path : Path | str | None
+            the path to the plate database. If None, a dialog will open to select a
+            plate database. By default, None.
+        """
+        if not plate_database_path:
+            (plate_database_path, _) = QFileDialog.getOpenFileName(
+                self, "Select a Plate Database", "", "json(*.json)"
+            )
+        if not plate_database_path:
+            return
+
         self._plate_db_path = plate_database_path
         self._plate_db = load_database(self._plate_db_path)
         self._populate_table()
@@ -360,9 +377,11 @@ class PlateDatabaseWidget(QDialog):
 
     def _populate_table(self) -> None:
         """Populate the table with the well plate in the database."""
+        # if the database is empty, clear the table and return
         if not self._plate_db:
-            self.plate_table.clearContents()
-            self.plate_table.setRowCount(0)
+            with signals_blocked(self.plate_table):
+                self.plate_table.clearContents()
+                self.plate_table.setRowCount(0)
             self.reset_values()
             return
 
@@ -387,9 +406,11 @@ class PlateDatabaseWidget(QDialog):
     def _update_values(self, row: int) -> None:
         """Update the values of the well plate in the widget."""
         plate_item = self.plate_table.item(row, 0)
+
         if not plate_item:
             return
         plate = self._plate_db[plate_item.text()]
+
         self.setValue(plate)
 
     def _draw_plate(self) -> None:

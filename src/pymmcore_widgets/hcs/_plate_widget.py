@@ -17,7 +17,7 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
-from ._custom_plate_widget import PlateDatabaseWidget
+from ._plate_database_widget import PlateDatabaseWidget
 from ._plate_graphics_scene import _HCSGraphicsScene
 from ._util import _ResizingGraphicsView, draw_plate
 from ._well_plate_model import PLATE_DB_PATH, load_database
@@ -157,8 +157,24 @@ class PlateSelectorWidget(QWidget):
 
         self.scene.setValue(value.wells)
 
-    def load_plate_database(self, plate_database_path: Path | str) -> None:
-        """Load a plate database."""
+    def load_plate_database(
+        self, plate_database_path: Path | str | None = None
+    ) -> None:
+        """Load a plate database.
+
+        Parameters
+        ----------
+        plate_database_path : Path | str | None
+            the path to the plate database. If None, a dialog will open to select a
+            plate database. By default, None.
+        """
+        if not plate_database_path:
+            (plate_database_path, _) = QFileDialog.getOpenFileName(
+                self, "Select a Plate Database", "", "json(*.json)"
+            )
+        if not plate_database_path:
+            return
+
         # update the plate database
         self._plate_db_path = plate_database_path
         self._plate_db = load_database(self._plate_db_path)

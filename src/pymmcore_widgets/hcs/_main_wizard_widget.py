@@ -83,12 +83,12 @@ class PlatePage(QWizardPage):
         """Return the selected well plate and the selected wells."""
         return self._plate_widget.value()
 
-    def setValue(self, plateinfo: PlateInfo) -> None:
+    def setValue(self, value: PlateInfo) -> None:
         """Set the current plate and the selected wells.
 
         `value` is a list of (well_name, row, column).
         """
-        self._plate_widget.setValue(plateinfo)
+        self._plate_widget.setValue(value)
 
     def get_plate_database(self) -> dict[str, Plate]:
         """Return the current plate database."""
@@ -112,9 +112,9 @@ class PlateCalibrationPage(QWizardPage):
         """Return the calibration info."""
         return self._calibration.value()
 
-    def setValue(self, calibration_info: CalibrationInfo) -> None:
+    def setValue(self, value: CalibrationInfo) -> None:
         """Set the calibration info."""
-        self._calibration.setValue(calibration_info)
+        self._calibration.setValue(value)
 
 
 class FOVSelectorPage(QWizardPage):
