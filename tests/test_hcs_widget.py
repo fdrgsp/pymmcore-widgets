@@ -74,7 +74,7 @@ CUSTOM_PLATE = Plate(
 )
 
 
-def test_plate_widget_load_database(qtbot: QtBot, database_path: Path):
+def test_plate_selector_widget_load_database(qtbot: QtBot, database_path: Path):
     wdg = PlateSelectorWidget()
     qtbot.addWidget(wdg)
 
@@ -87,7 +87,7 @@ def test_plate_widget_load_database(qtbot: QtBot, database_path: Path):
     assert "coverslip 10mm" in wdg._plate_db_wdg._plate_db
 
 
-def test_plate_widget_set_get_value(qtbot: QtBot, database_path: Path):
+def test_plate_selector_widget_set_get_value(qtbot: QtBot, database_path: Path):
     wdg = PlateSelectorWidget(plate_database_path=database_path)
     qtbot.addWidget(wdg)
 
@@ -109,12 +109,19 @@ def test_plate_widget_set_get_value(qtbot: QtBot, database_path: Path):
     assert wdg.scene.value() is None
 
 
-def test_plate_widget_combo(qtbot: QtBot, database_path: Path):
+def test_plate_selector_widget_combo(qtbot: QtBot, database_path: Path):
     wdg = PlateSelectorWidget(plate_database_path=database_path)
     qtbot.addWidget(wdg)
 
     wdg.plate_combo.setCurrentText("standard 96 wp")
     assert wdg.value().plate.id == "standard 96 wp"
+
+
+def test_plate_selector_widget_get_database(qtbot: QtBot, database_path: Path):
+    wdg = PlateSelectorWidget(plate_database_path=database_path)
+    qtbot.addWidget(wdg)
+
+    assert wdg.get_plate_database() == wdg._plate_db == wdg._plate_db_wdg._plate_db
 
 
 def test_plate_database_widget_load_database(qtbot: QtBot, database_path: Path):
@@ -170,6 +177,13 @@ def test_plate_database_widget_empty_name(qtbot: QtBot, database_path: Path):
 
     with pytest.raises(ValueError, match="'Plate Name' field cannot be empty!"):
         wdg._add_to_database()
+
+
+def test_plate_database_widget_get_database(qtbot: QtBot, database_path: Path):
+    wdg = PlateDatabaseWidget(plate_database_path=database_path)
+    qtbot.addWidget(wdg)
+
+    assert wdg.get_plate_database() == wdg._plate_db
 
 
 def test_calibration_mode_widget(qtbot: QtBot):
