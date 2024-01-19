@@ -345,7 +345,8 @@ class PlateDatabaseWidget(QDialog):
         self.valueChanged.emit(new_plate, self._plate_db, self._plate_db_path)
         self._populate_table()
 
-        # self.close()
+        # select the added plate (last row)
+        self.plate_table.selectRow(self.plate_table.rowCount() - 1)
 
     def remove_from_database(self, plates: list[str] | list[Plate]) -> None:
         """Remove the plates from the current json database.
