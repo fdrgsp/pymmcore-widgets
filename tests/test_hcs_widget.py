@@ -79,12 +79,12 @@ def test_plate_widget_load_database(qtbot: QtBot, database_path: Path):
     qtbot.addWidget(wdg)
 
     assert "coverslip 10mm" not in wdg._plate_db
-    assert "coverslip 10mm" not in wdg._custom_plate._plate_db
+    assert "coverslip 10mm" not in wdg._plate_db_wdg._plate_db
 
     wdg.load_plate_database(database_path)
 
     assert "coverslip 10mm" in wdg._plate_db
-    assert "coverslip 10mm" in wdg._custom_plate._plate_db
+    assert "coverslip 10mm" in wdg._plate_db_wdg._plate_db
 
 
 def test_plate_widget_set_get_value(qtbot: QtBot, database_path: Path):
@@ -117,7 +117,7 @@ def test_plate_widget_combo(qtbot: QtBot, database_path: Path):
     assert wdg.value().plate.id == "standard 96 wp"
 
 
-def test_custom_plate_widget_load_database(qtbot: QtBot, database_path: Path):
+def test_plate_database_widget_load_database(qtbot: QtBot, database_path: Path):
     wdg = PlateDatabaseWidget()
     qtbot.addWidget(wdg)
 
@@ -128,7 +128,7 @@ def test_custom_plate_widget_load_database(qtbot: QtBot, database_path: Path):
     assert "coverslip 10mm" in wdg._plate_db
 
 
-def test_custom_plate_widget_set_get_value(qtbot: QtBot, database_path: Path):
+def test_plate_database_widget_set_get_value(qtbot: QtBot, database_path: Path):
     wdg = PlateDatabaseWidget(plate_database_path=database_path)
     qtbot.addWidget(wdg)
 
@@ -143,7 +143,7 @@ def test_custom_plate_widget_set_get_value(qtbot: QtBot, database_path: Path):
     assert all(isinstance(item, _WellGraphicsItem) for item in scene_items)
 
 
-def test_custom_plate_widget_update_database(qtbot: QtBot, database_path: Path):
+def test_plate_database_widget_update_database(qtbot: QtBot, database_path: Path):
     wdg = PlateDatabaseWidget(plate_database_path=database_path)
     qtbot.addWidget(wdg)
 
@@ -160,6 +160,16 @@ def test_custom_plate_widget_update_database(qtbot: QtBot, database_path: Path):
         wdg.plate_table.item(i, 0).text() for i in range(wdg.plate_table.rowCount())
     ]
     assert "custom plate" not in plates
+
+
+def test_plate_database_widget_empty_name(qtbot: QtBot, database_path: Path):
+    wdg = PlateDatabaseWidget(plate_database_path=database_path)
+    qtbot.addWidget(wdg)
+
+    wdg._id.setText("")
+
+    with pytest.raises(ValueError, match="'Plate Name' field cannot be empty!"):
+        wdg._add_to_database()
 
 
 def test_calibration_mode_widget(qtbot: QtBot):

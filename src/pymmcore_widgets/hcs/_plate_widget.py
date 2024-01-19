@@ -112,7 +112,7 @@ class PlateSelectorWidget(QWidget):
         self.layout().addWidget(top_wdg)
         self.layout().addWidget(self.view)
 
-        self._custom_plate = PlateDatabaseWidget(
+        self._plate_db_wdg = PlateDatabaseWidget(
             parent=self,
             plate_database_path=self._plate_db_path,
         )
@@ -122,7 +122,7 @@ class PlateSelectorWidget(QWidget):
         self._clear_button.clicked.connect(self.scene._clear_selection)
         self.plate_combo.currentTextChanged.connect(self._draw_plate)
         self._custom_plate_button.clicked.connect(self._show_custom_plate_dialog)
-        self._custom_plate.valueChanged.connect(self._update_wdg)
+        self._plate_db_wdg.valueChanged.connect(self._update_wdg)
         self._load_plate_db_button.clicked.connect(self._load_plate_database)
 
         self._draw_plate(self.plate_combo.currentText())
@@ -188,7 +188,7 @@ class PlateSelectorWidget(QWidget):
             self.scene.clear()
 
         # update the custom plate widget
-        self._custom_plate.load_plate_database(self._plate_db_path)
+        self._plate_db_wdg.load_plate_database(self._plate_db_path)
 
     def get_plate_database(self) -> dict[str, Plate]:
         """Return the current plate database."""
@@ -205,10 +205,10 @@ class PlateSelectorWidget(QWidget):
     def _show_custom_plate_dialog(self) -> None:
         """Show the custom plate Qdialog widget."""
         if hasattr(self, "_plate"):
-            self._custom_plate.close()
-        self._custom_plate.show()
-        self._custom_plate.plate_table.clearSelection()
-        self._custom_plate.reset_values()
+            self._plate_db_wdg.close()
+        self._plate_db_wdg.show()
+        self._plate_db_wdg.plate_table.clearSelection()
+        self._plate_db_wdg.reset_values()
 
     def _update_wdg(
         self,
