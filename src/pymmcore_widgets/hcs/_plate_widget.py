@@ -17,7 +17,7 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
-from ._custom_plate_widget import CustomPlateWidget
+from ._custom_plate_widget import PlateDatabaseWidget
 from ._plate_graphics_scene import _HCSGraphicsScene
 from ._util import _ResizingGraphicsView, draw_plate
 from ._well_plate_model import PLATE_DB_PATH, load_database
@@ -48,7 +48,7 @@ class PlateInfo(NamedTuple):
         The list of selected wells in the well plate.
     """
 
-    plate: Plate
+    plate: Plate | None
     wells: list[Well] | None
 
 
@@ -60,13 +60,13 @@ class PlateSelectorWidget(QWidget):
     def __init__(
         self,
         parent: QWidget | None = None,
+        *,
         plate_database_path: Path | str = PLATE_DB_PATH,
-        plate_database: dict[str, Plate] | None = None,
     ) -> None:
         super().__init__(parent)
 
         self._plate_db_path = plate_database_path
-        self._plate_db = plate_database or load_database(self._plate_db_path)
+        self._plate_db = load_database(self._plate_db_path)
 
         # well plate combobox
         combo_label = QLabel()
@@ -82,16 +82,16 @@ class PlateSelectorWidget(QWidget):
         wp_combo_wdg.layout().addWidget(self.plate_combo)
 
         # clear and custom plate buttons
-        self.custom_plate_button = QPushButton(text="Custom Plate")
-        self.clear_button = QPushButton(text="Clear Selection")
-        self.load_plate_db_button = QPushButton(text="Load Plate Database")
+        self._custom_plate_button = QPushButton(text="Custom Plate")
+        self._clear_button = QPushButton(text="Clear Selection")
+        self._load_plate_db_button = QPushButton(text="Load Plate Database")
         btns_wdg = QWidget()
         btns_wdg.setLayout(QHBoxLayout())
         btns_wdg.layout().setContentsMargins(0, 0, 0, 0)
         btns_wdg.layout().setSpacing(5)
-        btns_wdg.layout().addWidget(self.clear_button)
-        btns_wdg.layout().addWidget(self.custom_plate_button)
-        btns_wdg.layout().addWidget(self.load_plate_db_button)
+        btns_wdg.layout().addWidget(self._clear_button)
+        btns_wdg.layout().addWidget(self._custom_plate_button)
+        btns_wdg.layout().addWidget(self._load_plate_db_button)
 
         top_wdg = QWidget()
         top_wdg.setLayout(QHBoxLayout())
@@ -112,45 +112,53 @@ class PlateSelectorWidget(QWidget):
         self.layout().addWidget(top_wdg)
         self.layout().addWidget(self.view)
 
-        self._custom_plate = CustomPlateWidget(
+        self._custom_plate = PlateDatabaseWidget(
             parent=self,
-            plate_database=self._plate_db,
             plate_database_path=self._plate_db_path,
         )
 
         # connect
         self.scene.valueChanged.connect(self.valueChanged)
-        self.clear_button.clicked.connect(self.scene._clear_selection)
+        self._clear_button.clicked.connect(self.scene._clear_selection)
         self.plate_combo.currentTextChanged.connect(self._draw_plate)
-        self.custom_plate_button.clicked.connect(self._show_custom_plate_dialog)
+        self._custom_plate_button.clicked.connect(self._show_custom_plate_dialog)
         self._custom_plate.valueChanged.connect(self._update_wdg)
-        self.load_plate_db_button.clicked.connect(self._load_plate_database)
+        self._load_plate_db_button.clicked.connect(self._load_plate_database)
 
         self._draw_plate(self.plate_combo.currentText())
 
     # _________________________PUBLIC METHODS_________________________ #
 
     def value(self) -> PlateInfo:
-        """Return the current selected wells as a list of (name, row, column)."""
-        return PlateInfo(self.current_plate(), self.scene.value())
+        """Return current plate and selected wells as a list of (name, row, column)."""
+        curr_plate_name = self.plate_combo.currentText()
+        curr_plate = self._plate_db[curr_plate_name] if curr_plate_name else None
+        return PlateInfo(curr_plate, self.scene.value())
 
-    def setValue(self, plateinfo: PlateInfo) -> None:
+    def setValue(self, value: PlateInfo) -> None:
         """Set the current plate and the selected wells.
 
-        `value` is a list of (well_name, row, column).
+        Parameters
+        ----------
+        value : PlateInfo
+            The plate information to set containing the plate and the selected wells
+            as a list of (name, row, column).
         """
-        if plateinfo.plate.id not in self._plate_db:
-            raise ValueError(f"Plate {plateinfo.plate.id} not in the database.")
-
-        self.plate_combo.setCurrentText(plateinfo.plate.id)
-
-        if not plateinfo.wells:
+        if not value.plate:
             return
 
-        self.scene.setValue(plateinfo.wells)
+        if value.plate.id not in self._plate_db:
+            raise ValueError(f"Plate {value.plate.id} not in the database.")
+
+        self.plate_combo.setCurrentText(value.plate.id)
+
+        if not value.wells:
+            return
+
+        self.scene.setValue(value.wells)
 
     def load_plate_database(self, plate_database_path: Path | str) -> None:
-        """Load a new plate database."""
+        """Load a plate database."""
         # update the plate database
         self._plate_db_path = plate_database_path
         self._plate_db = load_database(self._plate_db_path)
@@ -158,7 +166,10 @@ class PlateSelectorWidget(QWidget):
         # update the well plate combobox
         with signals_blocked(self.plate_combo):
             self.plate_combo.clear()
-        self.plate_combo.addItems(list(self._plate_db))
+        if plates := list(self._plate_db):
+            self.plate_combo.addItems(plates)
+        else:
+            self.scene.clear()
 
         # update the custom plate widget
         self._custom_plate.load_plate_database(self._plate_db_path)
@@ -174,10 +185,6 @@ class PlateSelectorWidget(QWidget):
             self.view, self.scene, self._plate_db[plate_name], brush=BRUSH, pen=PEN
         )
         self.valueChanged.emit()
-
-    def current_plate(self) -> Plate:
-        """Return the current selected plate."""
-        return self._plate_db[self.plate_combo.currentText()]
 
     def _show_custom_plate_dialog(self) -> None:
         """Show the custom plate Qdialog widget."""

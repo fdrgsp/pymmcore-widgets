@@ -41,7 +41,7 @@ from pymmcore_widgets.hcs._graphics_items import (
     _WellGraphicsItem,
 )
 from pymmcore_widgets.hcs._plate_widget import (
-    CustomPlateWidget,
+    PlateDatabaseWidget,
     PlateInfo,
     PlateSelectorWidget,
 )
@@ -105,7 +105,7 @@ def test_plate_widget_set_get_value(qtbot: QtBot, database_path: Path):
     # sort the list of wells by name
     assert sorted(wdg.scene.value(), key=lambda x: x.name) == wells
 
-    wdg.clear_button.click()
+    wdg._clear_button.click()
     assert wdg.scene.value() is None
 
 
@@ -118,7 +118,7 @@ def test_plate_widget_combo(qtbot: QtBot, database_path: Path):
 
 
 def test_custom_plate_widget_load_database(qtbot: QtBot, database_path: Path):
-    wdg = CustomPlateWidget()
+    wdg = PlateDatabaseWidget()
     qtbot.addWidget(wdg)
 
     assert "coverslip 10mm" not in wdg._plate_db
@@ -129,7 +129,7 @@ def test_custom_plate_widget_load_database(qtbot: QtBot, database_path: Path):
 
 
 def test_custom_plate_widget_set_get_value(qtbot: QtBot, database_path: Path):
-    wdg = CustomPlateWidget(plate_database_path=database_path)
+    wdg = PlateDatabaseWidget(plate_database_path=database_path)
     qtbot.addWidget(wdg)
 
     current_plate_id = wdg.plate_table.item(0, 0).text()
@@ -144,7 +144,7 @@ def test_custom_plate_widget_set_get_value(qtbot: QtBot, database_path: Path):
 
 
 def test_custom_plate_widget_update_database(qtbot: QtBot, database_path: Path):
-    wdg = CustomPlateWidget(plate_database_path=database_path)
+    wdg = PlateDatabaseWidget(plate_database_path=database_path)
     qtbot.addWidget(wdg)
 
     wdg.add_to_database([CUSTOM_PLATE])

@@ -28,7 +28,7 @@ from ._fov_widget import Center, FOVSelectorWidget
 from ._graphics_items import Well
 from ._plate_widget import PlateInfo, PlateSelectorWidget
 from ._util import apply_rotation_matrix, get_well_center
-from ._well_plate_model import PLATE_DB_PATH, Plate, load_database
+from ._well_plate_model import PLATE_DB_PATH, Plate
 
 EXPANDING = (QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
@@ -50,7 +50,7 @@ class HCSData(NamedTuple):
         The list of FOVs as useq.Positions expressed in stage coordinates.
     """
 
-    plate: Plate
+    plate: Plate | None
     wells: list[Well] | None = None
     calibration: CalibrationData | None = None
     mode: Center | RandomPoints | GridRowsColumns | None = None
@@ -61,18 +61,14 @@ class PlatePage(QWizardPage):
     def __init__(
         self,
         plate_database_path: Path | str,
-        plate_database: dict[str, Plate],
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
 
         self.setTitle("Plate and Well Selection")
 
-        self._plate_db = plate_database
-        self._plate_db_path = plate_database_path
-
         self._plate_widget = PlateSelectorWidget(
-            plate_database_path=self._plate_db_path, plate_database=self._plate_db
+            plate_database_path=plate_database_path
         )
 
         self.setLayout(QVBoxLayout())
@@ -93,6 +89,10 @@ class PlatePage(QWizardPage):
         `value` is a list of (well_name, row, column).
         """
         self._plate_widget.setValue(plateinfo)
+
+    def get_plate_database(self) -> dict[str, Plate]:
+        """Return the current plate database."""
+        return self._plate_widget.get_plate_database()
 
 
 class PlateCalibrationPage(QWizardPage):
@@ -142,10 +142,10 @@ class FOVSelectorPage(QWizardPage):
         return self._fov_widget.value()
 
     def setValue(
-        self, plate: Plate, mode: Center | RandomPoints | GridRowsColumns | None
+        self, plate: Plate | None, mode: Center | RandomPoints | GridRowsColumns | None
     ) -> None:
         """Set the list of FOVs."""
-        if mode is None:
+        if mode is None or plate is None:
             return
         self._fov_widget.setValue(plate, mode)
 
@@ -175,15 +175,11 @@ class HCSWizard(QWizard):
 
         self._mmc = mmcore or CMMCorePlus.instance()
 
-        # load the plate from the database
-        self._plate_db_path = plate_database_path or PLATE_DB_PATH
-        self._plate_db = load_database(self._plate_db_path)
-
-        # setup plate page
-        self.plate_page = PlatePage(self._plate_db_path, self._plate_db)
+        # setup plate page)
+        self.plate_page = PlatePage(plate_database_path or PLATE_DB_PATH)
 
         # get currently selected plate
-        plate = self._plate_db[self.plate_page.combo.currentText()]
+        plate, _ = self.plate_page.value()
 
         # setup calibration page
         self.calibration_page = PlateCalibrationPage()
@@ -234,13 +230,14 @@ class HCSWizard(QWizard):
 
     def _on_system_config_loaded(self) -> None:
         """Update the scene when the system configuration is loaded."""
-        plate = self.plate_page.value().plate
+        plate, _ = self.plate_page.value()
         self._update_wizard_pages(plate)
 
     def _on_plate_combo_changed(self, plate_id: str) -> None:
-        self._update_wizard_pages(self._plate_db[plate_id])
+        db = self.plate_page.get_plate_database()
+        self._update_wizard_pages(db[plate_id])
 
-    def _update_wizard_pages(self, plate: Plate) -> None:
+    def _update_wizard_pages(self, plate: Plate | None) -> None:
         self.calibration_page.setValue(CalibrationInfo(plate, None))
         fov_w, fov_h = self._get_fov_size()
         self.fov_page.setValue(plate, Center(0, 0, fov_w, fov_h))
@@ -285,6 +282,10 @@ class HCSWizard(QWizard):
         self,
     ) -> list[tuple[Well, float, float]] | None:
         plate, _ = self.plate_page.value()
+
+        if plate is None:
+            return None
+
         _, calibration = self.calibration_page.value()
 
         _, wells = self.plate_page.value()
@@ -340,6 +341,9 @@ class HCSWizard(QWizard):
         _, ax = plt.subplots()
 
         plate, _ = self.plate_page.value()
+
+        if plate is None:
+            return
 
         # draw wells
         for _, well_center_x, well_center_y in well_centers:
