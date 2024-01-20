@@ -92,7 +92,7 @@ class PlatePage(QWizardPage):
 
     def get_plate_database(self) -> dict[str, Plate]:
         """Return the current plate database."""
-        return self._plate_widget.get_plate_database()
+        return self._plate_widget.database()
 
 
 class PlateCalibrationPage(QWizardPage):

@@ -121,7 +121,7 @@ class PlateSelectorWidget(QWidget):
         self.scene.valueChanged.connect(self.valueChanged)
         self._clear_button.clicked.connect(self.scene._clear_selection)
         self.plate_combo.currentTextChanged.connect(self._draw_plate)
-        self._custom_plate_button.clicked.connect(self._show_custom_plate_dialog)
+        self._custom_plate_button.clicked.connect(self._show_database_wdg)
         self._plate_db_wdg.valueChanged.connect(self._update_wdg)
         self._load_plate_db_button.clicked.connect(self._load_plate_database)
 
@@ -148,7 +148,7 @@ class PlateSelectorWidget(QWidget):
             return
 
         if value.plate.id not in self._plate_db:
-            raise ValueError(f"Plate {value.plate.id} not in the database.")
+            raise ValueError(f"'{value.plate.id}' not in the database.")
 
         self.plate_combo.setCurrentText(value.plate.id)
 
@@ -157,9 +157,7 @@ class PlateSelectorWidget(QWidget):
 
         self.scene.setValue(value.wells)
 
-    def load_plate_database(
-        self, plate_database_path: Path | str | None = None
-    ) -> None:
+    def load_database(self, plate_database_path: Path | str | None = None) -> None:
         """Load a plate database.
 
         Parameters
@@ -172,6 +170,7 @@ class PlateSelectorWidget(QWidget):
             (plate_database_path, _) = QFileDialog.getOpenFileName(
                 self, "Select a Plate Database", "", "json(*.json)"
             )
+
         if not plate_database_path:
             return
 
@@ -188,9 +187,9 @@ class PlateSelectorWidget(QWidget):
             self.scene.clear()
 
         # update the custom plate widget
-        self._plate_db_wdg.load_plate_database(self._plate_db_path)
+        self._plate_db_wdg.load_database(self._plate_db_path)
 
-    def get_plate_database(self) -> dict[str, Plate]:
+    def database(self) -> dict[str, Plate]:
         """Return the current plate database."""
         return self._plate_db
 
@@ -202,13 +201,14 @@ class PlateSelectorWidget(QWidget):
         )
         self.valueChanged.emit()
 
-    def _show_custom_plate_dialog(self) -> None:
-        """Show the custom plate Qdialog widget."""
-        if hasattr(self, "_plate"):
-            self._plate_db_wdg.close()
-        self._plate_db_wdg.show()
-        self._plate_db_wdg.plate_table.clearSelection()
-        self._plate_db_wdg.reset_values()
+    def _show_database_wdg(self) -> None:
+        """Show the database plate widget widget."""
+        if self._plate_db_wdg.isVisible():
+            self._plate_db_wdg.raise_()
+        else:
+            self._plate_db_wdg.show()
+            self._plate_db_wdg.plate_table.clearSelection()
+            self._plate_db_wdg.reset_values()
 
     def _update_wdg(
         self,
@@ -220,7 +220,7 @@ class PlateSelectorWidget(QWidget):
         # if a new plate database is loaded in the custom plate widget, update this
         # widget as well with the new plate database
         if plate_db != self._plate_db:
-            self.load_plate_database(plate_db_path)
+            self.load_database(plate_db_path)
             return
 
         # if a new plate is created in the custom plate widget, add it to the
@@ -236,5 +236,8 @@ class PlateSelectorWidget(QWidget):
         (plate_database_path, _) = QFileDialog.getOpenFileName(
             self, "Select a Plate Database", "", "json(*.json)"
         )
-        if plate_database_path:
-            self.load_plate_database(plate_database_path)
+
+        if not plate_database_path:
+            return
+
+        self.load_database(plate_database_path)

@@ -218,7 +218,7 @@ class PlateDatabaseWidget(QDialog):
         self._delete_btn.clicked.connect(self._remove_from_database)
         self._new_db_button = QPushButton(text="New Plate Database")
         self._new_db_button.setAutoDefault(False)
-        self._new_db_button.clicked.connect(self.create_new_plate_database)
+        self._new_db_button.clicked.connect(self._create_new_database)
         self._load_plate_db_button = QPushButton(text="Load Plate Database")
         self._load_plate_db_button.setAutoDefault(False)
         self._load_plate_db_button.clicked.connect(self._load_plate_database)
@@ -288,21 +288,7 @@ class PlateDatabaseWidget(QDialog):
             well_spacing_y=self._well_spacing_y.value(),
         )
 
-    def create_new_plate_database(self) -> None:
-        """Open a dialog to create a new plate database as a json file."""
-        import json
-
-        (plate_database_path, _) = QFileDialog.getSaveFileName(
-            self, "Save Plate Database", "", "json(*.json)"
-        )
-        if plate_database_path:
-            with open(Path(plate_database_path), "w") as file:
-                json.dump([], file)
-            self.load_plate_database(plate_database_path)
-
-    def load_plate_database(
-        self, plate_database_path: Path | str | None = None
-    ) -> None:
+    def load_database(self, plate_database_path: Path | str | None = None) -> None:
         """Load a plate database.
 
         Parameters
@@ -315,6 +301,7 @@ class PlateDatabaseWidget(QDialog):
             (plate_database_path, _) = QFileDialog.getOpenFileName(
                 self, "Select a Plate Database", "", "json(*.json)"
             )
+
         if not plate_database_path:
             return
 
@@ -323,7 +310,7 @@ class PlateDatabaseWidget(QDialog):
         self._populate_table()
         self.valueChanged.emit(self.value(), self._plate_db, self._plate_db_path)
 
-    def get_plate_database(self) -> dict[str, Plate]:
+    def database(self) -> dict[str, Plate]:
         """Return the current plate database."""
         return self._plate_db
 
@@ -435,7 +422,7 @@ class PlateDatabaseWidget(QDialog):
             self, "Select a Plate Database", "", "json(*.json)"
         )
         if plate_database_path:
-            self.load_plate_database(plate_database_path)
+            self.load_database(plate_database_path)
 
     def _add_to_database(self) -> None:
         """Add the current plate to the json database."""
@@ -488,3 +475,19 @@ class PlateDatabaseWidget(QDialog):
 
         with open(Path(self._plate_db_path), "w") as file:
             json.dump(db, file)
+
+    def _create_new_database(self) -> None:
+        """Open a dialog to create a new plate database."""
+        import json
+
+        (plate_database_path, _) = QFileDialog.getSaveFileName(
+            self, "Save Plate Database", "", "json(*.json)"
+        )
+
+        if not plate_database_path:
+            return
+
+        with open(Path(plate_database_path), "w") as file:
+            json.dump([], file)
+
+        self.load_database(plate_database_path)

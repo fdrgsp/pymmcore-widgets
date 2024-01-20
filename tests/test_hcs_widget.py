@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
+from unittest.mock import patch
 
 import pytest
-from qtpy.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsRectItem
+from qtpy.QtWidgets import (
+    QFileDialog,
+    QGraphicsEllipseItem,
+    QGraphicsLineItem,
+    QGraphicsRectItem,
+)
 from useq import (  # type: ignore
     AnyGridPlan,
     GridFromEdges,
@@ -81,8 +88,24 @@ def test_plate_selector_widget_load_database(qtbot: QtBot, database_path: Path):
     assert "coverslip 10mm" not in wdg._plate_db
     assert "coverslip 10mm" not in wdg._plate_db_wdg._plate_db
 
-    wdg.load_plate_database(database_path)
+    wdg.load_database(database_path)
 
+    assert "coverslip 10mm" in wdg._plate_db
+    assert "coverslip 10mm" in wdg._plate_db_wdg._plate_db
+
+
+def test_plate_selector_widget_load_database_dialog(qtbot: QtBot, database_path: Path):
+    wdg = PlateSelectorWidget()
+    qtbot.addWidget(wdg)
+
+    assert "coverslip 10mm" not in wdg._plate_db
+    assert "coverslip 10mm" not in wdg._plate_db_wdg._plate_db
+
+    def _path(*args, **kwargs):
+        return database_path, None
+
+    with patch.object(QFileDialog, "getOpenFileName", _path):
+        wdg.load_database()
     assert "coverslip 10mm" in wdg._plate_db
     assert "coverslip 10mm" in wdg._plate_db_wdg._plate_db
 
@@ -90,6 +113,11 @@ def test_plate_selector_widget_load_database(qtbot: QtBot, database_path: Path):
 def test_plate_selector_widget_set_get_value(qtbot: QtBot, database_path: Path):
     wdg = PlateSelectorWidget(plate_database_path=database_path)
     qtbot.addWidget(wdg)
+
+    info = PlateInfo(plate=CUSTOM_PLATE, wells=None)
+
+    with pytest.raises(ValueError, match="'custom plate' not in the database."):
+        wdg.setValue(info)
 
     plate = wdg._plate_db["standard 96 wp"]
     wells = [
@@ -121,7 +149,7 @@ def test_plate_selector_widget_get_database(qtbot: QtBot, database_path: Path):
     wdg = PlateSelectorWidget(plate_database_path=database_path)
     qtbot.addWidget(wdg)
 
-    assert wdg.get_plate_database() == wdg._plate_db == wdg._plate_db_wdg._plate_db
+    assert wdg.database() == wdg._plate_db == wdg._plate_db_wdg._plate_db
 
 
 def test_plate_database_widget_load_database(qtbot: QtBot, database_path: Path):
@@ -130,7 +158,7 @@ def test_plate_database_widget_load_database(qtbot: QtBot, database_path: Path):
 
     assert "coverslip 10mm" not in wdg._plate_db
 
-    wdg.load_plate_database(database_path)
+    wdg.load_database(database_path)
 
     assert "coverslip 10mm" in wdg._plate_db
 
@@ -154,19 +182,57 @@ def test_plate_database_widget_update_database(qtbot: QtBot, database_path: Path
     wdg = PlateDatabaseWidget(plate_database_path=database_path)
     qtbot.addWidget(wdg)
 
-    wdg.add_to_database([CUSTOM_PLATE])
+    assert "custom plate" not in wdg._plate_db
+    wdg.setValue(CUSTOM_PLATE)
+
+    wdg._add_to_database()
     assert "custom plate" in wdg._plate_db
     plates = [
         wdg.plate_table.item(i, 0).text() for i in range(wdg.plate_table.rowCount())
     ]
     assert "custom plate" in plates
 
-    wdg.remove_from_database(["custom plate"])
+    wdg.plate_table.selectRow(0)
+    last_row = wdg.plate_table.rowCount() - 1
+    wdg.plate_table.selectRow(last_row)
+
+    assert wdg.plate_table.item(last_row, 0).text() == "custom plate"
+
+    wdg._remove_from_database()
     assert "custom plate" not in wdg._plate_db
     plates = [
         wdg.plate_table.item(i, 0).text() for i in range(wdg.plate_table.rowCount())
     ]
     assert "custom plate" not in plates
+
+
+def test_plate_database_widget_database(qtbot: QtBot, database_path: Path):
+    wdg = PlateDatabaseWidget(plate_database_path=database_path)
+    qtbot.addWidget(wdg)
+
+    assert wdg.database()
+    assert "custom plate" not in wdg.database()
+
+    with tempfile.TemporaryDirectory() as tmp:
+
+        def _path(*args, **kwargs):
+            return Path(tmp) / "test_db.json", None
+
+        # create empty database
+        with patch.object(QFileDialog, "getSaveFileName", _path):
+            wdg._create_new_database()
+        assert wdg._plate_db_path == _path()[0]
+        assert not wdg.database()
+
+        # add plate to database
+        wdg.add_to_database([CUSTOM_PLATE])
+        assert wdg.database()
+        assert "custom plate" in wdg.database()
+
+        # remove plate from database
+        wdg.remove_from_database(["custom plate"])
+        assert not wdg.database()
+        assert "custom plate" not in wdg.database()
 
 
 def test_plate_database_widget_empty_name(qtbot: QtBot, database_path: Path):
@@ -183,7 +249,7 @@ def test_plate_database_widget_get_database(qtbot: QtBot, database_path: Path):
     wdg = PlateDatabaseWidget(plate_database_path=database_path)
     qtbot.addWidget(wdg)
 
-    assert wdg.get_plate_database() == wdg._plate_db
+    assert wdg.database() == wdg._plate_db
 
 
 def test_calibration_mode_widget(qtbot: QtBot):
