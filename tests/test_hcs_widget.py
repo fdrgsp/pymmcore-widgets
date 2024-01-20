@@ -94,6 +94,19 @@ def test_plate_selector_widget_load_database(qtbot: QtBot, database_path: Path):
     assert "coverslip 10mm" in wdg._plate_db_wdg._plate_db
 
 
+def test_plate_selector_widget_load_database_db_wdg(qtbot: QtBot, database_path: Path):
+    wdg = PlateSelectorWidget()
+    qtbot.addWidget(wdg)
+
+    assert "coverslip 10mm" not in wdg._plate_db
+    assert "coverslip 10mm" not in wdg._plate_db_wdg._plate_db
+
+    wdg._plate_db_wdg.load_database(database_path)
+
+    assert "coverslip 10mm" in wdg._plate_db
+    assert "coverslip 10mm" in wdg._plate_db_wdg._plate_db
+
+
 def test_plate_selector_widget_load_database_dialog(qtbot: QtBot, database_path: Path):
     wdg = PlateSelectorWidget()
     qtbot.addWidget(wdg)
