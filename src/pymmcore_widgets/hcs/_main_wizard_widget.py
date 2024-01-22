@@ -228,7 +228,6 @@ class HCSWizard(QWizard):
         self._update_wizard_pages(plate)
 
     def _on_plate_combo_changed(self, plate_id: str) -> None:
-        print("plate changed")
         db = self.plate_page.database()
         plate = db[plate_id] if plate_id else None
         self._update_wizard_pages(plate)
