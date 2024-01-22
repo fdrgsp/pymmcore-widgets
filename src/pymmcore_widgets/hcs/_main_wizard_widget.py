@@ -149,9 +149,9 @@ class FOVSelectorPage(QWizardPage):
             return
         self._fov_widget.setValue(plate, mode)
 
-    def _fov_size_well_view(self) -> tuple[float, float]:
-        """Return the FOV size of the WellView in mm."""
-        return self._fov_widget.view.fovSize()
+    # def _fov_size_well_view(self) -> tuple[float, float]:
+    #     """Return the FOV size of the WellView in mm."""
+    #     return self._fov_widget.view.fovSize()
 
 
 class HCSWizard(QWizard):
