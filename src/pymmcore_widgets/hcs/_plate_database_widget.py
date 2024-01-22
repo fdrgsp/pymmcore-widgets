@@ -253,7 +253,7 @@ class PlateDatabaseWidget(QDialog):
 
     # _________________________PUBLIC METHODS_________________________ #
 
-    def reset_values(self) -> None:
+    def reset(self) -> None:
         """Reset the values of the well plate in the widget."""
         self._id.setText("")
         self._rows.setValue(0)
@@ -294,7 +294,7 @@ class PlateDatabaseWidget(QDialog):
         Parameters
         ----------
         plate_database_path : Path | str | None
-            the path to the plate database. If None, a dialog will open to select a
+            The path to the plate database. If None, a dialog will open to select a
             plate database. By default, None.
         """
         if not plate_database_path:
@@ -359,7 +359,7 @@ class PlateDatabaseWidget(QDialog):
             self.plate_table.setCurrentCell(0, 0)
             self._update_values(row=0)
         else:
-            self.reset_values()
+            self.reset()
 
     # _________________________PRIVATE METHODS________________________ #
 
@@ -370,7 +370,7 @@ class PlateDatabaseWidget(QDialog):
             with signals_blocked(self.plate_table):
                 self.plate_table.clearContents()
                 self.plate_table.setRowCount(0)
-            self.reset_values()
+            self.reset()
             return
 
         self.plate_table.setRowCount(len(self._plate_db))

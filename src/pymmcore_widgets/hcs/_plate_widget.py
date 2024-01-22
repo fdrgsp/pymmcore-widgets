@@ -163,7 +163,7 @@ class PlateSelectorWidget(QWidget):
         Parameters
         ----------
         plate_database_path : Path | str | None
-            the path to the plate database. If None, a dialog will open to select a
+            The path to the plate database. If None, a dialog will open to select a
             plate database. By default, None.
         """
         if not plate_database_path:
@@ -210,7 +210,7 @@ class PlateSelectorWidget(QWidget):
         else:
             self._plate_db_wdg.show()
             self._plate_db_wdg.plate_table.clearSelection()
-            self._plate_db_wdg.reset_values()
+            self._plate_db_wdg.reset()
 
     def _update_wdg(
         self,
