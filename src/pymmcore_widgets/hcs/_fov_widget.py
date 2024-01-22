@@ -517,27 +517,6 @@ class WellView(_ResizingGraphicsView):
             -self._size_x / 2, -self._size_x / 2, self._size_x, self._size_y
         )
 
-        well_size, circular, padding, show_fovs_order, mode = data
-
-        fov_w, fov_h = (mode.fov_width, mode.fov_height) if mode else (None, None)
-        self._fov_width_px = (
-            (self._size_x * fov_w) / self._well_width
-            if fov_w and self._well_width
-            else None
-        )
-        self._fov_height_px = (
-            (self._size_y * fov_h) / self._well_height
-            if fov_h and self._well_height
-            else None
-        )
-
-        data = WellViewData(
-            well_size=well_size,
-            circular=circular,
-            padding=padding,
-            show_fovs_order=show_fovs_order,
-            mode=mode,
-        )
         self.setValue(data)
 
     # _________________________PUBLIC METHODS_________________________ #
