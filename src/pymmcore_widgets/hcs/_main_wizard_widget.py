@@ -42,18 +42,18 @@ class HCSData(NamedTuple):
         The selected well plate.
     wells : list[str] | None
         The selected wells.
-    calibration : CalibrationData | None
-        The data necessary to calibrate the plate.
     mode : Center | RandomPoints | GridRowsColumns | None
         The mode used to select the FOVs.
+    calibration : CalibrationData | None
+        The data necessary to calibrate the plate.
     positions : list[Position] | None
         The list of FOVs as useq.Positions expressed in stage coordinates.
     """
 
     plate: Plate | None
     wells: list[Well] | None = None
-    calibration: CalibrationData | None = None
     mode: Center | RandomPoints | GridRowsColumns | None = None
+    calibration: CalibrationData | None = None
     positions: list[Position] | None = None
 
 
@@ -211,10 +211,10 @@ class HCSWizard(QWizard):
     def value(self) -> HCSData:
         """Return the values of the wizard."""
         plate, well_list = self.plate_page.value()
-        _, calibration_data = self.calibration_page.value()
         _, mode = self.fov_page.value()
+        _, calibration_data = self.calibration_page.value()
         positions = self._get_positions()
-        return HCSData(plate, well_list, calibration_data, mode, positions)
+        return HCSData(plate, well_list, mode, calibration_data, positions)
 
     def accept(self) -> None:
         """Override QWizard default accept method."""

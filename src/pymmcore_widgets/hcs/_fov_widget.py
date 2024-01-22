@@ -947,7 +947,7 @@ class FOVSelectorWidget(QWidget):
         self.view.setValue(view_data)
 
         # update the fov size in each mode widget
-        self._update_wdgs_fov_size(
+        self._update_mode_wdgs_fov_size(
             (mode.fov_width, mode.fov_height) if mode else (None, None)
         )
 
@@ -979,7 +979,7 @@ class FOVSelectorWidget(QWidget):
             elif isinstance(mode, GridRowsColumns):
                 self._set_grid_value(mode)
 
-    def _update_wdgs_fov_size(
+    def _update_mode_wdgs_fov_size(
         self, fov_size: tuple[float | None, float | None]
     ) -> None:
         """Update the fov size in each mode widget."""
