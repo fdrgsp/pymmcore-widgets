@@ -444,8 +444,6 @@ class WellViewData(NamedTuple):
     ----------
     well_size : tuple[float | None, float | None]
         The size of the well in µm. By default, (None, None).
-    fov_size : tuple[float | None, float | None]
-        The size of the FOV in µm. By default, (None, None).
     circular : bool
         True if the well is circular. By default, False.
     padding : int
@@ -946,10 +944,13 @@ class FOVSelectorWidget(QWidget):
         self.plate = plate
 
         if self.plate is None or mode is None:
-            # TODO: reset center, random and grid widgets
+            print("plate or mode is None")
+            # reset view scene and mode widgets
             self.view.setValue(WellViewData())
-            self.random_wdg.reset()
-            self.grid_wdg.reset()
+            with signals_blocked(self.random_wdg):
+                self.random_wdg.reset()
+            with signals_blocked(self.grid_wdg):
+                self.grid_wdg.reset()
             return
 
         # update view data
