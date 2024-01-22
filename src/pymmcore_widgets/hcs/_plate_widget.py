@@ -179,8 +179,7 @@ class PlateSelectorWidget(QWidget):
         self._plate_db = load_database(self._plate_db_path)
 
         # update the well plate combobox
-        with signals_blocked(self.plate_combo):
-            self.plate_combo.clear()
+        self.plate_combo.clear()
         if plates := list(self._plate_db):
             self.plate_combo.addItems(plates)
         else:
@@ -196,6 +195,9 @@ class PlateSelectorWidget(QWidget):
     # _________________________PRIVATE METHODS________________________ #
 
     def _draw_plate(self, plate_name: str) -> None:
+        if not plate_name:
+            return
+
         draw_plate(
             self.view, self.scene, self._plate_db[plate_name], brush=BRUSH, pen=PEN
         )

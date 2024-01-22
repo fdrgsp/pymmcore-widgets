@@ -764,6 +764,8 @@ class WellView(_ResizingGraphicsView):
         represent the order of acquisition. In addition, the first FOV will be drawn
         with a black color, the others with a white color.
         """
+        if not self._fov_width_px or not self._fov_height_px:
+            return
 
         def _get_pen(index: int) -> QPen:
             """Return the pen to use for the fovs."""
@@ -785,8 +787,8 @@ class WellView(_ResizingGraphicsView):
             fovs = _FOVGraphicsItem(
                 fov.x,
                 fov.y,
-                self._fov_width_px or 0,
-                self._fov_height_px or 0,
+                self._fov_width_px,
+                self._fov_height_px,
                 fov.bounding_rect,
                 _get_pen(index)
                 if self._show_fovs_order
@@ -922,14 +924,16 @@ class FOVSelectorWidget(QWidget):
 
         self.plate = plate
 
-        if self.plate is None or mode is None:
-            print("plate or mode is None")
+        if self.plate is None:
             # reset view scene and mode widgets
             self.view.setValue(WellViewData())
             with signals_blocked(self.random_wdg):
                 self.random_wdg.reset()
             with signals_blocked(self.grid_wdg):
                 self.grid_wdg.reset()
+
+            # set the radio buttons
+            self._update_mode_widgets(mode)
             return
 
         # update view data
@@ -943,19 +947,11 @@ class FOVSelectorWidget(QWidget):
         self.view.setValue(view_data)
 
         # update the fov size in each mode widget
-        self._update_wdgs_fov_size((mode.fov_width, mode.fov_height))
+        self._update_wdgs_fov_size(
+            (mode.fov_width, mode.fov_height) if mode else (None, None)
+        )
 
-        if isinstance(mode, RandomPoints):
-            self._set_random_value(mode)
-        else:
-            # update the randon widget values depending on the plate
-            with signals_blocked(self.random_wdg):
-                self.random_wdg.setValue(self._plate_to_random(self.plate))
-
-            if isinstance(mode, Center):
-                self._set_center_value(mode)
-            elif isinstance(mode, GridRowsColumns):
-                self._set_grid_value(mode)
+        self._update_mode_widgets(mode)
 
     # _________________________PRIVATE METHODS_________________________ #
 
@@ -966,6 +962,22 @@ class FOVSelectorWidget(QWidget):
                 mode_name = cast(str, btn.objectName())
                 return self.MODE[mode_name]
         raise ValueError("No mode selected.")
+
+    def _update_mode_widgets(
+        self, mode: Center | RandomPoints | GridRowsColumns | None
+    ) -> None:
+        """Update the mode widgets."""
+        if isinstance(mode, RandomPoints):
+            self._set_random_value(mode)
+        else:
+            # update the randon widget values depending on the plate
+            with signals_blocked(self.random_wdg):
+                self.random_wdg.setValue(self._plate_to_random(self.plate))
+            # update center or grid widgets
+            if isinstance(mode, Center):
+                self._set_center_value(mode)
+            elif isinstance(mode, GridRowsColumns):
+                self._set_grid_value(mode)
 
     def _update_wdgs_fov_size(
         self, fov_size: tuple[float | None, float | None]
@@ -1045,13 +1057,13 @@ class FOVSelectorWidget(QWidget):
                 stacklevel=2,
             )
 
-    def _plate_to_random(self, plate: Plate) -> RandomPoints:
+    def _plate_to_random(self, plate: Plate | None) -> RandomPoints:
         """Convert a Plate object to a RandomPoints object."""
         return RandomPoints(
             num_points=self.random_wdg._number_of_points.value(),
-            max_width=plate.well_size_x * 1000,  # convert to µm
-            max_height=plate.well_size_y * 1000,  # convert to µm
-            shape=ELLIPSE if plate.circular else RECT,
+            max_width=plate.well_size_x * 1000 if plate else 0.0,  # convert to µm
+            max_height=plate.well_size_y * 1000 if plate else 0.0,  # convert to µm
+            shape=ELLIPSE if (plate and plate.circular) else RECT,
             random_seed=self.random_wdg.random_seed,
             fov_width=self.random_wdg.fov_size[0],
             fov_height=self.random_wdg.fov_size[1],

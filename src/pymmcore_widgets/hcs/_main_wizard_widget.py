@@ -90,7 +90,7 @@ class PlatePage(QWizardPage):
         """
         self._plate_widget.setValue(value)
 
-    def get_plate_database(self) -> dict[str, Plate]:
+    def database(self) -> dict[str, Plate]:
         """Return the current plate database."""
         return self._plate_widget.database()
 
@@ -145,13 +145,7 @@ class FOVSelectorPage(QWizardPage):
         self, plate: Plate | None, mode: Center | RandomPoints | GridRowsColumns | None
     ) -> None:
         """Set the list of FOVs."""
-        if mode is None or plate is None:
-            return
         self._fov_widget.setValue(plate, mode)
-
-    # def _fov_size_well_view(self) -> tuple[float, float]:
-    #     """Return the FOV size of the WellView in mm."""
-    #     return self._fov_widget.view.fovSize()
 
 
 class HCSWizard(QWizard):
@@ -234,11 +228,13 @@ class HCSWizard(QWizard):
         self._update_wizard_pages(plate)
 
     def _on_plate_combo_changed(self, plate_id: str) -> None:
-        db = self.plate_page.get_plate_database()
-        self._update_wizard_pages(db[plate_id])
+        print("plate changed")
+        db = self.plate_page.database()
+        plate = db[plate_id] if plate_id else None
+        self._update_wizard_pages(plate)
 
     def _update_wizard_pages(self, plate: Plate | None) -> None:
-        self.calibration_page.setValue(CalibrationInfo(plate, None))
+        # self.calibration_page.setValue(CalibrationInfo(plate, None))
         fov_w, fov_h = self._get_fov_size()
         self.fov_page.setValue(plate, Center(0, 0, fov_w, fov_h))
 

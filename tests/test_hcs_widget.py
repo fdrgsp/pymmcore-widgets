@@ -18,6 +18,7 @@ from useq import (  # type: ignore
     GridRowsColumns,
     RandomPoints,
 )
+from useq._grid import Shape
 
 from pymmcore_widgets import HCSWizard
 from pymmcore_widgets.hcs._calibration_widget import (
@@ -37,6 +38,7 @@ from pymmcore_widgets.hcs._fov_widget import (
     Center,
     FOVSelectorWidget,
     WellView,
+    WellViewData,
     _CenterFOVWidget,
     _GridFovWidget,
     _RandomFOVWidget,
@@ -467,6 +469,14 @@ def test_random_widget(qtbot: QtBot, database: dict[str, Plate]):
     assert wdg.is_circular
     assert value.fov_width == value.fov_height == 5
 
+    wdg.reset()
+    value = wdg.value()
+    assert not wdg.is_circular
+    assert value.num_points == 1
+    assert value.max_width == value.max_height == 0.0
+    assert value.fov_height is None
+    assert value.fov_width is None
+
 
 def test_grid_widget(qtbot: QtBot):
     wdg = _GridFovWidget()
@@ -500,6 +510,12 @@ def test_grid_widget(qtbot: QtBot):
     assert value.columns == 3
     assert value.relative_to.value == "center"
     assert value.fov_width == value.fov_height == 2
+
+    wdg.reset()
+    value = wdg.value()
+    assert value.fov_width == value.fov_height is None
+    assert value.overlap == (0.0, 0.0)
+    assert value.rows == value.columns == 1
 
 
 class SceneItems(NamedTuple):
@@ -554,38 +570,43 @@ modes = [
 def test_well_view_widget_value(
     qtbot: QtBot, mode: Center | AnyGridPlan, items: SceneItems
 ):
-    wdg = WellView(view_size=(300, 300), well_size=(6.4, 6.4))
+    wdg = WellView()
     qtbot.addWidget(wdg)
+    assert wdg.value() == WellViewData()
 
-    assert wdg.wellSize() == (6.4, 6.4)
-    assert not wdg.isCircular()
+    circular = mode.shape == Shape.ELLIPSE if isinstance(mode, RandomPoints) else False
+    view_data = WellViewData(
+        well_size=(6400, 6400),
+        circular=circular,
+        padding=20,
+        mode=mode,
+    )
+    wdg.setValue(view_data)
 
-    wdg.setValue(mode)
-    assert wdg.value() == mode
-    assert wdg.fovSize() == (mode.fov_width / 1000, mode.fov_height / 1000)  # mm
-
-    if isinstance(mode, RandomPoints):
-        assert wdg.isCircular()
+    assert wdg.value() == view_data
+    assert wdg.isCircular() if isinstance(mode, RandomPoints) else not wdg.isCircular()
 
     # make sure that the graphics item in the scene are the expected ones
     assert get_items_number(wdg) == items
 
 
 def test_well_view_widget_update(qtbot: QtBot):
-    wdg = WellView(view_size=(300, 300), well_size=(6.4, 6.4), fov_size=(0.512, 0.512))
+    view_data = WellViewData(
+        well_size=(6400, 6400),
+        mode=Center(x=0, y=0, fov_width=512, fov_height=512),
+    )
+    wdg = WellView(data=view_data)
     qtbot.addWidget(wdg)
 
-    grid = GridFromEdges(top=-20, left=-20, bottom=20, right=20)
-    wdg.setValue(grid)
+    # set mode
+    grid = GridFromEdges(
+        top=-20, left=-20, bottom=20, right=20, fov_width=512, fov_height=512
+    )
+    wdg.setMode(grid)
 
     # set fov size
     fovs = get_items_number(wdg).fovs
     assert fovs == 9
-
-    wdg.setFovSize((0.256, 0.256))
-    wdg.refresh()
-    fovs = get_items_number(wdg).fovs
-    assert fovs == 25
 
     # set circular
     assert not wdg.isCircular()
@@ -610,6 +631,20 @@ def test_well_view_widget_update(qtbot: QtBot):
     wdg.refresh()
     well = next(t for t in wdg.scene().items() if isinstance(t, QGraphicsEllipseItem))
     assert well.rect().width() == well.rect().height() == 290
+
+    # set mode to None
+    wdg.setMode(None)
+    assert not get_items_number(wdg).fovs
+
+
+def test_fov_selector_widget_none(qtbot: QtBot):
+    wdg = FOVSelectorWidget()
+    qtbot.addWidget(wdg)
+
+    assert wdg.value() == (None, Center(0.0, 0.0))
+    assert get_items_number(wdg.view) == SceneItems(
+        fovs=0, lines=0, well_area=0, well_circle=0, well_rect=0
+    )
 
 
 def test_fov_selector_widget(qtbot: QtBot, database: dict[str, Plate]):
@@ -663,6 +698,23 @@ def test_fov_selector_widget(qtbot: QtBot, database: dict[str, Plate]):
             num_points=2, max_width=30, max_height=10, shape="ellipse", random_seed=0
         )
         wdg.setValue(database["standard 96 wp"], rnd)
+
+    # none
+    wdg.setValue(database["coverslip 22mm"], None)
+    plate, _ = wdg.value()
+    assert plate == database["coverslip 22mm"]
+    assert get_items_number(wdg.view) == SceneItems(
+        fovs=0, lines=0, well_area=0, well_circle=0, well_rect=1
+    )
+
+    wdg.setValue(None, Center(x=0, y=0, fov_width=500, fov_height=500))
+    plate, mode = wdg.value()
+    assert plate is None
+    assert mode == Center(x=0, y=0, fov_width=500, fov_height=500)
+    assert mode.fov_width == mode.fov_height == 500
+    assert get_items_number(wdg.view) == SceneItems(
+        fovs=0, lines=0, well_area=0, well_circle=0, well_rect=0
+    )
 
 
 def test_hcs_wizard(global_mmcore: CMMCorePlus, qtbot: QtBot, database_path: Path):
