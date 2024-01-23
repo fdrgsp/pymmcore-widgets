@@ -325,8 +325,8 @@ class HCSWizard(QWizard):
                 )
             else:
                 for idx, fov in enumerate(mode):
-                    x = (fov.x * 1000) + well_center_x
-                    y = (fov.y * 1000) + well_center_y
+                    x = fov.x + well_center_x
+                    y = fov.y + well_center_y
                     positions.append(Position(x=x, y=y, name=f"{well.name}_{idx:04d}"))
 
         return positions
