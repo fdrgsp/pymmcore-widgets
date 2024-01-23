@@ -83,8 +83,11 @@ class PlateSelectorWidget(QWidget):
 
         # clear and custom plate buttons
         self._custom_plate_button = QPushButton(text="Custom Plate")
+        self._custom_plate_button.setAutoDefault(False)
         self._clear_button = QPushButton(text="Clear Selection")
+        self._clear_button.setAutoDefault(False)
         self._load_plate_db_button = QPushButton(text="Load Plate Database")
+        self._load_plate_db_button.setAutoDefault(False)
         btns_wdg = QWidget()
         btns_wdg.setLayout(QHBoxLayout())
         btns_wdg.layout().setContentsMargins(0, 0, 0, 0)

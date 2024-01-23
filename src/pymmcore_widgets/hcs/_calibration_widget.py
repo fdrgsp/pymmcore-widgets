@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import math
 import string
-import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, Iterable, NamedTuple, cast
 
 # import matplotlib.pyplot as plt
 import numpy as np
@@ -13,22 +12,22 @@ from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import QSize, Qt, Signal
 from qtpy.QtGui import QIcon, QPixmap
 from qtpy.QtWidgets import (
-    QAbstractSpinBox,
-    QAction,
     QComboBox,
-    QDoubleSpinBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QSpacerItem,
-    QTableWidget,
-    QToolBar,
     QVBoxLayout,
     QWidget,
 )
 from superqt.fonticon import icon
+from superqt.utils import signals_blocked
+
+from pymmcore_widgets.useq_widgets._column_info import FloatColumn
+from pymmcore_widgets.useq_widgets._data_table import DataTableWidget
 
 from ._graphics_items import Well
 from ._util import apply_rotation_matrix, get_well_center
@@ -42,19 +41,26 @@ FixedSizePolicy = (QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
 ALPHABET = string.ascii_uppercase
 ROLE = Qt.ItemDataRole.UserRole + 1
+
+MAX = 9999999
+
 ICON_PATH = Path(__file__).parent / "icons"
 ICON_SIZE = 22
+
 CIRCLE_ICON = QIcon(str(ICON_PATH / "circle-outline.svg"))
+CIRCLE_TEXT = "3 points : add 3 points on the circonference of the well"
+CIRCLE_MODE_POINTS = 3
+
 SIDES_ICON = QIcon(str(ICON_PATH / "square-outline_s.svg"))
-VERTICES_ICON = QIcon(str(ICON_PATH / "square-outline_v.svg"))
-CIRCLE_ITEM = "3 points : add 3 points on the circonference of the well"
 SIDES_ITEM = "4 points: add 4 points, 1 per side of the rectangular/square well"
-VERTICES_ITEM = (
+SIDES_MODE_POINTS = 4
+
+VERTICES_ICON = QIcon(str(ICON_PATH / "square-outline_v.svg"))
+VERTICES_TEXT = (
     "2 points: add 2 points at 2 opposite vertices of the rectangular/square well"
 )
-CIRCLE_MODE_POINTS = 3
-SIDES_MODE_POINTS = 4
 VERTICES_MODE_POINTS = 2
+
 LABEL_STYLE = """
     background: rgb(0, 255, 0);
     font-size: 16pt; font-weight:bold;
@@ -68,7 +74,7 @@ class TwoPoints(NamedTuple):
     """Two vertices points to calibrate a rectangular/square well."""
 
     icon: QIcon = VERTICES_ICON
-    item: str = VERTICES_ITEM
+    text: str = VERTICES_TEXT
     points: int = VERTICES_MODE_POINTS
 
 
@@ -76,7 +82,7 @@ class ThreePoints(NamedTuple):
     """Three edge points to calibrate a circular well."""
 
     icon: QIcon = CIRCLE_ICON
-    item: str = CIRCLE_ITEM
+    text: str = CIRCLE_TEXT
     points: int = CIRCLE_MODE_POINTS
 
 
@@ -84,38 +90,17 @@ class FourPoints(NamedTuple):
     """Four edge points to calibrate a rectangular/square well."""
 
     icon: QIcon = SIDES_ICON
-    item: str = SIDES_ITEM
+    text: str = SIDES_ITEM
     points: int = SIDES_MODE_POINTS
 
 
-class CalibrationTableData(NamedTuple):
-    """Named tuple to store the calibration data.
-
-    Attributes
-    ----------
-    list_of_points : list[tuple[float, float]]
-        List of points to calibrate the plate.
-    plate : Plate | None
-        The plate to calibrate.
-    calibration_mode : ThreePoints | FourPoints | TwoPoints | None
-        The calibration mode. Three edge points for circular wells, four edge points
-        for rectangular/square wells or two opposite vertices for rectangular/square
-        wells.
-    well_name : str
-        The name of the well.
-    """
-
-    list_of_points: list[tuple[float, float]]
-    plate: Plate | None
-    calibration_mode: ThreePoints | FourPoints | TwoPoints | None
-    well_name: str
-
-
 class CalibrationData(NamedTuple):
-    """Calibration parameters for the plate.
+    """Calibration data for the plate.
 
     Attributes
     ----------
+    plate : Plate
+        The plate to calibrate.
     well_A1_center : tuple[float, float]
         The x and y stage coordinates of the center of well A1.
     rotation_matrix : np.ndarray | None
@@ -126,28 +111,14 @@ class CalibrationData(NamedTuple):
         The x and y stage positions used to calibrate the well An.
     """
 
-    well_A1_center: tuple[float, float]
-    rotation_matrix: np.ndarray | None
-    calibration_position_a1: list[tuple[float, float]] | None
-    calibration_position_an: list[tuple[float, float]] | None = None
+    plate: Plate | None = None
+    well_A1_center: tuple[float, float] | None = None
+    rotation_matrix: np.ndarray | None = None
+    calibration_positions_a1: list[tuple[float, float]] | None = None
+    calibration_positions_an: list[tuple[float, float]] | None = None
 
 
-class CalibrationInfo(NamedTuple):
-    """Calibration information for the plate.
-
-    Attributes
-    ----------
-    plate : Plate
-        The plate to calibrate.
-    calibration_data: CalibrationData
-        The parameters necessary for plate calibration.
-    """
-
-    plate: Plate | None
-    calibration_data: CalibrationData | None
-
-
-def _find_circle_center(
+def find_circle_center(
     point1: tuple[float, float],
     point2: tuple[float, float],
     point3: tuple[float, float],
@@ -189,7 +160,7 @@ def _find_circle_center(
     return x, y
 
 
-def _find_rectangle_center(*args: tuple[float, ...]) -> tuple[float, float]:
+def find_rectangle_center(*args: tuple[float, ...]) -> tuple[float, float]:
     """
     Find the center of a rectangle/square well.
 
@@ -214,7 +185,7 @@ def _find_rectangle_center(*args: tuple[float, ...]) -> tuple[float, float]:
     return x, y
 
 
-def _get_plate_rotation_matrix(
+def get_plate_rotation_matrix(
     xy_well_1: tuple[float, float], xy_well_2: tuple[float, float]
 ) -> np.ndarray:
     """Get the rotation matrix to align the plate along the x axis."""
@@ -234,7 +205,7 @@ def _get_plate_rotation_matrix(
     )
 
 
-def _get_random_circle_edge_point(
+def get_random_circle_edge_point(
     xc: float, yc: float, radius: float
 ) -> tuple[float, float]:
     """Get random edge point of a circle.
@@ -250,7 +221,7 @@ def _get_random_circle_edge_point(
     return x, y
 
 
-def _get_random_rectangle_edge_point(
+def get_random_rectangle_edge_point(
     xc: float, yc: float, well_size_x: float, well_size_y: float
 ) -> tuple[float, float]:
     """Get random edge point of a rectangle.
@@ -306,172 +277,104 @@ class _CalibrationModeWidget(QGroupBox):
         if modes is None:
             return
         for idx, mode in enumerate(modes):
-            self._mode_combo.addItem(mode.icon, mode.item)
+            self._mode_combo.addItem(mode.icon, mode.text)
             self._mode_combo.setItemData(idx, mode, ROLE)
 
     def value(self) -> ThreePoints | FourPoints | TwoPoints:
         """Return the selected calibration mode."""
-        return self._mode_combo.itemData(self._mode_combo.currentIndex(), ROLE)  # type: ignore  # E501
+        mode = self._mode_combo.itemData(self._mode_combo.currentIndex(), ROLE)
+        return cast(TwoPoints | ThreePoints | FourPoints, mode)
 
 
-class _CalibrationTable(QWidget):
-    """Table for the calibration widget."""
+class _CalibrationTable(DataTableWidget):
+    """Table to store the calibration positions."""
 
-    def __init__(self, *, mmcore: CMMCorePlus | None = None) -> None:
-        super().__init__()
+    X = FloatColumn(
+        key="x", header="X [µm]", maximum=MAX, minimum=-MAX, is_row_selector=True
+    )
+    Y = FloatColumn(
+        key="y", header="Y [µm]", maximum=MAX, minimum=-MAX, is_row_selector=True
+    )
+
+    def __init__(
+        self,
+        rows: int = 0,
+        parent: QWidget | None = None,
+        *,
+        mmcore: CMMCorePlus | None = None,
+    ) -> None:
+        super().__init__(rows, parent)
 
         self._mmc = mmcore or CMMCorePlus.instance()
 
-        self._plate: Plate | None = None
-        self._calibration_mode: ThreePoints | FourPoints | TwoPoints | None = None
-
-        self._toolbar = QToolBar()
-        self._toolbar.setFloatable(False)
-        self._toolbar.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
-
-        spacer_1 = QWidget()
-        spacer_1.setFixedWidth(5)
-        spacer_1.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-
-        self._well_label = QLabel()
+        # QLabels to show the well name
+        # fix policy of space already in the toolbar
+        spacer = self.toolBar().layout().itemAt(0).widget()
+        spacer.setFixedSize(5, ICON_SIZE)
+        spacer.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        # label
+        self._well_label = QLabel(text=" Well ")
+        self._well_label.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
         self._well_label.setFixedHeight(ICON_SIZE)
         self._well_label.setStyleSheet(LABEL_STYLE)
         self._well_label.setAlignment(AlignCenter)
-
+        # spacer to keep the label to the left and the buttons to the right
         spacer_2 = QWidget()
         spacer_2.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # add widgets to the toolbar
+        self.toolBar().insertWidget(self.act_add_row, self._well_label)
+        self.toolBar().insertWidget(self.act_add_row, spacer_2)
 
-        self.act_add_row = QAction(
-            icon(MDI6.plus_thick, color=(0, 255, 0)), "Add new row", self
-        )
-        self.act_add_row.triggered.connect(self._add_position)
-        self.act_go_to = QAction(icon(MDI6.play, color="grey"), "Go to position", self)
-        self.act_go_to.triggered.connect(self._go_to_position)
-        self.act_remove_row = QAction(
-            icon(MDI6.close_box_outline, color="magenta"), "Remove selected row", self
-        )
-        self.act_remove_row.triggered.connect(self._remove_position)
-        self.act_clear = QAction(
-            icon(MDI6.close_box_multiple_outline, color="magenta"), "Clear", self
-        )
-        self.act_clear.triggered.connect(self._clear)
+        # when a new row is inserted, call _on_rows_inserted
+        # to update the new values from the core position
+        self.table().model().rowsInserted.connect(self._on_rows_inserted)
 
-        self._toolbar.addWidget(spacer_1)
-        self._toolbar.addWidget(self._well_label)
-        self._toolbar.addWidget(spacer_2)
-        self._toolbar.addAction(self.act_add_row)
-        self._toolbar.addAction(self.act_go_to)
-        self._toolbar.addAction(self.act_remove_row)
-        self._toolbar.addAction(self.act_clear)
+    # _________________________PUBLIC METHODS_________________________ #
 
-        # table
-        self.tb = QTableWidget()
-        hdr = self.tb.horizontalHeader()
-        hdr.setSectionResizeMode(hdr.ResizeMode.Stretch)
-        self.tb.verticalHeader().setVisible(False)
-        self.tb.setTabKeyNavigation(True)
-        self.tb.setColumnCount(2)
-        self.tb.setRowCount(0)
-        self.tb.setHorizontalHeaderLabels(["X", "Y"])
+    def value(
+        self, exclude_unchecked: bool = True, exclude_hidden_cols: bool = True
+    ) -> list[tuple[float, float]] | None:
+        """Get the calibration positions as a list of (x, y) tuples."""
+        pos = [(r["x"], r["y"]) for r in self.table().iterRecords()]
+        return pos or None
 
-        # main
-        self.setLayout(QVBoxLayout())
-        self.setContentsMargins(0, 0, 0, 0)
-        self.layout().setSpacing(0)
-        self.layout().addWidget(self._toolbar)
-        self.layout().addWidget(self.tb)
+    def setValue(self, value: Iterable[tuple[float, float]]) -> None:
+        """Set the calibration positions."""
+        pos = [{self.X.key: x, self.Y.key: y} for x, y in value]
+        super().setValue(pos)
 
-    @property
-    def plate(self) -> Plate | None:
-        return self._plate
+    def setText(self, text: str) -> None:
+        """Set the well name."""
+        self._well_label.setText(text)
 
-    @plate.setter
-    def plate(self, plate: Plate) -> None:
-        self._plate = plate
+    # _________________________PRIVATE METHODS________________________ #
 
-    @property
-    def calibration_mode(self) -> ThreePoints | FourPoints | TwoPoints | None:
-        return self._calibration_mode
+    def _add_row(self) -> None:
+        """Add a new to the end of the table and use the current core position."""
+        # note: _add_row is only called when act_add_row is triggered
+        # (e.g. when the + button is clicked). Not when a row is added programmatically
 
-    @calibration_mode.setter
-    def calibration_mode(
-        self, mode: ThreePoints | FourPoints | TwoPoints | None
-    ) -> None:
-        self._calibration_mode = mode
+        # block the signal that's going to be emitted until _on_rows_inserted
+        # has had a chance to update the values from the current stage position
+        with signals_blocked(self):
+            super()._add_row()
+        self.valueChanged.emit()
 
-    def _add_position(self) -> None:
-        if not self._mmc.getXYStageDevice():
-            warnings.warn("XY Stage not selected!", stacklevel=2)
-            return
+    def _on_rows_inserted(self, parent: Any, start: int, end: int) -> None:
+        with signals_blocked(self):
+            for row_idx in range(start, end + 1):
+                self._set_xy_from_core(row_idx)
+        self.valueChanged.emit()
 
-        row = self._add_row()
-        self._add_table_value(self._mmc.getXPosition(), row, 0)
-        self._add_table_value(self._mmc.getYPosition(), row, 1)
-
-    def _add_row(self) -> int:
-        idx = self.tb.rowCount()
-        self.tb.insertRow(idx)
-        return int(idx)
-
-    def _add_table_value(self, value: float, row: int, col: int) -> None:
-        spin = QDoubleSpinBox()
-        spin.setAlignment(AlignCenter)
-        spin.setMaximum(1000000.0)
-        spin.setMinimum(-1000000.0)
-        spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-        spin.setValue(value)
-        # block mouse scroll
-        spin.wheelEvent = lambda event: None
-        self.tb.setCellWidget(row, col, spin)
-
-    def _remove_position(self) -> None:
-        rows = {r.row() for r in self.tb.selectedIndexes()}
-        for idx in sorted(rows, reverse=True):
-            self.tb.removeRow(idx)
-
-    def _clear(self) -> None:
-        self.tb.clearContents()
-        self.tb.setRowCount(0)
-
-    def _get_table_values(self) -> list[tuple[float, float]]:
-        _range = self.tb.rowCount()
-        pos: list[tuple[float, float]] = [
-            (self.tb.cellWidget(r, 0).value(), self.tb.cellWidget(r, 1).value())
-            for r in range(_range)
-        ]
-        return pos
-
-    def _go_to_position(self) -> None:
-        if not self._mmc.getXYStageDevice():
-            warnings.warn("XY Stage not selected!", stacklevel=2)
-            return
-
-        row = self.tb.currentRow()
-        x, y = self._get_table_values()[row]
-        self._mmc.setXYPosition(x, y)
-
-    def setValue(self, value: CalibrationTableData) -> None:
-        """Set the widget values."""
-        self._clear()
-
-        list_of_points, plate, calibration_mode, well_name = value
-
-        for x, y in list_of_points:
-            row = self._add_row()
-            self._add_table_value(x, row, 0)
-            self._add_table_value(y, row, 1)
-
-        self.plate = plate
-        self.calibration_mode = calibration_mode
-        self._well_label.setText(well_name)
-
-    def value(self) -> CalibrationTableData:
-        return CalibrationTableData(
-            self._get_table_values(),
-            self.plate,
-            self.calibration_mode,
-            self._well_label.text(),
-        )
+    def _set_xy_from_core(self, row: int, col: int = 0) -> None:
+        if self._mmc.getXYStageDevice():
+            data = {
+                self.X.key: self._mmc.getXPosition(),
+                self.Y.key: self._mmc.getYPosition(),
+            }
+            self.table().setRowData(row, data)
 
 
 class _TestCalibrationWidget(QGroupBox):
@@ -528,20 +431,11 @@ class _TestCalibrationWidget(QGroupBox):
         # connect
         self._stop_button.clicked.connect(self._stop_xy_stage)
 
-    @property
-    def plate(self) -> Plate | None:
-        return self._plate
-
-    @plate.setter
-    def plate(self, plate: Plate) -> None:
-        self._plate = plate
-
-    def _stop_xy_stage(self) -> None:
-        self._mmc.stop(self._mmc.getXYStageDevice())
+    # _________________________PUBLIC METHODS_________________________ #
 
     def value(self) -> tuple[Plate | None, Well]:
         """Return the selected test well as `WellInfo` object."""
-        return self.plate, Well(
+        return self._plate, Well(
             self._letter_combo.currentText() + self._number_combo.currentText(),
             self._letter_combo.currentIndex(),
             self._number_combo.currentIndex(),
@@ -549,21 +443,26 @@ class _TestCalibrationWidget(QGroupBox):
 
     def setValue(self, plate: Plate | None, well: Well | None) -> None:
         """Set the selected test well."""
-        self.plate = plate
+        self._plate = plate
         self._update_combos()
         self._letter_combo.setCurrentIndex(0 if well is None else well.row)
         self._number_combo.setCurrentIndex(0 if well is None else well.column)
 
+    # _________________________PRIVATE METHODS________________________ #
+
+    def _stop_xy_stage(self) -> None:
+        self._mmc.stop(self._mmc.getXYStageDevice())
+
     def _update_combos(self) -> None:
-        if self.plate is None:
+        if self._plate is None:
             return
         self._letter_combo.clear()
-        letters = [ALPHABET[letter] for letter in range(self.plate.rows)]
+        letters = [ALPHABET[letter] for letter in range(self._plate.rows)]
         self._letter_combo.addItems(letters)
         self._letter_combo.adjustSize()
 
         self._number_combo.clear()
-        numbers = [str(c) for c in range(1, self.plate.columns + 1)]
+        numbers = [str(c) for c in range(1, self._plate.columns + 1)]
         self._number_combo.addItems(numbers)
         self._number_combo.adjustSize()
 
@@ -591,6 +490,8 @@ class _CalibrationLabel(QGroupBox):
         self.layout().addWidget(self._icon_lbl)
         self.layout().addWidget(self._text_lbl)
 
+    # _________________________PUBLIC METHODS_________________________ #
+
     def value(self) -> str:
         return str(self._text_lbl.text())
 
@@ -613,14 +514,14 @@ class PlateCalibrationWidget(QWidget):
 
         self._mmc = mmcore or CMMCorePlus.instance()
         self._plate: Plate | None = None
-        self._calibration_info: CalibrationInfo = CalibrationInfo(None, None)
+
+        self._calibration_data: CalibrationData = CalibrationData()
 
         # calibration mode
         self._calibration_mode = _CalibrationModeWidget()
 
         # calibration tables
         self._table_a1 = _CalibrationTable()
-        # self._table_a1._write_to_label(colunm=0)
         self._table_an = _CalibrationTable()
         _table_group = QGroupBox()
         _table_group.setLayout(QHBoxLayout())
@@ -670,197 +571,197 @@ class PlateCalibrationWidget(QWidget):
         self.layout().addWidget(_bottom_group)
 
         # connect
-        self._calibration_mode.valueChanged.connect(self._on_calibration_mode_changed)
         self._calibrate_button.clicked.connect(self._on_calibrate_button_clicked)
         self._test_calibration._test_button.clicked.connect(self._move_to_well_edge)
 
-    @property
-    def plate(self) -> Plate | None:
-        return self._plate
-
-    @plate.setter
-    def plate(self, plate: Plate) -> None:
-        self._plate = plate
-
-    @property
-    def calibration_info(self) -> CalibrationInfo:
-        return self._calibration_info
-
-    @calibration_info.setter
-    def calibration_info(self, info: CalibrationInfo) -> None:
-        self._calibration_info = info
-
     # _________________________PUBLIC METHODS_________________________ #
 
-    def value(self) -> CalibrationInfo:
-        """Get the calibration information."""
-        return self.calibration_info
+    def value(self) -> CalibrationData:
+        """Return the calibration data."""
+        return self._calibration_data
 
-    def setValue(self, value: CalibrationInfo) -> None:
-        """Set the calibration information."""
+    def setValue(self, value: CalibrationData) -> None:
+        """Set the calibration data."""
         # reset calibration state
         self._reset_calibration()
 
-        self.calibration_info = value
-        self.plate = value.plate
+        self._calibration_data = value
+        self._plate = value.plate
 
-        # update calibration mode
+        # set calibration mode
         calibration_mode: list[TwoPoints | ThreePoints | FourPoints] | None = (
             None
-            if self.plate is None
+            if self._plate is None
             else [ThreePoints()]
-            if self.plate.circular
+            if self._plate.circular
             else [TwoPoints(), FourPoints()]
         )
         self._calibration_mode.setValue(calibration_mode)
 
         # update calibration tables
-        calib_data = value.calibration_data
-        pos_a1 = calib_data.calibration_position_a1 if calib_data else None
-        pos_an = calib_data.calibration_position_an if calib_data else None
-        self._update_tables(self.plate, self._calibration_mode.value(), pos_a1, pos_an)
+        pos_a1 = value.calibration_positions_a1
+        pos_an = value.calibration_positions_an
+        self._update_tables(self._plate, pos_a1, pos_an)
 
         # update test calibration
-        self._test_calibration.setValue(plate=self.plate, well=None)
-
-        # if self.calibration_info.calibration_data is not None:
-        #     self._on_calibrate_button_clicked()
+        self._test_calibration.setValue(plate=self._plate, well=None)
 
     # _________________________PRIVATE METHODS________________________ #
-
-    def _on_calibration_mode_changed(
-        self, calibration_mode: ThreePoints | FourPoints | TwoPoints
-    ) -> None:
-        self._table_a1.calibration_mode = calibration_mode
-        self._table_an.calibration_mode = calibration_mode
 
     def _update_tables(
         self,
         plate: Plate | None,
-        calibration_mode: ThreePoints | FourPoints | TwoPoints | None,
-        points_a1: list[tuple[float, float]] | None = None,
-        points_an: list[tuple[float, float]] | None = None,
+        pos_a1: list[tuple[float, float]] | None,
+        pos_an: list[tuple[float, float]] | None,
     ) -> None:
         """Update the calibration tables."""
+        # set table values
+        self._table_a1.setValue([] if pos_a1 is None else pos_a1)
+        self._table_an.setValue([] if pos_an is None else pos_an)
+
+        # set table well name
         a1 = "" if plate is None else " Well A1 "
-        self._table_a1.setValue(
-            CalibrationTableData(points_a1 or [], plate, calibration_mode, a1)
-        )
-
         an = "" if plate is None else f" Well A{plate.columns} "
-        self._table_an.setValue(
-            CalibrationTableData(points_an or [], plate, calibration_mode, an)
-        )
+        self._table_a1.setText(a1)
+        self._table_an.setText(an)
 
+        # hide an table if plate has only one column
         self._table_a1.show() if plate is not None else self._table_a1.hide()
-        self._table_an.show() if plate is not None and plate.columns > 1 else self._table_an.hide()  # noqa E501
+        (
+            self._table_an.show()
+            if plate is not None and plate.columns > 1
+            else self._table_an.hide()
+        )
 
     def _reset_calibration(self) -> None:
         """Reset to not calibrated state."""
         self._set_calibration_label(False)
-        self._calibration_info = CalibrationInfo(self.plate, None)
+        self._test_calibration._test_button.setEnabled(False)
+        self._calibration_data = CalibrationData(plate=self._plate)
+
+    def _set_calibration_label(self, state: bool) -> None:
+        """Set the calibration label."""
+        lbl_icon = MDI6.check_bold if state else MDI6.close_octagon_outline
+        lbl_icon_size = QSize(20, 20) if state else QSize(30, 30)
+        lbl_icon_color = (0, 255, 0) if state else "magenta"
+        text = "Plate Calibrated!" if state else "Plate Not Calibrated!"
+        self._calibration_label.setValue(
+            pixmap=icon(lbl_icon, color=lbl_icon_color).pixmap(lbl_icon_size),
+            text=text,
+        )
 
     def _on_calibrate_button_clicked(self) -> None:
         """Calibrate the plate."""
-        if self.plate is None:
+        if self._plate is None:
             self._reset_calibration()
             return
 
         # get calibration well centers
-        a1_center, an_center = self._find_calibration_well_centers()
+        a1_center, an_center = self._find_wells_center()
 
         # return if any of the necessary well centers is None
-        if None in a1_center or (None in an_center and self.plate.columns > 1):
+        if None in a1_center or (None in an_center and self._plate.columns > 1):
             self._reset_calibration()
-            # TODO: add warning
             return
 
+        a1_center = cast(tuple[float, float], a1_center)
+
         # get plate rotation matrix
-        rotation_matrix = (
-            None
-            if None in an_center
-            else _get_plate_rotation_matrix(a1_center, an_center)  # type: ignore
-        )
+        if None in an_center:
+            rotation_matrix = None
+        else:
+            an_center = cast(tuple[float, float], an_center)
+            rotation_matrix = get_plate_rotation_matrix(a1_center, an_center)
 
         # set calibration_info property
-        a1_x, a1_y = cast(tuple[float, float], a1_center)
-        pos_a1 = self._table_a1._get_table_values()
-        pos_an = self._table_an._get_table_values() if self.plate.columns > 1 else None
-        calibration_data = CalibrationData(
-            (a1_x, a1_y), rotation_matrix, pos_a1, pos_an
+        pos_a1 = self._table_a1.value()
+        pos_an = self._table_an.value() if self._plate.columns > 1 else None
+        self._calibration_data = CalibrationData(
+            self._plate, a1_center, rotation_matrix, pos_a1, pos_an
         )
-        self.calibration_info = CalibrationInfo(self.plate, calibration_data)
 
         # update calibration label
         self._set_calibration_label(True)
+        self._test_calibration._test_button.setEnabled(True)
 
-    def _find_calibration_well_centers(
+    def _find_wells_center(
         self,
     ) -> tuple[tuple[float | None, float | None], tuple[float | None, float | None]]:
         """Find the centers in stage coordinates of the calibration wells."""
-        if self.plate is None:
+        if self._plate is None:
             return (None, None), (None, None)
 
-        a1_x, a1_y = self._find_well_center(self._table_a1)
+        a1_x, a1_y = self._find_center(self._table_a1)
+        if a1_x is None or a1_y is None:
+            return (None, None), (None, None)
+
         an_x, an_y = (
-            self._find_well_center(self._table_an)
-            if self.plate.columns > 1
+            self._find_center(self._table_an)
+            if self._plate.columns > 1
             else (None, None)
         )
         return (a1_x, a1_y), (an_x, an_y)
 
-    def _find_well_center(
+    def _find_center(
         self, table: _CalibrationTable
     ) -> tuple[float | None, float | None]:
-        """Find the well center from the calibration table."""
-        pos, _, _, _ = table.value()
+        """Find the center given 2, 3 or 4 points depending on the well shape."""
+        pos = table.value()
 
-        if pos is None or table.calibration_mode is None:
+        if pos is None:
             return None, None
 
-        points = table.calibration_mode.points
-        if len(pos) != points:
+        num_pos = len(pos) if pos is not None else 0
+        expected_num_pos = self._calibration_mode.value().points
+        well_name = table._well_label.text().replace(" ", "")
+
+        # check if the number of points is correct
+        if num_pos != expected_num_pos:
             self._reset_calibration()
-            raise ValueError(
-                "Invalid number of points for "
-                f"'{table._well_label.text().replace(' ', '')}'. "
-                f"Expected {points}, got {len(pos)}."
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Invalid number of positions for '{well_name}'. "
+                f"Expected {expected_num_pos}, got {num_pos or 0}.",
             )
+            return None, None
 
         return (
-            _find_circle_center(*pos)
-            if points == CIRCLE_MODE_POINTS
-            else _find_rectangle_center(*pos)
+            find_circle_center(*pos)
+            if expected_num_pos == CIRCLE_MODE_POINTS
+            else find_rectangle_center(*pos)
         )
 
     def _move_to_well_edge(self) -> None:
         """Move to the edge of the selected well to test the calibratiion."""
-        if self.plate is None:
+        if self._plate is None:
             return
-        _, cal_data = self.calibration_info
-        if cal_data is None:
+
+        data = self._calibration_data
+        if data.well_A1_center is None:
             return
 
         _, well = self._test_calibration.value()
-        a1_x, a1_y = cal_data.well_A1_center
-        cx, cy = get_well_center(self.plate, well, a1_x, a1_y)
+        a1_x, a1_y = data.well_A1_center
+        cx, cy = get_well_center(self._plate, well, a1_x, a1_y)
 
-        if cal_data.rotation_matrix is not None:
-            cx, cy = apply_rotation_matrix(cal_data.rotation_matrix, a1_x, a1_y, cx, cy)
+        if data.rotation_matrix is not None:
+            cx, cy = apply_rotation_matrix(data.rotation_matrix, a1_x, a1_y, cx, cy)
 
         self._mmc.waitForDevice(self._mmc.getXYStageDevice())
 
-        if self.plate.circular:
-            x, y = _get_random_circle_edge_point(
-                cx, cy, self.plate.well_size_x * 1000 / 2
+        if self._plate.circular:
+            x, y = get_random_circle_edge_point(
+                cx, cy, self._plate.well_size_x * 1000 / 2
             )
         else:
-            x, y = _get_random_rectangle_edge_point(
-                cx, cy, self.plate.well_size_x * 1000, self.plate.well_size_y * 1000
+            x, y = get_random_rectangle_edge_point(
+                cx, cy, self._plate.well_size_x * 1000, self._plate.well_size_y * 1000
             )
 
         self._mmc.setXYPosition(x, y)
-        # this is only for testing, remove later____________________________________
+
+        # # this is only for testing, remove later____________________________________
         # plt.plot(a1_x, a1_y, "mo")
         # plt.plot(cx, cy, "mo")
         # plt.plot(x, y, "go")
@@ -879,16 +780,4 @@ class PlateCalibrationWidget(QWidget):
         #     plt.plot(x, y, "ko")
         # plt.axis("equal")
         # plt.show()
-        # ______________________________________________________________________________
-
-    def _set_calibration_label(self, state: bool) -> None:
-        """Set the calibration label."""
-        lbl_icon = MDI6.check_bold if state else MDI6.close_octagon_outline
-        lbl_icon_size = QSize(20, 20) if state else QSize(30, 30)
-        lbl_icon_color = (0, 255, 0) if state else "magenta"
-        text = "Plate Calibrated!" if state else "Plate Not Calibrated!"
-        self._calibration_label.setValue(
-            pixmap=icon(lbl_icon, color=lbl_icon_color).pixmap(lbl_icon_size),
-            text=text,
-        )
-        self._test_calibration._test_button.setEnabled(state)
+        # # ___________________________________________________________________________

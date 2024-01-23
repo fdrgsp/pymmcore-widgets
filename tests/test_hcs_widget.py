@@ -386,7 +386,7 @@ def test_calibration_widget(
     cal_data = CalibrationData(
         well_A1_center=(-55.0, 35.0),
         rotation_matrix=None,
-        calibration_position_a1=[(-210, 170), (100, -100)],
+        calibration_positions_a1=[(-210, 170), (100, -100)],
     )
     assert wdg.value() == CalibrationInfo(database["coverslip 22mm"], cal_data)
 

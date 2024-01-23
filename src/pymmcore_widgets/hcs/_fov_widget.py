@@ -891,22 +891,12 @@ class FOVSelectorWidget(QWidget):
 
         self.setValue(self._plate, mode)
 
-    @property
-    def plate(self) -> Plate | None:
-        """Return the well plate."""
-        return self._plate
-
-    @plate.setter
-    def plate(self, well_plate: Plate | None) -> None:
-        """Set the well plate."""
-        self._plate = well_plate
-
     # _________________________PUBLIC METHODS_________________________ #
 
     def value(
         self,
     ) -> tuple[Plate | None, Center | RandomPoints | GridRowsColumns | None]:
-        return self.plate, self._get_mode_widget().value()
+        return self._plate, self._get_mode_widget().value()
 
     def setValue(
         self, plate: Plate | None, mode: Center | RandomPoints | GridRowsColumns | None
@@ -922,9 +912,9 @@ class FOVSelectorWidget(QWidget):
         """
         self.view.clear()
 
-        self.plate = plate
+        self._plate = plate
 
-        if self.plate is None:
+        if self._plate is None:
             # reset view scene and mode widgets
             self.view.setValue(WellViewData())
             with signals_blocked(self.random_wdg):
@@ -939,8 +929,8 @@ class FOVSelectorWidget(QWidget):
         # update view data
         view_data = WellViewData(
             # plate well size in mm, convert to µm
-            well_size=(self.plate.well_size_x * 1000, self.plate.well_size_y * 1000),
-            circular=self.plate.circular,
+            well_size=(self._plate.well_size_x * 1000, self._plate.well_size_y * 1000),
+            circular=self._plate.circular,
             padding=OFFSET,
             mode=mode,
         )
@@ -972,7 +962,7 @@ class FOVSelectorWidget(QWidget):
         else:
             # update the randon widget values depending on the plate
             with signals_blocked(self.random_wdg):
-                self.random_wdg.setValue(self._plate_to_random(self.plate))
+                self.random_wdg.setValue(self._plate_to_random(self._plate))
             # update center or grid widgets
             if isinstance(mode, Center):
                 self._set_center_value(mode)
@@ -1040,16 +1030,16 @@ class FOVSelectorWidget(QWidget):
         If max width and height are grater than the plate well size, set them to the
         plate well size.
         """
-        if self.plate is None:
+        if self._plate is None:
             return
 
         if (
-            mode.max_width > self.plate.well_size_x
-            or mode.max_height > self.plate.well_size_y
+            mode.max_width > self._plate.well_size_x
+            or mode.max_height > self._plate.well_size_y
         ):
             mode = mode.replace(
-                max_width=self.plate.well_size_x,
-                max_height=self.plate.well_size_y,
+                max_width=self._plate.well_size_x,
+                max_height=self._plate.well_size_y,
             )
             warnings.warn(
                 "RandomPoints `max_width` and/or `max_height` are larger than "

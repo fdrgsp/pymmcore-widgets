@@ -21,7 +21,6 @@ from useq import (
 
 from ._calibration_widget import (
     CalibrationData,
-    CalibrationInfo,
     PlateCalibrationWidget,
 )
 from ._fov_widget import Center, FOVSelectorWidget
@@ -53,7 +52,7 @@ class HCSData(NamedTuple):
     plate: Plate | None
     wells: list[Well] | None = None
     mode: Center | RandomPoints | GridRowsColumns | None = None
-    calibration: CalibrationData | None = None
+    calibration: CalibrationData = CalibrationData()
     positions: list[Position] | None = None
 
 
@@ -96,23 +95,26 @@ class PlatePage(QWizardPage):
 
 
 class PlateCalibrationPage(QWizardPage):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, parent: QWidget | None = None, mmcore: CMMCorePlus | None = None
+    ) -> None:
         super().__init__(parent)
         self.setTitle("Plate Calibration")
 
-        self._calibration = PlateCalibrationWidget()
+        self._calibration = PlateCalibrationWidget(mmcore=mmcore)
 
         self.setLayout(QVBoxLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)
         self.layout().addWidget(self._calibration)
+        self.layout().addItem(QSpacerItem(0, 0, *EXPANDING))
 
         self.setButtonText(QWizard.WizardButton.NextButton, "FOVs >")
 
-    def value(self) -> CalibrationInfo:
+    def value(self) -> CalibrationData:
         """Return the calibration info."""
         return self._calibration.value()
 
-    def setValue(self, value: CalibrationInfo) -> None:
+    def setValue(self, value: CalibrationData) -> None:
         """Set the calibration info."""
         self._calibration.setValue(value)
 
@@ -131,7 +133,6 @@ class FOVSelectorPage(QWizardPage):
 
         self.setLayout(QVBoxLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)
-        self.layout().addItem(QSpacerItem(0, 0, *EXPANDING))
         self.layout().addWidget(self._fov_widget)
         self.layout().addItem(QSpacerItem(0, 0, *EXPANDING))
 
@@ -177,7 +178,7 @@ class HCSWizard(QWizard):
 
         # setup calibration page
         self.calibration_page = PlateCalibrationPage()
-        self.calibration_page.setValue(CalibrationInfo(plate, None))
+        self.calibration_page.setValue(CalibrationData(plate))
 
         # setup fov page
         fov_w, fov_h = self._get_fov_size()
@@ -205,15 +206,21 @@ class HCSWizard(QWizard):
         and is not used.
         """
         self.plate_page.setValue(PlateInfo(value.plate, value.wells))
-        self.calibration_page.setValue(CalibrationInfo(value.plate, value.calibration))
+        self.calibration_page.setValue(value.calibration)
         self.fov_page.setValue(value.plate, value.mode)
 
     def value(self) -> HCSData:
         """Return the values of the wizard."""
         plate, well_list = self.plate_page.value()
-        _, mode = self.fov_page.value()
-        _, calibration_data = self.calibration_page.value()
+
+        calibration_data = self.calibration_page.value()
+        assert calibration_data.plate == plate
+
+        fov_plate, mode = self.fov_page.value()
+        assert fov_plate == plate
+
         positions = self._get_positions()
+
         return HCSData(plate, well_list, mode, calibration_data, positions)
 
     def accept(self) -> None:
@@ -233,7 +240,7 @@ class HCSWizard(QWizard):
         self._update_wizard_pages(plate)
 
     def _update_wizard_pages(self, plate: Plate | None) -> None:
-        # self.calibration_page.setValue(CalibrationInfo(plate, None))
+        self.calibration_page.setValue(CalibrationData(plate))
         fov_w, fov_h = self._get_fov_size()
         self.fov_page.setValue(plate, Center(0, 0, fov_w, fov_h))
 
@@ -281,11 +288,11 @@ class HCSWizard(QWizard):
         if plate is None:
             return None
 
-        _, calibration = self.calibration_page.value()
+        calibration = self.calibration_page.value()
 
         _, wells = self.plate_page.value()
 
-        if wells is None or calibration is None:
+        if wells is None or calibration.well_A1_center is None:
             return None
 
         a1_x, a1_y = calibration.well_A1_center
