@@ -15,6 +15,7 @@ from ._graphics_items import Well, _WellGraphicsItem
 
 if TYPE_CHECKING:
     from qtpy.QtGui import QBrush, QPen, QResizeEvent
+    from useq._grid import GridPosition
 
     from ._well_plate_model import Plate
 
@@ -121,3 +122,97 @@ def apply_rotation_matrix(
     transformed = np.linalg.inv(rotation_matrix).dot(coords - center) + center
     x_rotated, y_rotated = transformed
     return x_rotated[0], y_rotated[0]
+
+
+def nearest_neighbor(points: list[GridPosition]) -> list[GridPosition]:
+    top_left_point = _find_top_left_point(points)
+    n = len(points)
+    visited = [False] * n
+    path_indices: list[int] = [points.index(top_left_point)]
+    visited[path_indices[0]] = True
+
+    for _ in range(n - 1):
+        current_point = path_indices[-1]
+        nearest_point = None
+        min_distance = float("inf")
+
+        for i in range(n):
+            if not visited[i]:
+                distance = _calculate_distance(points[current_point], points[i])
+                if distance < min_distance:
+                    min_distance = distance
+                    nearest_point = i
+
+        if nearest_point is not None:
+            path_indices.append(nearest_point)
+            visited[nearest_point] = True
+
+    return [points[i] for i in path_indices]
+
+
+def _calculate_distance(point1: GridPosition, point2: GridPosition) -> float:
+    return np.linalg.norm(
+        np.array([point1.x, point1.y]) - np.array([point2.x, point2.y])
+    ).item()
+
+
+def _find_top_left_point(points: list[GridPosition]) -> GridPosition:
+    min_sum = float("inf")
+    top_left_point = None
+
+    for point in points:
+        current_sum = point.x + point.y
+        if current_sum < min_sum:
+            min_sum = current_sum
+            top_left_point = point
+
+    if top_left_point is None:
+        # Handle the case where the list is empty
+        raise ValueError("List of points is empty")
+
+    return top_left_point
+
+
+# def nearest_neighbor(points: list[GridPosition]) -> list[GridPosition]:
+#     top_left_point = _find_top_left_point(points)
+#     n = len(points)
+#     visited = [False] * n
+#     path_indices = [points.index(top_left_point)]
+#     visited[path_indices[0]] = True
+
+#     for _ in range(n - 1):
+#         current_point = path_indices[-1]
+#         nearest_point = None
+#         min_distance = float("inf")
+
+#         for i in range(n):
+#             if not visited[i]:
+#                 distance = _calculate_distance(points[current_point], points[i])
+#                 if distance < min_distance:
+#                     min_distance = distance
+#                     nearest_point = i
+
+#         if nearest_point is not None:
+#             path_indices.append(nearest_point)
+#             visited[nearest_point] = True
+
+#     return [points[i] for i in path_indices]
+
+
+# def _calculate_distance(point1: GridPosition, point2: GridPosition) -> float:
+#     return np.linalg.norm(
+#         np.array([point1.x, point1.y]) - np.array([point2.x, point2.y])
+#     )
+
+
+# def _find_top_left_point(points: list[GridPosition]) -> GridPosition | None:
+#     min_sum = float("inf")
+#     top_left_point = None
+
+#     for point in points:
+#         current_sum = point.x + point.y
+#         if current_sum < min_sum:
+#             min_sum = current_sum
+#             top_left_point = point
+
+#     return top_left_point

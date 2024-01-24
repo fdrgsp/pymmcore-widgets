@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import warnings
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
@@ -35,12 +34,12 @@ from useq import (
     GridWidthHeight,
     RandomPoints,
 )
-from useq._grid import OrderMode, Shape
+from useq._grid import GridPosition, OrderMode, Shape
 
 from pymmcore_widgets.useq_widgets._grid import _SeparatorWidget
 
 from ._graphics_items import FOV, _FOVGraphicsItem, _WellAreaGraphicsItem
-from ._util import _ResizingGraphicsView
+from ._util import _ResizingGraphicsView, nearest_neighbor
 
 if TYPE_CHECKING:
     from ._well_plate_model import Plate
@@ -723,21 +722,14 @@ class WellView(_ResizingGraphicsView):
         with warnings.catch_warnings(record=True) as w:
             # note: inverting the y axis because in scene, y up is negative and y down
             # is positive.
-            coords = [FOV(x, y * (-1), area) for x, y, _, _, _ in points]
-            if len(coords) != points.num_points:
-                self.pointsWarning.emit(len(coords))
+            pos = [GridPosition(x, y * (-1), r, c, rel) for x, y, r, c, rel in points]
+            if len(pos) != points.num_points:
+                self.pointsWarning.emit(len(pos))
 
         if len(w):
             warnings.warn(w[0].message, w[0].category, stacklevel=2)
 
-        # sort the points by distance from top-left corner
-        top_x, top_y = area.topLeft().x(), area.topLeft().y()
-        return sorted(
-            coords,
-            key=lambda coord: math.sqrt(
-                ((coord.x - top_x) ** 2) + ((coord.y - top_y) ** 2)
-            ),
-        )
+        return [FOV(p.x, p.y, area) for p in nearest_neighbor(pos)]
 
     def _update_grid_fovs(
         self, value: GridRowsColumns | GridWidthHeight | GridFromEdges

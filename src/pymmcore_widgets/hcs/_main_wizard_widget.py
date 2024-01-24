@@ -1,4 +1,3 @@
-import math
 from pathlib import Path
 from typing import NamedTuple
 
@@ -19,7 +18,6 @@ from useq import (
     Position,
     RandomPoints,
 )
-from useq._grid import GridPosition
 
 from ._calibration_widget import (
     CalibrationData,
@@ -28,7 +26,7 @@ from ._calibration_widget import (
 from ._fov_widget import Center, FOVSelectorWidget
 from ._graphics_items import Well
 from ._plate_widget import PlateInfo, PlateSelectorWidget
-from ._util import apply_rotation_matrix, get_well_center
+from ._util import apply_rotation_matrix, get_well_center, nearest_neighbor
 from ._well_plate_model import PLATE_DB_PATH, Plate
 
 EXPANDING = (QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -328,7 +326,7 @@ class HCSWizard(QWizard):
 
             else:
                 fovs = (
-                    self._sort_by_distance(mode)
+                    nearest_neighbor(list(mode))
                     if isinstance(mode, RandomPoints)
                     else list(mode)
                 )
@@ -339,17 +337,17 @@ class HCSWizard(QWizard):
 
         return positions
 
-    def _sort_by_distance(self, mode: RandomPoints) -> list[GridPosition]:
-        fovs = list(mode)
-        # Find the top-left corner
-        top_left = min(fovs, key=lambda fov: (fov.x, fov.y))
-        # Sort by distance from the top-left corner
-        return sorted(
-            fovs,
-            key=lambda fov: math.sqrt(
-                (fov.x - top_left.x) ** 2 + (fov.y - top_left.y) ** 2
-            ),
-        )
+    # def _sort_by_distance(self, mode: RandomPoints) -> list[GridPosition]:
+    #     fovs = list(mode)
+    #     # Find the top-left corner
+    #     top_left = min(fovs, key=lambda fov: (fov.x, fov.y))
+    #     # Sort by distance from the top-left corner
+    #     return sorted(
+    #         fovs,
+    #         key=lambda fov: math.sqrt(
+    #             (fov.x - top_left.x) ** 2 + (fov.y - top_left.y) ** 2
+    #         ),
+    #     )
 
     # this is just for testing, remove later _______________________
     def drawPlateMap(self) -> None:
