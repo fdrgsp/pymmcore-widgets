@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from itertools import product
 from typing import TYPE_CHECKING
 
@@ -125,10 +126,18 @@ def apply_rotation_matrix(
 
 
 def nearest_neighbor(points: list[GridPosition]) -> list[GridPosition]:
-    top_left_point = _find_top_left_point(points)
+    """Find the nearest neighbor path for a list of points.
+
+    The starting point is the furthest point from the center (0, 0)
+    """
+    first_point: GridPosition | None = _furthest_point_from_center(points)
+
+    if first_point is None:
+        return []
+
     n = len(points)
-    visited = [False] * n
-    path_indices: list[int] = [points.index(top_left_point)]
+    visited: dict[int, bool] = {i: False for i in range(n)}
+    path_indices: list[int] = [points.index(first_point)]
     visited[path_indices[0]] = True
 
     for _ in range(n - 1):
@@ -151,23 +160,19 @@ def nearest_neighbor(points: list[GridPosition]) -> list[GridPosition]:
 
 
 def _calculate_distance(point1: GridPosition, point2: GridPosition) -> float:
-    return np.linalg.norm(
-        np.array([point1.x, point1.y]) - np.array([point2.x, point2.y])
-    ).item()
+    """Calculate the Euclidean distance between two points."""
+    return math.sqrt((point1.x - point2.x) ** 2 + (point1.y - point2.y) ** 2)
 
 
-def _find_top_left_point(points: list[GridPosition]) -> GridPosition:
-    min_sum = float("inf")
-    top_left_point = None
+def _furthest_point_from_center(points: list[GridPosition]) -> GridPosition | None:
+    """Find the furthest point from the center (0, 0)."""
+    max_distance: float = 0.0
+    furthest_point: GridPosition | None = None
 
     for point in points:
-        current_sum = point.x + point.y
-        if current_sum < min_sum:
-            min_sum = current_sum
-            top_left_point = point
+        distance = math.sqrt(point.x**2 + point.y**2)
+        if distance > max_distance:
+            max_distance = distance
+            furthest_point = point
 
-    if top_left_point is None:
-        # Handle the case where the list is empty
-        raise ValueError("List of points is empty")
-
-    return top_left_point
+    return furthest_point

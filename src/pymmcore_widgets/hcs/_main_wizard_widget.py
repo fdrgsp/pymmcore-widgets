@@ -39,8 +39,8 @@ class HCSData(NamedTuple):
     ----------
     plate : Plate
         The selected well plate.
-    wells : list[str] | None
-        The selected wells.
+    wells : list[Well] | None
+        The selected wells as Well object: Well(name, row, column)
     mode : Center | RandomPoints | GridRowsColumns | None
         The mode used to select the FOVs.
     calibration : CalibrationData | None
