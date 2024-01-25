@@ -80,13 +80,14 @@ class Center(NamedTuple):
     fov_width: float | None = None
     fov_height: float | None = None
 
-    def replace(self, **args: Any) -> Center:
-        """Replace the values of the Center."""
+    def replace(self, **kwargs: Any) -> Center:
+        """Replace the specified arguments by creating a new one."""
+        # update only the kwargs that are in kwargs, the rest is left unchanged
         return Center(
-            x=args.get("x", self.x),
-            y=args.get("y", self.y),
-            fov_width=args.get("fov_width", self.fov_width),
-            fov_height=args.get("fov_height", self.fov_height),
+            *(
+                kwargs[field] if field in kwargs else getattr(self, field)
+                for field in self._fields
+            )
         )
 
 

@@ -267,13 +267,15 @@ class HCSWizard(QWizard):
     def _on_px_size_changed(self) -> None:
         """Update the scene when the pixel size is changed."""
         plate, mode = self.fov_page.value()
+        assert plate == self.plate_page.value().plate
 
-        if plate is None or mode is None:
+        if plate is None:
             return
 
         # update the mode with the new fov size
-        fov_w, fov_h = self._get_fov_size()
-        mode = mode.replace(fov_width=fov_w, fov_height=fov_h)
+        if mode is not None:
+            fov_w, fov_h = self._get_fov_size()
+            mode = mode.replace(fov_width=fov_w, fov_height=fov_h)
 
         # update the fov_page with the fov size
         self.fov_page.setValue(plate, mode)

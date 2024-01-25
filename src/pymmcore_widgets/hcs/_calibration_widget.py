@@ -584,8 +584,6 @@ class PlateCalibrationWidget(QWidget):
         self._calibrate_button.clicked.connect(self._on_calibrate_button_clicked)
         self._test_calibration._test_button.clicked.connect(self._move_to_well_edge)
 
-        # TODO: self._mmc.events.pixelSizeChanged.connect(self._on_pixel_size_changed)
-
     # _________________________PUBLIC METHODS_________________________ #
 
     def value(self) -> CalibrationData:
@@ -619,9 +617,6 @@ class PlateCalibrationWidget(QWidget):
         self._test_calibration.setValue(plate=self._plate, well=None)
 
     # _________________________PRIVATE METHODS________________________ #
-
-    def _on_pixel_size_changed(self, pixel_size: float) -> None:
-        ...
 
     def _update_tables(
         self,
