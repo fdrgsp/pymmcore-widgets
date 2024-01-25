@@ -39,7 +39,7 @@ data = HCSData(
 )
 w.setValue(data)
 
-w.valueChanged.connect(lambda: print(w.value()))
+w.valueChanged.connect(lambda: rich_print(w.value()))
 
 w.show()
 # app.exec_()
