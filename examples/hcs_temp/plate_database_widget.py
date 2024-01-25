@@ -10,7 +10,7 @@ database_path = (
 
 app = QApplication([])
 
-db_wdg = PlateDatabaseWidget(plate_database_path=database_path)
-db_wdg.show()
+db = PlateDatabaseWidget(plate_database_path=database_path)
+db.show()
 
 app.exec_()

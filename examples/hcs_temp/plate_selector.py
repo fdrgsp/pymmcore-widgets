@@ -10,9 +10,9 @@ database_path = (
 
 app = QApplication([])
 
-plate_selector = PlateSelectorWidget(plate_database_path=database_path)
-plate_selector.valueChanged.connect(lambda: print(plate_selector.value()))
+ps = PlateSelectorWidget(plate_database_path=database_path)
+ps.valueChanged.connect(lambda: print(ps.value()))
 
-plate_selector.show()
+ps.show()
 
 app.exec_()

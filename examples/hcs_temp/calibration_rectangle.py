@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtWidgets import QApplication, QPushButton
+from qtpy.QtWidgets import QApplication
 
 from pymmcore_widgets.hcs._calibration_widget import (
     CalibrationData,
@@ -20,19 +20,14 @@ app = QApplication([])
 mmc = CMMCorePlus.instance()
 mmc.loadSystemConfiguration()
 
-calibration_wdg = PlateCalibrationWidget(mmcore=mmc)
+cb = PlateCalibrationWidget(mmcore=mmc)
 
-calibration_wdg.setValue(
+cb.setValue(
     CalibrationData(
         plate=database["coverslip 22mm"],
         calibration_positions_a1=[(-100, 100), (100, -100)],
     )
 )
-
-btn = QPushButton("Value")
-btn.clicked.connect(lambda: print(calibration_wdg.value()))
-calibration_wdg.layout().addWidget(btn)
-
-calibration_wdg.show()
+cb.show()
 
 app.exec_()
