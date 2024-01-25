@@ -324,7 +324,10 @@ class HCSWizard(QWizard):
                     Position(x=well_center_x, y=well_center_y, name=f"{well.name}")
                 )
 
-            else:
+            elif isinstance(mode, (RandomPoints, GridRowsColumns)):
+                # if mode is RandomPoints, order the points by nearest neighbor from the
+                # most top-left point. If GridRowsColumns, just use the order given by
+                # the mode iteration.
                 fovs = (
                     nearest_neighbor(list(mode))
                     if isinstance(mode, RandomPoints)
@@ -335,19 +338,10 @@ class HCSWizard(QWizard):
                     y = fov.y + well_center_y
                     positions.append(Position(x=x, y=y, name=f"{well.name}_{idx:04d}"))
 
-        return positions
+            else:
+                raise ValueError(f"Invalid mode: {mode}")
 
-    # def _sort_by_distance(self, mode: RandomPoints) -> list[GridPosition]:
-    #     fovs = list(mode)
-    #     # Find the top-left corner
-    #     top_left = min(fovs, key=lambda fov: (fov.x, fov.y))
-    #     # Sort by distance from the top-left corner
-    #     return sorted(
-    #         fovs,
-    #         key=lambda fov: math.sqrt(
-    #             (fov.x - top_left.x) ** 2 + (fov.y - top_left.y) ** 2
-    #         ),
-    #     )
+        return positions
 
     # this is just for testing, remove later _______________________
     def drawPlateMap(self) -> None:
