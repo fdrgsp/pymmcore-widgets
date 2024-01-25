@@ -1,5 +1,10 @@
 from pathlib import Path
 
+try:
+    from rich import print as rich_print
+except ImportError:
+    rich_print = print
+
 from qtpy.QtWidgets import QApplication
 
 from pymmcore_widgets.hcs._fov_widget import Center, FOVSelectorWidget
@@ -15,7 +20,7 @@ app = QApplication([])
 
 fs = FOVSelectorWidget(plate=database["standard 96 wp"], mode=Center(0, 0, 512, 512))
 
-fs.valueChanged.connect(lambda x: print(x))
+fs.valueChanged.connect(lambda x: rich_print(x))
 
 fs.show()
 
