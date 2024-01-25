@@ -117,6 +117,16 @@ class CalibrationData(NamedTuple):
     calibration_positions_a1: list[tuple[float, float]] | None = None
     calibration_positions_an: list[tuple[float, float]] | None = None
 
+    def replace(self, **kwargs: Any) -> CalibrationData:
+        """Replace the specified arguments by creating a new one."""
+        # update only the kwargs that are in kwargs, the rest is left unchanged
+        return CalibrationData(
+            *(
+                kwargs[field] if field in kwargs else getattr(self, field)
+                for field in self._fields
+            )
+        )
+
 
 def find_circle_center(
     point1: tuple[float, float],
@@ -574,6 +584,8 @@ class PlateCalibrationWidget(QWidget):
         self._calibrate_button.clicked.connect(self._on_calibrate_button_clicked)
         self._test_calibration._test_button.clicked.connect(self._move_to_well_edge)
 
+        # TODO: self._mmc.events.pixelSizeChanged.connect(self._on_pixel_size_changed)
+
     # _________________________PUBLIC METHODS_________________________ #
 
     def value(self) -> CalibrationData:
@@ -607,6 +619,9 @@ class PlateCalibrationWidget(QWidget):
         self._test_calibration.setValue(plate=self._plate, well=None)
 
     # _________________________PRIVATE METHODS________________________ #
+
+    def _on_pixel_size_changed(self, pixel_size: float) -> None:
+        ...
 
     def _update_tables(
         self,

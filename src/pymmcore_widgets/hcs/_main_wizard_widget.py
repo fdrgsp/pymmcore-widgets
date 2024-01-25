@@ -30,6 +30,8 @@ from ._util import apply_rotation_matrix, get_well_center, nearest_neighbor
 from ._well_plate_model import PLATE_DB_PATH, Plate
 
 EXPANDING = (QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+TOP_X: float = -10000000000
+TOP_Y: float = 10000000000
 
 
 class HCSData(NamedTuple):
@@ -205,9 +207,20 @@ class HCSWizard(QWizard):
         Note: the `positions` attribute of the HCSData `value` is not necessary
         and is not used.
         """
-        self.plate_page.setValue(PlateInfo(value.plate, value.wells))
+        plate = value.plate
+        self.plate_page.setValue(PlateInfo(plate, value.wells))
+
+        calibration = value.calibration
+        if calibration.plate != plate:
+            calibration = calibration.replace(plate=plate)
         self.calibration_page.setValue(value.calibration)
-        self.fov_page.setValue(value.plate, value.mode)
+
+        mode = value.mode
+        if mode is None:
+            w = (self._mmc.getImageWidth() * self._mmc.getPixelSizeUm()) or None
+            h = (self._mmc.getImageHeight() * self._mmc.getPixelSizeUm()) or None
+            mode = Center(0, 0, w, h)
+        self.fov_page.setValue(value.plate, mode)
 
     def value(self) -> HCSData:
         """Return the values of the wizard."""
@@ -219,9 +232,16 @@ class HCSWizard(QWizard):
         fov_plate, mode = self.fov_page.value()
         assert fov_plate == plate
 
-        positions = self._get_positions()
+        positions = self.get_positions()
 
         return HCSData(plate, well_list, mode, calibration_data, positions)
+
+    def get_positions(self) -> list[Position] | None:
+        """Return the list of FOVs as useq.Positions expressed in stage coordinates."""
+        wells_centers = self._get_well_center_in_stage_coordinates()
+        if wells_centers is None:
+            return None
+        return self._get_fovs_in_stage_coords(wells_centers)
 
     def accept(self) -> None:
         """Override QWizard default accept method."""
@@ -274,12 +294,6 @@ class HCSWizard(QWizard):
 
         return image_width_mm, image_height_mm
 
-    def _get_positions(self) -> list[Position] | None:
-        wells_centers = self._get_well_center_in_stage_coordinates()
-        if wells_centers is None:
-            return None
-        return self._get_fovs_in_stage_coords(wells_centers)
-
     def _get_well_center_in_stage_coordinates(
         self,
     ) -> list[tuple[Well, float, float]] | None:
@@ -329,7 +343,7 @@ class HCSWizard(QWizard):
                 # most top-left point. If GridRowsColumns, just use the order given by
                 # the mode iteration.
                 fovs = (
-                    nearest_neighbor(list(mode))
+                    nearest_neighbor(list(mode), TOP_X, TOP_Y)
                     if isinstance(mode, RandomPoints)
                     else list(mode)
                 )
@@ -379,7 +393,7 @@ class HCSWizard(QWizard):
             ax.add_patch(sh)
 
         # draw FOVs
-        positions = self._get_positions()
+        positions = self.get_positions()
         if positions is None:
             return
 

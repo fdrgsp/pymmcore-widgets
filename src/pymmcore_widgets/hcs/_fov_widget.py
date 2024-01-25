@@ -729,7 +729,8 @@ class WellView(_ResizingGraphicsView):
         if len(w):
             warnings.warn(w[0].message, w[0].category, stacklevel=2)
 
-        return [FOV(p.x, p.y, area) for p in nearest_neighbor(pos)]
+        top_x, top_y = area.topLeft().x(), area.topLeft().y()
+        return [FOV(p.x, p.y, area) for p in nearest_neighbor(pos, top_x, top_y)]
 
     def _update_grid_fovs(
         self, value: GridRowsColumns | GridWidthHeight | GridFromEdges

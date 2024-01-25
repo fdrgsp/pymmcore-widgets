@@ -125,12 +125,14 @@ def apply_rotation_matrix(
     return x_rotated[0], y_rotated[0]
 
 
-def nearest_neighbor(points: list[GridPosition]) -> list[GridPosition]:
+def nearest_neighbor(
+    points: list[GridPosition], top_x: float, top_y: float
+) -> list[GridPosition]:
     """Find the nearest neighbor path for a list of points.
 
-    The starting point is the furthest point from the center (0, 0)
+    The starting point is the closest to (top_x, top_y).
     """
-    first_point: GridPosition | None = _furthest_point_from_center(points)
+    first_point: GridPosition | None = _top_left(points, top_x, top_y)
 
     if first_point is None:
         return []
@@ -164,15 +166,25 @@ def _calculate_distance(point1: GridPosition, point2: GridPosition) -> float:
     return math.sqrt((point1.x - point2.x) ** 2 + (point1.y - point2.y) ** 2)
 
 
-def _furthest_point_from_center(points: list[GridPosition]) -> GridPosition | None:
-    """Find the furthest point from the center (0, 0)."""
-    max_distance: float = 0.0
-    furthest_point: GridPosition | None = None
+def _top_left(points: list[GridPosition], top_x: float, top_y: float) -> GridPosition:
+    """Find the top left point in respect to (top_x, top_y)."""
+    return sorted(
+        points,
+        key=lambda coord: math.sqrt(
+            ((coord.x - top_x) ** 2) + ((coord.y - top_y) ** 2)
+        ),
+    )[0]
 
-    for point in points:
-        distance = math.sqrt(point.x**2 + point.y**2)
-        if distance > max_distance:
-            max_distance = distance
-            furthest_point = point
 
-    return furthest_point
+# def _furthest_point_from_center(points: list[GridPosition]) -> GridPosition | None:
+#     """Find the furthest point from the center (0, 0)."""
+#     max_distance: float = 0.0
+#     furthest_point: GridPosition | None = None
+
+#     for point in points:
+#         distance = math.sqrt(point.x**2 + point.y**2)
+#         if distance > max_distance:
+#             max_distance = distance
+#             furthest_point = point
+
+#     return furthest_point
