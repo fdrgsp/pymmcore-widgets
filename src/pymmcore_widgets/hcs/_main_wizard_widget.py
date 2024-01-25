@@ -138,6 +138,8 @@ class FOVSelectorPage(QWizardPage):
         self.layout().addWidget(self._fov_widget)
         self.layout().addItem(QSpacerItem(0, 0, *EXPANDING))
 
+        self.setButtonText(QWizard.WizardButton.FinishButton, "Value")
+
     def value(
         self,
     ) -> tuple[Plate | None, Center | RandomPoints | GridRowsColumns | None]:
