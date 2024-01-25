@@ -91,10 +91,6 @@ class PlatePage(QWizardPage):
         """
         self._plate_widget.setValue(value)
 
-    def database(self) -> dict[str, Plate]:
-        """Return the current plate database."""
-        return self._plate_widget.database()
-
 
 class PlateCalibrationPage(QWizardPage):
     def __init__(
@@ -203,6 +199,20 @@ class HCSWizard(QWizard):
 
     # _________________________PUBLIC METHODS_________________________ #
 
+    def value(self) -> HCSData:
+        """Return the values of the wizard."""
+        plate, well_list = self.plate_page.value()
+
+        calibration_data = self.calibration_page.value()
+        assert calibration_data.plate == plate
+
+        fov_plate, mode = self.fov_page.value()
+        assert fov_plate == plate
+
+        positions = self.get_positions()
+
+        return HCSData(plate, well_list, mode, calibration_data, positions)
+
     def setValue(self, value: HCSData) -> None:
         """Set the values of the wizard.
 
@@ -224,19 +234,13 @@ class HCSWizard(QWizard):
             mode = Center(0, 0, w, h)
         self.fov_page.setValue(value.plate, mode)
 
-    def value(self) -> HCSData:
-        """Return the values of the wizard."""
-        plate, well_list = self.plate_page.value()
+    def load_database(self, database_path: Path | str) -> None:
+        """Load a plate database."""
+        self.plate_page._plate_widget.load_database(database_path)
 
-        calibration_data = self.calibration_page.value()
-        assert calibration_data.plate == plate
-
-        fov_plate, mode = self.fov_page.value()
-        assert fov_plate == plate
-
-        positions = self.get_positions()
-
-        return HCSData(plate, well_list, mode, calibration_data, positions)
+    def database(self) -> dict[str, Plate]:
+        """Return the current plate database."""
+        return self.plate_page._plate_widget.database()
 
     def get_positions(self) -> list[Position] | None:
         """Return the list of FOVs as useq.Positions expressed in stage coordinates."""
@@ -257,7 +261,7 @@ class HCSWizard(QWizard):
         self._update_wizard_pages(plate)
 
     def _on_plate_combo_changed(self, plate_id: str) -> None:
-        db = self.plate_page.database()
+        db = self.database()
         plate = db[plate_id] if plate_id else None
         self._update_wizard_pages(plate)
 

@@ -42,4 +42,4 @@ w.setValue(data)
 w.valueChanged.connect(lambda: rich_print(w.value()))
 
 w.show()
-app.exec_()
+# app.exec_()
