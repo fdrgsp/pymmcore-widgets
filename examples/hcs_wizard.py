@@ -2,7 +2,11 @@ from pathlib import Path
 
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtWidgets import QApplication
-from rich import print
+
+try:
+    from rich import print as rich_print
+except ImportError:
+    rich_print = print
 
 from pymmcore_widgets.hcs import HCSWizard
 from pymmcore_widgets.hcs._calibration_widget import CalibrationData
@@ -38,4 +42,4 @@ w.setValue(data)
 w.valueChanged.connect(lambda: print(w.value()))
 
 w.show()
-app.exec_()
+# app.exec_()
