@@ -33,7 +33,7 @@ from ._graphics_items import Well
 from ._util import apply_rotation_matrix, get_well_center
 
 if TYPE_CHECKING:
-    from ._well_plate_model import Plate
+    from ._plate_model import Plate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 FixedSizePolicy = (QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)

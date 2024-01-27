@@ -49,12 +49,12 @@ from pymmcore_widgets.hcs._graphics_items import (
     _WellAreaGraphicsItem,
     _WellGraphicsItem,
 )
+from pymmcore_widgets.hcs._plate_model import Plate, load_database
 from pymmcore_widgets.hcs._plate_widget import (
     PlateDatabaseWidget,
     PlateInfo,
     PlateSelectorWidget,
 )
-from pymmcore_widgets.hcs._well_plate_model import Plate, load_database
 
 if TYPE_CHECKING:
     from pymmcore_plus import CMMCorePlus

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 from pathlib import Path
 from typing import cast
 
@@ -28,8 +27,8 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
+from ._plate_model import PLATE_DB_PATH, Plate, load_database
 from ._util import _ResizingGraphicsView, draw_plate
-from ._well_plate_model import PLATE_DB_PATH, Plate, load_database
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 StyleSheet = "background:grey; border: 0px; border-radius: 5px;"
@@ -453,9 +452,9 @@ class PlateDatabaseWidget(QDialog):
             db = cast(list, json.load(file))
             if isinstance(plates, list):
                 for plate in plates:
-                    db.append(asdict(plate))
+                    db.append(plate.dict())
             else:
-                db.append(asdict(plates))
+                db.append(plates.dict())
 
         with open(Path(self._plate_db_path), "w") as file:
             json.dump(db, file)

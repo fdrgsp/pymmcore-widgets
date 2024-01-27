@@ -42,7 +42,7 @@ from ._graphics_items import FOV, _FOVGraphicsItem, _WellAreaGraphicsItem
 from ._util import _ResizingGraphicsView, nearest_neighbor
 
 if TYPE_CHECKING:
-    from ._well_plate_model import Plate
+    from ._plate_model import Plate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 FIXED_POLICY = (QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)

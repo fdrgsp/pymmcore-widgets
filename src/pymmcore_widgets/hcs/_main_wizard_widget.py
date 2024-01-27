@@ -25,9 +25,9 @@ from ._calibration_widget import (
 )
 from ._fov_widget import Center, FOVSelectorWidget
 from ._graphics_items import Well
+from ._plate_model import PLATE_DB_PATH, Plate
 from ._plate_widget import PlateInfo, PlateSelectorWidget
 from ._util import apply_rotation_matrix, get_well_center, nearest_neighbor
-from ._well_plate_model import PLATE_DB_PATH, Plate
 
 EXPANDING = (QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 TOP_X: float = -10000000000
@@ -160,17 +160,30 @@ class HCSWizard(QWizard):
         plate_database_path: Path | str | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWizardStyle(QWizard.WizardStyle.ModernStyle)
+        self._mmc = mmcore or CMMCorePlus.instance()
 
+        self.setWizardStyle(QWizard.WizardStyle.ModernStyle)
         self.setWindowTitle("HCS Wizard")
 
+        # add custom button to save
+        self.setOption(QWizard.WizardOption.HaveCustomButton1, True)
+        _save_btn = self.button(QWizard.WizardButton.CustomButton1)
+        _save_btn.setText("Save")
+        self.setButton(QWizard.WizardButton.CustomButton1, _save_btn)
+        self.button(QWizard.WizardButton.CustomButton1).clicked.connect(self._save)
+        # add custom button to load
+        self.setOption(QWizard.WizardOption.HaveCustomButton2, True)
+        _load_btn = self.button(QWizard.WizardButton.CustomButton2)
+        _load_btn.setText("Load")
+        self.setButton(QWizard.WizardButton.CustomButton2, _load_btn)
+        self.button(QWizard.WizardButton.CustomButton2).clicked.connect(self._load)
+
+        # layout
         self.setLayout(QVBoxLayout())
         self.layout().setContentsMargins(0, 50, 0, 0)
         self.layout().setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self._mmc = mmcore or CMMCorePlus.instance()
-
-        # setup plate page)
+        # setup plate page
         self.plate_page = PlatePage(plate_database_path or PLATE_DB_PATH)
 
         # get currently selected plate
@@ -254,6 +267,14 @@ class HCSWizard(QWizard):
         self.valueChanged.emit(self.value())
 
     # _________________________PRIVATE METHODS_________________________ #
+
+    def _save(self) -> None:
+        """Save the current wizard values."""
+        print("save")
+
+    def _load(self) -> None:
+        """Load a wizard configuration."""
+        print("load")
 
     def _on_system_config_loaded(self) -> None:
         """Update the scene when the system configuration is loaded."""

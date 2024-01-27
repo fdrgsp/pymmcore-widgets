@@ -1,11 +1,11 @@
-from dataclasses import dataclass
 from pathlib import Path
+
+from useq._base_model import FrozenModel
 
 PLATE_DB_PATH = Path(__file__).parent / "well_plate_database.json"
 
 
-@dataclass(frozen=True)
-class Plate:
+class Plate(FrozenModel):
     """General class describing a plate.
 
     It can be used to define multi-well plates or different types of general areas with

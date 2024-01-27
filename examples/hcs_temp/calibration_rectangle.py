@@ -7,7 +7,7 @@ from pymmcore_widgets.hcs._calibration_widget import (
     CalibrationData,
     PlateCalibrationWidget,
 )
-from pymmcore_widgets.hcs._well_plate_model import load_database
+from pymmcore_widgets.hcs._plate_model import load_database
 
 database_path = (
     Path(__file__).parent.parent.parent / "tests" / "plate_database_for_tests.json"

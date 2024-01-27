@@ -19,14 +19,14 @@ from superqt.utils import signals_blocked
 
 from ._plate_database_widget import PlateDatabaseWidget
 from ._plate_graphics_scene import _HCSGraphicsScene
+from ._plate_model import PLATE_DB_PATH, load_database
 from ._util import _ResizingGraphicsView, draw_plate
-from ._well_plate_model import PLATE_DB_PATH, load_database
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from ._graphics_items import Well
-    from ._well_plate_model import Plate
+    from ._plate_model import Plate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 

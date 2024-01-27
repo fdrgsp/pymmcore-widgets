@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from qtpy.QtGui import QBrush, QPen, QResizeEvent
     from useq._grid import GridPosition
 
-    from ._well_plate_model import Plate
+    from ._plate_model import Plate
 
 
 class _ResizingGraphicsView(QGraphicsView):
