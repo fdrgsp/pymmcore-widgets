@@ -1,11 +1,11 @@
+from dataclasses import asdict, dataclass
 from pathlib import Path
-
-from useq._base_model import FrozenModel
 
 PLATE_DB_PATH = Path(__file__).parent / "well_plate_database.json"
 
 
-class Plate(FrozenModel):
+@dataclass(frozen=True)
+class Plate:
     """General class describing a plate.
 
     It can be used to define multi-well plates or different types of general areas with
@@ -39,6 +39,10 @@ class Plate(FrozenModel):
     well_spacing_y: float = 0.0
     well_size_x: float = 0.0
     well_size_y: float = 0.0
+
+    def dict(self) -> dict[str, str | int | float | bool]:
+        """Return a dictionary representation of the plate."""
+        return asdict(self)
 
 
 def load_database(database_path: Path | str) -> dict[str, Plate]:
