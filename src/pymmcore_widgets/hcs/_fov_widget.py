@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Any, NamedTuple, cast
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from qtpy.QtCore import QRectF, Qt, Signal
@@ -38,6 +39,7 @@ from useq._grid import GridPosition, OrderMode, Shape
 
 from pymmcore_widgets.useq_widgets._grid import _SeparatorWidget
 
+from ._base_dataclass import BaseDataclass
 from ._graphics_items import FOV, _FOVGraphicsItem, _WellAreaGraphicsItem
 from ._util import _ResizingGraphicsView, nearest_neighbor
 
@@ -60,8 +62,8 @@ PEN_AREA = QPen(Qt.GlobalColor.green)
 PEN_AREA.setWidth(PEN_WIDTH)
 
 
-class Center(NamedTuple):
-    """A NamedTuple to store center coordinates and FOV size.
+class Center(GridRowsColumns):
+    """A subclass of GridRowsColumns to store the center coordinates and FOV size.
 
     Attributes
     ----------
@@ -77,18 +79,8 @@ class Center(NamedTuple):
 
     x: float
     y: float
-    fov_width: float | None = None
-    fov_height: float | None = None
-
-    def replace(self, **kwargs: Any) -> Center:
-        """Replace the specified arguments by creating a new one."""
-        # update only the kwargs that are in kwargs, the rest is left unchanged
-        return Center(
-            *(
-                kwargs[field] if field in kwargs else getattr(self, field)
-                for field in self._fields
-            )
-        )
+    rows: int = 1
+    columns: int = 1
 
 
 def _create_label(label_text: str) -> QLabel:
@@ -151,7 +143,7 @@ class _CenterFOVWidget(QWidget):
     def value(self) -> Center:
         """Return the values of the widgets."""
         fov_x, fov_y = self._fov_size
-        return Center(self._x, self._y, fov_x, fov_y)
+        return Center(x=self._x, y=self._y, fov_width=fov_x, fov_height=fov_y)
 
     def setValue(self, value: Center) -> None:
         """Set the values of the widgets."""
@@ -437,7 +429,9 @@ class _GridFovWidget(QWidget):
         self._fov_size = (None, None)
 
 
-class WellViewData(NamedTuple):
+# class WellViewData(NamedTuple):
+@dataclass(frozen=True)
+class WellViewData(BaseDataclass):
     """A NamedTuple to store the well view data.
 
     Attributes
@@ -462,15 +456,15 @@ class WellViewData(NamedTuple):
     show_fovs_order: bool = True
     mode: Center | AnyGridPlan | None = None
 
-    def replace(self, **args: Any) -> WellViewData:
-        """Replace the values of the WellViewData."""
-        return WellViewData(
-            well_size=args.get("well_size", self.well_size),
-            circular=args.get("circular", self.circular),
-            padding=args.get("padding", self.padding),
-            show_fovs_order=args.get("show_fovs_order", self.show_fovs_order),
-            mode=args.get("mode", self.mode),
-        )
+    # def replace(self, **args: Any) -> WellViewData:
+    #     """Replace the values of the WellViewData."""
+    #     return WellViewData(
+    #         well_size=args.get("well_size", self.well_size),
+    #         circular=args.get("circular", self.circular),
+    #         padding=args.get("padding", self.padding),
+    #         show_fovs_order=args.get("show_fovs_order", self.show_fovs_order),
+    #         mode=args.get("mode", self.mode),
+    #     )
 
 
 DEFAULT_WELL_DATA = WellViewData()

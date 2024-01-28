@@ -452,9 +452,9 @@ class PlateDatabaseWidget(QDialog):
             db = cast(list, json.load(file))
             if isinstance(plates, list):
                 for plate in plates:
-                    db.append(plate.dict())
+                    db.append(plate.to_dict())
             else:
-                db.append(plates.dict())
+                db.append(plates.to_dict())
 
         with open(Path(self._plate_db_path), "w") as file:
             json.dump(db, file)

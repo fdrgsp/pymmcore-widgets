@@ -641,7 +641,7 @@ def test_fov_selector_widget_none(qtbot: QtBot):
     wdg = FOVSelectorWidget()
     qtbot.addWidget(wdg)
 
-    assert wdg.value() == (None, Center(0.0, 0.0))
+    assert wdg.value() == (None, Center(x=0.0, y=0.0))
     assert get_items_number(wdg.view) == SceneItems(
         fovs=0, lines=0, well_area=0, well_circle=0, well_rect=0
     )

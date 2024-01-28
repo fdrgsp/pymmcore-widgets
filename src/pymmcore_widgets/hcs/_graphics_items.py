@@ -1,9 +1,12 @@
 import string
+from dataclasses import dataclass
 from typing import Any, NamedTuple
 
 from qtpy.QtCore import QRectF, Qt
 from qtpy.QtGui import QBrush, QFont, QPainter, QPen, QTextOption
 from qtpy.QtWidgets import QGraphicsItem
+
+from ._base_dataclass import BaseDataclass
 
 ALPHABET = string.ascii_uppercase
 POINT_SIZE = 3
@@ -12,8 +15,9 @@ DEFAULT_PEN.setWidth(3)
 DEFAULT_BRUSH = QBrush(Qt.GlobalColor.white)
 
 
-class Well(NamedTuple):
-    """NamedTuple to store well name, row and column.
+@dataclass(frozen=True)
+class Well(BaseDataclass):
+    """Store well name, row and column.
 
     Attributes
     ----------

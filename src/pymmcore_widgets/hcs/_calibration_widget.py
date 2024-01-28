@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import math
 import string
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, NamedTuple, cast
+from typing import Any, Iterable, NamedTuple, cast
 
 # import matplotlib.pyplot as plt
 import numpy as np
@@ -29,11 +30,10 @@ from superqt.utils import signals_blocked
 from pymmcore_widgets.useq_widgets._column_info import FloatColumn
 from pymmcore_widgets.useq_widgets._data_table import DataTableWidget
 
+from ._base_dataclass import BaseDataclass
 from ._graphics_items import Well
+from ._plate_model import Plate
 from ._util import apply_rotation_matrix, get_well_center
-
-if TYPE_CHECKING:
-    from ._plate_model import Plate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 FixedSizePolicy = (QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -94,21 +94,23 @@ class FourPoints(NamedTuple):
     points: int = SIDES_MODE_POINTS
 
 
-class CalibrationData(NamedTuple):
+@dataclass(frozen=True)
+class CalibrationData(BaseDataclass):
     """Calibration data for the plate.
 
     Attributes
     ----------
-    plate : Plate
-        The plate to calibrate.
+    plate : Plate | None
+        The plate to calibrate. By default, None.
     well_A1_center : tuple[float, float]
-        The x and y stage coordinates of the center of well A1.
+        The x and y stage coordinates of the center of well A1. By default, None.
     rotation_matrix : np.ndarray | None
         The rotation matrix that should be used to correct any plate rortation.
+        By default, None.
     calibration_position_a1 : list[tuple[float, float]]
-        The x and y stage positions used to calibrate the well A1.
+        The x and y stage positions used to calibrate the well A1. By default, None.
     calibration_position_an : list[tuple[float, float]]
-        The x and y stage positions used to calibrate the well An.
+        The x and y stage positions used to calibrate the well An. By default, None.
     """
 
     plate: Plate | None = None
@@ -117,14 +119,15 @@ class CalibrationData(NamedTuple):
     calibration_positions_a1: list[tuple[float, float]] | None = None
     calibration_positions_an: list[tuple[float, float]] | None = None
 
-    def replace(self, **kwargs: Any) -> CalibrationData:
-        """Replace the specified arguments by creating a new one."""
-        # update only the kwargs that are in kwargs, the rest is left unchanged
-        return CalibrationData(
-            *(
-                kwargs[field] if field in kwargs else getattr(self, field)
-                for field in self._fields
-            )
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CalibrationData:
+        """Create a CalibrationData object from a dictionary."""
+        return cls(
+            plate=Plate(**data.get("plate", {})),
+            well_A1_center=data["well_A1_center"],
+            rotation_matrix=data["rotation_matrix"],
+            calibration_positions_a1=data["calibration_positions_a1"],
+            calibration_positions_an=data["calibration_positions_an"],
         )
 
 
@@ -512,7 +515,15 @@ class _CalibrationLabel(QGroupBox):
 
 
 class PlateCalibrationWidget(QWidget):
-    """Widget to calibrate the sample plate."""
+    """Widget to calibrate the sample plate.
+
+    Attributes
+    ----------
+    parent : QWidget | None
+        The parent widget. By default, None.
+    mmcore : CMMCorePlus | None
+        The CMMCorePlus instance. By default, None.
+    """
 
     def __init__(
         self,
@@ -525,7 +536,7 @@ class PlateCalibrationWidget(QWidget):
         self._mmc = mmcore or CMMCorePlus.instance()
         self._plate: Plate | None = None
 
-        self._calibration_data: CalibrationData = CalibrationData()
+        self._calibration_data: CalibrationData | None = None
 
         # calibration mode
         self._calibration_mode = _CalibrationModeWidget()
@@ -586,17 +597,17 @@ class PlateCalibrationWidget(QWidget):
 
     # _________________________PUBLIC METHODS_________________________ #
 
-    def value(self) -> CalibrationData:
+    def value(self) -> CalibrationData | None:
         """Return the calibration data."""
         return self._calibration_data
 
-    def setValue(self, value: CalibrationData) -> None:
+    def setValue(self, value: CalibrationData | None) -> None:
         """Set the calibration data."""
         # reset calibration state
         self._reset_calibration()
 
         self._calibration_data = value
-        self._plate = value.plate
+        self._plate = value.plate if value is not None else None
 
         # set calibration mode
         calibration_mode: list[TwoPoints | ThreePoints | FourPoints] | None = (
@@ -609,8 +620,8 @@ class PlateCalibrationWidget(QWidget):
         self._calibration_mode.setValue(calibration_mode)
 
         # update calibration tables
-        pos_a1 = value.calibration_positions_a1
-        pos_an = value.calibration_positions_an
+        pos_a1 = value.calibration_positions_a1 if value is not None else None
+        pos_an = value.calibration_positions_an if value is not None else None
         self._update_tables(self._plate, pos_a1, pos_an)
 
         # update test calibration
@@ -748,7 +759,7 @@ class PlateCalibrationWidget(QWidget):
             return
 
         data = self._calibration_data
-        if data.well_A1_center is None:
+        if data is None or data.well_A1_center is None:
             return
 
         _, well = self._test_calibration.value()

@@ -1,11 +1,13 @@
+from dataclasses import dataclass
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, cast
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import (
+    QFileDialog,
     QSizePolicy,
     QSpacerItem,
     QVBoxLayout,
@@ -13,12 +15,9 @@ from qtpy.QtWidgets import (
     QWizard,
     QWizardPage,
 )
-from useq import (
-    GridRowsColumns,
-    Position,
-    RandomPoints,
-)
+from useq import GridRowsColumns, MDASequence, Position, RandomPoints
 
+from ._base_dataclass import BaseDataclass
 from ._calibration_widget import (
     CalibrationData,
     PlateCalibrationWidget,
@@ -29,33 +28,75 @@ from ._plate_model import PLATE_DB_PATH, Plate
 from ._plate_widget import PlateInfo, PlateSelectorWidget
 from ._util import apply_rotation_matrix, get_well_center, nearest_neighbor
 
+DEFAULT_CALIBRATION = CalibrationData()
 EXPANDING = (QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 TOP_X: float = -10000000000
 TOP_Y: float = 10000000000
 
+AnyMode = Center | RandomPoints | GridRowsColumns | None
 
-class HCSData(NamedTuple):
-    """NamedTuple to store all the info needed to setup an HCS experiment.
+
+def _cast_mode(
+    mode: dict | Center | GridRowsColumns | RandomPoints | None,
+) -> AnyMode:
+    """Get the grid type from the grid_plan."""
+    if not mode:
+        return None
+    if isinstance(mode, dict):
+        mode = cast(AnyMode, MDASequence(grid_plan=mode).grid_plan)
+    return mode
+
+
+@dataclass(frozen=True)
+class HCSData(BaseDataclass):
+    """Store all the info needed to setup an HCS experiment.
 
     Attributes
     ----------
     plate : Plate
-        The selected well plate.
+        The selected well plate. By default, None.
     wells : list[Well] | None
-        The selected wells as Well object: Well(name, row, column)
+        The selected wells as Well object: Well(name, row, column). By default, None.
     mode : Center | RandomPoints | GridRowsColumns | None
-        The mode used to select the FOVs.
+        The mode used to select the FOVs. By default, None.
     calibration : CalibrationData | None
-        The data necessary to calibrate the plate.
+        The data necessary to calibrate the plate. By default, None.
     positions : list[Position] | None
         The list of FOVs as useq.Positions expressed in stage coordinates.
+        By default, None.
     """
 
-    plate: Plate | None
+    plate: Plate | None = None
     wells: list[Well] | None = None
     mode: Center | RandomPoints | GridRowsColumns | None = None
-    calibration: CalibrationData = CalibrationData()
+    calibration: CalibrationData | None = None
     positions: list[Position] | None = None
+
+    def to_dict(self) -> dict[Any, Any]:
+        if self.mode is not None:
+            mode = self.mode.dict()
+            mode["mode"] = mode["mode"].name
+            mode["relative_to"] = mode["relative_to"].name
+        if self.positions is not None:
+            positions = [pos.dict() for pos in self.positions]
+        return {
+            "plate": self.plate.to_dict() if self.plate else None,
+            "wells": [well.to_dict() for well in self.wells] if self.wells else None,
+            "mode": mode if self.mode else None,
+            "calibration": self.calibration.to_dict() if self.calibration else None,
+            "positions": positions if self.positions else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "HCSData":
+        """Set the calibration data from a dictionary."""
+        plate = Plate(**data.get("plate", {}))
+        wells = [Well(**well) for well in data.get("wells", [])]
+        mode = _cast_mode(data.get("mode"))
+        calibration = CalibrationData.from_dict(data.get("calibration", {}))
+        _pos = data.get("positions")
+        positions = [Position(**pos) for pos in _pos] if _pos else None
+        return cls(plate, wells, mode, calibration, positions)
 
 
 class PlatePage(QWizardPage):
@@ -108,11 +149,11 @@ class PlateCalibrationPage(QWizardPage):
 
         self.setButtonText(QWizard.WizardButton.NextButton, "FOVs >")
 
-    def value(self) -> CalibrationData:
+    def value(self) -> CalibrationData | None:
         """Return the calibration info."""
         return self._calibration.value()
 
-    def setValue(self, value: CalibrationData) -> None:
+    def setValue(self, value: CalibrationData | None) -> None:
         """Set the calibration info."""
         self._calibration.setValue(value)
 
@@ -195,7 +236,7 @@ class HCSWizard(QWizard):
 
         # setup fov page
         fov_w, fov_h = self._get_fov_size()
-        mode = Center(0, 0, fov_w, fov_h)
+        mode = Center(x=0, y=0, fov_width=fov_w, fov_height=fov_h)
         self.fov_page = FOVSelectorPage(plate, mode)
 
         # add pages to wizard
@@ -217,7 +258,8 @@ class HCSWizard(QWizard):
         plate, well_list = self.plate_page.value()
 
         calibration_data = self.calibration_page.value()
-        assert calibration_data.plate == plate
+        if calibration_data is not None:
+            assert calibration_data.plate == plate
 
         fov_plate, mode = self.fov_page.value()
         assert fov_plate == plate
@@ -236,7 +278,7 @@ class HCSWizard(QWizard):
         self.plate_page.setValue(PlateInfo(plate, value.wells))
 
         calibration = value.calibration
-        if calibration.plate != plate:
+        if calibration is not None and calibration.plate != plate:
             calibration = calibration.replace(plate=plate)
         self.calibration_page.setValue(value.calibration)
 
@@ -244,7 +286,7 @@ class HCSWizard(QWizard):
         if mode is None:
             w = (self._mmc.getImageWidth() * self._mmc.getPixelSizeUm()) or None
             h = (self._mmc.getImageHeight() * self._mmc.getPixelSizeUm()) or None
-            mode = Center(0, 0, w, h)
+            mode = Center(x=0, y=0, fov_width=w, fov_height=h)
         self.fov_page.setValue(value.plate, mode)
 
     def load_database(self, database_path: Path | str) -> None:
@@ -269,12 +311,34 @@ class HCSWizard(QWizard):
     # _________________________PRIVATE METHODS_________________________ #
 
     def _save(self) -> None:
-        """Save the current wizard values."""
-        print("save")
+        """Save the current wizard values as a json file."""
+        import json
+
+        (path, _) = QFileDialog.getSaveFileName(
+            self, "Save Plate Database", "", "json(*.json)"
+        )
+
+        if not path:
+            return
+
+        with open(Path(path), "w") as file:
+            data = self.value().to_dict()
+            json.dump(data, file)
 
     def _load(self) -> None:
-        """Load a wizard configuration."""
-        print("load")
+        """Load a .json wizard configuration."""
+        import json
+
+        (path, _) = QFileDialog.getOpenFileName(
+            self, "Load Plate Database", "", "json(*.json)"
+        )
+
+        if not path:
+            return
+
+        with open(Path(path)) as file:
+            data = json.load(file)
+            self.setValue(HCSData.from_dict(data))
 
     def _on_system_config_loaded(self) -> None:
         """Update the scene when the system configuration is loaded."""
@@ -289,7 +353,9 @@ class HCSWizard(QWizard):
     def _update_wizard_pages(self, plate: Plate | None) -> None:
         self.calibration_page.setValue(CalibrationData(plate))
         fov_w, fov_h = self._get_fov_size()
-        self.fov_page.setValue(plate, Center(0, 0, fov_w, fov_h))
+        self.fov_page.setValue(
+            plate, Center(x=0, y=0, fov_width=fov_w, fov_height=fov_h)
+        )
 
     def _on_px_size_changed(self) -> None:
         """Update the scene when the pixel size is changed."""
@@ -335,7 +401,7 @@ class HCSWizard(QWizard):
 
         _, wells = self.plate_page.value()
 
-        if wells is None or calibration.well_A1_center is None:
+        if wells is None or calibration is None or calibration.well_A1_center is None:
             return None
 
         a1_x, a1_y = calibration.well_A1_center
