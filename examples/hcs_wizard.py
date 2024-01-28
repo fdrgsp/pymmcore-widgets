@@ -30,7 +30,7 @@ height = mmc.getImageHeight() * mmc.getPixelSizeUm()
 data = HCSData(
     plate=database["standard 96 wp"],
     wells=[Well("A1", 0, 0), Well("B2", 1, 1), Well("C3", 2, 2)],
-    mode=Center(0, 0, width, height),
+    mode=Center(x=0, y=0, fov_width=width, fov_height=height),
     calibration=CalibrationData(
         plate=database["standard 96 wp"],
         calibration_positions_a1=[(-10, 0), (0, 10), (10, 0)],
