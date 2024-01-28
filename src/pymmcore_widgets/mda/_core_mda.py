@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, cast
 
 from fonticon_mdi6 import MDI6
 from pymmcore_plus import CMMCorePlus, Keyword
-from qtpy.QtCore import QSize, Signal
+from qtpy.QtCore import QSize, Qt, Signal
 from qtpy.QtWidgets import (
     QBoxLayout,
     QFileDialog,
@@ -92,6 +92,7 @@ class MDAWidget(MDASequenceWidget):
             QWizard.WizardButton.FinishButton, "Add Positions"
         )
         self.hcs_button = QPushButton("HCS Wizard")
+        self.hcs_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.hcs_button.setToolTip("Open the HCS wizard.")
 
         pos_table_layout = self.stage_positions.layout().itemAt(2)
