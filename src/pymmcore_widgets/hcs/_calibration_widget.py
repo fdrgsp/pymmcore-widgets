@@ -122,10 +122,12 @@ class CalibrationData(BaseDataclass):
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CalibrationData:
         """Create a CalibrationData object from a dictionary."""
+        matrix = data.get("rotation_matrix")
+        rotation_matrix = np.array(matrix) if isinstance(matrix, list) else matrix
         return cls(
             plate=Plate(**data.get("plate", {})),
             well_A1_center=data["well_A1_center"],
-            rotation_matrix=data["rotation_matrix"],
+            rotation_matrix=rotation_matrix,
             calibration_positions_a1=data["calibration_positions_a1"],
             calibration_positions_an=data["calibration_positions_an"],
         )
@@ -607,6 +609,7 @@ class PlateCalibrationWidget(QWidget):
         self._reset_calibration()
 
         self._calibration_data = value
+
         self._plate = value.plate if value is not None else None
 
         # set calibration mode

@@ -73,18 +73,21 @@ class HCSData(BaseDataclass):
     positions: list[Position] | None = None
 
     def to_dict(self) -> dict[Any, Any]:
-        if self.mode is not None:
-            mode = self.mode.dict()
-            mode["mode"] = mode["mode"].name
-            mode["relative_to"] = mode["relative_to"].name
-        if self.positions is not None:
-            positions = [pos.dict() for pos in self.positions]
+        """Return a dictionary representation of the HCSData."""
+        positions = [pos.dict() for pos in self.positions] if self.positions else None
+        if self.calibration is not None:
+            calibration = self.calibration.to_dict()
+            rotation_matrix = calibration.get("rotation_matrix")
+            if rotation_matrix is not None:
+                calibration["rotation_matrix"] = rotation_matrix.tolist()
+        else:
+            calibration = None
         return {
             "plate": self.plate.to_dict() if self.plate else None,
             "wells": [well.to_dict() for well in self.wells] if self.wells else None,
-            "mode": mode if self.mode else None,
-            "calibration": self.calibration.to_dict() if self.calibration else None,
-            "positions": positions if self.positions else None,
+            "mode": self.mode.dict() if self.mode else None,
+            "calibration": calibration,
+            "positions": positions,
         }
 
     @classmethod
