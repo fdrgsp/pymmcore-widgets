@@ -360,9 +360,13 @@ class _CalibrationTable(DataTableWidget):
         pos = [{self.X.key: x, self.Y.key: y} for x, y in value]
         super().setValue(pos)
 
-    def setText(self, text: str) -> None:
+    def setLabelText(self, text: str) -> None:
         """Set the well name."""
         self._well_label.setText(text)
+
+    def getLabelText(self) -> str:
+        """Return the well name."""
+        return str(self._well_label.text())
 
     # _________________________PRIVATE METHODS________________________ #
 
@@ -646,8 +650,8 @@ class PlateCalibrationWidget(QWidget):
         # set table well name
         a1 = "" if plate is None else " Well A1 "
         an = "" if plate is None else f" Well A{plate.columns} "
-        self._table_a1.setText(a1)
-        self._table_an.setText(an)
+        self._table_a1.setLabelText(a1)
+        self._table_an.setLabelText(an)
 
         # hide an table if plate has only one column
         self._table_a1.show() if plate is not None else self._table_a1.hide()

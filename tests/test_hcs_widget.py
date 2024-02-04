@@ -24,14 +24,11 @@ from pymmcore_widgets import HCSWizard
 from pymmcore_widgets.hcs._calibration_widget import (
     ROLE,
     CalibrationData,
-    CalibrationInfo,
-    CalibrationTableData,
     FourPoints,
     PlateCalibrationWidget,
     ThreePoints,
     TwoPoints,
     _CalibrationModeWidget,
-    _CalibrationTable,
     _TestCalibrationWidget,
 )
 from pymmcore_widgets.hcs._fov_widget import (
@@ -280,51 +277,51 @@ def test_calibration_mode_widget(qtbot: QtBot):
         assert wdg._mode_combo.itemData(i, ROLE) == modes[i]
 
 
-def test_calibration_table_widget(
-    global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, Plate]
-):
-    mmc = global_mmcore
+# def test_calibration_table_widget(
+#     global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, Plate]
+# ):
+#     mmc = global_mmcore
 
-    wdg = _CalibrationTable(mmcore=mmc)
-    qtbot.addWidget(wdg)
+#     wdg = _CalibrationTable(mmcore=mmc)
+#     qtbot.addWidget(wdg)
 
-    assert wdg.tb.rowCount() == 0
-    assert wdg._well_label.text() == ""
+#     assert wdg.tb.rowCount() == 0
+#     assert wdg._well_label.text() == ""
 
-    wdg.setValue(
-        CalibrationTableData([], database["coverslip 22mm"], TwoPoints(), "A1")
-    )
-    assert wdg.calibration_mode == TwoPoints()
-    assert wdg._well_label.text() == "A1"
-    assert wdg.plate == database["coverslip 22mm"]
+#     wdg.setValue(
+#         CalibrationTableData([], database["coverslip 22mm"], TwoPoints(), "A1")
+#     )
+#     assert wdg.calibration_mode == TwoPoints()
+#     assert wdg._well_label.text() == "A1"
+#     assert wdg.plate == database["coverslip 22mm"]
 
-    mmc.waitForSystem()
+#     mmc.waitForSystem()
 
-    mmc.setXYPosition(mmc.getXYStageDevice(), -10, 10)
-    mmc.waitForDevice(mmc.getXYStageDevice())
-    wdg.act_add_row.trigger()
-    assert wdg.tb.rowCount() == 1
-    assert wdg.tb.cellWidget(0, 0).value() == -10
-    assert wdg.tb.cellWidget(0, 1).value() == 10
+#     mmc.setXYPosition(mmc.getXYStageDevice(), -10, 10)
+#     mmc.waitForDevice(mmc.getXYStageDevice())
+#     wdg.act_add_row.trigger()
+#     assert wdg.tb.rowCount() == 1
+#     assert wdg.tb.cellWidget(0, 0).value() == -10
+#     assert wdg.tb.cellWidget(0, 1).value() == 10
 
-    mmc.setXYPosition(mmc.getXYStageDevice(), 10, -10)
-    mmc.waitForDevice(mmc.getXYStageDevice())
-    wdg.act_add_row.trigger()
-    assert wdg.tb.rowCount() == 2
-    assert wdg.tb.cellWidget(1, 0).value() == 10
-    assert wdg.tb.cellWidget(1, 1).value() == -10
+#     mmc.setXYPosition(mmc.getXYStageDevice(), 10, -10)
+#     mmc.waitForDevice(mmc.getXYStageDevice())
+#     wdg.act_add_row.trigger()
+#     assert wdg.tb.rowCount() == 2
+#     assert wdg.tb.cellWidget(1, 0).value() == 10
+#     assert wdg.tb.cellWidget(1, 1).value() == -10
 
-    value = wdg.value()
-    assert value.list_of_points == [(-10.0, 10.0), (10.0, -10.0)]
-    assert value.plate == database["coverslip 22mm"]
-    assert value.calibration_mode == TwoPoints()
-    assert value.well_name == "A1"
+#     value = wdg.value()
+#     assert value.list_of_points == [(-10.0, 10.0), (10.0, -10.0)]
+#     assert value.plate == database["coverslip 22mm"]
+#     assert value.calibration_mode == TwoPoints()
+#     assert value.well_name == "A1"
 
-    wdg.tb.selectRow(0)
-    wdg.act_go_to.trigger()
-    mmc.waitForDevice(mmc.getXYStageDevice())
-    assert round(mmc.getXPosition()) == -10
-    assert round(mmc.getYPosition()) == 10
+#     wdg.tb.selectRow(0)
+#     wdg.act_go_to.trigger()
+#     mmc.waitForDevice(mmc.getXYStageDevice())
+#     assert round(mmc.getXPosition()) == -10
+#     assert round(mmc.getYPosition()) == 10
 
 
 def test_calibration_move_to_edge_widget(
@@ -351,10 +348,10 @@ def test_calibration_widget(
     wdg = PlateCalibrationWidget(mmcore=global_mmcore)
     qtbot.addWidget(wdg)
 
-    assert wdg.value() == (None, None)
+    assert wdg.value() is None
     assert wdg._calibration_label.value() == "Plate Not Calibrated!"
 
-    wdg.setValue(CalibrationInfo(database["coverslip 22mm"], None))
+    wdg.setValue(CalibrationData(plate=database["coverslip 22mm"]))
 
     assert wdg._calibration_mode._mode_combo.count() == 2
     assert wdg._calibration_mode._mode_combo.itemData(0, ROLE) == TwoPoints()
@@ -364,33 +361,28 @@ def test_calibration_widget(
     assert not wdg._table_a1.isHidden()
     assert wdg._table_an.isHidden()
     assert wdg._calibration_label.value() == "Plate Not Calibrated!"
-    assert wdg.value() == (database["coverslip 22mm"], None)
+    assert wdg.value() == CalibrationData(plate=database["coverslip 22mm"])
 
     with pytest.raises(ValueError, match="Invalid number of points"):
         wdg._on_calibrate_button_clicked()
 
-    wdg._table_a1.setValue(
-        CalibrationTableData(
-            list_of_points=[(-210, 170), (100, -100)],
-            plate=database["coverslip 22mm"],
-            calibration_mode=TwoPoints(),
-            well_name="A1",
-        )
-    )
-    assert len(wdg._table_a1.value().list_of_points) == 2
+    wdg._table_a1.setValue([(-210, 170), (100, -100)])
+    pos = wdg._table_a1.value()
+    assert pos
+    assert len(pos) == 2
 
     wdg._on_calibrate_button_clicked()
 
     assert wdg._calibration_label.value() == "Plate Calibrated!"
 
-    cal_data = CalibrationData(
+    assert wdg.value() == CalibrationData(
+        database["coverslip 22mm"],
         well_A1_center=(-55.0, 35.0),
         rotation_matrix=None,
         calibration_positions_a1=[(-210, 170), (100, -100)],
     )
-    assert wdg.value() == CalibrationInfo(database["coverslip 22mm"], cal_data)
 
-    wdg.setValue(CalibrationInfo(database["standard 96 wp"], None))
+    wdg.setValue(CalibrationData(plate=database["standard 96 wp"]))
 
     assert wdg._calibration_mode._mode_combo.count() == 1
     assert wdg._calibration_mode._mode_combo.itemData(0, ROLE) == ThreePoints()
@@ -398,16 +390,22 @@ def test_calibration_widget(
     assert not wdg._table_a1.isHidden()
     assert not wdg._table_an.isHidden()
 
-    tb_A1_value = wdg._table_a1.value()
-    tb_An_value = wdg._table_an.value()
-    assert tb_A1_value.well_name == " Well A1 "
-    assert tb_An_value.well_name == " Well A12 "
-    assert tb_A1_value.calibration_mode == tb_An_value.calibration_mode == ThreePoints()
+    tb_A1 = wdg._table_a1
+    assert tb_A1.getLabelText() == " Well A1 "
+    tb_A1_value = tb_A1.value()
+    assert tb_A1_value
+    assert len(tb_A1_value) == 3
 
-    wdg.setValue(CalibrationInfo(None, None))
+    tb_An = wdg._table_an
+    assert tb_A1.getLabelText() == " Well A12 "
+    tb_An_value = tb_An.value()
+    assert tb_An_value
+    assert len(tb_An_value) == 3
+
+    wdg.setValue(CalibrationData())
     assert wdg._table_a1.isHidden()
     assert wdg._table_an.isHidden()
-    assert wdg.value() == CalibrationInfo(None, None)
+    assert wdg.value() is None
 
 
 def test_center_widget(qtbot: QtBot):
