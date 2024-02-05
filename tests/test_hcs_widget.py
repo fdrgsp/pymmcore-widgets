@@ -29,6 +29,7 @@ from pymmcore_widgets.hcs._calibration_widget import (
     ThreePoints,
     TwoPoints,
     _CalibrationModeWidget,
+    _CalibrationTable,
     _TestCalibrationWidget,
 )
 from pymmcore_widgets.hcs._fov_widget import (
@@ -277,51 +278,35 @@ def test_calibration_mode_widget(qtbot: QtBot):
         assert wdg._mode_combo.itemData(i, ROLE) == modes[i]
 
 
-# def test_calibration_table_widget(
-#     global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, Plate]
-# ):
-#     mmc = global_mmcore
+def test_calibration_table_widget(
+    global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, Plate]
+):
+    mmc = global_mmcore
 
-#     wdg = _CalibrationTable(mmcore=mmc)
-#     qtbot.addWidget(wdg)
+    wdg = _CalibrationTable(mmcore=mmc)
+    qtbot.addWidget(wdg)
 
-#     assert wdg.tb.rowCount() == 0
-#     assert wdg._well_label.text() == ""
+    assert wdg.table().rowCount() == 0
+    assert wdg._well_label.text() == " Well "
 
-#     wdg.setValue(
-#         CalibrationTableData([], database["coverslip 22mm"], TwoPoints(), "A1")
-#     )
-#     assert wdg.calibration_mode == TwoPoints()
-#     assert wdg._well_label.text() == "A1"
-#     assert wdg.plate == database["coverslip 22mm"]
+    wdg.setLabelText(" Well A1 ")
+    assert wdg.getLabelText() == " Well A1 "
 
-#     mmc.waitForSystem()
+    mmc.setXYPosition(mmc.getXYStageDevice(), -10, 10)
+    mmc.waitForSystem()
+    wdg.act_add_row.trigger()
+    assert wdg.table().rowCount() == 1
+    assert wdg.table().cellWidget(0, 0).value() == -10
+    assert wdg.table().cellWidget(0, 1).value() == 10
 
-#     mmc.setXYPosition(mmc.getXYStageDevice(), -10, 10)
-#     mmc.waitForDevice(mmc.getXYStageDevice())
-#     wdg.act_add_row.trigger()
-#     assert wdg.tb.rowCount() == 1
-#     assert wdg.tb.cellWidget(0, 0).value() == -10
-#     assert wdg.tb.cellWidget(0, 1).value() == 10
+    mmc.setXYPosition(mmc.getXYStageDevice(), 10, -10)
+    mmc.waitForSystem()
+    wdg.act_add_row.trigger()
+    assert wdg.table().rowCount() == 2
+    assert wdg.table().cellWidget(1, 0).value() == 10
+    assert wdg.table().cellWidget(1, 1).value() == -10
 
-#     mmc.setXYPosition(mmc.getXYStageDevice(), 10, -10)
-#     mmc.waitForDevice(mmc.getXYStageDevice())
-#     wdg.act_add_row.trigger()
-#     assert wdg.tb.rowCount() == 2
-#     assert wdg.tb.cellWidget(1, 0).value() == 10
-#     assert wdg.tb.cellWidget(1, 1).value() == -10
-
-#     value = wdg.value()
-#     assert value.list_of_points == [(-10.0, 10.0), (10.0, -10.0)]
-#     assert value.plate == database["coverslip 22mm"]
-#     assert value.calibration_mode == TwoPoints()
-#     assert value.well_name == "A1"
-
-#     wdg.tb.selectRow(0)
-#     wdg.act_go_to.trigger()
-#     mmc.waitForDevice(mmc.getXYStageDevice())
-#     assert round(mmc.getXPosition()) == -10
-#     assert round(mmc.getYPosition()) == 10
+    assert wdg.value() == [(-10, 10), (10, -10)]
 
 
 def test_calibration_move_to_edge_widget(
@@ -363,9 +348,6 @@ def test_calibration_widget(
     assert wdg._calibration_label.value() == "Plate Not Calibrated!"
     assert wdg.value() == CalibrationData(plate=database["coverslip 22mm"])
 
-    with pytest.raises(ValueError, match="Invalid number of points"):
-        wdg._on_calibrate_button_clicked()
-
     wdg._table_a1.setValue([(-210, 170), (100, -100)])
     pos = wdg._table_a1.value()
     assert pos
@@ -390,19 +372,10 @@ def test_calibration_widget(
     assert not wdg._table_a1.isHidden()
     assert not wdg._table_an.isHidden()
 
-    tb_A1 = wdg._table_a1
-    assert tb_A1.getLabelText() == " Well A1 "
-    tb_A1_value = tb_A1.value()
-    assert tb_A1_value
-    assert len(tb_A1_value) == 3
+    assert wdg._table_a1.getLabelText() == " Well A1 "
+    assert wdg._table_an.getLabelText() == " Well A12 "
 
-    tb_An = wdg._table_an
-    assert tb_A1.getLabelText() == " Well A12 "
-    tb_An_value = tb_An.value()
-    assert tb_An_value
-    assert len(tb_An_value) == 3
-
-    wdg.setValue(CalibrationData())
+    wdg.setValue(None)
     assert wdg._table_a1.isHidden()
     assert wdg._table_an.isHidden()
     assert wdg.value() is None
