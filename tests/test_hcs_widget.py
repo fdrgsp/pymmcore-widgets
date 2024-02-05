@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 from qtpy.QtWidgets import (
     QFileDialog,
@@ -47,6 +48,7 @@ from pymmcore_widgets.hcs._graphics_items import (
     _WellAreaGraphicsItem,
     _WellGraphicsItem,
 )
+from pymmcore_widgets.hcs._main_wizard_widget import HCSData
 from pymmcore_widgets.hcs._plate_model import Plate, load_database
 from pymmcore_widgets.hcs._plate_widget import (
     PlateDatabaseWidget,
@@ -688,6 +690,45 @@ def test_fov_selector_widget(qtbot: QtBot, database: dict[str, Plate]):
     )
 
 
-def test_hcs_wizard(global_mmcore: CMMCorePlus, qtbot: QtBot, database_path: Path):
-    wdg = HCSWizard(plate_database_path=database_path)
+def test_hcs_wizard(
+    global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, Plate]
+):
+    wdg = HCSWizard()
     qtbot.addWidget(wdg)
+    mmc = global_mmcore
+
+    width = mmc.getImageWidth() * mmc.getPixelSizeUm()
+    height = mmc.getImageHeight() * mmc.getPixelSizeUm()
+
+    data = HCSData(
+        plate=database["standard 96 wp"],
+        wells=[Well("A1", 0, 0), Well("B2", 1, 1), Well("C3", 2, 2)],
+        mode=Center(x=0, y=0, fov_width=width, fov_height=height),
+        calibration=CalibrationData(
+            plate=database["standard 96 wp"],
+            calibration_positions_a1=[(-10.0, 0.0), (0.0, 10.0), (10.0, 0.0)],
+            calibration_positions_an=[(90.0, 0.0), (100.0, 10.0), (110.0, 0.0)],
+        ),
+    )
+
+    wdg.setValue(data)
+
+    wdg.calibration_page._calibration._on_calibrate_button_clicked()
+
+    value = wdg.value()
+    assert value.plate == data.plate
+    assert value.wells == data.wells
+    assert value.mode == data.mode
+
+    assert value.calibration
+    assert value.calibration.well_A1_center == (-0.0, -0.0)
+    assert np.array_equal(value.calibration.rotation_matrix, [[1.0, 0.0], [-0.0, 1.0]])
+    assert (
+        value.calibration.calibration_positions_a1
+        == data.calibration.calibration_positions_a1
+    )
+    assert (
+        value.calibration.calibration_positions_an
+        == data.calibration.calibration_positions_an
+    )
+    assert value.positions
