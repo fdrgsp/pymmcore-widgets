@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -37,12 +38,14 @@ AnyMode = Center | RandomPoints | GridRowsColumns | None
 
 
 def _cast_mode(
-    mode: dict | Center | GridRowsColumns | RandomPoints | None,
+    mode: dict | str | Center | GridRowsColumns | RandomPoints | None,
 ) -> AnyMode:
     """Get the grid type from the grid_plan."""
     if not mode:
         return None
-    if isinstance(mode, dict):
+    if isinstance(mode, str):
+        mode = cast(AnyMode, MDASequence(grid_plan=json.loads(mode)).grid_plan)
+    elif isinstance(mode, dict):
         mode = cast(AnyMode, MDASequence(grid_plan=mode).grid_plan)
     return mode
 
@@ -74,7 +77,14 @@ class HCSData(BaseDataclass):
 
     def to_dict(self) -> dict[Any, Any]:
         """Return a dictionary representation of the HCSData."""
-        positions = [pos.dict() for pos in self.positions] if self.positions else None
+        positions = (
+            [
+                pos.model_dump_json(exclude_none=True, exclude_unset=True)
+                for pos in self.positions
+            ]
+            if self.positions
+            else None
+        )
         if self.calibration is not None:
             calibration = self.calibration.to_dict()
             rotation_matrix = calibration.get("rotation_matrix")
@@ -85,7 +95,7 @@ class HCSData(BaseDataclass):
         return {
             "plate": self.plate.to_dict() if self.plate else None,
             "wells": [well.to_dict() for well in self.wells] if self.wells else None,
-            "mode": self.mode.dict() if self.mode else None,
+            "mode": (self.mode.model_dump_json() if self.mode else None),
             "calibration": calibration,
             "positions": positions,
         }
@@ -98,7 +108,9 @@ class HCSData(BaseDataclass):
         mode = _cast_mode(data.get("mode"))
         calibration = CalibrationData.from_dict(data.get("calibration", {}))
         _pos = data.get("positions")
-        positions = [Position(**pos) for pos in _pos] if _pos else None
+        positions = (
+            [Position.model_validate_json(pos) for pos in _pos] if _pos else None
+        )
         return cls(plate, wells, mode, calibration, positions)
 
 
