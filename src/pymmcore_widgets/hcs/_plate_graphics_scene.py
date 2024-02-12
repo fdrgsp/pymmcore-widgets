@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, cast
 
 import numpy as np
 from qtpy.QtCore import QRect, QRectF, Qt, Signal
-from qtpy.QtGui import QBrush, QTransform
+from qtpy.QtGui import QBrush, QColor, QTransform
 from qtpy.QtWidgets import (
     QGraphicsItem,
     QGraphicsScene,
@@ -16,8 +16,8 @@ from qtpy.QtWidgets import (
 if TYPE_CHECKING:
     from ._graphics_items import Well, _WellGraphicsItem
 
-SELECTED_COLOR = QBrush(Qt.GlobalColor.green)
-UNSELECTED_COLOR = QBrush(Qt.GlobalColor.magenta)
+SELECTED_COLOR = QBrush(QColor("#00C600"))
+UNSELECTED_COLOR = QBrush(QColor("lightgray"))
 
 
 class _HCSGraphicsScene(QGraphicsScene):
