@@ -668,7 +668,7 @@ def test_fov_selector_widget(qtbot: QtBot, database: dict[str, Plate]):
     # warning well RandomPoints shape > plate area_X
     with pytest.raises(UserWarning, match="RandomPoints `max_width`"):
         rnd = RandomPoints(
-            num_points=2, max_width=30, max_height=10, shape="ellipse", random_seed=0
+            num_points=2, max_width=30000, max_height=30000, shape="ellipse"
         )
         wdg.setValue(database["standard 96 wp"], rnd)
 
@@ -732,3 +732,40 @@ def test_hcs_wizard(
         == data.calibration.calibration_positions_an
     )
     assert value.positions
+
+
+def test_hcs_wizard_fov_load(
+    global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, Plate]
+):
+    wdg = HCSWizard()
+    qtbot.addWidget(wdg)
+    mmc = global_mmcore
+
+    width = mmc.getImageWidth() * mmc.getPixelSizeUm()
+    height = mmc.getImageHeight() * mmc.getPixelSizeUm()
+
+    data = HCSData(
+        plate=database["standard 96 wp"],
+        wells=[Well("A1", 0, 0), Well("B2", 1, 1), Well("C3", 2, 2)],
+        mode=RandomPoints(
+            num_points=3,
+            max_width=600,
+            max_height=600,
+            shape="ellipse",
+            fov_width=width,
+            fov_height=height,
+        ),
+        calibration=CalibrationData(
+            plate=database["standard 96 wp"],
+            calibration_positions_a1=[(-10.0, 0.0), (0.0, 10.0), (10.0, 0.0)],
+            calibration_positions_an=[(90.0, 0.0), (100.0, 10.0), (110.0, 0.0)],
+        ),
+    )
+
+    wdg.setValue(data)
+
+    rnd_value = wdg.fov_page._fov_widget.random_wdg.value()
+    assert rnd_value.num_points == 3
+
+    fov_view_value = wdg.fov_page._fov_widget.view.value()
+    assert fov_view_value.mode.num_points == 3

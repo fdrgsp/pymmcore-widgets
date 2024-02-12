@@ -1001,7 +1001,10 @@ class FOVSelectorWidget(QWidget):
 
     def _set_random_value(self, mode: RandomPoints) -> None:
         """Set the random widget values."""
-        self.random_radio_btn.setChecked(True)
+        with signals_blocked(self._mode_btn_group):
+            self.random_radio_btn.setChecked(True)
+            self._enable_radio_buttons_wdgs()
+
         self._check_for_warnings(mode)
         # here blocking random widget signals to not generate a new random seed
         with signals_blocked(self.random_wdg):
@@ -1021,13 +1024,14 @@ class FOVSelectorWidget(QWidget):
         if self._plate is None:
             return
 
+        # well_size is in mm, convert to µm
         if (
-            mode.max_width > self._plate.well_size_x
-            or mode.max_height > self._plate.well_size_y
+            mode.max_width > self._plate.well_size_x * 1000
+            or mode.max_height > self._plate.well_size_y * 1000
         ):
             mode = mode.replace(
-                max_width=self._plate.well_size_x,
-                max_height=self._plate.well_size_y,
+                max_width=self._plate.well_size_x * 1000,
+                max_height=self._plate.well_size_y * 1000,
             )
             warnings.warn(
                 "RandomPoints `max_width` and/or `max_height` are larger than "

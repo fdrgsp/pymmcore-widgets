@@ -290,6 +290,7 @@ class HCSWizard(QWizard):
         and is not used.
         """
         plate = value.plate
+
         self.plate_page.setValue(PlateInfo(plate, value.wells))
 
         calibration = value.calibration
@@ -302,6 +303,7 @@ class HCSWizard(QWizard):
             w = (self._mmc.getImageWidth() * self._mmc.getPixelSizeUm()) or None
             h = (self._mmc.getImageHeight() * self._mmc.getPixelSizeUm()) or None
             mode = Center(x=0, y=0, fov_width=w, fov_height=h)
+
         self.fov_page.setValue(value.plate, mode)
 
     def load_database(self, database_path: Path | str) -> None:
