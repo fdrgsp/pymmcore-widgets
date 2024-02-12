@@ -16,8 +16,8 @@ from qtpy.QtWidgets import (
 if TYPE_CHECKING:
     from ._graphics_items import Well, _WellGraphicsItem
 
-SELECTED_COLOR = QBrush(Qt.GlobalColor.magenta)
-UNSELECTED_COLOR = QBrush(Qt.GlobalColor.green)
+SELECTED_COLOR = QBrush(Qt.GlobalColor.green)
+UNSELECTED_COLOR = QBrush(Qt.GlobalColor.magenta)
 
 
 class _HCSGraphicsScene(QGraphicsScene):
