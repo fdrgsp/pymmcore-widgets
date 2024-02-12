@@ -38,7 +38,8 @@ from ._util import apply_rotation_matrix, get_well_center
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 FixedSizePolicy = (QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
-
+GREEN = "#00C600"
+RED = "#C33"
 ALPHABET = string.ascii_uppercase
 ROLE = Qt.ItemDataRole.UserRole + 1
 
@@ -495,7 +496,7 @@ class _CalibrationLabel(QGroupBox):
         self._icon_lbl = QLabel()
         self._icon_lbl.setSizePolicy(*FixedSizePolicy)
         self._icon_lbl.setPixmap(
-            icon(MDI6.close_octagon_outline, color="#C33").pixmap(QSize(30, 30))
+            icon(MDI6.close_octagon_outline, color=RED).pixmap(QSize(30, 30))
         )
         # text
         self._text_lbl = QLabel(text="Plate Not Calibrated!")
@@ -671,7 +672,7 @@ class PlateCalibrationWidget(QWidget):
         """Set the calibration label."""
         lbl_icon = MDI6.check_bold if state else MDI6.close_octagon_outline
         lbl_icon_size = QSize(20, 20) if state else QSize(30, 30)
-        lbl_icon_color = "#00C600" if state else "#C33"
+        lbl_icon_color = GREEN if state else RED
         text = "Plate Calibrated!" if state else "Plate Not Calibrated!"
         self._calibration_label.setValue(
             pixmap=icon(lbl_icon, color=lbl_icon_color).pixmap(lbl_icon_size),

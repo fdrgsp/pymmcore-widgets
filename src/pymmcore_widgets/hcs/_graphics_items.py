@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Any, NamedTuple
 
 from qtpy.QtCore import QRectF, Qt
-from qtpy.QtGui import QBrush, QFont, QPainter, QPen, QTextOption
+from qtpy.QtGui import QBrush, QColor, QFont, QPainter, QPen, QTextOption
 from qtpy.QtWidgets import QGraphicsItem
 
 from ._base_dataclass import BaseDataclass
@@ -13,6 +13,7 @@ POINT_SIZE = 3
 DEFAULT_PEN = QPen(Qt.GlobalColor.white)
 DEFAULT_PEN.setWidth(3)
 DEFAULT_BRUSH = QBrush(Qt.GlobalColor.white)
+GREEN = QColor("#00C600")
 
 
 @dataclass(frozen=True)
@@ -72,7 +73,7 @@ class _WellGraphicsItem(QGraphicsItem):
         self._text_size = text_size
         self._circular = circular
 
-        self._brush = brush or QBrush(Qt.GlobalColor.green)
+        self._brush = brush or QBrush(GREEN)
 
         default_pen = QPen(Qt.GlobalColor.black)
         default_pen.setWidth(1)
@@ -151,7 +152,8 @@ class _WellAreaGraphicsItem(QGraphicsItem):
         return self._rect
 
     def paint(self, painter: QPainter, *args: Any) -> None:
-        pen = QPen(Qt.GlobalColor.magenta)
+        pen = QPen(GREEN)
+        pen.setStyle(Qt.PenStyle.DotLine)
         pen.setWidth(self._pen_width)
         painter.setPen(pen)
         if self._circular:

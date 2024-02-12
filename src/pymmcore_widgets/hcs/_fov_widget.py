@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from qtpy.QtCore import QRectF, Qt, Signal
-from qtpy.QtGui import QPen
+from qtpy.QtGui import QColor, QPen
 from qtpy.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -58,7 +58,7 @@ OFFSET = 20
 PEN_WIDTH = 4
 RECT = Shape.RECTANGLE
 ELLIPSE = Shape.ELLIPSE
-PEN_AREA = QPen(Qt.GlobalColor.green)
+PEN_AREA = QPen(QColor("#00C600"))
 PEN_AREA.setWidth(PEN_WIDTH)
 
 
