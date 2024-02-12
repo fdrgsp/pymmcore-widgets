@@ -18,7 +18,10 @@ database = load_database(database_path)
 
 app = QApplication([])
 
-fs = FOVSelectorWidget(plate=database["standard 96 wp"], mode=Center(0, 0, 512, 512))
+fs = FOVSelectorWidget(
+    plate=database["standard 96 wp"],
+    mode=Center(x=0, y=0, fov_width=512, fov_height=512),
+)
 
 fs.valueChanged.connect(lambda x: rich_print(x))
 
