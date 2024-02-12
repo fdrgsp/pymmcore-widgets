@@ -62,7 +62,7 @@ VERTICES_TEXT = (
 VERTICES_MODE_POINTS = 2
 
 LABEL_STYLE = """
-    background: rgb(0, 255, 0);
+    background: #00C600;
     font-size: 16pt; font-weight:bold;
     color : black;
     border: 1px solid black;
@@ -495,7 +495,7 @@ class _CalibrationLabel(QGroupBox):
         self._icon_lbl = QLabel()
         self._icon_lbl.setSizePolicy(*FixedSizePolicy)
         self._icon_lbl.setPixmap(
-            icon(MDI6.close_octagon_outline, color="magenta").pixmap(QSize(30, 30))
+            icon(MDI6.close_octagon_outline, color="#C33").pixmap(QSize(30, 30))
         )
         # text
         self._text_lbl = QLabel(text="Plate Not Calibrated!")
@@ -671,7 +671,7 @@ class PlateCalibrationWidget(QWidget):
         """Set the calibration label."""
         lbl_icon = MDI6.check_bold if state else MDI6.close_octagon_outline
         lbl_icon_size = QSize(20, 20) if state else QSize(30, 30)
-        lbl_icon_color = (0, 255, 0) if state else "magenta"
+        lbl_icon_color = "#00C600" if state else "#C33"
         text = "Plate Calibrated!" if state else "Plate Not Calibrated!"
         self._calibration_label.setValue(
             pixmap=icon(lbl_icon, color=lbl_icon_color).pixmap(lbl_icon_size),
