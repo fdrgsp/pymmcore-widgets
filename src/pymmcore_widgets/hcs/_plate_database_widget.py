@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import cast
 
 from qtpy.QtCore import Qt, Signal
-from qtpy.QtGui import QBrush, QPen
+from qtpy.QtGui import QBrush, QColor, QPen
 from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -32,8 +32,8 @@ from ._util import _ResizingGraphicsView, draw_plate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 StyleSheet = "background:grey; border: 0px; border-radius: 5px;"
-BRUSH = QBrush(Qt.GlobalColor.green)
-PEN = QPen(Qt.GlobalColor.black)
+BRUSH = QBrush(QColor("#00C600"))
+PEN = QPen(QColor("black"))
 PEN.setWidth(1)
 OPACITY = 0.7
 
