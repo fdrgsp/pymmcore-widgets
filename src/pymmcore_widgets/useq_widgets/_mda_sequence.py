@@ -145,7 +145,9 @@ class MDATabs(CheckableTabWidget):
         if not isinstance(value, useq.MDASequence):  # pragma: no cover
             raise TypeError(f"Expected useq.MDASequence, got {type(value)}")
 
-        widget: ChannelTable | TimePlanWidget | ZPlanWidget | PositionTable | GridPlanWidget  # noqa
+        widget: (
+            ChannelTable | TimePlanWidget | ZPlanWidget | PositionTable | GridPlanWidget
+        )
         for f in ("channels", "time_plan", "z_plan", "stage_positions", "grid_plan"):
             widget = getattr(self, f)
             if field_val := getattr(value, f):
@@ -252,7 +254,11 @@ class KeepShutterOpen(QWidget):
 
 
 class MDASequenceWidget(QWidget):
-    """A widget that provides a GUI to construct and edit a [`useq.MDASequence`][]."""
+    """A widget that provides a GUI to construct and edit a [`useq.MDASequence`][].
+
+    This widget requires no connection to a microscope or core instance.  It strictly
+    deals with loading and creating `useq-schema` [`useq.MDASequence`][] objects.
+    """
 
     valueChanged = Signal()
 

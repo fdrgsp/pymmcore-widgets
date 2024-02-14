@@ -56,11 +56,29 @@ class CoreMDATabs(MDATabs):
         self.grid_plan = CoreConnectedGridPlanWidget(self._mmc)
         self.channels = CoreConnectedChannelTable(1, self._mmc)
 
+    def _enable_tabs(self, enable: bool) -> None:
+        """Enable or disable the tab checkboxes and their contents.
+
+        However, we can still mover through the tabs and see their contents.
+        """
+        # disable tab checkboxes
+        for cbox in self._cboxes:
+            cbox.setEnabled(enable)
+        # disable tabs contents
+        self.time_plan.setEnabled(enable)
+        self.stage_positions.setEnabled(enable)
+        self.z_plan.setEnabled(enable)
+        self.grid_plan.setEnabled(enable)
+        self.channels.setEnabled(enable)
+
 
 class MDAWidget(MDASequenceWidget):
-    """[MDASequenceWidget](../MDASequenceWidget#) connected to a [`pymmcore_plus.CMMCorePlus`][] instance.
+    """Main MDA Widget connected to a [`pymmcore_plus.CMMCorePlus`][] instance.
 
-    It provides a GUI to construct and run a [`useq.MDASequence`][].
+    It provides a GUI to construct and run a [`useq.MDASequence`][].  Unlike
+    [`useq_widgets.MDASequenceWidget`][pymmcore_widgets.MDASequenceWidget], this
+    widget is connected to a [`pymmcore_plus.CMMCorePlus`][] instance, enabling
+    awareness and control of the current state of the microscope.
 
     Parameters
     ----------
@@ -71,7 +89,7 @@ class MDAWidget(MDASequenceWidget):
         By default, None. If not specified, the widget will use the active
         (or create a new)
         [`CMMCorePlus.instance`][pymmcore_plus.core._mmcore_plus.CMMCorePlus.instance].
-    """  # noqa: E501
+    """
 
     def __init__(
         self, *, parent: QWidget | None = None, mmcore: CMMCorePlus | None = None
@@ -243,7 +261,9 @@ class MDAWidget(MDASequenceWidget):
 
     def _enable_widgets(self, enable: bool) -> None:
         for child in self.children():
-            if child is not self.control_btns and hasattr(child, "setEnabled"):
+            if isinstance(child, CoreMDATabs):
+                child._enable_tabs(enable)
+            elif child is not self.control_btns and hasattr(child, "setEnabled"):
                 child.setEnabled(enable)
 
     def _on_mda_started(self) -> None:

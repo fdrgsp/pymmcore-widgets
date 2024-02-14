@@ -585,10 +585,10 @@ class PositionTable(QWidget):
             return POS in name
         return False
 
-    def _update_number(self, number: int, exixting_numbers: list[int]) -> int:
+    def _update_number(self, number: int, existing_numbers: list[int]) -> int:
         loop = True
         while loop:
-            if number in exixting_numbers:
+            if number in existing_numbers:
                 number += 1
             else:
                 loop = False
