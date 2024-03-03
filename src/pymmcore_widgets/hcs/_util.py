@@ -21,6 +21,10 @@ if TYPE_CHECKING:
     from ._plate_model import Plate
 
 
+GREEN = "#00FF00"  # "#00C600"
+RED = "#FF00FF"  # "#C33"
+
+
 class _ResizingGraphicsView(QGraphicsView):
     """A QGraphicsView that resizes the scene to fit the view."""
 

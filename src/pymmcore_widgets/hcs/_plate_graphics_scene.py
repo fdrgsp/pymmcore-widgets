@@ -13,10 +13,12 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from ._util import GREEN
+
 if TYPE_CHECKING:
     from ._graphics_items import Well, _WellGraphicsItem
 
-SELECTED_COLOR = QBrush(QColor("#00C600"))
+SELECTED_COLOR = QBrush(QColor(GREEN))
 UNSELECTED_COLOR = QBrush(QColor("lightgray"))
 
 
@@ -41,7 +43,7 @@ class _HCSGraphicsScene(QGraphicsScene):
         # origin point of the SCREEN
         self.origin_point = event.screenPos()
         # rubber band to show the selection
-        self.rubber_band = QRubberBand(QRubberBand.Rectangle)
+        self.rubber_band = QRubberBand(QRubberBand.Shape.Rectangle)
         # origin point of the SCENE
         self.scene_origin_point = event.scenePos()
 
@@ -80,7 +82,7 @@ class _HCSGraphicsScene(QGraphicsScene):
 
             if item in selection:
                 # if pressing shift, remove from selection
-                if event.modifiers() and Qt.ShiftModifier:
+                if event.modifiers() and Qt.KeyboardModifier.ShiftModifier:
                     self._set_selected(item, False)
                 else:
                     self._set_selected(item, True)

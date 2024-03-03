@@ -33,13 +33,11 @@ from pymmcore_widgets.useq_widgets._data_table import DataTableWidget
 from ._base_dataclass import BaseDataclass
 from ._graphics_items import Well
 from ._plate_model import Plate
-from ._util import apply_rotation_matrix, get_well_center
+from ._util import GREEN, RED, apply_rotation_matrix, get_well_center
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 FixedSizePolicy = (QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
-GREEN = "#00C600"
-RED = "#C33"
 ALPHABET = string.ascii_uppercase
 ROLE = Qt.ItemDataRole.UserRole + 1
 
@@ -63,7 +61,7 @@ VERTICES_TEXT = (
 VERTICES_MODE_POINTS = 2
 
 LABEL_STYLE = """
-    background: #00C600;
+    background: #00FF00;
     font-size: 16pt; font-weight:bold;
     color : black;
     border: 1px solid black;
@@ -621,9 +619,9 @@ class PlateCalibrationWidget(QWidget):
         calibration_mode: list[TwoPoints | ThreePoints | FourPoints] | None = (
             None
             if self._plate is None
-            else [ThreePoints()]
-            if self._plate.circular
-            else [TwoPoints(), FourPoints()]
+            else (
+                [ThreePoints()] if self._plate.circular else [TwoPoints(), FourPoints()]
+            )
         )
         self._calibration_mode.setValue(calibration_mode)
 

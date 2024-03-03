@@ -41,7 +41,7 @@ from pymmcore_widgets.useq_widgets._grid import _SeparatorWidget
 
 from ._base_dataclass import BaseDataclass
 from ._graphics_items import FOV, _FOVGraphicsItem, _WellAreaGraphicsItem
-from ._util import _ResizingGraphicsView, nearest_neighbor
+from ._util import GREEN, _ResizingGraphicsView, nearest_neighbor
 
 if TYPE_CHECKING:
     from ._plate_model import Plate
@@ -58,7 +58,7 @@ OFFSET = 20
 PEN_WIDTH = 4
 RECT = Shape.RECTANGLE
 ELLIPSE = Shape.ELLIPSE
-PEN_AREA = QPen(QColor("#00C600"))
+PEN_AREA = QPen(QColor(GREEN))
 PEN_AREA.setWidth(PEN_WIDTH)
 
 
@@ -160,9 +160,7 @@ class _RandomFOVWidget(QWidget):
         super().__init__(parent)
 
         # setting a random seed for point generation reproducibility
-        self._random_seed: int | None = np.random.randint(
-            0, 2**32 - 1, dtype=np.uint32
-        )
+        self._random_seed: int | None = np.random.randint(0, 2**32 - 1, dtype=np.uint32)
         self._is_circular: bool = False
         self._fov_size: tuple[float | None, float | None] = (None, None)
 
@@ -429,7 +427,6 @@ class _GridFovWidget(QWidget):
         self._fov_size = (None, None)
 
 
-# class WellViewData(NamedTuple):
 @dataclass(frozen=True)
 class WellViewData(BaseDataclass):
     """A NamedTuple to store the well view data.
@@ -455,16 +452,6 @@ class WellViewData(BaseDataclass):
     padding: int = 0
     show_fovs_order: bool = True
     mode: Center | AnyGridPlan | None = None
-
-    # def replace(self, **args: Any) -> WellViewData:
-    #     """Replace the values of the WellViewData."""
-    #     return WellViewData(
-    #         well_size=args.get("well_size", self.well_size),
-    #         circular=args.get("circular", self.circular),
-    #         padding=args.get("padding", self.padding),
-    #         show_fovs_order=args.get("show_fovs_order", self.show_fovs_order),
-    #         mode=args.get("mode", self.mode),
-    #     )
 
 
 DEFAULT_WELL_DATA = WellViewData()
@@ -778,9 +765,11 @@ class WellView(_ResizingGraphicsView):
                 self._fov_width_px,
                 self._fov_height_px,
                 fov.bounding_rect,
-                _get_pen(index)
-                if self._show_fovs_order
-                else QPen(Qt.GlobalColor.white),
+                (
+                    _get_pen(index)
+                    if self._show_fovs_order
+                    else QPen(Qt.GlobalColor.white)
+                ),
             )
 
             self.scene().addItem(fovs)
