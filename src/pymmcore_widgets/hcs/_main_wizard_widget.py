@@ -324,8 +324,8 @@ class HCSWizard(QWizard):
         """Save the current plate database to a json file."""
         self.plate_page._plate_widget.save_database(database_path)
 
-    def load_database(self, database_path: Path | str) -> None:
-        """Load a plate database."""
+    def load_database(self, database_path: Path | str | None = None) -> None:
+        """Load a plate database. If None, a dialog will open to select a file."""
         self.plate_page._plate_widget.load_database(database_path)
 
     def database_path(self) -> str:
