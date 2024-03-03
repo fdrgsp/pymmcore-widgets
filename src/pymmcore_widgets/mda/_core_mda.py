@@ -111,6 +111,7 @@ class MDAWidget(MDASequenceWidget):
             QWizard.WizardButton.FinishButton, "Add Positions"
         )
         self.hcs_button = QPushButton("HCS Wizard")
+        self.hcs_button.setIcon(icon(MDI6.vector_polyline))
         self.hcs_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.hcs_button.setToolTip("Open the HCS wizard.")
 
