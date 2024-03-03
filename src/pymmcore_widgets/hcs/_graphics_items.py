@@ -154,7 +154,7 @@ class _WellAreaGraphicsItem(QGraphicsItem):
         return self._rect
 
     def paint(self, painter: QPainter, *args: Any) -> None:
-        pen = QPen(GREEN)
+        pen = QPen(QColor(GREEN))
         pen.setStyle(Qt.PenStyle.DotLine)
         pen.setWidth(self._pen_width)
         painter.setPen(pen)
