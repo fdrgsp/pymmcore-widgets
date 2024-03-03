@@ -5,6 +5,7 @@ from typing import Any, cast
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
+from platformdirs import user_data_dir
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import (
@@ -25,7 +26,7 @@ from ._calibration_widget import (
 )
 from ._fov_widget import Center, FOVSelectorWidget
 from ._graphics_items import Well
-from ._plate_model import PLATE_DB_PATH, Plate
+from ._plate_model import DEFAULT_PLATE_DB_PATH, Plate, load_database, save_database
 from ._plate_widget import PlateInfo, PlateSelectorWidget
 from ._util import apply_rotation_matrix, get_well_center, nearest_neighbor
 
@@ -33,6 +34,9 @@ DEFAULT_CALIBRATION = CalibrationData()
 EXPANDING = (QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 TOP_X: float = -10000000000
 TOP_Y: float = 10000000000
+# Path to the user data directory to store the plate database
+USER_DATA_DIR = Path(user_data_dir(appname="pymmcore_widgets"))
+USER_PLATE_DATABASE_PATH = USER_DATA_DIR / "plate_database.json"
 
 AnyMode = Center | RandomPoints | GridRowsColumns | None
 
@@ -239,8 +243,18 @@ class HCSWizard(QWizard):
         self.layout().setContentsMargins(0, 50, 0, 0)
         self.layout().setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        # check if the default plate database exists, if not create it in the
+        # user data directory. If the database is provided, use it without storing it
+        # in the user data directory.
+        if not plate_database_path:
+            if not USER_PLATE_DATABASE_PATH.exists():
+                USER_PLATE_DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            save_database(
+                load_database(DEFAULT_PLATE_DB_PATH), USER_PLATE_DATABASE_PATH
+            )
+
         # setup plate page
-        self.plate_page = PlatePage(plate_database_path or PLATE_DB_PATH)
+        self.plate_page = PlatePage(plate_database_path or USER_PLATE_DATABASE_PATH)
 
         # get currently selected plate
         plate, _ = self.plate_page.value()
@@ -306,9 +320,17 @@ class HCSWizard(QWizard):
 
         self.fov_page.setValue(value.plate, mode)
 
+    def save_database(self, database_path: Path | str) -> None:
+        """Save the current plate database to a json file."""
+        self.plate_page._plate_widget.save_database(database_path)
+
     def load_database(self, database_path: Path | str) -> None:
         """Load a plate database."""
         self.plate_page._plate_widget.load_database(database_path)
+
+    def database_path(self) -> str:
+        """Return the path to the current plate database."""
+        return self.plate_page._plate_widget.database_path()
 
     def database(self) -> dict[str, Plate]:
         """Return the current plate database."""

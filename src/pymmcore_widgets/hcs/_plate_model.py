@@ -3,7 +3,7 @@ from pathlib import Path
 
 from ._base_dataclass import BaseDataclass
 
-PLATE_DB_PATH = Path(__file__).parent / "well_plate_database.json"
+DEFAULT_PLATE_DB_PATH = Path(__file__).parent / "default_well_plate_database.json"
 
 
 @dataclass(frozen=True)
@@ -41,6 +41,17 @@ class Plate(BaseDataclass):
     well_spacing_y: float = 0.0
     well_size_x: float = 0.0
     well_size_y: float = 0.0
+
+
+def save_database(database: dict[str, Plate], database_path: Path | str) -> None:
+    """Save the database of well plates to database_path.
+
+    The database will be saved as a JSON file.
+    """
+    import json
+
+    with open(Path(database_path), "w") as f:
+        json.dump([k.to_dict() for k in database.values()], f, indent=4)
 
 
 def load_database(database_path: Path | str) -> dict[str, Plate]:

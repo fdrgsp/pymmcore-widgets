@@ -28,7 +28,7 @@ from qtpy.QtWidgets import (
 from superqt.utils import signals_blocked
 
 from ._graphics_items import GREEN
-from ._plate_model import PLATE_DB_PATH, Plate, load_database
+from ._plate_model import DEFAULT_PLATE_DB_PATH, Plate, load_database
 from ._util import _ResizingGraphicsView, draw_plate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
@@ -78,7 +78,7 @@ class PlateDatabaseWidget(QDialog):
         self,
         parent: QWidget | None = None,
         *,
-        plate_database_path: Path | str = PLATE_DB_PATH,
+        plate_database_path: Path | str = DEFAULT_PLATE_DB_PATH,
     ) -> None:
         super().__init__(parent)
 
@@ -309,6 +309,10 @@ class PlateDatabaseWidget(QDialog):
         self._plate_db = load_database(self._plate_db_path)
         self._populate_table()
         self.valueChanged.emit(self.value(), self._plate_db, self._plate_db_path)
+
+    def database_path(self) -> str:
+        """Return the current plate database path."""
+        return str(self._plate_db_path)
 
     def database(self) -> dict[str, Plate]:
         """Return the current plate database."""

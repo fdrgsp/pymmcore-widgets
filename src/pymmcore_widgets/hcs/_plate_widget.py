@@ -19,7 +19,7 @@ from superqt.utils import signals_blocked
 
 from ._plate_database_widget import PlateDatabaseWidget
 from ._plate_graphics_scene import _HCSGraphicsScene
-from ._plate_model import PLATE_DB_PATH, load_database
+from ._plate_model import DEFAULT_PLATE_DB_PATH, load_database, save_database
 from ._util import _ResizingGraphicsView, draw_plate
 
 if TYPE_CHECKING:
@@ -61,7 +61,7 @@ class PlateSelectorWidget(QWidget):
         self,
         parent: QWidget | None = None,
         *,
-        plate_database_path: Path | str = PLATE_DB_PATH,
+        plate_database_path: Path | str = DEFAULT_PLATE_DB_PATH,
     ) -> None:
         super().__init__(parent)
 
@@ -160,6 +160,16 @@ class PlateSelectorWidget(QWidget):
 
         self.scene.setValue(value.wells)
 
+    def save_database(self, plate_database_path: Path | str) -> None:
+        """Save the current plate database to a json file.
+
+        Parameters
+        ----------
+        plate_database_path : Path | str
+            The path to save the plate database.
+        """
+        save_database(self._plate_db, plate_database_path)
+
     def load_database(self, plate_database_path: Path | str | None = None) -> None:
         """Load a plate database.
 
@@ -190,6 +200,10 @@ class PlateSelectorWidget(QWidget):
 
         # update the custom plate widget
         self._plate_db_wdg.load_database(self._plate_db_path)
+
+    def database_path(self) -> str:
+        """Return the path to the current plate database."""
+        return str(self._plate_db_path)
 
     def database(self) -> dict[str, Plate]:
         """Return the current plate database."""
