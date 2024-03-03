@@ -31,9 +31,9 @@ from pymmcore_widgets.useq_widgets._column_info import FloatColumn
 from pymmcore_widgets.useq_widgets._data_table import DataTableWidget
 
 from ._base_dataclass import BaseDataclass
-from ._graphics_items import Well
+from ._graphics_items import GREEN, RED, Well
 from ._plate_model import Plate
-from ._util import GREEN, RED, apply_rotation_matrix, get_well_center
+from ._util import apply_rotation_matrix, get_well_center
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 FixedSizePolicy = (QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)

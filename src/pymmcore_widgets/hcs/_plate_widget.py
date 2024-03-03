@@ -4,7 +4,7 @@ import string
 from typing import TYPE_CHECKING, NamedTuple
 
 from qtpy.QtCore import Qt, Signal
-from qtpy.QtGui import QBrush, QColor, QPen
+from qtpy.QtGui import QBrush, QPen
 from qtpy.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -32,8 +32,8 @@ AlignCenter = Qt.AlignmentFlag.AlignCenter
 
 ALPHABET = string.ascii_uppercase
 PLATE_GRAPHICS_VIEW_HEIGHT = 440
-BRUSH = QBrush(QColor("lightgray"))
-PEN = QPen(QColor("black"))
+BRUSH = QBrush(Qt.GlobalColor.lightGray)
+PEN = QPen(Qt.GlobalColor.black)
 PEN.setWidth(1)
 
 

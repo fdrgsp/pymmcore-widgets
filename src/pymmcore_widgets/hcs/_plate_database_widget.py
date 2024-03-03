@@ -27,13 +27,14 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
+from ._graphics_items import GREEN
 from ._plate_model import PLATE_DB_PATH, Plate, load_database
-from ._util import GREEN, _ResizingGraphicsView, draw_plate
+from ._util import _ResizingGraphicsView, draw_plate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 StyleSheet = "background:grey; border: 0px; border-radius: 5px;"
 BRUSH = QBrush(QColor(GREEN))
-PEN = QPen(QColor("black"))
+PEN = QPen(Qt.GlobalColor.black)
 PEN.setWidth(1)
 OPACITY = 0.7
 

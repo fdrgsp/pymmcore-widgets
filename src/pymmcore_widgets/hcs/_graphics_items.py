@@ -3,11 +3,13 @@ from dataclasses import dataclass
 from typing import Any, NamedTuple
 
 from qtpy.QtCore import QRectF, Qt
-from qtpy.QtGui import QBrush, QFont, QPainter, QPen, QTextOption
+from qtpy.QtGui import QBrush, QColor, QFont, QPainter, QPen, QTextOption
 from qtpy.QtWidgets import QGraphicsItem
 
 from ._base_dataclass import BaseDataclass
-from ._util import GREEN
+
+GREEN = "#00FF00"  # "#00C600"
+RED = "#C33"  # "#FF00FF"
 
 ALPHABET = string.ascii_uppercase
 POINT_SIZE = 3
@@ -73,7 +75,7 @@ class _WellGraphicsItem(QGraphicsItem):
         self._text_size = text_size
         self._circular = circular
 
-        self._brush = brush or QBrush(GREEN)
+        self._brush = brush or QBrush(QColor(GREEN))
 
         default_pen = QPen(Qt.GlobalColor.black)
         default_pen.setWidth(1)

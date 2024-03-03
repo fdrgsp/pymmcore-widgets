@@ -40,8 +40,8 @@ from useq._grid import GridPosition, OrderMode, Shape
 from pymmcore_widgets.useq_widgets._grid import _SeparatorWidget
 
 from ._base_dataclass import BaseDataclass
-from ._graphics_items import FOV, _FOVGraphicsItem, _WellAreaGraphicsItem
-from ._util import GREEN, _ResizingGraphicsView, nearest_neighbor
+from ._graphics_items import FOV, GREEN, _FOVGraphicsItem, _WellAreaGraphicsItem
+from ._util import _ResizingGraphicsView, nearest_neighbor
 
 if TYPE_CHECKING:
     from ._plate_model import Plate
