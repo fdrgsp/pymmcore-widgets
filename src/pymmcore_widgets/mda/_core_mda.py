@@ -31,7 +31,6 @@ from ._core_z import CoreConnectedZPlanWidget
 from ._save_widget import SaveGroupBox
 
 if TYPE_CHECKING:
-
     from pymmcore_widgets.hcs._main_wizard_widget import HCSData
 
 
@@ -102,7 +101,7 @@ class MDAWidget(MDASequenceWidget):
         self.hcs.fov_page.setButtonText(
             QWizard.WizardButton.FinishButton, "Add Positions"
         )
-        self.hcs_button = QPushButton("HCS Wizard")
+        self.hcs_button = QPushButton("HCS")
         self.hcs_button.setIcon(icon(MDI6.vector_polyline))
         self.hcs_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.hcs_button.setToolTip("Open the HCS wizard.")
