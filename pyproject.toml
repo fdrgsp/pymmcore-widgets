@@ -86,6 +86,9 @@ docs = [
     "mkdocs-video",
 ]
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [project.urls]
 Homepage = "https://github.com/pymmcore-plus/pymmcore-widgets"
 "Source Code" = "https://github.com/pymmcore-plus/pymmcore-widgets"
