@@ -3,8 +3,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-import matplotlib.patches as patches
-import matplotlib.pyplot as plt
 from platformdirs import user_data_dir
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import Qt, Signal
@@ -492,52 +490,52 @@ class HCSWizard(QWizard):
         return positions
 
     # this is just for testing, remove later _______________________
-    def drawPlateMap(self) -> None:
-        """Draw the plate map for the current experiment."""
-        # get the well centers in stage coordinates
-        well_centers = self._get_well_center_in_stage_coordinates()
+    # def drawPlateMap(self) -> None:
+    #     """Draw the plate map for the current experiment."""
+    #     # get the well centers in stage coordinates
+    #     well_centers = self._get_well_center_in_stage_coordinates()
 
-        if well_centers is None:
-            return
+    #     if well_centers is None:
+    #         return
 
-        _, ax = plt.subplots()
+    #     _, ax = plt.subplots()
 
-        plate, _ = self.plate_page.value()
+    #     plate, _ = self.plate_page.value()
 
-        if plate is None:
-            return
+    #     if plate is None:
+    #         return
 
-        # draw wells
-        for _, well_center_x, well_center_y in well_centers:
-            plt.plot(well_center_x, well_center_y, "mo")
+    #     # draw wells
+    #     for _, well_center_x, well_center_y in well_centers:
+    #         plt.plot(well_center_x, well_center_y, "mo")
 
-            if plate.circular:
-                sh = patches.Circle(
-                    (well_center_x, well_center_y),
-                    radius=plate.well_size_x * 1000 / 2,
-                    fill=False,
-                )
-            else:
-                w = plate.well_size_x * 1000
-                h = plate.well_size_y * 1000
-                x = well_center_x - w / 2
-                y = well_center_y - h / 2
-                sh = patches.Rectangle((x, y), width=w, height=h, fill=False)
+    #         if plate.circular:
+    #             sh = patches.Circle(
+    #                 (well_center_x, well_center_y),
+    #                 radius=plate.well_size_x * 1000 / 2,
+    #                 fill=False,
+    #             )
+    #         else:
+    #             w = plate.well_size_x * 1000
+    #             h = plate.well_size_y * 1000
+    #             x = well_center_x - w / 2
+    #             y = well_center_y - h / 2
+    #             sh = patches.Rectangle((x, y), width=w, height=h, fill=False)
 
-            ax.add_patch(sh)
+    #         ax.add_patch(sh)
 
-        # draw FOVs
-        positions = self.get_positions()
-        if positions is None:
-            return
+    #     # draw FOVs
+    #     positions = self.get_positions()
+    #     if positions is None:
+    #         return
 
-        x = [p.x for p in positions]  # type: ignore
-        y = [p.y for p in positions]  # type: ignore
-        plt.scatter(x, y, color="green")
+    #     x = [p.x for p in positions]  # type: ignore
+    #     y = [p.y for p in positions]  # type: ignore
+    #     plt.scatter(x, y, color="green")
 
-        ax.axis("equal")
-        ax.xaxis.set_visible(False)
-        ax.yaxis.set_visible(False)
-        plt.show()
+    #     ax.axis("equal")
+    #     ax.xaxis.set_visible(False)
+    #     ax.yaxis.set_visible(False)
+    #     plt.show()
 
     # _______________________________________________________________
