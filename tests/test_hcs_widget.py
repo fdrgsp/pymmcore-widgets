@@ -731,7 +731,6 @@ def test_hcs_wizard(
         value.calibration.calibration_positions_an
         == data.calibration.calibration_positions_an
     )
-    assert value.positions
 
 
 def test_hcs_wizard_fov_load(

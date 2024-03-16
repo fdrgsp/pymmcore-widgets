@@ -66,27 +66,15 @@ class HCSData(BaseDataclass):
         The mode used to select the FOVs. By default, None.
     calibration : CalibrationData | None
         The data necessary to calibrate the plate. By default, None.
-    positions : list[Position] | None
-        The list of FOVs as useq.Positions expressed in stage coordinates.
-        By default, None.
     """
 
     plate: Plate | None = None
     wells: list[Well] | None = None
     mode: Center | RandomPoints | GridRowsColumns | None = None
     calibration: CalibrationData | None = None
-    positions: list[Position] | None = None
 
     def to_dict(self) -> dict[Any, Any]:
         """Return a dictionary representation of the HCSData."""
-        positions = (
-            [
-                pos.model_dump_json(exclude_none=True, exclude_unset=True)
-                for pos in self.positions
-            ]
-            if self.positions
-            else None
-        )
         if self.calibration is not None:
             calibration = self.calibration.to_dict()
             rotation_matrix = calibration.get("rotation_matrix")
@@ -99,7 +87,6 @@ class HCSData(BaseDataclass):
             "wells": [well.to_dict() for well in self.wells] if self.wells else None,
             "mode": (self.mode.model_dump_json() if self.mode else None),
             "calibration": calibration,
-            "positions": positions,
         }
 
     @classmethod
@@ -109,11 +96,7 @@ class HCSData(BaseDataclass):
         wells = [Well(**well) for well in data.get("wells", [])]
         mode = _cast_mode(data.get("mode"))
         calibration = CalibrationData.from_dict(data.get("calibration", {}))
-        _pos = data.get("positions")
-        positions = (
-            [Position.model_validate_json(pos) for pos in _pos] if _pos else None
-        )
-        return cls(plate, wells, mode, calibration, positions)
+        return cls(plate, wells, mode, calibration)
 
 
 class PlatePage(QWizardPage):
@@ -291,16 +274,10 @@ class HCSWizard(QWizard):
         fov_plate, mode = self.fov_page.value()
         assert fov_plate == plate
 
-        positions = self.get_positions()
-
-        return HCSData(plate, well_list, mode, calibration_data, positions)
+        return HCSData(plate, well_list, mode, calibration_data)
 
     def setValue(self, value: HCSData) -> None:
-        """Set the values of the wizard.
-
-        Note: the `positions` attribute of the HCSData `value` is not necessary
-        and is not used.
-        """
+        """Set the values of the wizard."""
         plate = value.plate
 
         self.plate_page.setValue(PlateInfo(plate, value.wells))
