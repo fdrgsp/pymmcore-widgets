@@ -299,6 +299,8 @@ class MDAWidget(MDASequenceWidget):
 
     def _set_arduino_props(self, arduino: Arduino | None, led: Pin | None) -> None:
         """Enable the Arduino board and the LED pin in the MDA engine."""
+        # this can only work if using the engine from
+        # https://github.com/fdrgsp/napari-micromanager/blob/calcium/src/napari_micromanager/_engine/_mmcore_engine.py
         if not self._mmc.mda.engine:
             return
         self._mmc.mda.engine.setArduinoBoard(arduino)  # type: ignore
