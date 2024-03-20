@@ -48,7 +48,7 @@ classifiers = [
 dynamic = ["version"]
 dependencies = [
     'fonticon-materialdesignicons6',
-    'pymmcore-plus@git+https://github.com/fdrgsp/pymmcore-plus.git@arduino_led_stimulation',
+    "pymmcore-plus >=0.9.4",
     'qtpy >=2.0',
     'superqt[quantity] >=0.5.3',
     'useq-schema >=0.4.7',
