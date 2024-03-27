@@ -93,7 +93,10 @@ class HCSData(BaseDataclass):
     def from_dict(cls, data: dict[str, Any]) -> "HCSData":
         """Set the calibration data from a dictionary."""
         plate = Plate(**data.get("plate", {}))
-        wells = [Well(**well) for well in data.get("wells", [])]
+        if wells := data.get("wells"):
+            wells = [Well(**well) for well in wells]
+        else:
+            wells = None
         mode = _cast_mode(data.get("mode"))
         calibration = CalibrationData.from_dict(data.get("calibration", {}))
         return cls(plate, wells, mode, calibration)
