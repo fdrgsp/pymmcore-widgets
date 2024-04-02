@@ -113,19 +113,17 @@ class CalibrationData(BaseDataclass):
 
     plate: Plate | None = None
     well_A1_center: tuple[float, float] | None = None
-    rotation_matrix: np.ndarray | None = None
+    rotation_matrix: list | None = None
     calibration_positions_a1: list[tuple[float, float]] | None = None
     calibration_positions_an: list[tuple[float, float]] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CalibrationData:
         """Create a CalibrationData object from a dictionary."""
-        matrix = data.get("rotation_matrix")
-        rotation_matrix = np.array(matrix) if isinstance(matrix, list) else matrix
         return cls(
             plate=Plate(**data.get("plate", {})),
             well_A1_center=data["well_A1_center"],
-            rotation_matrix=rotation_matrix,
+            rotation_matrix=data.get("rotation_matrix"),
             calibration_positions_a1=data["calibration_positions_a1"],
             calibration_positions_an=data["calibration_positions_an"],
         )
@@ -185,7 +183,7 @@ def find_rectangle_center(*args: tuple[float, ...]) -> tuple[float, float]:
 
 def get_plate_rotation_matrix(
     xy_well_1: tuple[float, float], xy_well_2: tuple[float, float]
-) -> np.ndarray:
+) -> list:
     """Get the rotation matrix to align the plate along the x axis."""
     x1, y1 = xy_well_1
     x2, y2 = xy_well_2
@@ -195,12 +193,10 @@ def get_plate_rotation_matrix(
     # this is to test only, should be removed_____________________________
     # print(f"plate_angle: {np.rad2deg(plate_angle_rad)}")
     # ____________________________________________________________________
-    return np.array(
-        [
-            [np.cos(plate_angle_rad), -np.sin(plate_angle_rad)],
-            [np.sin(plate_angle_rad), np.cos(plate_angle_rad)],
-        ]
-    )
+    return [
+        [np.cos(plate_angle_rad), -np.sin(plate_angle_rad)],
+        [np.sin(plate_angle_rad), np.cos(plate_angle_rad)],
+    ]
 
 
 def get_random_circle_edge_point(

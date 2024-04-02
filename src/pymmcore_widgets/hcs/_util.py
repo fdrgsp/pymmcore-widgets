@@ -115,12 +115,12 @@ def get_well_center(
 
 
 def apply_rotation_matrix(
-    rotation_matrix: np.ndarray, center_x: float, center_y: float, x: float, y: float
+    rotation_matrix: list, center_x: float, center_y: float, x: float, y: float
 ) -> tuple[float, float]:
     """Apply rotation matrix to x, y coordinates."""
     center = np.array([[center_x], [center_y]])
     coords = [[x], [y]]
-    transformed = np.linalg.inv(rotation_matrix).dot(coords - center) + center
+    transformed = np.linalg.inv(np.array(rotation_matrix)).dot(coords - center) + center
     x_rotated, y_rotated = transformed
     return x_rotated[0], y_rotated[0]
 
