@@ -177,4 +177,4 @@ ignore = [
 ]
 
 [tool.typos.default]
-extend-ignore-identifiers-re = ["(?i)ome"]
+extend-ignore-identifiers-re = ["(?i)ome", "FO", "FOV", "FOVs"]
