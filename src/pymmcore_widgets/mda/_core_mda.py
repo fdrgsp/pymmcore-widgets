@@ -201,7 +201,8 @@ class MDAWidget(MDASequenceWidget):
 
         meta: dict = val.metadata.setdefault(PYMMCW_METADATA_KEY, {})
         meta[STIMULATION] = self._arduino_led_wdg.value()
-        meta[HCS] = self._hcs_value or {}
+        # TODO: Fix me! on windows there is still a numpy not serializable error
+        # meta[HCS] = self._hcs_value or {}
         if self.save_info.isChecked():
             meta.update(self.save_info.value())
 
