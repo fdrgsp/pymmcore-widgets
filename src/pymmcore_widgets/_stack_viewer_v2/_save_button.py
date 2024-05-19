@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from warnings import warn
 
 import numpy as np
 from qtpy.QtWidgets import QFileDialog, QPushButton, QWidget
@@ -31,7 +32,8 @@ class SaveButton(QPushButton):
         if suffix in (".zarr", ".ome.zarr", ""):
             _save_as_zarr(self._last_loc, self._data)
         else:
-            raise ValueError(f"Unsupported file format: {self._last_loc}")
+            # raise ValueError(f"Unsupported file format: {self._last_loc}")
+            warn(f"Unsupported file format: {self._last_loc}", stacklevel=2)
 
 
 def _save_as_zarr(save_loc: str | Path, data: Any) -> None:
@@ -47,4 +49,5 @@ def _save_as_zarr(save_loc: str | Path, data: Any) -> None:
     elif is_xarray_dataarray(data):
         data.to_zarr(save_loc)
     else:
-        raise ValueError(f"Cannot save data of type {type(data)} to Zarr format.")
+        # raise ValueError(f"Cannot save data of type {type(data)} to Zarr format.")
+        warn(f"Cannot save data of type {type(data)} to Zarr format.", stacklevel=2)
