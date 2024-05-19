@@ -35,10 +35,10 @@ TIFF_SEQ = "tiff-sequence"
 
 # dict with writer name and extension
 WRITERS: dict[str, list[str]] = {
+    ZARR_TESNSORSTORE: [".zarr_tensorstore"],
     OME_ZARR: [".ome.zarr"],
     OME_TIFF: [".ome.tif", ".ome.tiff"],
     TIFF_SEQ: [""],
-    ZARR_TESNSORSTORE: [".zarr_tensorstore"],
 }
 
 EXT_TO_WRITER = {x: w for w, exts in WRITERS.items() for x in exts}
