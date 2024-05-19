@@ -50,14 +50,22 @@ dependencies = [
     'fonticon-materialdesignicons6',
     "pymmcore-plus@git+https://github.com/fdrgsp/pymmcore-plus.git@calcium",
     'qtpy >=2.0',
-    'superqt[quantity] >=0.5.3',
+    'superqt[quantity] >=0.6.5',
     'useq-schema >=0.4.7',
 ]
 
 # extras
 # https://peps.python.org/pep-0621/#dependencies-optional-dependencies
 [project.optional-dependencies]
-test = ["pytest>=6.0", "pytest-cov", "pytest-qt", "PyYAML", "vispy", "cmap", "zarr"]
+test = [
+    "pytest>=6.0",
+    "pytest-cov",
+    "pytest-qt",
+    "PyYAML",
+    "vispy",
+    "cmap",
+    "zarr",
+]
 pyqt5 = ["PyQt5"]
 pyside2 = ["PySide2"]
 pyqt6 = ["PyQt6"]
@@ -177,4 +185,4 @@ ignore = [
 ]
 
 [tool.typos.default]
-extend-ignore-identifiers-re = ["(?i)ome", "FO", "FOV", "FOVs"]
+extend-ignore-identifiers-re = ["(?i)nd2?.*", "(?i)ome", "FO", "FOV", "FOVs"]
