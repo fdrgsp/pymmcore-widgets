@@ -47,8 +47,6 @@ class ArduinoLedWidget(QGroupBox):
         layout.addWidget(self._settings_btn)
         layout.addStretch(1)
 
-        self.setFixedHeight(self.sizeHint().height())
-
     def isChecked(self) -> bool:
         """Return True if the checkbox is checked."""
         return cast(bool, self._enable_led.isChecked())
