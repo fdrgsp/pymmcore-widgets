@@ -264,12 +264,6 @@ class MDAWidget(MDASequenceWidget):
         if not self._arduino_led_wdg.isChecked():
             self._set_arduino_props(None, None)
         else:
-            # check if power exceeded
-            if self._arduino_led_wdg.is_max_power_exceeded():
-                self._set_arduino_props(None, None)
-                self._show_critical_led_message(POWER_EXCEEDED_MSG)
-                return
-
             # check if the Arduino and the LED pin are available
             arduino = self._arduino_led_wdg.board()
             led = self._arduino_led_wdg.ledPin()
@@ -277,6 +271,12 @@ class MDAWidget(MDASequenceWidget):
                 self._set_arduino_props(None, None)
                 self._arduino_led_wdg._arduino_led_control._enable(False)
                 self._show_critical_led_message(CRITICAL_MSG)
+                return
+
+            # check if power exceeded
+            if self._arduino_led_wdg.is_max_power_exceeded():
+                self._set_arduino_props(None, None)
+                self._show_critical_led_message(POWER_EXCEEDED_MSG)
                 return
 
             # enable the Arduino board and the LED pin in the MDA engine
