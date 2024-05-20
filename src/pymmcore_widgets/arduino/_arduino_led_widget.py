@@ -26,8 +26,6 @@ class ArduinoLedWidget(QGroupBox):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent=parent)
 
-        self.setTitle("Arduino")
-
         self._arduino_led_control = ArduinoLedControl(self)
 
         self._settings_btn = QPushButton("Arduino Settings...")
@@ -48,6 +46,8 @@ class ArduinoLedWidget(QGroupBox):
         layout.addWidget(self._enable_led)
         layout.addWidget(self._settings_btn)
         layout.addStretch(1)
+
+        self.setFixedHeight(self.sizeHint().height())
 
     def isChecked(self) -> bool:
         """Return True if the checkbox is checked."""

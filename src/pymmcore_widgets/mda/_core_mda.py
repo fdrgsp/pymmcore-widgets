@@ -137,7 +137,6 @@ class MDAWidget(MDASequenceWidget):
         # ------------ Arduino ------------
         self._arduino_led_wdg = ArduinoLedWidget(self)
         layout.insertWidget(4, self._arduino_led_wdg)
-        layout.insertStretch(5, 1)
 
         # ------------ connect signals ------------
 
