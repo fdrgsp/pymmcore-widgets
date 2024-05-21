@@ -435,6 +435,10 @@ class StackViewer(QWidget):
             return
 
         index, data = future.result()
+
+        if data.max() == 0:
+            return
+
         # assume that if we have channels remaining, that they are the first axis
         # FIXME: this is a bad assumption
         data = iter(data) if index.get(self._channel_axis) is ALL_CHANNELS else [data]
