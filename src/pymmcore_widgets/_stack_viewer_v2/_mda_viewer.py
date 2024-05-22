@@ -12,6 +12,7 @@ from ._stack_viewer import StackViewer
 
 if TYPE_CHECKING:
     from pymmcore_plus.mda.handlers._5d_writer_base import _5DWriterBase
+    from qtpy.QtGui import QCloseEvent
     from qtpy.QtWidgets import QWidget
 
 
@@ -26,21 +27,23 @@ class MDAViewer(StackViewer):
         *,
         parent: QWidget | None = None,
     ):
-        if datastore is None:
-            datastore = TensorStoreHandler()
+        self._datastore: _5DWriterBase | TensorStoreHandler | None = datastore
+
+        if self._datastore is None:
+            self._datastore = TensorStoreHandler()
         elif not isinstance(
-            datastore, (OMEZarrWriter, OMETiffWriter, TensorStoreHandler)
+            self._datastore, (OMEZarrWriter, OMETiffWriter, TensorStoreHandler)
         ):
             raise TypeError(
-                "MDAViewer currently only supports _5DWriterBase datastores "
-                "or TensorStoreHandler."
+                "MDAViewer currently only supports _5DWriterBase or "
+                "TensorStoreHandler data handlers."
             )
 
         # patch the frameReady method to call the superframeReady method
         # AFTER handling the event
-        self._superframeReady = getattr(datastore, "frameReady", None)
+        self._superframeReady = getattr(self._datastore, "frameReady", None)
         if callable(self._superframeReady):
-            datastore.frameReady = self._patched_frame_ready  # type: ignore
+            self._datastore.frameReady = self._patched_frame_ready  # type: ignore
 
         else:  # pragma: no cover
             warnings.warn(
@@ -49,7 +52,7 @@ class MDAViewer(StackViewer):
                 stacklevel=2,
             )
 
-        super().__init__(datastore, parent=parent, channel_axis="c")
+        super().__init__(self._datastore, parent=parent, channel_axis="c")
         self._save_btn = SaveButton(self.data)
         self._btns.addWidget(self._save_btn)
         self.dims_sliders.set_locks_visible(True)
@@ -76,3 +79,7 @@ class MDAViewer(StackViewer):
             if name := self._channel_names.get(index[self._channel_axis]):
                 return name
         return super()._get_channel_name(index)
+
+    def closeEvent(self, event: QCloseEvent | None) -> None:
+        self._datastore = None
+        super().closeEvent(event)
