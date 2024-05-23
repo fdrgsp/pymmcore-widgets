@@ -26,12 +26,10 @@ class MDAViewer(StackViewer):
         *,
         parent: QWidget | None = None,
     ):
-        self._datastore: _5DWriterBase | TensorStoreHandler | None = datastore
-
-        if self._datastore is None:
-            self._datastore = TensorStoreHandler()
+        if datastore is None:
+            datastore = TensorStoreHandler()
         elif not isinstance(
-            self._datastore, (OMEZarrWriter, OMETiffWriter, TensorStoreHandler)
+            datastore, (OMEZarrWriter, OMETiffWriter, TensorStoreHandler)
         ):
             raise TypeError(
                 "MDAViewer currently only supports _5DWriterBase or "
@@ -40,9 +38,9 @@ class MDAViewer(StackViewer):
 
         # patch the frameReady method to call the superframeReady method
         # AFTER handling the event
-        self._superframeReady = getattr(self._datastore, "frameReady", None)
+        self._superframeReady = getattr(datastore, "frameReady", None)
         if callable(self._superframeReady):
-            self._datastore.frameReady = self._patched_frame_ready  # type: ignore
+            datastore.frameReady = self._patched_frame_ready  # type: ignore
 
         else:  # pragma: no cover
             warnings.warn(
@@ -51,7 +49,7 @@ class MDAViewer(StackViewer):
                 stacklevel=2,
             )
 
-        super().__init__(self._datastore, parent=parent, channel_axis="c")
+        super().__init__(datastore, parent=parent, channel_axis="c")
         self._save_btn = SaveButton(self.data)
         self._btns.addWidget(self._save_btn)
         self.dims_sliders.set_locks_visible(True)
