@@ -27,7 +27,12 @@ class MDAViewer(StackViewer):
         parent: QWidget | None = None,
     ):
         if datastore is None:
-            datastore = TensorStoreHandler()
+            datastore = TensorStoreHandler(
+                spec={
+                    # Use 2GB in-memory cache.
+                    "context": {"cache_pool": {"total_bytes_limit": 2_000_000_000}},
+                },
+            )
         elif not isinstance(
             datastore, (OMEZarrWriter, OMETiffWriter, TensorStoreHandler)
         ):
