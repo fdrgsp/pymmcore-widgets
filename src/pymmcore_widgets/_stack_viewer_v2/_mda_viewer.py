@@ -12,7 +12,6 @@ from ._stack_viewer import StackViewer
 
 if TYPE_CHECKING:
     from pymmcore_plus.mda.handlers._5d_writer_base import _5DWriterBase
-    from qtpy.QtGui import QCloseEvent
     from qtpy.QtWidgets import QWidget
 
 
@@ -79,7 +78,3 @@ class MDAViewer(StackViewer):
             if name := self._channel_names.get(index[self._channel_axis]):
                 return name
         return super()._get_channel_name(index)
-
-    def closeEvent(self, event: QCloseEvent | None) -> None:
-        self._datastore = None
-        super().closeEvent(event)
