@@ -35,7 +35,7 @@ class ConfigWizard(QWizard):
     ----------
     config_file : str, optional
         Path to a configuration file to load, by default "".
-    mmcore : CMMCorePlus, optional
+    core : CMMCorePlus, optional
         A CMMCorePlus instance, by default, uses the global singleton.
     parent : QWidget, optional
         The parent widget, by default None.
@@ -44,11 +44,11 @@ class ConfigWizard(QWizard):
     def __init__(
         self,
         config_file: str = "",
-        mmcore: CMMCorePlus | None = None,
+        core: CMMCorePlus | None = None,
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
-        self._core = mmcore or CMMCorePlus.instance()
+        self._core = core or CMMCorePlus.instance()
         self._model = Microscope()
         self._model.load_available_devices(self._core)
         # self.setWizardStyle(QWizard.WizardStyle.ModernStyle)
