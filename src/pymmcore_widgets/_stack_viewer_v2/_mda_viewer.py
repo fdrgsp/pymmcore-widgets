@@ -61,7 +61,7 @@ class MDAViewer(StackViewer):
         self._channel_names: dict[int, str] = {}
 
     @property  # type: ignore
-    def data(self) -> _5DWriterBase:
+    def data(self) -> _5DWriterBase | TensorStoreHandler:
         return self._data
 
     def _patched_frame_ready(self, *args: Any) -> None:
