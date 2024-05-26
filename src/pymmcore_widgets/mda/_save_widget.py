@@ -28,14 +28,14 @@ if TYPE_CHECKING:
         should_save: bool
 
 
-ZARR_TESNSORSTORE = "zarr-tensorstore"
+ZARR_TESNSORSTORE = "tensorstore-zarr"
 OME_ZARR = "ome-zarr"
 OME_TIFF = "ome-tiff"
 TIFF_SEQ = "tiff-sequence"
 
 # dict with writer name and extension
 WRITERS: dict[str, list[str]] = {
-    ZARR_TESNSORSTORE: [".zarr_tensorstore"],
+    ZARR_TESNSORSTORE: [".tensorstore.zarr"],
     OME_ZARR: [".ome.zarr"],
     OME_TIFF: [".ome.tif", ".ome.tiff"],
     TIFF_SEQ: [""],
