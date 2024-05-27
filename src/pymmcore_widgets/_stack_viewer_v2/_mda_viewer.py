@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 class MDAViewer(StackViewer):
     """StackViewer specialized for pymmcore-plus MDA acquisitions."""
 
-    _data: _5DWriterBase
+    _data: _5DWriterBase | TensorStoreHandler
 
     def __init__(
         self,
@@ -28,9 +28,12 @@ class MDAViewer(StackViewer):
     ):
         if datastore is None:
             datastore = TensorStoreHandler()
-        elif not isinstance(datastore, (OMEZarrWriter, OMETiffWriter)):
+        elif not isinstance(
+            datastore, (OMEZarrWriter, OMETiffWriter, TensorStoreHandler)
+        ):
             raise TypeError(
-                "MDAViewer currently only supports _5DWriterBase datastores."
+                "MDAViewer currently only supports _5DWriterBase or "
+                "'TensorStoreHandler' datastores."
             )
 
         # patch the frameReady method to call the superframeReady method
@@ -52,8 +55,8 @@ class MDAViewer(StackViewer):
         self.dims_sliders.set_locks_visible(True)
         self._channel_names: dict[int, str] = {}
 
-    @property
-    def data(self) -> _5DWriterBase:
+    @property  # type: ignore
+    def data(self) -> _5DWriterBase | TensorStoreHandler:
         return self._data
 
     def _patched_frame_ready(self, *args: Any) -> None:

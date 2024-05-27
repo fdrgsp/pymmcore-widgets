@@ -91,13 +91,18 @@ def isel(store: Any, indexers: Indices) -> np.ndarray:
 def isel_tensorstore(store: ts.TensorStore, indexers: Indices) -> np.ndarray:
     import tensorstore
 
-    return store[tensorstore.d[*indexers][*indexers.values()]].read().result()
+    # return store[tensorstore.d[*indexers][*indexers.values()]].read().result()
+    return (  # type: ignore
+        store[tensorstore.d[tuple(indexers.keys())][tuple(indexers.values())]]
+        .read()
+        .result()
+    )
 
 
 def isel_mmcore_tensorstore(
     writer: TensorStoreHandler, indexers: Indices
 ) -> np.ndarray:
-    return writer.isel(indexers)
+    return writer.isel(indexers)  # type: ignore
 
 
 # Create a global executor
