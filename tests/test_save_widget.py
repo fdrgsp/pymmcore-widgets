@@ -57,19 +57,19 @@ def test_set_get_value(qtbot: QtBot) -> None:
     }
 
     # setting zarr tensorstore format (dict)
-    wdg.setValue({"save_dir": str(path.parent), "save_name": "ts.zarr_tensorstore"})
+    wdg.setValue({"save_dir": str(path.parent), "save_name": "ts.tensorstore.zarr"})
     assert wdg.value() == {
         "save_dir": str(path.parent),
-        "save_name": "ts.zarr_tensorstore",
+        "save_name": "ts.tensorstore.zarr",
         "should_save": False,
         "format": ZARR_TESNSORSTORE,
     }
 
     # setting zarr tensorstore format (path / string)
-    wdg.setValue("/some_path/ts.zarr_tensorstore")
+    wdg.setValue("/some_path/ts.tensorstore.zarr")
     assert wdg.value() == {
         "save_dir": "/some_path",
-        "save_name": "ts.zarr_tensorstore",
+        "save_name": "ts.tensorstore.zarr",
         "should_save": True,
         "format": ZARR_TESNSORSTORE,
     }
