@@ -20,7 +20,7 @@ GB_CACHE = 2_000_000_000  # 2 GB for tensorstore cache
 class MDAViewer(StackViewer):
     """StackViewer specialized for pymmcore-plus MDA acquisitions."""
 
-    _data: _5DWriterBase
+    _data: _5DWriterBase | TensorStoreHandler
 
     def __init__(
         self,
@@ -36,8 +36,8 @@ class MDAViewer(StackViewer):
             datastore, (OMEZarrWriter, OMETiffWriter, TensorStoreHandler)
         ):
             raise TypeError(
-                "MDAViewer currently only supports _5DWriterBase or "
-                "TensorStoreHandler data handlers."
+                "MDAViewer currently only supports '_5DWriterBase' or "
+                "'TensorStoreHandler' datastores."
             )
 
         # patch the frameReady method to call the superframeReady method
