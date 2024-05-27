@@ -14,6 +14,8 @@ if TYPE_CHECKING:
     from pymmcore_plus.mda.handlers._5d_writer_base import _5DWriterBase
     from qtpy.QtWidgets import QWidget
 
+GB_CACHE = 2_000_000_000  # 2 GB for tensorstore cache
+
 
 class MDAViewer(StackViewer):
     """StackViewer specialized for pymmcore-plus MDA acquisitions."""
@@ -28,10 +30,7 @@ class MDAViewer(StackViewer):
     ):
         if datastore is None:
             datastore = TensorStoreHandler(
-                spec={
-                    # Use 2GB in-memory cache.
-                    "context": {"cache_pool": {"total_bytes_limit": 2_000_000_000}},
-                },
+                spec={"context": {"cache_pool": {"total_bytes_limit": GB_CACHE}}}
             )
         elif not isinstance(
             datastore, (OMEZarrWriter, OMETiffWriter, TensorStoreHandler)
