@@ -12,13 +12,15 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from ._graphics_items import Well, _WellGraphicsItem
+# from ._graphics_items import Well, _WellGraphicsItem
+from ._graphics_items import _WellGraphicsItem
 
 if TYPE_CHECKING:
     from qtpy.QtGui import QBrush, QPen, QResizeEvent
     from useq._grid import GridPosition
 
     from ._plate_model import Plate
+    from ._pydantic_models import Well
 
 
 class _ResizingGraphicsView(QGraphicsView):

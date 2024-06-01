@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import math
 import string
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, Iterable, NamedTuple, cast
 
 import numpy as np
 from fonticon_mdi6 import MDI6
@@ -29,10 +28,12 @@ from superqt.utils import signals_blocked
 from pymmcore_widgets.useq_widgets._column_info import FloatColumn
 from pymmcore_widgets.useq_widgets._data_table import DataTableWidget
 
-from ._base_dataclass import BaseDataclass
 from ._graphics_items import GREEN, RED, Well
-from ._plate_model import Plate
+from ._pydantic_models import CalibrationData
 from ._util import apply_rotation_matrix, get_well_center
+
+if TYPE_CHECKING:
+    from ._plate_model import Plate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 FixedSizePolicy = (QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -92,43 +93,43 @@ class FourPoints(NamedTuple):
     points: int = SIDES_MODE_POINTS
 
 
-@dataclass(frozen=True)
-class CalibrationData(BaseDataclass):
-    """Calibration data for the plate.
+# @dataclass(frozen=True)
+# class CalibrationData(BaseDataclass):
+#     """Calibration data for the plate.
 
-    Attributes
-    ----------
-    plate : Plate | None
-        The plate to calibrate. By default, None.
-    well_A1_center : tuple[float, float]
-        The x and y stage coordinates of the center of well A1. By default, None.
-    rotation_matrix : np.ndarray | None
-        The rotation matrix that should be used to correct any plate rortation.
-        By default, None.
-    calibration_position_a1 : list[tuple[float, float]]
-        The x and y stage positions used to calibrate the well A1. By default, None.
-    calibration_position_an : list[tuple[float, float]]
-        The x and y stage positions used to calibrate the well An. By default, None.
-    """
+#     Attributes
+#     ----------
+#     plate : Plate | None
+#         The plate to calibrate. By default, None.
+#     well_A1_center : tuple[float, float]
+#         The x and y stage coordinates of the center of well A1. By default, None.
+#     rotation_matrix : np.ndarray | None
+#         The rotation matrix that should be used to correct any plate rortation.
+#         By default, None.
+#     calibration_position_a1 : list[tuple[float, float]]
+#         The x and y stage positions used to calibrate the well A1. By default, None.
+#     calibration_position_an : list[tuple[float, float]]
+#         The x and y stage positions used to calibrate the well An. By default, None.
+#     """
 
-    plate: Plate | None = None
-    well_A1_center: tuple[float, float] | None = None
-    rotation_matrix: np.ndarray | None = None
-    calibration_positions_a1: list[tuple[float, float]] | None = None
-    calibration_positions_an: list[tuple[float, float]] | None = None
+#     plate: Plate | None = None
+#     well_A1_center: tuple[float, float] | None = None
+#     rotation_matrix: np.ndarray | None = None
+#     calibration_positions_a1: list[tuple[float, float]] | None = None
+#     calibration_positions_an: list[tuple[float, float]] | None = None
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> CalibrationData:
-        """Create a CalibrationData object from a dictionary."""
-        matrix = data.get("rotation_matrix")
-        rotation_matrix = np.array(matrix) if isinstance(matrix, list) else matrix
-        return cls(
-            plate=Plate(**data.get("plate", {})),
-            well_A1_center=data["well_A1_center"],
-            rotation_matrix=rotation_matrix,
-            calibration_positions_a1=data["calibration_positions_a1"],
-            calibration_positions_an=data["calibration_positions_an"],
-        )
+#     @classmethod
+#     def from_dict(cls, data: dict[str, Any]) -> CalibrationData:
+#         """Create a CalibrationData object from a dictionary."""
+#         matrix = data.get("rotation_matrix")
+#         rotation_matrix = np.array(matrix) if isinstance(matrix, list) else matrix
+#         return cls(
+#             plate=Plate(**data.get("plate", {})),
+#             well_A1_center=data["well_A1_center"],
+#             rotation_matrix=rotation_matrix,
+#             calibration_positions_a1=data["calibration_positions_a1"],
+#             calibration_positions_an=data["calibration_positions_an"],
+#         )
 
 
 def find_circle_center(

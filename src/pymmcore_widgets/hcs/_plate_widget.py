@@ -25,8 +25,10 @@ from ._util import _ResizingGraphicsView, draw_plate
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from ._graphics_items import Well
     from ._plate_model import Plate
+
+    # from ._graphics_items import Well
+    from ._pydantic_models import Well
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 

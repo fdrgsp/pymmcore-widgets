@@ -9,11 +9,13 @@ except ImportError:
     rich_print = print
 
 from pymmcore_widgets.hcs import HCSWizard
-from pymmcore_widgets.hcs._calibration_widget import CalibrationData
 from pymmcore_widgets.hcs._fov_widget import Center
-from pymmcore_widgets.hcs._graphics_items import Well
 from pymmcore_widgets.hcs._main_wizard_widget import HCSData
 from pymmcore_widgets.hcs._plate_model import load_database
+
+# from pymmcore_widgets.hcs._calibration_widget import CalibrationData
+# from pymmcore_widgets.hcs._graphics_items import Well
+from pymmcore_widgets.hcs._pydantic_models import CalibrationData, Well
 
 database_path = Path(__file__).parent.parent / "tests" / "plate_database_for_tests.json"
 database = load_database(database_path)
