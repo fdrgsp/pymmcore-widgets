@@ -228,6 +228,8 @@ def get_random_rectangle_edge_point(
 
 
 class _CalibrationModeWidget(QGroupBox):
+    """Widget to select the calibration mode."""
+
     valueChanged = Signal(object)
 
     def __init__(self, parent: QWidget | None = None):
@@ -244,11 +246,11 @@ class _CalibrationModeWidget(QGroupBox):
         lbl = QLabel(text="Calibration Mode:")
         lbl.setSizePolicy(*FixedSizePolicy)
 
-        self.setLayout(QHBoxLayout())
-        self.layout().setContentsMargins(10, 10, 10, 10)
-        self.layout().setSpacing(10)
-        self.layout().addWidget(lbl)
-        self.layout().addWidget(self._mode_combo)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
+        layout.addWidget(lbl)
+        layout.addWidget(self._mode_combo)
 
     def _on_value_changed(self) -> None:
         """Emit the selected mode with valueChanged signal."""
@@ -368,6 +370,11 @@ class _CalibrationTable(DataTableWidget):
 
 
 class _TestCalibrationWidget(QGroupBox):
+    """Widget to test the calibration of a well.
+
+    You can select a well and move the XY stage to a random edge point of the well.
+    """
+
     def __init__(
         self, parent: QWidget | None = None, *, mmcore: CMMCorePlus | None = None
     ) -> None:
@@ -404,19 +411,19 @@ class _TestCalibrationWidget(QGroupBox):
         self._stop_button.setToolTip("Stop XY stage movement.")
         # groupbox
         test_calibration = QWidget()
-        test_calibration.setLayout(QHBoxLayout())
-        test_calibration.layout().setSpacing(10)
-        test_calibration.layout().setContentsMargins(10, 10, 10, 10)
-        test_calibration.layout().addWidget(lbl)
-        test_calibration.layout().addWidget(self._letter_combo)
-        test_calibration.layout().addWidget(self._number_combo)
-        test_calibration.layout().addWidget(self._test_button)
-        test_calibration.layout().addWidget(self._stop_button)
+        test_calibration_layout = QHBoxLayout(test_calibration)
+        test_calibration_layout.setSpacing(10)
+        test_calibration_layout.setContentsMargins(10, 10, 10, 10)
+        test_calibration_layout.addWidget(lbl)
+        test_calibration_layout.addWidget(self._letter_combo)
+        test_calibration_layout.addWidget(self._number_combo)
+        test_calibration_layout.addWidget(self._test_button)
+        test_calibration_layout.addWidget(self._stop_button)
 
         # main
-        self.setLayout(QHBoxLayout())
-        self.layout().setContentsMargins(10, 10, 10, 10)
-        self.layout().addWidget(test_calibration)
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.addWidget(test_calibration)
 
         # connect
         self._stop_button.clicked.connect(self._stop_xy_stage)
@@ -458,6 +465,8 @@ class _TestCalibrationWidget(QGroupBox):
 
 
 class _CalibrationLabel(QGroupBox):
+    """Label to show the calibration status."""
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setTitle("Calibration Status")
@@ -521,12 +530,12 @@ class PlateCalibrationWidget(QWidget):
         # calibration tables
         self._table_a1 = _CalibrationTable()
         self._table_an = _CalibrationTable()
-        _table_group = QGroupBox()
-        _table_group_layout = QHBoxLayout(_table_group)
-        _table_group_layout.setContentsMargins(0, 0, 0, 0)
-        _table_group_layout.setSpacing(10)
-        _table_group_layout.addWidget(self._table_a1)
-        _table_group_layout.addWidget(self._table_an)
+        table_group = QGroupBox()
+        table_group_layout = QHBoxLayout(table_group)
+        table_group_layout.setContentsMargins(0, 0, 0, 0)
+        table_group_layout.setSpacing(10)
+        table_group_layout.addWidget(self._table_a1)
+        table_group_layout.addWidget(self._table_an)
         # calibration buttons
         self._calibrate_button = QPushButton(text="Calibrate Plate")
         self._calibrate_button.setIcon(icon(MDI6.target_variant, color="darkgrey"))
@@ -534,39 +543,39 @@ class PlateCalibrationWidget(QWidget):
         spacer = QSpacerItem(
             0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
-        _calibrate_btn_wdg = QWidget()
-        _calibrate_btn_wdg_layout = QHBoxLayout(_calibrate_btn_wdg)
-        _calibrate_btn_wdg_layout.setSpacing(10)
-        _calibrate_btn_wdg_layout.setContentsMargins(0, 0, 0, 0)
-        _calibrate_btn_wdg_layout.addItem(spacer)
-        _calibrate_btn_wdg_layout.addWidget(self._calibrate_button)
+        calibrate_btn_wdg = QWidget()
+        calibrate_btn_wdg_layout = QHBoxLayout(calibrate_btn_wdg)
+        calibrate_btn_wdg_layout.setSpacing(10)
+        calibrate_btn_wdg_layout.setContentsMargins(0, 0, 0, 0)
+        calibrate_btn_wdg_layout.addItem(spacer)
+        calibrate_btn_wdg_layout.addWidget(self._calibrate_button)
         # calibration tabls and calibration button group
-        _table_and_btn_wdg = QGroupBox()
-        _table_and_btn_wdg_layout = QVBoxLayout(_table_and_btn_wdg)
-        _table_and_btn_wdg_layout.setSpacing(10)
-        _table_and_btn_wdg_layout.setContentsMargins(10, 10, 10, 10)
-        _table_and_btn_wdg_layout.addWidget(_table_group)
-        _table_and_btn_wdg_layout.addWidget(_calibrate_btn_wdg)
+        table_and_btn_wdg = QGroupBox()
+        table_and_btn_wdg_layout = QVBoxLayout(table_and_btn_wdg)
+        table_and_btn_wdg_layout.setSpacing(10)
+        table_and_btn_wdg_layout.setContentsMargins(10, 10, 10, 10)
+        table_and_btn_wdg_layout.addWidget(table_group)
+        table_and_btn_wdg_layout.addWidget(calibrate_btn_wdg)
 
         # test calibration
         self._test_calibration = _TestCalibrationWidget()
         # calibration label
         self._calibration_label = _CalibrationLabel()
         # test calibration and calibration label group
-        _bottom_group = QWidget()
-        _bottom_group_layout = QHBoxLayout(_bottom_group)
-        _bottom_group_layout.setSpacing(10)
-        _bottom_group_layout.setContentsMargins(10, 10, 10, 10)
-        _bottom_group_layout.addWidget(self._test_calibration)
-        _bottom_group_layout.addWidget(self._calibration_label)
+        bottom_group = QWidget()
+        bottom_group_layout = QHBoxLayout(bottom_group)
+        bottom_group_layout.setSpacing(10)
+        bottom_group_layout.setContentsMargins(10, 10, 10, 10)
+        bottom_group_layout.addWidget(self._test_calibration)
+        bottom_group_layout.addWidget(self._calibration_label)
 
         # main
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(10)
         main_layout.addWidget(self._calibration_mode)
-        main_layout.addWidget(_table_and_btn_wdg)
-        main_layout.addWidget(_bottom_group)
+        main_layout.addWidget(table_and_btn_wdg)
+        main_layout.addWidget(bottom_group)
 
         # connect
         self._calibrate_button.clicked.connect(self._on_calibrate_button_clicked)

@@ -114,10 +114,10 @@ class PlateCalibrationPage(QWizardPage):
 
         self._calibration = PlateCalibrationWidget(mmcore=mmcore)
 
-        self.setLayout(QVBoxLayout())
-        self.layout().setContentsMargins(0, 0, 0, 0)
-        self.layout().addWidget(self._calibration)
-        self.layout().addItem(QSpacerItem(0, 0, *EXPANDING))
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._calibration)
+        layout.addItem(QSpacerItem(0, 0, *EXPANDING))
 
         self.setButtonText(QWizard.WizardButton.NextButton, "FOVs >")
 
@@ -142,10 +142,10 @@ class FOVSelectorPage(QWizardPage):
 
         self._fov_widget = FOVSelectorWidget(plate, mode, parent)
 
-        self.setLayout(QVBoxLayout())
-        self.layout().setContentsMargins(0, 0, 0, 0)
-        self.layout().addWidget(self._fov_widget)
-        self.layout().addItem(QSpacerItem(0, 0, *EXPANDING))
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._fov_widget)
+        layout.addItem(QSpacerItem(0, 0, *EXPANDING))
 
         self.setButtonText(QWizard.WizardButton.FinishButton, "Value")
 
@@ -207,9 +207,9 @@ class HCSWizard(QWizard):
         self.button(QWizard.WizardButton.CustomButton2).clicked.connect(self._load)
 
         # layout
-        self.setLayout(QVBoxLayout())
-        self.layout().setContentsMargins(0, 50, 0, 0)
-        self.layout().setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 50, 0, 0)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # check if the default plate database exists, if not create it in the
         # user data directory. If the database is provided, use it without storing it
