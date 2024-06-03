@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import cast
+from typing import Optional, Union, cast
 
 from platformdirs import user_data_dir
 from pymmcore_plus import CMMCorePlus
@@ -70,11 +70,11 @@ class HCSData(FrozenModel):
         By default, None.
     """
 
-    plate: Plate | None = None
-    wells: list[Well] | None = None
-    mode: Center | RandomPoints | GridRowsColumns | None = None
-    calibration: CalibrationData | None = None
-    positions: list[Position] | None = None
+    plate: Optional[Plate] = None  # noqa UP007
+    wells: Optional[list[Well]] = None  # noqa UP007
+    mode: Union[Center, RandomPoints, GridRowsColumns, None] = None  # noqa UP007
+    calibration: Optional[CalibrationData] = None  # noqa UP007
+    positions: Optional[list[Position]] = None  # noqa UP007
 
 
 class PlatePage(QWizardPage):

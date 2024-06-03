@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import string
 from pathlib import Path
-from typing import Any, Iterable, NamedTuple, cast
+from typing import Any, Iterable, NamedTuple, Optional, cast
 
 import numpy as np
 from fonticon_mdi6 import MDI6
@@ -110,14 +110,17 @@ class CalibrationData(FrozenModel):
         The x and y stage positions used to calibrate the well An. By default, None.
     """
 
-    plate: Plate | None = None
-    well_A1_center: tuple[float, float] | None = None
-    rotation_matrix: np.ndarray | None = None
-    calibration_positions_a1: list[tuple[float, float]] | None = None
-    calibration_positions_an: list[tuple[float, float]] | None = None
+    plate: Optional[Plate] = None  # noqa: UP007
+    well_A1_center: Optional[tuple[float, float]] = None  # noqa: UP007
+    rotation_matrix: Optional[np.ndarray] = None  # noqa: UP007
+    calibration_positions_a1: Optional[list[tuple[float, float]]] = None  # noqa: UP007
+    calibration_positions_an: Optional[list[tuple[float, float]]] = None  # noqa: UP007
 
     @field_validator("rotation_matrix", mode="before")
-    def _validate_rotation_matrix(cls, v: np.ndarray | None) -> np.ndarray | None:
+    def _validate_rotation_matrix(
+        cls,
+        v: Optional[np.ndarray],  # noqa: UP007
+    ) -> np.ndarray | None:
         # if list[tuple[float, float]] return np.ndarray
         return np.array(v) if isinstance(v, list) else v
 
