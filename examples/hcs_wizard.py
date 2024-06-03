@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from pymmcore_plus import CMMCorePlus
+from qtpy.QtWidgets import QApplication
 
 try:
     from rich import print as rich_print
@@ -18,7 +19,7 @@ database_path = Path(__file__).parent.parent / "tests" / "plate_database_for_tes
 database = load_database(database_path)
 
 
-# app = QApplication([])
+app = QApplication([])
 mmc = CMMCorePlus.instance()
 mmc.loadSystemConfiguration()
 w = HCSWizard()
@@ -45,4 +46,4 @@ w.setValue(data)
 w.valueChanged.connect(lambda: rich_print(w.value()))
 
 w.show()
-# app.exec_()
+app.exec_()
