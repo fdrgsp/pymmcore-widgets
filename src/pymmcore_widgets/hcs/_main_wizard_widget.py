@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import List, Optional, Union, cast
+from typing import Union, cast
 
 from platformdirs import user_data_dir
 from pymmcore_plus import CMMCorePlus
@@ -70,11 +70,11 @@ class HCSData(FrozenModel):
         By default, None.
     """
 
-    plate: Optional[Plate] = None  # noqa UP007
-    wells: Optional[List[Well]] = None  # noqa UP007
-    mode: Union[Center, RandomPoints, GridRowsColumns, None] = None  # noqa UP007
-    calibration: Optional[CalibrationData] = None  # noqa UP007
-    positions: Optional[List[Position]] = None  # noqa UP007
+    plate: Plate | None = None
+    wells: list[Well] | None = None
+    mode: Center | RandomPoints | GridRowsColumns | None = None
+    calibration: CalibrationData | None = None
+    positions: list[Position] | None = None
 
 
 class PlatePage(QWizardPage):
@@ -316,8 +316,6 @@ class HCSWizard(QWizard):
 
     def _save(self) -> None:
         """Save the current wizard values as a json file."""
-        import json
-
         (path, _) = QFileDialog.getSaveFileName(
             self, "Save Plate Database", "", "json(*.json)"
         )
@@ -325,8 +323,8 @@ class HCSWizard(QWizard):
         if not path:
             return
 
-        with open(Path(path), "w") as file:
-            json.dump(self.value().model_dump_json(), file)
+        data = self.value().model_dump_json()
+        Path(path).write_text(data)
 
     def _load(self) -> None:
         """Load a .json wizard configuration."""

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Any, Optional, Tuple, Union, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from qtpy.QtCore import QRectF, Qt, Signal
@@ -445,11 +445,11 @@ class WellViewData(FrozenModel):
         The mode to use to draw the FOVs. By default, None.
     """
 
-    well_size: Tuple[Optional[float], Optional[float]] = (None, None)  # noqa: UP006 UP007
+    well_size: tuple[float | None, float | None] = (None, None)
     circular: bool = False
     padding: int = 0
     show_fovs_order: bool = True
-    mode: Union[Center, AnyGridPlan, None] = None  # noqa: UP007
+    mode: Center | AnyGridPlan | None = None
 
 
 DEFAULT_WELL_DATA = WellViewData()

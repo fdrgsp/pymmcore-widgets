@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 from unittest.mock import patch
 
-import numpy as np
 import pytest
 from qtpy.QtWidgets import (
     QFileDialog,
@@ -693,54 +692,6 @@ def test_fov_selector_widget(qtbot: QtBot, database: dict[str, Plate]):
     )
 
 
-def test_hcs_wizard(
-    global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, Plate]
-):
-    wdg = HCSWizard()
-    qtbot.addWidget(wdg)
-    mmc = global_mmcore
-
-    width = mmc.getImageWidth() * mmc.getPixelSizeUm()
-    height = mmc.getImageHeight() * mmc.getPixelSizeUm()
-
-    data = HCSData(
-        plate=database["standard 96 wp"],
-        wells=[
-            Well(name="A1", row=0, column=0),
-            Well(name="B2", row=1, column=1),
-            Well(name="C3", row=2, column=2),
-        ],
-        mode=Center(x=0, y=0, fov_width=width, fov_height=height),
-        calibration=CalibrationData(
-            plate=database["standard 96 wp"],
-            calibration_positions_a1=[(-10.0, 0.0), (0.0, 10.0), (10.0, 0.0)],
-            calibration_positions_an=[(90.0, 0.0), (100.0, 10.0), (110.0, 0.0)],
-        ),
-    )
-
-    wdg.setValue(data)
-
-    wdg.calibration_page._calibration._on_calibrate_button_clicked()
-
-    value = wdg.value()
-    assert value.plate == data.plate
-    assert value.wells == data.wells
-    assert value.mode == data.mode
-
-    assert value.calibration
-    assert value.calibration.well_A1_center == (-0.0, -0.0)
-    assert np.array_equal(value.calibration.rotation_matrix, [[1.0, 0.0], [-0.0, 1.0]])
-    assert (
-        value.calibration.calibration_positions_a1
-        == data.calibration.calibration_positions_a1
-    )
-    assert (
-        value.calibration.calibration_positions_an
-        == data.calibration.calibration_positions_an
-    )
-    assert value.positions
-
-
 @pytest.fixture
 def data(database) -> HCSData:
     return HCSData(
@@ -755,16 +706,51 @@ def data(database) -> HCSData:
             max_width=600,
             max_height=600,
             shape="ellipse",
-            fov_width=512,
-            fov_height=512,
+            fov_width=10,
+            fov_height=10,
+            allow_overlap=False,
         ),
         calibration=CalibrationData(
             plate=database["standard 96 wp"],
             calibration_positions_a1=[(-10.0, 0.0), (0.0, 10.0), (10.0, 0.0)],
             calibration_positions_an=[(90.0, 0.0), (100.0, 10.0), (110.0, 0.0)],
-            rotation_matrix=np.array([[1.0, 0.0], [0.0, 1.0]]),
+            rotation_matrix=[[1.0, 0.0], [0.0, 1.0]],
         ),
     )
+
+
+def test_hcs_wizard(
+    data: HCSData, global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, Plate]
+):
+    wdg = HCSWizard()
+    qtbot.addWidget(wdg)
+    mmc = global_mmcore
+
+    width = mmc.getImageWidth() * mmc.getPixelSizeUm()
+    height = mmc.getImageHeight() * mmc.getPixelSizeUm()
+    data = data.replace(mode=Center(x=0, y=0, fov_width=width, fov_height=height))
+
+    wdg.setValue(data)
+
+    wdg.calibration_page._calibration._on_calibrate_button_clicked()
+
+    value = wdg.value()
+    assert value.plate == data.plate
+    assert value.wells == data.wells
+    assert value.mode == data.mode
+
+    assert value.calibration
+    assert value.calibration.well_A1_center == (-0.0, -0.0)
+    assert value.calibration.rotation_matrix == [[1.0, 0.0], [-0.0, 1.0]]
+    assert (
+        value.calibration.calibration_positions_a1
+        == data.calibration.calibration_positions_a1
+    )
+    assert (
+        value.calibration.calibration_positions_an
+        == data.calibration.calibration_positions_an
+    )
+    assert value.positions
 
 
 def test_hcs_wizard_fov_load(
@@ -782,16 +768,14 @@ def test_hcs_wizard_fov_load(
     assert fov_view_value.mode.num_points == 3
 
 
-def test_hcs_serialization(data: HCSData):
+def p(data: HCSData):
     _str = data.model_dump_json()
     new_data = HCSData(**json.loads(_str))
     assert new_data.plate == data.plate
     assert new_data.wells == data.wells
     assert new_data.mode == data.mode
-    assert np.array_equal(
-        new_data.calibration.rotation_matrix, data.calibration.rotation_matrix
-    )
     assert new_data.positions == data.positions
+    assert new_data.calibration.rotation_matrix == data.calibration.rotation_matrix
 
 
 def test_save_load_hcs(data: HCSData, qtbot: QtBot, tmp_path: Path):
@@ -800,11 +784,24 @@ def test_save_load_hcs(data: HCSData, qtbot: QtBot, tmp_path: Path):
 
     wdg.setValue(data)
 
+    file = tmp_path / "test.json"
+    assert not file.exists()
+
     def _path(*args, **kwargs):
-        return tmp_path / "test.json", None
+        return file, None
 
     # create empty database
     with patch.object(QFileDialog, "getSaveFileName", _path):
         wdg._save()
 
-        assert tmp_path.joinpath("test.json").exists()
+        assert file.exists()
+
+        with patch.object(QFileDialog, "getOpenFileName", _path):
+            wdg._load()
+
+            value = wdg.value()
+            assert value.plate == data.plate
+            assert value.wells == data.wells
+            assert value.mode == data.mode
+            assert value.positions == data.positions
+            assert value.calibration.rotation_matrix == data.calibration.rotation_matrix

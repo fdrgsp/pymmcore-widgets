@@ -3,11 +3,10 @@ from __future__ import annotations
 import math
 import string
 from pathlib import Path
-from typing import Any, Iterable, List, NamedTuple, Optional, Tuple, cast
+from typing import Any, Iterable, NamedTuple, cast
 
 import numpy as np
 from fonticon_mdi6 import MDI6
-from pydantic_compat import field_validator
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import QSize, Qt, Signal
 from qtpy.QtGui import QIcon, QPixmap
@@ -101,7 +100,7 @@ class CalibrationData(FrozenModel):
         The plate to calibrate. By default, None.
     well_A1_center : tuple[float, float]
         The x and y stage coordinates of the center of well A1. By default, None.
-    rotation_matrix : np.ndarray | None
+    rotation_matrix : list[list[float]] | None
         The rotation matrix that should be used to correct any plate rortation.
         By default, None.
     calibration_position_a1 : list[tuple[float, float]]
@@ -110,19 +109,11 @@ class CalibrationData(FrozenModel):
         The x and y stage positions used to calibrate the well An. By default, None.
     """
 
-    plate: Optional[Plate] = None  # noqa: UP007
-    well_A1_center: Optional[Tuple[float, float]] = None  # noqa: UP006 UP007
-    rotation_matrix: Optional[np.ndarray] = None  # noqa: UP007
-    calibration_positions_a1: Optional[List[Tuple[float, float]]] = None  # noqa: UP006 UP007
-    calibration_positions_an: Optional[List[Tuple[float, float]]] = None  # noqa: UP006 UP007
-
-    @field_validator("rotation_matrix", mode="before")
-    def _validate_rotation_matrix(
-        cls,
-        v: Optional[np.ndarray],  # noqa: UP007
-    ) -> np.ndarray | None:
-        # if list[tuple[float, float]] return np.ndarray
-        return np.array(v) if isinstance(v, list) else v
+    plate: Plate | None = None
+    well_A1_center: tuple[float, float] | None = None
+    rotation_matrix: list[list[float]] | None = None
+    calibration_positions_a1: list[tuple[float, float]] | None = None
+    calibration_positions_an: list[tuple[float, float]] | None = None
 
 
 def find_circle_center(
@@ -179,7 +170,7 @@ def find_rectangle_center(*args: tuple[float, ...]) -> tuple[float, float]:
 
 def get_plate_rotation_matrix(
     xy_well_1: tuple[float, float], xy_well_2: tuple[float, float]
-) -> np.ndarray:
+) -> list[list[float]]:
     """Get the rotation matrix to align the plate along the x axis."""
     x1, y1 = xy_well_1
     x2, y2 = xy_well_2
@@ -189,12 +180,10 @@ def get_plate_rotation_matrix(
     # this is to test only, should be removed_____________________________
     # print(f"plate_angle: {np.rad2deg(plate_angle_rad)}")
     # ____________________________________________________________________
-    return np.array(
-        [
-            [np.cos(plate_angle_rad), -np.sin(plate_angle_rad)],
-            [np.sin(plate_angle_rad), np.cos(plate_angle_rad)],
-        ]
-    )
+    return [
+        [np.cos(plate_angle_rad), -np.sin(plate_angle_rad)],
+        [np.sin(plate_angle_rad), np.cos(plate_angle_rad)],
+    ]
 
 
 def get_random_circle_edge_point(
@@ -479,12 +468,12 @@ class _CalibrationLabel(QGroupBox):
         self._text_lbl.setStyleSheet("font-size: 14px; font-weight: bold;")
 
         # main
-        self.setLayout(QHBoxLayout())
-        self.layout().setAlignment(AlignCenter)
-        self.layout().setSpacing(5)
-        self.layout().setContentsMargins(0, 0, 0, 0)
-        self.layout().addWidget(self._icon_lbl)
-        self.layout().addWidget(self._text_lbl)
+        layout = QVBoxLayout(self)
+        layout.setAlignment(AlignCenter)
+        layout.setSpacing(5)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._icon_lbl)
+        layout.addWidget(self._text_lbl)
 
     # _________________________PUBLIC METHODS_________________________ #
 
@@ -528,11 +517,11 @@ class PlateCalibrationWidget(QWidget):
         self._table_a1 = _CalibrationTable()
         self._table_an = _CalibrationTable()
         _table_group = QGroupBox()
-        _table_group.setLayout(QHBoxLayout())
-        _table_group.layout().setContentsMargins(0, 0, 0, 0)
-        _table_group.layout().setSpacing(10)
-        _table_group.layout().addWidget(self._table_a1)
-        _table_group.layout().addWidget(self._table_an)
+        _table_group_layout = QVBoxLayout(_table_group)
+        _table_group_layout.setContentsMargins(0, 0, 0, 0)
+        _table_group_layout.setSpacing(10)
+        _table_group_layout.addWidget(self._table_a1)
+        _table_group_layout.addWidget(self._table_an)
         # calibration buttons
         self._calibrate_button = QPushButton(text="Calibrate Plate")
         self._calibrate_button.setIcon(icon(MDI6.target_variant, color="darkgrey"))
@@ -541,18 +530,18 @@ class PlateCalibrationWidget(QWidget):
             0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
         _calibrate_btn_wdg = QWidget()
-        _calibrate_btn_wdg.setLayout(QHBoxLayout())
-        _calibrate_btn_wdg.layout().setSpacing(10)
-        _calibrate_btn_wdg.layout().setContentsMargins(0, 0, 0, 0)
-        _calibrate_btn_wdg.layout().addItem(spacer)
-        _calibrate_btn_wdg.layout().addWidget(self._calibrate_button)
+        _calibrate_btn_wdg_layout = QVBoxLayout(_calibrate_btn_wdg)
+        _calibrate_btn_wdg_layout.setSpacing(10)
+        _calibrate_btn_wdg_layout.setContentsMargins(0, 0, 0, 0)
+        _calibrate_btn_wdg_layout.addItem(spacer)
+        _calibrate_btn_wdg_layout.addWidget(self._calibrate_button)
         # calibration tabls and calibration button group
         _table_and_btn_wdg = QGroupBox()
-        _table_and_btn_wdg.setLayout(QVBoxLayout())
-        _table_and_btn_wdg.layout().setSpacing(10)
-        _table_and_btn_wdg.layout().setContentsMargins(10, 10, 10, 10)
-        _table_and_btn_wdg.layout().addWidget(_table_group)
-        _table_and_btn_wdg.layout().addWidget(_calibrate_btn_wdg)
+        _table_and_btn_wdg_layout = QVBoxLayout(_table_and_btn_wdg)
+        _table_and_btn_wdg_layout.setSpacing(10)
+        _table_and_btn_wdg_layout.setContentsMargins(10, 10, 10, 10)
+        _table_and_btn_wdg_layout.addWidget(_table_group)
+        _table_and_btn_wdg_layout.addWidget(_calibrate_btn_wdg)
 
         # test calibration
         self._test_calibration = _TestCalibrationWidget()
@@ -560,19 +549,19 @@ class PlateCalibrationWidget(QWidget):
         self._calibration_label = _CalibrationLabel()
         # test calibration and calibration label group
         _bottom_group = QWidget()
-        _bottom_group.setLayout(QHBoxLayout())
-        _bottom_group.layout().setSpacing(10)
-        _bottom_group.layout().setContentsMargins(10, 10, 10, 10)
-        _bottom_group.layout().addWidget(self._test_calibration)
-        _bottom_group.layout().addWidget(self._calibration_label)
+        _bottom_group_layout = QVBoxLayout(_bottom_group)
+        _bottom_group_layout.setSpacing(10)
+        _bottom_group_layout.setContentsMargins(10, 10, 10, 10)
+        _bottom_group_layout.addWidget(self._test_calibration)
+        _bottom_group_layout.addWidget(self._calibration_label)
 
         # main
-        self.setLayout(QVBoxLayout())
-        self.layout().setContentsMargins(0, 0, 0, 0)
-        self.layout().setSpacing(10)
-        self.layout().addWidget(self._calibration_mode)
-        self.layout().addWidget(_table_and_btn_wdg)
-        self.layout().addWidget(_bottom_group)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(10)
+        main_layout.addWidget(self._calibration_mode)
+        main_layout.addWidget(_table_and_btn_wdg)
+        main_layout.addWidget(_bottom_group)
 
         # connect
         self._calibrate_button.clicked.connect(self._on_calibrate_button_clicked)

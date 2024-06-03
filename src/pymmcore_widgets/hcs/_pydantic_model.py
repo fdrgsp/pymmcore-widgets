@@ -1,30 +1,15 @@
 from __future__ import annotations
 
-from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
+from typing import Any, TypeVar
 
-import numpy as np
-from pydantic_compat import BaseModel
-
-if TYPE_CHECKING:
-    from pydantic import ConfigDict
-
+from pydantic import BaseModel, ConfigDict
 
 # same as in useq FrozenModel
 _T = TypeVar("_T", bound="FrozenModel")
 
 
 class FrozenModel(BaseModel):
-    model_config: ClassVar[ConfigDict] = {
-        "populate_by_name": True,
-        "extra": "ignore",
-        "frozen": True,
-        "arbitrary_types_allowed": True,
-        "json_encoders": {
-            MappingProxyType: dict,
-            np.ndarray: lambda v: v.tolist() if v is not None else None,
-        },
-    }
+    model_config = ConfigDict(populate_by_name=True, extra="ignore", frozen=True)
 
     """A frozen Pydantic model."""
 
