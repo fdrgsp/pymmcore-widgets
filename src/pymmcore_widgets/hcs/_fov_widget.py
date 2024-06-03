@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -39,8 +38,8 @@ from useq._grid import GridPosition, OrderMode, Shape
 
 from pymmcore_widgets.useq_widgets._grid import _SeparatorWidget
 
-from ._base_dataclass import BaseDataclass
 from ._graphics_items import FOV, GREEN, _FOVGraphicsItem, _WellAreaGraphicsItem
+from ._pydantic_model import FrozenModel
 from ._util import _ResizingGraphicsView, nearest_neighbor
 
 if TYPE_CHECKING:
@@ -427,8 +426,7 @@ class _GridFovWidget(QWidget):
         self._fov_size = (None, None)
 
 
-@dataclass(frozen=True)
-class WellViewData(BaseDataclass):
+class WellViewData(FrozenModel):
     """A NamedTuple to store the well view data.
 
     Attributes
