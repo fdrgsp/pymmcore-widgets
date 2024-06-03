@@ -269,7 +269,6 @@ class _CalibrationModeWidget(QGroupBox):
     def value(self) -> ThreePoints | FourPoints | TwoPoints:
         """Return the selected calibration mode."""
         mode = self._mode_combo.itemData(self._mode_combo.currentIndex(), ROLE)
-        # return cast(TwoPoints | ThreePoints | FourPoints, mode)
         return cast(Union[TwoPoints, ThreePoints, FourPoints], mode)
 
 
