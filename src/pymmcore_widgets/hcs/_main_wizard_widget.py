@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 from pathlib import Path
 from typing import cast
@@ -21,7 +23,7 @@ from ._calibration_widget import (
     PlateCalibrationWidget,
 )
 from ._fov_widget import Center, FOVSelectorWidget
-from ._graphics_items import Well
+from ._graphics_items import Well  # noqa TCH001
 from ._plate_model import DEFAULT_PLATE_DB_PATH, Plate, load_database, save_database
 from ._plate_widget import PlateInfo, PlateSelectorWidget
 from ._pydantic_model import FrozenModel
