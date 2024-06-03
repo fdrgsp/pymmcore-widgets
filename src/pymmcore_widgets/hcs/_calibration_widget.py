@@ -100,8 +100,13 @@ class CalibrationData(FrozenModel):
         The plate to calibrate. By default, None.
     well_A1_center : tuple[float, float]
         The x and y stage coordinates of the center of well A1. By default, None.
-    rotation_matrix : list[list[float]] | None
-        The rotation matrix that should be used to correct any plate rortation.
+    rotation_matrix : list | None
+        The rotation matrix that should be used to correct any plate rortation, for
+        for example:
+            [
+                [0.9954954725939522, 0.09480909262799544],
+                [-0.09480909262799544, 0.9954954725939522]
+            ]
         By default, None.
     calibration_position_a1 : list[tuple[float, float]]
         The x and y stage positions used to calibrate the well A1. By default, None.

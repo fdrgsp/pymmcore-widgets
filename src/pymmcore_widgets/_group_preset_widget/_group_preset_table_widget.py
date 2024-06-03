@@ -30,6 +30,7 @@ from ._edit_group_widget import EditGroupWidget
 from ._edit_preset_widget import EditPresetWidget
 
 UNNAMED_PRESET = "NewPreset"
+FIXED = (QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
 
 class _MainTable(QTableWidget):
@@ -116,12 +117,17 @@ class GroupPresetTableWidget(QGroupBox):
 
         groups_lbl = QLabel(text="Group:")
         groups_lbl.setSizePolicy(lbl_sizepolicy)
+        self.groups_edit_btn = QPushButton(text="Edit")
+        self.groups_edit_btn.setSizePolicy(*FIXED)
+        self.groups_edit_btn.clicked.connect(self._edit_group)
         self.groups_add_btn = QPushButton(text="+")
+        self.groups_add_btn.setSizePolicy(*FIXED)
+        self.groups_add_btn.setFixedWidth(self.groups_edit_btn.sizeHint().width())
         self.groups_add_btn.clicked.connect(self._add_group)
         self.groups_remove_btn = QPushButton(text="-")
+        self.groups_remove_btn.setSizePolicy(*FIXED)
+        self.groups_remove_btn.setFixedWidth(self.groups_edit_btn.sizeHint().width())
         self.groups_remove_btn.clicked.connect(self._delete_group)
-        self.groups_edit_btn = QPushButton(text="Edit")
-        self.groups_edit_btn.clicked.connect(self._edit_group)
         groups_layout.addWidget(groups_lbl)
         groups_layout.addWidget(self.groups_add_btn)
         groups_layout.addWidget(self.groups_remove_btn)
@@ -138,18 +144,27 @@ class GroupPresetTableWidget(QGroupBox):
 
         presets_lbl = QLabel(text="Preset:")
         presets_lbl.setSizePolicy(lbl_sizepolicy)
+        self.presets_edit_btn = QPushButton(text="Edit")
+        self.presets_edit_btn.setSizePolicy(*FIXED)
+        self.presets_edit_btn.clicked.connect(self._edit_preset)
         self.presets_add_btn = QPushButton(text="+")
+        self.presets_add_btn.setSizePolicy(*FIXED)
+        self.presets_add_btn.setFixedWidth(self.presets_edit_btn.sizeHint().width())
         self.presets_add_btn.clicked.connect(self._add_preset)
         self.presets_remove_btn = QPushButton(text="-")
+        self.presets_remove_btn.setSizePolicy(*FIXED)
+        self.presets_remove_btn.setFixedWidth(self.presets_edit_btn.sizeHint().width())
         self.presets_remove_btn.clicked.connect(self._delete_preset)
-        self.presets_edit_btn = QPushButton(text="Edit")
-        self.presets_edit_btn.clicked.connect(self._edit_preset)
         presets_layout.addWidget(presets_lbl)
         presets_layout.addWidget(self.presets_add_btn)
         presets_layout.addWidget(self.presets_remove_btn)
         presets_layout.addWidget(self.presets_edit_btn)
 
         main_wdg_layout.addWidget(presets_btn_wdg)
+
+        main_wdg_layout.addSpacerItem(
+            QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        )
 
         return main_wdg
 

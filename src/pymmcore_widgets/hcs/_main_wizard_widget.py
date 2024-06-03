@@ -62,9 +62,6 @@ class HCSData(FrozenModel):
         The mode used to select the FOVs. By default, None.
     calibration : CalibrationData | None
         The data necessary to calibrate the plate. By default, None.
-    positions : list[Position] | None
-        The list of FOVs as useq.Positions expressed in stage coordinates.
-        By default, None.
     """
 
     plate: Optional[Plate] = None  # noqa: UP007
@@ -275,11 +272,7 @@ class HCSWizard(QWizard):
         )
 
     def setValue(self, value: HCSData) -> None:
-        """Set the values of the wizard.
-
-        Note: the `positions` attribute of the HCSData `value` is not necessary
-        and is not used.
-        """
+        """Set the values of the wizard."""
         plate = value.plate
 
         self.plate_page.setValue(PlateInfo(plate, value.wells))

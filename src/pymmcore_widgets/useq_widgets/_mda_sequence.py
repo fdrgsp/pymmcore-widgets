@@ -313,14 +313,24 @@ class MDASequenceWidget(QWidget):
 
         self.keep_shutter_open = KeepShutterOpen()
         self.af_axis = AutofocusAxis()
-        cbox_row = QVBoxLayout()
+        cbox_row_wdg = QWidget()
+        cbox_row_wdg.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        cbox_row = QVBoxLayout(cbox_row_wdg)
         cbox_row.setContentsMargins(0, 0, 0, 0)
         cbox_row.setSpacing(5)
         cbox_row.addWidget(self.keep_shutter_open)
         cbox_row.addWidget(self.af_axis)
         cbox_row.addStretch()
 
-        bot_row = QHBoxLayout()
+        bot_row_wdg = QWidget()
+        bot_row_wdg.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        bot_row = QHBoxLayout(bot_row_wdg)
+        bot_row.setContentsMargins(0, 0, 0, 0)
+        bot_row.setSpacing(5)
         bot_row.addWidget(self._time_warning)
         bot_row.addWidget(self._duration_label)
         bot_row.addWidget(self._save_button)
@@ -329,8 +339,8 @@ class MDASequenceWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(top_row)
         layout.addWidget(self.tab_wdg)
-        layout.addLayout(cbox_row)
-        layout.addLayout(bot_row)
+        layout.addWidget(cbox_row_wdg)
+        layout.addWidget(bot_row_wdg)
 
         # -------------- Connections --------------
 

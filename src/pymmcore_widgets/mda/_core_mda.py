@@ -20,6 +20,8 @@ from useq import AxesBasedAF, MDASequence, Position
 
 from pymmcore_widgets import HCSWizard
 from pymmcore_widgets._util import get_next_available_path
+from pymmcore_widgets.arduino._arduino_led_widget import ArduinoLedWidget
+from pymmcore_widgets.hcs._main_wizard_widget import HCSData
 from pymmcore_widgets.useq_widgets import MDASequenceWidget
 from pymmcore_widgets.useq_widgets._mda_sequence import PYMMCW_METADATA_KEY, MDATabs
 from pymmcore_widgets.useq_widgets._time import TimePlanWidget
@@ -31,7 +33,19 @@ from ._core_z import CoreConnectedZPlanWidget
 from ._save_widget import SaveGroupBox
 
 if TYPE_CHECKING:
-    from pymmcore_widgets.hcs._main_wizard_widget import HCSData
+    from pyfirmata2 import Arduino, Pin
+
+HCS = "hcs"
+STIMULATION = "stimulation"
+CRITICAL_MSG = (
+    "'Arduino LED Stimulation' is selected but an error occurred while trying "
+    "to communicate with the Arduino. \nPlease, verify that the device is "
+    "connected and try again."
+)
+POWER_EXCEEDED_MSG = (
+    "The maximum power of the LED has been exceeded. \nPlease, reduce "
+    "the power and try again."
+)
 
 
 class CoreMDATabs(MDATabs):
@@ -95,8 +109,9 @@ class MDAWidget(MDASequenceWidget):
         self.save_info.valueChanged.connect(self.valueChanged)
         self.control_btns = _MDAControlButtons(self._mmc, self)
 
-        # add HCS wizard
+        # -------- HCS wizard --------
         self.hcs = HCSWizard(parent=self)
+        self._hcs_value: HCSData | None = None
         # rename the finish button to "Add Positions"
         self.hcs.fov_page.setButtonText(
             QWizard.WizardButton.FinishButton, "Add Positions"
@@ -106,7 +121,7 @@ class MDAWidget(MDASequenceWidget):
         self.hcs_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.hcs_button.setToolTip("Open the HCS wizard.")
 
-        pos_table_layout = self.stage_positions.layout().itemAt(2)
+        pos_table_layout = cast(QBoxLayout, self.stage_positions.layout().itemAt(2))
         pos_table_layout.insertWidget(2, self.hcs_button)
 
         # -------- initialize -----------
@@ -119,6 +134,10 @@ class MDAWidget(MDASequenceWidget):
         layout.insertWidget(0, self.save_info)
         layout.addWidget(self.control_btns)
 
+        # ------------ Arduino ------------
+        self._arduino_led_wdg = ArduinoLedWidget(self)
+        layout.insertWidget(4, self._arduino_led_wdg)
+
         # ------------ connect signals ------------
 
         self.control_btns.run_btn.clicked.connect(self.run_mda)
@@ -129,6 +148,7 @@ class MDAWidget(MDASequenceWidget):
         self._mmc.events.systemConfigurationLoaded.connect(self._on_sys_config_loaded)
 
         # HCS wizard connections
+        self.stage_positions.valueChanged.connect(self._set_hcs_value)
         self.hcs_button.clicked.connect(self._show_hcs)
         # connect the HCS wizard valueChanged signal to the MDAWidget so that it can
         # populate the Positions table with the new positions from the HCS wizard
@@ -179,14 +199,27 @@ class MDAWidget(MDASequenceWidget):
             val = val.replace(**replace)
 
         meta: dict = val.metadata.setdefault(PYMMCW_METADATA_KEY, {})
+        meta[STIMULATION] = self._arduino_led_wdg.value()
+        meta[HCS] = self._hcs_value or {}
         if self.save_info.isChecked():
             meta.update(self.save_info.value())
+
         return val
 
     def setValue(self, value: MDASequence) -> None:
         """Get the current state of the widget as a [`useq.MDASequence`][]."""
         super().setValue(value)
-        self.save_info.setValue(value.metadata.get(PYMMCW_METADATA_KEY, {}))
+        meta = value.metadata.get(PYMMCW_METADATA_KEY, {})
+        # save info
+        self.save_info.setValue(meta)
+        # if the HCS wizard has been used, set the positions from the HCS wizard
+        self._hcs_value = None
+        if hcs := meta.get(HCS):
+            self._hcs_value = HCSData(**hcs)
+            self.hcs.setValue(self._hcs_value)
+        # update arduino led widget
+        if ard := meta.get(STIMULATION):
+            self._arduino_led_wdg.setValue(ard)
 
     def get_next_available_path(self, requested_path: Path) -> Path:
         """Get the next available path.
@@ -224,6 +257,30 @@ class MDAWidget(MDASequenceWidget):
         ):
             return
 
+        # Arduino checks___________________________________
+        # hide the Arduino LED control widget if visible
+        self._arduino_led_wdg._arduino_led_control.hide()
+        if not self._arduino_led_wdg.isChecked():
+            self._set_arduino_props(None, None)
+        else:
+            # check if the Arduino and the LED pin are available
+            arduino = self._arduino_led_wdg.board()
+            led = self._arduino_led_wdg.ledPin()
+            if arduino is None or led is None or not self._test_arduino_connection(led):
+                self._set_arduino_props(None, None)
+                self._arduino_led_wdg._arduino_led_control._enable(False)
+                self._show_critical_led_message(CRITICAL_MSG)
+                return
+
+            # check if power exceeded
+            if self._arduino_led_wdg.is_max_power_exceeded():
+                self._set_arduino_props(None, None)
+                self._show_critical_led_message(POWER_EXCEEDED_MSG)
+                return
+
+            # enable the Arduino board and the LED pin in the MDA engine
+            self._set_arduino_props(arduino, led)
+
         sequence = self.value()
 
         # technically, this is in the metadata as well, but isChecked is more direct
@@ -234,14 +291,42 @@ class MDAWidget(MDASequenceWidget):
         else:
             save_path = None
 
-        # run the MDA experiment asynchronously
+        # run the MDA experiment asynchronously∏
         self._mmc.run_mda(sequence, output=save_path)
 
     # ------------------- private Methods ----------------------
 
+    def _set_arduino_props(self, arduino: Arduino | None, led: Pin | None) -> None:
+        """Enable the Arduino board and the LED pin in the MDA engine."""
+        if not self._mmc.mda.engine:
+            return
+
+        # this can only work if using the engine from
+        # https://github.com/fdrgsp/napari-micromanager/blob/calcium/src/napari_micromanager/_engine/_mmcore_engine.py
+        if not hasattr(self._mmc.mda.engine, "setArduinoBoard") or not hasattr(
+            self._mmc.mda.engine, "setArduinoLedPin"
+        ):
+            return
+
+        self._mmc.mda.engine.setArduinoBoard(arduino)  # type: ignore
+        self._mmc.mda.engine.setArduinoLedPin(led)  # type: ignore
+
+    def _test_arduino_connection(self, led: Pin) -> bool:
+        """Test the connection with the Arduino."""
+        try:
+            led.write(0.0)
+            return True
+        except Exception:
+            return False
+
+    def _show_critical_led_message(self, msg: str) -> None:
+        QMessageBox.critical(self, "Arduino Error", msg, QMessageBox.StandardButton.Ok)
+        return
+
     def _on_sys_config_loaded(self) -> None:
         # TODO: connect objective change event to update suggested step
         self.z_plan.setSuggestedStep(_guess_NA(self._mmc) or 0.5)
+        self._hcs_value = None
 
     def _show_hcs(self) -> None:
         # if hcs is open, raise it, otherwise show it
@@ -250,9 +335,21 @@ class MDAWidget(MDASequenceWidget):
         else:
             self.hcs.show()
 
+    def _set_hcs_value(self) -> None:
+        """Set the `_hcs_value` attribute.
+
+        If the user changes the number of positions in the table after adding them with
+        the HCS wizard, the `_using_hcs` attribute should be set to None.
+        """
+        self._hcs_value = None
+        hcs_pos = self.hcs.get_positions() or []
+        if self.stage_positions._table.rowCount() == len(hcs_pos):
+            self._hcs_value = self.hcs.value()
+
     def _add_to_positios_table(self, value: HCSData) -> None:
         """Add a list of positions to the Positions table."""
-        positions = value.positions
+        # positions = value.positions
+        positions = self.hcs.get_positions()
 
         if not positions:
             return
@@ -278,6 +375,7 @@ class MDAWidget(MDASequenceWidget):
 
         # update the MDAWidget
         self.setValue(sequence)
+        self._hcs_value = value
 
     def _get_current_stage_position(self) -> Position:
         """Return the current stage position."""
