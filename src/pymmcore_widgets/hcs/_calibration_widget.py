@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import string
 from pathlib import Path
-from typing import Any, Iterable, NamedTuple, cast
+from typing import Any, Iterable, List, NamedTuple, Optional, Tuple, Union, cast
 
 import numpy as np
 from fonticon_mdi6 import MDI6
@@ -25,12 +25,12 @@ from qtpy.QtWidgets import (
 from superqt.fonticon import icon
 from superqt.utils import signals_blocked
 
+from pymmcore_widgets.hcs._pydantic_model import FrozenModel
 from pymmcore_widgets.useq_widgets._column_info import FloatColumn
 from pymmcore_widgets.useq_widgets._data_table import DataTableWidget
 
 from ._graphics_items import GREEN, RED, Well
 from ._plate_model import Plate  # noqa: TCH001
-from ._pydantic_model import FrozenModel
 from ._util import apply_rotation_matrix, get_well_center
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
@@ -109,11 +109,11 @@ class CalibrationData(FrozenModel):
         The x and y stage positions used to calibrate the well An. By default, None.
     """
 
-    plate: Plate | None = None
-    well_A1_center: tuple[float, float] | None = None
-    rotation_matrix: list[list[float]] | None = None
-    calibration_positions_a1: list[tuple[float, float]] | None = None
-    calibration_positions_an: list[tuple[float, float]] | None = None
+    plate: Optional[Plate] = None  # noqa: UP007
+    well_A1_center: Optional[Tuple[float, float]] = None  # noqa: UP006, UP007
+    rotation_matrix: Optional[List[List[float]]] = None  # noqa: UP006, UP007
+    calibration_positions_a1: Optional[List[Tuple[float, float]]] = None  # noqa: UP006, UP007
+    calibration_positions_an: Optional[List[Tuple[float, float]]] = None  # noqa: UP006, UP007
 
 
 def find_circle_center(
@@ -264,7 +264,8 @@ class _CalibrationModeWidget(QGroupBox):
     def value(self) -> ThreePoints | FourPoints | TwoPoints:
         """Return the selected calibration mode."""
         mode = self._mode_combo.itemData(self._mode_combo.currentIndex(), ROLE)
-        return cast(TwoPoints | ThreePoints | FourPoints, mode)
+        # return cast(TwoPoints | ThreePoints | FourPoints, mode)
+        return cast(Union[TwoPoints, ThreePoints, FourPoints], mode)
 
 
 class _CalibrationTable(DataTableWidget):

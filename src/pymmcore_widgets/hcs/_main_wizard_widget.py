@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Union, cast
+from typing import List, Optional, Union, cast
 
 from platformdirs import user_data_dir
 from pymmcore_plus import CMMCorePlus
@@ -18,12 +18,9 @@ from qtpy.QtWidgets import (
 )
 from useq import GridRowsColumns, MDASequence, Position, RandomPoints
 
-from ._calibration_widget import (
-    CalibrationData,
-    PlateCalibrationWidget,
-)
+from ._calibration_widget import CalibrationData, PlateCalibrationWidget
 from ._fov_widget import Center, FOVSelectorWidget
-from ._graphics_items import Well  # noqa TCH001
+from ._graphics_items import Well  # noqa: TCH001
 from ._plate_model import DEFAULT_PLATE_DB_PATH, Plate, load_database, save_database
 from ._plate_widget import PlateInfo, PlateSelectorWidget
 from ._pydantic_model import FrozenModel
@@ -70,11 +67,11 @@ class HCSData(FrozenModel):
         By default, None.
     """
 
-    plate: Plate | None = None
-    wells: list[Well] | None = None
-    mode: Center | RandomPoints | GridRowsColumns | None = None
-    calibration: CalibrationData | None = None
-    positions: list[Position] | None = None
+    plate: Optional[Plate] = None  # noqa: UP007
+    wells: Optional[List[Well]] = None  # noqa: UP006, UP007
+    mode: Union[Center, RandomPoints, GridRowsColumns, None] = None  # noqa: UP007
+    calibration: Optional[CalibrationData] = None  # noqa: UP007
+    positions: Optional[List[Position]] = None  # noqa: UP006, UP007
 
 
 class PlatePage(QWizardPage):

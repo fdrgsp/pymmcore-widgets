@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Optional, Tuple, Union, cast
 
 import numpy as np
 from qtpy.QtCore import QRectF, Qt, Signal
@@ -445,11 +445,11 @@ class WellViewData(FrozenModel):
         The mode to use to draw the FOVs. By default, None.
     """
 
-    well_size: tuple[float | None, float | None] = (None, None)
+    well_size: Tuple[Optional[float], Optional[float]] = (None, None)  # noqa: UP006, UP007
     circular: bool = False
     padding: int = 0
     show_fovs_order: bool = True
-    mode: Center | AnyGridPlan | None = None
+    mode: Union[Center, AnyGridPlan, None] = None  # noqa: UP007
 
 
 DEFAULT_WELL_DATA = WellViewData()
@@ -647,7 +647,7 @@ class WellView(_ResizingGraphicsView):
             self._update_center_fov(value)
         elif isinstance(value, RandomPoints):
             self._update_random_fovs(value)
-        elif isinstance(value, GridRowsColumns | GridWidthHeight | GridFromEdges):
+        elif isinstance(value, (GridRowsColumns, GridWidthHeight, GridFromEdges)):
             self._update_grid_fovs(value)
         else:
             raise ValueError(f"Invalid value: {value}")
