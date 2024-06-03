@@ -36,7 +36,7 @@ TOP_Y: float = 10000000000
 USER_DATA_DIR = Path(user_data_dir(appname="pymmcore_widgets"))
 USER_PLATE_DATABASE_PATH = USER_DATA_DIR / "plate_database.json"
 
-AnyMode = Center | RandomPoints | GridRowsColumns | None
+AnyMode = Union[Center, GridRowsColumns, RandomPoints, None]
 
 
 def _cast_mode(
