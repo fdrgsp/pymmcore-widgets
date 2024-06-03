@@ -200,8 +200,7 @@ class MDAWidget(MDASequenceWidget):
 
         meta: dict = val.metadata.setdefault(PYMMCW_METADATA_KEY, {})
         meta[STIMULATION] = self._arduino_led_wdg.value()
-        # TODO: Fix me! on windows there is still a numpy not serializable error
-        # meta[HCS] = self._hcs_value or {}
+        meta[HCS] = self._hcs_value or {}
         if self.save_info.isChecked():
             meta.update(self.save_info.value())
 
@@ -210,17 +209,14 @@ class MDAWidget(MDASequenceWidget):
     def setValue(self, value: MDASequence) -> None:
         """Get the current state of the widget as a [`useq.MDASequence`][]."""
         super().setValue(value)
-        meta = value.metadata.get(PYMMCW_METADATA_KEY, {})
+        meta = cast(dict, value.metadata.get(PYMMCW_METADATA_KEY, {}))
         # save info
         self.save_info.setValue(meta)
         # if the HCS wizard has been used, set the positions from the HCS wizard
         self._hcs_value = None
         if hcs := meta.get(HCS):
-            self._hcs_value = HCSData.from_dict(hcs)
+            self._hcs_value = HCSData(**hcs)
             self.hcs.setValue(self._hcs_value)
-        # update arduino led widget
-        if ard := meta.get(STIMULATION):
-            self._arduino_led_wdg.setValue(ard)
 
     def get_next_available_path(self, requested_path: Path) -> Path:
         """Get the next available path.
@@ -349,8 +345,7 @@ class MDAWidget(MDASequenceWidget):
 
     def _add_to_positios_table(self, value: HCSData) -> None:
         """Add a list of positions to the Positions table."""
-        # positions = value.positions
-        positions = self.hcs.get_positions()
+        positions = value.positions
 
         if not positions:
             return

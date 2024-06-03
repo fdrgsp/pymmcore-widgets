@@ -54,6 +54,8 @@ dependencies = [
     'useq-schema >=0.4.7',
     "cmap",
     "pyconify",
+    'pydantic',
+    'pyfirmata2',
 ]
 
 # extras
@@ -67,6 +69,7 @@ test = [
     "vispy",
     "cmap",
     "zarr",
+    "dask",
 ]
 pyqt5 = ["PyQt5"]
 pyside2 = ["PySide2"]
