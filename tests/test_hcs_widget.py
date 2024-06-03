@@ -792,3 +792,19 @@ def test_hcs_serialization(data: HCSData):
         new_data.calibration.rotation_matrix, data.calibration.rotation_matrix
     )
     assert new_data.positions == data.positions
+
+
+def test_save_load_hcs(data: HCSData, qtbot: QtBot, tmp_path: Path):
+    wdg = HCSWizard()
+    qtbot.addWidget(wdg)
+
+    wdg.setValue(data)
+
+    def _path(*args, **kwargs):
+        return tmp_path / "test.json", None
+
+    # create empty database
+    with patch.object(QFileDialog, "getSaveFileName", _path):
+        wdg._save()
+
+        assert tmp_path.joinpath("test.json").exists()
