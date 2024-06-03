@@ -66,6 +66,7 @@ test = [
     "vispy",
     "cmap",
     "zarr",
+    "dask",
 ]
 pyqt5 = ["PyQt5"]
 pyside2 = ["PySide2"]
