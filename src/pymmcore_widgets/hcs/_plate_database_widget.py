@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import cast
+from typing import List, cast
 
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtGui import QBrush, QColor, QPen
@@ -351,12 +351,12 @@ class PlateDatabaseWidget(QDialog):
             plates = cast(list[str], plates)
             plates = [self._plate_db[plate] for plate in plates]
 
-        plates = cast(list[Plate], plates)
+        plates = cast(List[Plate], plates)
         self._remove_from_json(plates)
 
         for plate in plates:
             self._plate_db.pop(plate.id, None)
-            match = self.plate_table.findItems(plate.id, Qt.MatchExactly)
+            match = self.plate_table.findItems(plate.id, Qt.MatchFlag.MatchExactly)
             self.plate_table.removeRow(match[0].row())
         self.valueChanged.emit(None, self._plate_db, self._plate_db_path)
         if self.plate_table.rowCount():
