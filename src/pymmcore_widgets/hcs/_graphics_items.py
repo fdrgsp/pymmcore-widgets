@@ -4,7 +4,8 @@ from typing import Any, NamedTuple
 from qtpy.QtCore import QRectF, Qt
 from qtpy.QtGui import QBrush, QColor, QFont, QPainter, QPen, QTextOption
 from qtpy.QtWidgets import QGraphicsItem
-from useq._base_model import UseqModel
+
+from ._pydantic_model import FrozenModel
 
 GREEN = "#00FF00"  # "#00C600"
 RED = "#C33"  # "#FF00FF"
@@ -16,7 +17,7 @@ DEFAULT_PEN.setWidth(3)
 DEFAULT_BRUSH = QBrush(Qt.GlobalColor.white)
 
 
-class Well(UseqModel):
+class Well(FrozenModel):
     """General class describing a well.
 
     Attributes

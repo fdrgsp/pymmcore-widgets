@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
@@ -337,6 +338,8 @@ def test_calibration_widget(
 
     assert wdg.value() is None
     assert wdg._calibration_label.value() == "Plate Not Calibrated!"
+
+    CalibrationData.model_rebuild()
 
     wdg.setValue(CalibrationData(plate=database["coverslip 22mm"]))
 
@@ -738,17 +741,9 @@ def test_hcs_wizard(
     assert value.positions
 
 
-def test_hcs_wizard_fov_load(
-    global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, Plate]
-):
-    wdg = HCSWizard()
-    qtbot.addWidget(wdg)
-    mmc = global_mmcore
-
-    width = mmc.getImageWidth() * mmc.getPixelSizeUm()
-    height = mmc.getImageHeight() * mmc.getPixelSizeUm()
-
-    data = HCSData(
+@pytest.fixture
+def data(database) -> HCSData:
+    return HCSData(
         plate=database["standard 96 wp"],
         wells=[
             Well(name="A1", row=0, column=0),
@@ -760,15 +755,23 @@ def test_hcs_wizard_fov_load(
             max_width=600,
             max_height=600,
             shape="ellipse",
-            fov_width=width,
-            fov_height=height,
+            fov_width=512,
+            fov_height=512,
         ),
         calibration=CalibrationData(
             plate=database["standard 96 wp"],
             calibration_positions_a1=[(-10.0, 0.0), (0.0, 10.0), (10.0, 0.0)],
             calibration_positions_an=[(90.0, 0.0), (100.0, 10.0), (110.0, 0.0)],
+            rotation_matrix=np.array([[1.0, 0.0], [0.0, 1.0]]),
         ),
     )
+
+
+def test_hcs_wizard_fov_load(
+    data: HCSData, global_mmcore: CMMCorePlus, qtbot: QtBot, database: dict[str, Plate]
+):
+    wdg = HCSWizard()
+    qtbot.addWidget(wdg)
 
     wdg.setValue(data)
 
@@ -777,3 +780,15 @@ def test_hcs_wizard_fov_load(
 
     fov_view_value = wdg.fov_page._fov_widget.view.value()
     assert fov_view_value.mode.num_points == 3
+
+
+def test_hcs_serialization(data: HCSData):
+    _str = data.model_dump_json()
+    new_data = HCSData(**json.loads(_str))
+    assert new_data.plate == data.plate
+    assert new_data.wells == data.wells
+    assert new_data.mode == data.mode
+    assert np.array_equal(
+        new_data.calibration.rotation_matrix, data.calibration.rotation_matrix
+    )
+    assert new_data.positions == data.positions

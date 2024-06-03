@@ -15,7 +15,6 @@ from qtpy.QtWidgets import (
     QWizardPage,
 )
 from useq import GridRowsColumns, MDASequence, Position, RandomPoints
-from useq._base_model import UseqModel
 
 from ._calibration_widget import (
     CalibrationData,
@@ -25,6 +24,7 @@ from ._fov_widget import Center, FOVSelectorWidget
 from ._graphics_items import Well
 from ._plate_model import DEFAULT_PLATE_DB_PATH, Plate, load_database, save_database
 from ._plate_widget import PlateInfo, PlateSelectorWidget
+from ._pydantic_model import FrozenModel
 from ._util import apply_rotation_matrix, get_well_center, nearest_neighbor
 
 EXPANDING = (QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -50,7 +50,7 @@ def _cast_mode(
     return mode
 
 
-class HCSData(UseqModel):
+class HCSData(FrozenModel):
     """Store all the info needed to setup an HCS experiment.
 
     Attributes

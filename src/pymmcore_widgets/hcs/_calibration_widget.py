@@ -3,10 +3,11 @@ from __future__ import annotations
 import math
 import string
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Iterable, NamedTuple, cast
+from typing import Any, Iterable, NamedTuple, cast
 
 import numpy as np
 from fonticon_mdi6 import MDI6
+from pydantic_compat import field_validator
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import QSize, Qt, Signal
 from qtpy.QtGui import QIcon, QPixmap
@@ -22,21 +23,16 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-if TYPE_CHECKING:
-    from pydantic import ConfigDict
 from superqt.fonticon import icon
 from superqt.utils import signals_blocked
-from useq._base_model import FrozenModel
 
 from pymmcore_widgets.useq_widgets._column_info import FloatColumn
 from pymmcore_widgets.useq_widgets._data_table import DataTableWidget
 
 from ._graphics_items import GREEN, RED, Well
+from ._plate_model import Plate  # noqa: TCH001
+from ._pydantic_model import FrozenModel
 from ._util import apply_rotation_matrix, get_well_center
-
-if TYPE_CHECKING:
-    from ._plate_model import Plate
 
 AlignCenter = Qt.AlignmentFlag.AlignCenter
 FixedSizePolicy = (QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -97,16 +93,6 @@ class FourPoints(NamedTuple):
 
 
 class CalibrationData(FrozenModel):
-    # add json_encoders for np.ndarray
-    model_config: ClassVar[ConfigDict] = {
-        **FrozenModel.model_config,  # inherit the parent class config
-        "json_encoders": {
-            **FrozenModel.model_config.get("json_encoders", {}),  # type: ignore
-            np.ndarray: lambda v: v.tolist() if v is not None else None,
-        },
-        "arbitrary_types_allowed": True,
-    }
-
     """Calibration data for the plate.
 
     Attributes
@@ -129,6 +115,11 @@ class CalibrationData(FrozenModel):
     rotation_matrix: np.ndarray | None = None
     calibration_positions_a1: list[tuple[float, float]] | None = None
     calibration_positions_an: list[tuple[float, float]] | None = None
+
+    @field_validator("rotation_matrix", mode="before")
+    def _validate_rotation_matrix(cls, v: np.ndarray | None) -> np.ndarray | None:
+        # if list[tuple[float, float]] return np.ndarray
+        return np.array(v) if isinstance(v, list) else v
 
 
 def find_circle_center(
