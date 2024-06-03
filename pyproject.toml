@@ -55,7 +55,8 @@ dependencies = [
     "pydantic",
     "cmap",
     "pyconify",
-    "pyfirmata2"
+    "pyfirmata2",
+    "dask",
 ]
 
 # extras
