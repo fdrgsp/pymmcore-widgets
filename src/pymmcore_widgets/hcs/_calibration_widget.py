@@ -659,13 +659,13 @@ class PlateCalibrationWidget(QWidget):
             self._reset_calibration()
             return
 
-        a1_center = cast(tuple[float, float], a1_center)
+        a1_center = cast(Tuple[float, float], a1_center)
 
         # get plate rotation matrix
         if None in an_center:
             rotation_matrix = None
         else:
-            an_center = cast(tuple[float, float], an_center)
+            an_center = cast(Tuple[float, float], an_center)
             rotation_matrix = get_plate_rotation_matrix(a1_center, an_center)
 
         # set calibration_info property
