@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import string
 from pathlib import Path
-from typing import Any, Iterable, NamedTuple, Optional, cast
+from typing import Any, Iterable, List, NamedTuple, Optional, Tuple, cast
 
 import numpy as np
 from fonticon_mdi6 import MDI6
@@ -111,10 +111,10 @@ class CalibrationData(FrozenModel):
     """
 
     plate: Optional[Plate] = None  # noqa: UP007
-    well_A1_center: Optional[tuple[float, float]] = None  # noqa: UP007
+    well_A1_center: Optional[Tuple[float, float]] = None  # noqa: UP006 UP007
     rotation_matrix: Optional[np.ndarray] = None  # noqa: UP007
-    calibration_positions_a1: Optional[list[tuple[float, float]]] = None  # noqa: UP007
-    calibration_positions_an: Optional[list[tuple[float, float]]] = None  # noqa: UP007
+    calibration_positions_a1: Optional[List[Tuple[float, float]]] = None  # noqa: UP006 UP007
+    calibration_positions_an: Optional[List[Tuple[float, float]]] = None  # noqa: UP006 UP007
 
     @field_validator("rotation_matrix", mode="before")
     def _validate_rotation_matrix(
