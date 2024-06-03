@@ -52,6 +52,7 @@ dependencies = [
     'qtpy >=2.0',
     'superqt[quantity] >=0.6.5',
     'useq-schema >=0.4.7',
+    'pydantic',
 ]
 
 # extras
@@ -183,4 +184,4 @@ ignore = [
 ]
 
 [tool.typos.default]
-extend-ignore-identifiers-re = ["(?i)nd2?.*", "(?i)ome"]
+extend-ignore-identifiers-re = ["(?i)nd2?.*", "(?i)ome", "FO", "FOV", "FOVs"]

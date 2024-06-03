@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import dask.array as da
 import numpy as np
+from qtpy import QtWidgets
 
 from pymmcore_widgets._stack_viewer_v2 import StackViewer
-
-if TYPE_CHECKING:
-    from pytestqt.qtbot import QtBot
 
 
 def make_lazy_array(shape: tuple[int, ...]) -> da.Array:
@@ -25,15 +21,9 @@ def make_lazy_array(shape: tuple[int, ...]) -> da.Array:
     return da.map_blocks(_dask_block, chunks=chunks, dtype=np.uint8)  # type: ignore
 
 
-# this test is still leaking widgets and it's hard to track down... I think
-# it might have to do with the cmapComboBox
-# @pytest.mark.allow_leaks
-def test_stack_viewer2(qtbot: QtBot) -> None:
+if __name__ == "__main__":
+    qapp = QtWidgets.QApplication([])
     dask_arr = make_lazy_array((1000, 64, 3, 256, 256))
     v = StackViewer(dask_arr)
-    qtbot.addWidget(v)
     v.show()
-
-    # wait until there are no running jobs, because the callbacks
-    # in the futures hold a strong reference to the viewer
-    qtbot.waitUntil(lambda: v._last_future is None, timeout=10000)
+    qapp.exec()
