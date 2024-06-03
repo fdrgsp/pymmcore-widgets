@@ -468,7 +468,7 @@ class _CalibrationLabel(QGroupBox):
         self._text_lbl.setStyleSheet("font-size: 14px; font-weight: bold;")
 
         # main
-        layout = QVBoxLayout(self)
+        layout = QHBoxLayout(self)
         layout.setAlignment(AlignCenter)
         layout.setSpacing(5)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -517,7 +517,7 @@ class PlateCalibrationWidget(QWidget):
         self._table_a1 = _CalibrationTable()
         self._table_an = _CalibrationTable()
         _table_group = QGroupBox()
-        _table_group_layout = QVBoxLayout(_table_group)
+        _table_group_layout = QHBoxLayout(_table_group)
         _table_group_layout.setContentsMargins(0, 0, 0, 0)
         _table_group_layout.setSpacing(10)
         _table_group_layout.addWidget(self._table_a1)
@@ -530,7 +530,7 @@ class PlateCalibrationWidget(QWidget):
             0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
         _calibrate_btn_wdg = QWidget()
-        _calibrate_btn_wdg_layout = QVBoxLayout(_calibrate_btn_wdg)
+        _calibrate_btn_wdg_layout = QHBoxLayout(_calibrate_btn_wdg)
         _calibrate_btn_wdg_layout.setSpacing(10)
         _calibrate_btn_wdg_layout.setContentsMargins(0, 0, 0, 0)
         _calibrate_btn_wdg_layout.addItem(spacer)
@@ -549,7 +549,7 @@ class PlateCalibrationWidget(QWidget):
         self._calibration_label = _CalibrationLabel()
         # test calibration and calibration label group
         _bottom_group = QWidget()
-        _bottom_group_layout = QVBoxLayout(_bottom_group)
+        _bottom_group_layout = QHBoxLayout(_bottom_group)
         _bottom_group_layout.setSpacing(10)
         _bottom_group_layout.setContentsMargins(10, 10, 10, 10)
         _bottom_group_layout.addWidget(self._test_calibration)
