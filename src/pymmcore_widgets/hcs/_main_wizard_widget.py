@@ -168,6 +168,21 @@ class FOVSelectorPage(QWizardPage):
 class HCSWizard(QWizard):
     valueChanged = Signal(object)
 
+    """A wizard to setup an High Content experiment.
+
+    This widget can be used to select a plate, calibrate it, and then select the FOVs
+    to image in different modes (Center, RandomPoint or GridRowsColumns).
+
+    Parameters
+    ----------
+    parent : QWidget | None
+        The parent widget. By default, None.
+    mmcore : CMMCorePlus | None
+        The CMMCorePlus instance. By default, None.
+    plate_database_path : Path | str | None
+        The path to the plate database. By default, None.
+    """
+
     def __init__(
         self,
         parent: QWidget | None = None,

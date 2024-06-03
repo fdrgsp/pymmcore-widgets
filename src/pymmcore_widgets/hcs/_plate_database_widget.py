@@ -348,7 +348,7 @@ class PlateDatabaseWidget(QDialog):
             List of plate ids or list of Plates to remove from the plate database.
         """
         if all(isinstance(plate, str) for plate in plates):
-            plates = cast(list[str], plates)
+            plates = cast(List[str], plates)
             plates = [self._plate_db[plate] for plate in plates]
 
         plates = cast(List[Plate], plates)
