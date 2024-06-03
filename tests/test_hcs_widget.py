@@ -136,11 +136,11 @@ def test_plate_selector_widget_set_get_value(qtbot: QtBot, database_path: Path):
 
     plate = wdg._plate_db["standard 96 wp"]
     wells = [
-        Well("A1", 0, 0),
-        Well("A2", 0, 1),
-        Well("B3", 1, 2),
-        Well("B4", 1, 3),
-        Well("C5", 2, 4),
+        Well(name="A1", row=0, column=0),
+        Well(name="A2", row=0, column=1),
+        Well(name="B3", row=1, column=2),
+        Well(name="B4", row=1, column=3),
+        Well(name="C5", row=2, column=4),
     ]
     info = PlateInfo(plate=plate, wells=wells)
 
@@ -360,7 +360,7 @@ def test_calibration_widget(
     assert wdg._calibration_label.value() == "Plate Calibrated!"
 
     assert wdg.value() == CalibrationData(
-        database["coverslip 22mm"],
+        plate=database["coverslip 22mm"],
         well_A1_center=(-55.0, 35.0),
         rotation_matrix=None,
         calibration_positions_a1=[(-210, 170), (100, -100)],
@@ -702,7 +702,11 @@ def test_hcs_wizard(
 
     data = HCSData(
         plate=database["standard 96 wp"],
-        wells=[Well("A1", 0, 0), Well("B2", 1, 1), Well("C3", 2, 2)],
+        wells=[
+            Well(name="A1", row=0, column=0),
+            Well(name="B2", row=1, column=1),
+            Well(name="C3", row=2, column=2),
+        ],
         mode=Center(x=0, y=0, fov_width=width, fov_height=height),
         calibration=CalibrationData(
             plate=database["standard 96 wp"],
@@ -746,7 +750,11 @@ def test_hcs_wizard_fov_load(
 
     data = HCSData(
         plate=database["standard 96 wp"],
-        wells=[Well("A1", 0, 0), Well("B2", 1, 1), Well("C3", 2, 2)],
+        wells=[
+            Well(name="A1", row=0, column=0),
+            Well(name="B2", row=1, column=1),
+            Well(name="C3", row=2, column=2),
+        ],
         mode=RandomPoints(
             num_points=3,
             max_width=600,

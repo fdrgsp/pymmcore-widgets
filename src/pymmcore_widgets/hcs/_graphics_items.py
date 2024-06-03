@@ -1,12 +1,10 @@
 import string
-from dataclasses import dataclass
 from typing import Any, NamedTuple
 
 from qtpy.QtCore import QRectF, Qt
 from qtpy.QtGui import QBrush, QColor, QFont, QPainter, QPen, QTextOption
 from qtpy.QtWidgets import QGraphicsItem
-
-from ._base_dataclass import BaseDataclass
+from useq._base_model import UseqModel
 
 GREEN = "#00FF00"  # "#00C600"
 RED = "#C33"  # "#FF00FF"
@@ -18,18 +16,17 @@ DEFAULT_PEN.setWidth(3)
 DEFAULT_BRUSH = QBrush(Qt.GlobalColor.white)
 
 
-@dataclass(frozen=True)
-class Well(BaseDataclass):
-    """Store well name, row and column.
+class Well(UseqModel):
+    """General class describing a well.
 
     Attributes
     ----------
     name : str
-        Well name.
+        The name of the well.
     row : int
-        Well row.
+        The row of the well.
     column : int
-        Well column.
+        The column of the well.
     """
 
     name: str

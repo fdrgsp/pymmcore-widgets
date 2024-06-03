@@ -15,19 +15,18 @@ from qtpy.QtWidgets import (
     QWizardPage,
 )
 from useq import GridRowsColumns, MDASequence, Position, RandomPoints
+from useq._base_model import UseqModel
 
 from ._calibration_widget import (
+    CalibrationData,
     PlateCalibrationWidget,
 )
 from ._fov_widget import Center, FOVSelectorWidget
+from ._graphics_items import Well
 from ._plate_model import DEFAULT_PLATE_DB_PATH, Plate, load_database, save_database
 from ._plate_widget import PlateInfo, PlateSelectorWidget
-
-# from ._graphics_items import Well
-from ._pydantic_models import CalibrationData, HCSData, Well
 from ._util import apply_rotation_matrix, get_well_center, nearest_neighbor
 
-DEFAULT_CALIBRATION = CalibrationData()
 EXPANDING = (QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 TOP_X: float = -10000000000
 TOP_Y: float = 10000000000
@@ -51,68 +50,29 @@ def _cast_mode(
     return mode
 
 
-# @dataclass(frozen=True)
-# class HCSData(BaseDataclass):
-#     """Store all the info needed to setup an HCS experiment.
+class HCSData(UseqModel):
+    """Store all the info needed to setup an HCS experiment.
 
-#     Attributes
-#     ----------
-#     plate : Plate
-#         The selected well plate. By default, None.
-#     wells : list[Well] | None
-#         The selected wells as Well object: Well(name, row, column). By default, None.
-#     mode : Center | RandomPoints | GridRowsColumns | None
-#         The mode used to select the FOVs. By default, None.
-#     calibration : CalibrationData | None
-#         The data necessary to calibrate the plate. By default, None.
-#     positions : list[Position] | None
-#         The list of FOVs as useq.Positions expressed in stage coordinates.
-#         By default, None.
-#     """
+    Attributes
+    ----------
+    plate : Plate
+        The selected well plate. By default, None.
+    wells : list[Well] | None
+        The selected wells as Well object: Well(name, row, column). By default, None.
+    mode : Center | RandomPoints | GridRowsColumns | None
+        The mode used to select the FOVs. By default, None.
+    calibration : CalibrationData | None
+        The data necessary to calibrate the plate. By default, None.
+    positions : list[Position] | None
+        The list of FOVs as useq.Positions expressed in stage coordinates.
+        By default, None.
+    """
 
-#     plate: Plate | None = None
-#     wells: list[Well] | None = None
-#     mode: Center | RandomPoints | GridRowsColumns | None = None
-#     calibration: CalibrationData | None = None
-#     positions: list[Position] | None = None
-
-#     def to_dict(self) -> dict[Any, Any]:
-#         """Return a dictionary representation of the HCSData."""
-#         positions = (
-#             [
-#                 pos.model_dump_json(exclude_none=True, exclude_unset=True)
-#                 for pos in self.positions
-#             ]
-#             if self.positions
-#             else None
-#         )
-#         if self.calibration is not None:
-#             calibration = self.calibration.to_dict()
-#             rotation_matrix = calibration.get("rotation_matrix")
-#             if rotation_matrix is not None:
-#                 calibration["rotation_matrix"] = rotation_matrix.tolist()
-#         else:
-#             calibration = None
-#         return {
-#             "plate": self.plate.to_dict() if self.plate else None,
-#             "wells": [well.to_dict() for well in self.wells] if self.wells else None,
-#             "mode": (self.mode.model_dump_json() if self.mode else None),
-#             "calibration": calibration,
-#             "positions": positions,
-#         }
-
-#     @classmethod
-#     def from_dict(cls, data: dict[str, Any]) -> "HCSData":
-#         """Set the calibration data from a dictionary."""
-#         plate = Plate(**data.get("plate", {}))
-#         wells = [Well(**well) for well in data.get("wells", [])]
-#         mode = _cast_mode(data.get("mode"))
-#         calibration = CalibrationData.from_dict(data.get("calibration", {}))
-#         _pos = data.get("positions")
-#         positions = (
-#             [Position.model_validate_json(pos) for pos in _pos] if _pos else None
-#         )
-#         return cls(plate, wells, mode, calibration, positions)
+    plate: Plate | None = None
+    wells: list[Well] | None = None
+    mode: Center | RandomPoints | GridRowsColumns | None = None
+    calibration: CalibrationData | None = None
+    positions: list[Position] | None = None
 
 
 class PlatePage(QWizardPage):
@@ -292,7 +252,13 @@ class HCSWizard(QWizard):
 
         positions = self.get_positions()
 
-        return HCSData(plate, well_list, mode, calibration_data, positions)
+        return HCSData(
+            plate=plate,
+            wells=well_list,
+            mode=mode,
+            calibration=calibration_data,
+            positions=positions,
+        )
 
     def setValue(self, value: HCSData) -> None:
         """Set the values of the wizard.
@@ -358,8 +324,7 @@ class HCSWizard(QWizard):
             return
 
         with open(Path(path), "w") as file:
-            data = self.value().to_dict()
-            json.dump(data, file)
+            json.dump(self.value().model_dump_json(), file)
 
     def _load(self) -> None:
         """Load a .json wizard configuration."""
@@ -374,7 +339,7 @@ class HCSWizard(QWizard):
 
         with open(Path(path)) as file:
             data = json.load(file)
-            self.setValue(HCSData.from_dict(data))
+            self.setValue(HCSData(**data))
 
     def _on_system_config_loaded(self) -> None:
         """Update the scene when the system configuration is loaded."""

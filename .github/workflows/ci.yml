@@ -37,21 +37,27 @@ jobs:
           - platform: macos-latest
             python-version: "3.10"
             backend: pyside6
+            pydantic: "'pydantic<2'"
           - platform: macos-latest
             python-version: "3.11"
             backend: pyqt6
+            pydantic: "'pydantic<2'"
           - platform: windows-latest
             python-version: "3.10"
             backend: pyside6
+            pydantic: "'pydantic<2'"
           - platform: windows-latest
             python-version: "3.11"
             backend: pyqt6
+            pydantic: "'pydantic<2'"
           - platform: windows-latest
             python-version: "3.9"
             backend: pyside2
+            pydantic: "'pydantic<2'"
           - platform: windows-latest
             python-version: "3.9"
             backend: pyqt5
+            pydantic: "'pydantic<2'"
         exclude:
           - python-version: "3.11"
             backend: pyside2

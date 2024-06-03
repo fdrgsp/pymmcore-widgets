@@ -16,9 +16,7 @@ from qtpy.QtWidgets import (
 from ._graphics_items import GREEN
 
 if TYPE_CHECKING:
-    # from ._graphics_items import Well, _WellGraphicsItem
-    from ._graphics_items import _WellGraphicsItem
-    from ._pydantic_models import Well
+    from ._graphics_items import Well, _WellGraphicsItem
 
 SELECTED_COLOR = QBrush(QColor(GREEN))
 UNSELECTED_COLOR = QBrush(Qt.GlobalColor.lightGray)
