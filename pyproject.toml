@@ -51,7 +51,7 @@ classifiers = [
 dynamic = ["version"]
 dependencies = [
     'fonticon-materialdesignicons6',
-    'pymmcore-plus[cli] >=0.9.5',
+    'pymmcore-plus@git+https://github.com/fdrgsp/pymmcore-plus.git@add_tensorstore_to_runner',
     'qtpy >=2.0',
     'superqt[quantity] >=0.6.5',
     'useq-schema >=0.4.7',
