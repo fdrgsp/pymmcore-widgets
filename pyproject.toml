@@ -51,7 +51,7 @@ classifiers = [
 dynamic = ["version"]
 dependencies = [
     'fonticon-materialdesignicons6',
-    'pymmcore-plus@git+https://github.com/fdrgsp/pymmcore-plus.git@add_tensorstore_to_runner',
+    'pymmcore-plus@git+https://github.com/fdrgsp/pymmcore-plus.git',  # -> when released pymmcore-plus >=0.9.6
     'qtpy >=2.0',
     'superqt[quantity] >=0.6.5',
     'useq-schema >=0.4.7',
@@ -70,6 +70,7 @@ test = [
     "vispy",
     "cmap",
     "zarr",
+    "tifffile"
 ]
 pyqt5 = ["PyQt5"]
 pyside2 = ["PySide2"]
