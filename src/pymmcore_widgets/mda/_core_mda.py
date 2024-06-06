@@ -217,6 +217,9 @@ class MDAWidget(MDASequenceWidget):
         if hcs := meta.get(HCS):
             self._hcs_value = HCSData(**hcs)
             self.hcs.setValue(self._hcs_value)
+        # if stimulation is in the metadata, set the Arduino LED widget
+        if stim := meta.get(STIMULATION):
+            self._arduino_led_wdg.setValue(stim)
 
     def get_next_available_path(self, requested_path: Path) -> Path:
         """Get the next available path.
