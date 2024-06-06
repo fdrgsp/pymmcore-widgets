@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 
 import superqt
 import useq
-from pymmcore_plus.mda.handlers import OMETiffWriter, OMEZarrWriter, TensorStoreHandler
+from pymmcore_plus.mda.handlers import TensorStoreHandler
 
 from ._save_button import SaveButton
 from ._stack_viewer import StackViewer
@@ -13,8 +13,6 @@ from ._stack_viewer import StackViewer
 if TYPE_CHECKING:
     from pymmcore_plus.mda.handlers._5d_writer_base import _5DWriterBase
     from qtpy.QtWidgets import QWidget
-
-GB_CACHE = 2_000_000_000  # 2 GB for tensorstore cache
 
 
 class MDAViewer(StackViewer):
@@ -29,23 +27,13 @@ class MDAViewer(StackViewer):
         parent: QWidget | None = None,
     ):
         if datastore is None:
-            datastore = TensorStoreHandler(
-                spec={"context": {"cache_pool": {"total_bytes_limit": GB_CACHE}}}
-            )
-        elif not isinstance(
-            datastore, (OMEZarrWriter, OMETiffWriter, TensorStoreHandler)
-        ):
-            raise TypeError(
-                "MDAViewer currently only supports '_5DWriterBase' or "
-                "'TensorStoreHandler' datastores."
-            )
+            datastore = TensorStoreHandler()
 
         # patch the frameReady method to call the superframeReady method
         # AFTER handling the event
         self._superframeReady = getattr(datastore, "frameReady", None)
         if callable(self._superframeReady):
             datastore.frameReady = self._patched_frame_ready  # type: ignore
-
         else:  # pragma: no cover
             warnings.warn(
                 "MDAViewer: datastore does not have a frameReady method to patch, "
@@ -58,10 +46,6 @@ class MDAViewer(StackViewer):
         self._btns.addWidget(self._save_btn)
         self.dims_sliders.set_locks_visible(True)
         self._channel_names: dict[int, str] = {}
-
-    @property  # type: ignore
-    def data(self) -> _5DWriterBase | TensorStoreHandler:
-        return self._data
 
     def _patched_frame_ready(self, *args: Any) -> None:
         self._superframeReady(*args)  # type: ignore

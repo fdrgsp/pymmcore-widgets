@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable, cast
+from typing import TYPE_CHECKING, Any, Iterable, cast
 
 import numpy as np
 from qtpy.QtCore import Qt
@@ -36,6 +36,7 @@ class LutControl(QWidget):
         name: str = "",
         handles: Iterable[PImageHandle] = (),
         parent: QWidget | None = None,
+        cmaplist: Iterable[Any] = (),
     ) -> None:
         super().__init__(parent)
         self._handles = handles
@@ -49,7 +50,7 @@ class LutControl(QWidget):
         self._cmap.currentColormapChanged.connect(self._on_cmap_changed)
         for handle in handles:
             self._cmap.addColormap(handle.cmap)
-        for color in ["green", "magenta", "cyan"]:
+        for color in cmaplist:
             self._cmap.addColormap(color)
 
         self._clims = QLabeledRangeSlider(Qt.Orientation.Horizontal)
@@ -87,13 +88,19 @@ class LutControl(QWidget):
     def _on_visible_changed(self, visible: bool) -> None:
         for handle in self._handles:
             handle.visible = visible
+        if visible:
+            self.update_autoscale()
 
     def _on_cmap_changed(self, cmap: cmap.Colormap) -> None:
         for handle in self._handles:
             handle.cmap = cmap
 
     def update_autoscale(self) -> None:
-        if not self._auto_clim.isChecked():
+        if (
+            not self._auto_clim.isChecked()
+            or not self._visible.isChecked()
+            or not self._handles
+        ):
             return
 
         # find the min and max values for the current channel
