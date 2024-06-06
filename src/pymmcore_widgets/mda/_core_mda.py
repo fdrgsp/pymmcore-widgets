@@ -215,7 +215,11 @@ class MDAWidget(MDASequenceWidget):
 
         meta: dict = val.metadata.setdefault(PYMMCW_METADATA_KEY, {})
         meta[STIMULATION] = self._arduino_led_wdg.value()
-        meta[HCS] = self._hcs_value or {}
+        meta[HCS] = (
+            self._hcs_value.replace(positions=None)
+            if self._hcs_value is not None
+            else {}
+        )
         if self.save_info.isChecked():
             meta.update(self.save_info.value())
 
