@@ -42,7 +42,7 @@ class MDAViewer(StackViewer):
             )
 
         super().__init__(datastore, parent=parent, channel_axis="c")
-        self._save_btn = SaveButton(self.data)
+        self._save_btn = SaveButton(self._data_wrapper)
         self._btns.addWidget(self._save_btn)
         self.dims_sliders.set_locks_visible(True)
         self._channel_names: dict[int, str] = {}
