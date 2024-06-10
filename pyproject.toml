@@ -51,14 +51,12 @@ classifiers = [
 dynamic = ["version"]
 dependencies = [
     'fonticon-materialdesignicons6',
-    'pymmcore-plus@git+https://github.com/fdrgsp/pymmcore-plus.git',  # -> when released pymmcore-plus >=0.9.6
+    'pymmcore-plus >=0.10.0',
     'qtpy >=2.0',
     'superqt[quantity] >=0.6.5',
     'useq-schema >=0.4.7',
     "cmap",
     "pyconify",
-    'pydantic',
-    'pyfirmata2',
 ]
 
 # extras
@@ -72,7 +70,6 @@ test = [
     "vispy",
     "cmap",
     "zarr",
-    "dask",
     "tifffile"
 ]
 pyqt5 = ["PyQt5"]
@@ -192,4 +189,4 @@ ignore = [
 ]
 
 [tool.typos.default]
-extend-ignore-identifiers-re = ["(?i)nd2?.*", "(?i)ome", "FO", "FOV", "FOVs"]
+extend-ignore-identifiers-re = ["(?i)nd2?.*", "(?i)ome"]
