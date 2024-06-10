@@ -168,6 +168,28 @@ class MM5DWriter(DataWrapper["_5DWriterBase"]):
             return True
         return False
 
+    def sizes(self) -> Mapping[Hashable, int]:
+        _sizes: dict[Hashable, int] = {}
+        if (sz := getattr(self._data, "sizes", None)) and isinstance(sz, Mapping):
+            sizes = sz
+            _sizes = {k: int(v) for k, v in sizes.items()}
+
+        elif (shp := getattr(self._data, "shape", None)) and isinstance(shp, tuple):
+            sizes = shp
+            for i, val in enumerate(sizes):
+                if isinstance(val, int):
+                    _sizes[i] = val
+                elif isinstance(val, Sequence) and len(val) == 2:
+                    _sizes[val[0]] = int(val[1])
+                else:
+                    raise ValueError(
+                        f"Invalid size: {val}. Must be an int or a 2-tuple."
+                    )
+        else:
+            _sizes = {}
+
+        return _sizes
+
     def save_as_zarr(self, save_loc: str | Path) -> None:
         import zarr
         from pymmcore_plus.mda.handlers import OMEZarrWriter
