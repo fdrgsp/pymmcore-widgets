@@ -57,6 +57,7 @@ dependencies = [
     'useq-schema >=0.4.7',
     "cmap",
     "pyconify",
+    "pyfirmata2"
 ]
 
 # extras
