@@ -3,11 +3,11 @@ from qtpy.QtWidgets import QApplication
 
 from pymmcore_widgets import GroupPresetDialog
 
-core = CMMCorePlus().instance()
-core.loadSystemConfiguration()
 app = QApplication([])
-ocd = GroupPresetDialog()
-ocd._load_group("Channel")
-ocd.show()
 
+mmc = CMMCorePlus.instance()
+oc = GroupPresetDialog(mmcore=mmc)
+oc.show()
+
+mmc.loadSystemConfiguration("/Users/fdrgsp/Desktop/CFG.cfg")
 app.exec()
