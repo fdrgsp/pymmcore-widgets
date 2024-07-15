@@ -174,19 +174,24 @@ class GroupPresetDialog(QWidget):
         self._preset_list.list.setCurrentRow(0)
 
     def _add_group(self) -> None:
-        # clear the current properties and group list selection
-        self._props_group.props.setValue([])
         self._group_list.list.clearSelection()
 
         i = 1
         new_name = "NewGroup"
-        while new_name in self._mmc.getAvailableConfigGroups():
+        while new_name in self._model_map:
             new_name = f"NewGroup {i}"
             i += 1
         self._model_map[new_name] = ConfigGroup(name=new_name)
         item = self._create_editable_item(new_name)
         self._group_list.list.addItem(item)
         self._group_list.list.setCurrentItem(item)
+
+        # activate the group line and make it editable by the user
+        self._group_list.list.editItem(item)
+
+        self._add_preset(edit=False)
+        # clear the properties
+        self._props_group.props.setValue([])
 
     def _remove_group_dialog(self) -> None:
         if (current := self._group_list.list.currentItem()) is None:
@@ -195,6 +200,9 @@ class GroupPresetDialog(QWidget):
             self, "Remove Group", f"Are you sure you want to remove {current.text()!r}?"
         ):
             self._model_map.pop(current.text())
+            with signals_blocked(self._preset_list):
+                while self._preset_list.list.count():
+                    self._preset_list.list.takeItem(0)
             self._group_list.list.takeItem(self._group_list.list.currentRow())
 
     def _load_preset(self, name: str) -> None:
@@ -203,7 +211,7 @@ class GroupPresetDialog(QWidget):
         self._props_group.props.setValue(settings)
         self._props_group._update_filter()
 
-    def _add_preset(self) -> None:
+    def _add_preset(self, *, edit: bool = True) -> None:
         group = self._group_list.list.currentItem().text()
         i = 1
         new_name = "NewPreset"
@@ -213,7 +221,10 @@ class GroupPresetDialog(QWidget):
         self._model_map[group].presets[new_name] = ConfigPreset(name=new_name)
         item = self._create_editable_item(new_name)
         self._preset_list.list.addItem(item)
-        self._preset_list.list.setCurrentItem(item)  # select it
+        self._preset_list.list.setCurrentItem(item)
+        # activate the preset line and make it editable by the user
+        if edit:
+            self._preset_list.list.editItem(item)
 
     def _remove_preset_dialog(self) -> None:
         if (current := self._preset_list.list.currentItem()) is None:
@@ -287,7 +298,11 @@ class GroupPresetDialog(QWidget):
             QMessageBox.warning(self, "Duplicate Item", f"{new_text!r} already exists.")
             item.setText(previous_text)
         else:
-            self._model_map[new_text] = self._model_map.pop(previous_text)
+            # update the group name in the model. We need to update the name arg
+            current = self._model_map[self._active_group_item_name]
+            current.name = new_text
+            self._model_map.pop(previous_text)
+            self._model_map[new_text] = current
             self._active_group_item_name = new_text
 
     def _on_preset_name_changed(self, text: str) -> None:
@@ -301,9 +316,10 @@ class GroupPresetDialog(QWidget):
             QMessageBox.warning(self, "Duplicate Item", f"{new_text!r} already exists.")
             item.setText(previous_text)
         else:
-            self._model_map[group].presets[new_text] = self._model_map[
-                group
-            ].presets.pop(previous_text)
+            current = self._model_map[group].presets[self._active_preset_item_name]
+            current.name = new_text
+            self._model_map[group].presets.pop(previous_text)
+            self._model_map[group].presets[new_text] = current
             self._active_preset_item_name = new_text
 
     def _on_value_changed(self) -> None:
@@ -318,19 +334,42 @@ class GroupPresetDialog(QWidget):
             Setting(dev, prop, val) for dev, prop, val in self._props_group.settings()
         ]
 
+    def _validate_all_presets(self) -> bool:
+        """Make sure all the groups in the _model_map have presets with settings."""
+        for group in self._model_map.values():
+            for preset in group.presets.values():
+                if not preset.settings:
+                    QMessageBox.critical(
+                        self,
+                        "Invalid Presets",
+                        f"All presets in the '{group.name}' group must have at least "
+                        "one property selected.",
+                        QMessageBox.StandardButton.Ok,
+                    )
+                    return False
+        return True
+
     def _apply(self) -> None:
         """Apply the changes to the core."""
+        if not self._validate_all_presets():
+            return
+
+        # delete all groups in the core that are not in the _model_map
+        for group_name in self._mmc.getAvailableConfigGroups():
+            if group_name not in self._model_map:
+                self._mmc.deleteConfigGroup(group_name)
+
+        # update the core with the new groups
         for group in self._model_map.values():
-            # check if group is already in the core
+            # if the group is already in the core, update only if it is different
             if group.name in self._mmc.getAvailableConfigGroups():
-                # compare the new group with the one in the core
                 current_group = ConfigGroup.create_from_core(self._mmc, group.name)
-                # if they are the same, skip the update
+                # if the group is the same, continue
                 if current_group == group:
                     continue
-                # otherwise, delete the current group
+                # delete the currentb group in the core
                 self._mmc.deleteConfigGroup(group.name)
-            # and new group
+            # add the new group to the core
             group.apply_to_core(self._mmc)
 
     def _save_cfg(self) -> None:

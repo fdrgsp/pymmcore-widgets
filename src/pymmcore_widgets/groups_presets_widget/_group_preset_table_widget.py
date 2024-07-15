@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import contextlib
+from typing import MutableMapping
+
 from pymmcore_plus import CMMCorePlus
+from pymmcore_plus.model import ConfigGroup, ConfigPreset
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QAbstractScrollArea,
@@ -18,21 +22,23 @@ from pymmcore_widgets._core import load_system_config
 from pymmcore_widgets._presets_widget import PresetsWidget
 from pymmcore_widgets._property_widget import PropertyWidget
 
-UNNAMED_PRESET = "NewPreset"
+from ._group_preset_dialog import GroupPresetDialog
 
 
 class _GroupsPresetsTable(QTableWidget):
     """Set table properties for Group and Preset TableWidget."""
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
         hdr = self.horizontalHeader()
         hdr.setStretchLastSection(True)
         hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignHCenter)
+
         vh = self.verticalHeader()
         vh.setVisible(False)
         vh.setSectionResizeMode(vh.ResizeMode.Fixed)
         vh.setDefaultSectionSize(24)
+
         self.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -60,18 +66,28 @@ class GroupPresetTableWidget(QGroupBox):
 
         self._mmc = mmcore or CMMCorePlus.instance()
 
-        # Layout ----------------------------------------------------------
+        # widgets ---------------------------------------------------------
 
         # table
-        self._table = _GroupsPresetsTable()
+        self._table = _GroupsPresetsTable(self)
+
+        # groups presets dialog
+        self._groups_presets_dialog = GroupPresetDialog(self, self._mmc)
+        self._groups_presets_dialog.setWindowFlags(
+            Qt.WindowType.Window | Qt.WindowType.Dialog
+        )
 
         # buttons
         self.edit_btn = QPushButton(text="Edit")
-        # self.edit_btn.clicked.connect(self._edit_cfg)
+        self.edit_btn.clicked.connect(self._edit_cfg)
         self.save_btn = QPushButton(text="Save")
         self.save_btn.clicked.connect(self._save_cfg)
         self.load_btn = QPushButton(text="Load")
         self.load_btn.clicked.connect(self._load_cfg)
+
+        # Layout ----------------------------------------------------------
+
+        # buttons
         btns_layout = QHBoxLayout()
         btns_layout.setSpacing(5)
         btns_layout.setContentsMargins(0, 0, 0, 0)
@@ -90,33 +106,19 @@ class GroupPresetTableWidget(QGroupBox):
         # Connections -----------------------------------------------------
 
         # widget
-        # self.table_wdg.itemSelectionChanged.connect(self._on_table_selection_changed)
         self.edit_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.save_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.load_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.destroyed.connect(self._disconnect)
 
         # core
         self._mmc.events.systemConfigurationLoaded.connect(self._populate_table)
-        # self._mmc.events.configGroupDeleted.connect(self._on_group_deleted)
-        # self._mmc.events.configDefined.connect(self._on_new_group_preset)
-
-        self.destroyed.connect(self._disconnect)
+        self._mmc.events.configGroupDeleted.connect(self._populate_table)
+        self._mmc.events.configDefined.connect(self._populate_table)
 
         self._populate_table()
 
-    def _on_system_cfg_loaded(self) -> None:
-        self._populate_table()
-
-    def _reset_table(self) -> None:
-        self._disconnect_wdgs()
-        self._table.clearContents()
-        self._table.setRowCount(0)
-
-    def _disconnect_wdgs(self) -> None:
-        for r in range(self._table.rowCount()):
-            wdg = self._table.cellWidget(r, 1)
-            if isinstance(wdg, PresetsWidget):
-                wdg._disconnect()
+        self.resize(self.minimumSizeHint())
 
     def _populate_table(self) -> None:
         self._reset_table()
@@ -131,36 +133,54 @@ class GroupPresetTableWidget(QGroupBox):
                 elif isinstance(wdg, PropertyWidget):
                     wdg = wdg._value_widget  # type: ignore
 
-        # resize to contents the table
-        self._table.resizeColumnsToContents()
+        # resize to contents
+        self._table.resizeColumnToContents(0)
         self.resize(self.sizeHint())
 
-    def _get_cfg_data(self, group: str, preset: str) -> tuple[str, str, str, int]:
-        # Return last device-property-value for the preset and the
-        # total number of device-property-value included in the preset.
-        data = list(self._mmc.getConfigData(group, preset))
-        if not data:
-            return "", "", "", 0
-        assert len(data), "No config data"
-        dev, prop, val = data[-1]
-        return dev, prop, val, len(data)
+    def _reset_table(self) -> None:
+        self._disconnect_wdgs()
+        self._table.clearContents()
+        self._table.setRowCount(0)
 
-    def _create_group_widget(self, group: str) -> PresetsWidget | PropertyWidget:
+    def _disconnect_wdgs(self) -> None:
+        for r in range(self._table.rowCount()):
+            wdg = self._table.cellWidget(r, 1)
+            if isinstance(wdg, PresetsWidget):
+                with contextlib.suppress(Exception):
+                    wdg._disconnect()
+
+    def _create_group_widget(
+        self, group_name: str
+    ) -> PresetsWidget | PropertyWidget | None:
         """Return a widget depending on presets and device-property."""
-        # get group presets
-        presets = list(self._mmc.getAvailableConfigs(group))
+        group = ConfigGroup.create_from_core(self._mmc, group_name)
+
+        presets = group.presets
 
         if not presets:
-            return  # type: ignore
+            return None
 
-        # use only the first preset since device
-        # and property are the same for the presets
-        device, prop, _, dev_prop_val_count = self._get_cfg_data(group, presets[0])
+        if len(presets) > 1:
+            return PresetsWidget(group_name)
 
-        if len(presets) > 1 or dev_prop_val_count > 1 or dev_prop_val_count == 0:
-            return PresetsWidget(group)
-        else:
-            return PropertyWidget(device, prop)
+        # get preset with most settings (since could be different between presets)
+        preset_key, preset_count = self._get_preset_with_most_settings(presets)
+        if preset_count > 1:
+            return PresetsWidget(group_name)
+
+        settings = presets[preset_key].settings[0]
+        return PropertyWidget(settings.device_name, settings.property_name)
+
+    def _get_preset_with_most_settings(
+        self, presets: MutableMapping[str, ConfigPreset]
+    ) -> tuple[str, int]:
+        max_settings_count = 0
+        key_with_most_settings = ""
+        for key, preset in presets.items():
+            if len(preset.settings) > max_settings_count:
+                max_settings_count = len(preset.settings)
+                key_with_most_settings = key
+        return key_with_most_settings, max_settings_count
 
     def _save_cfg(self) -> None:
         (filename, _) = QFileDialog.getSaveFileName(
@@ -179,7 +199,14 @@ class GroupPresetTableWidget(QGroupBox):
         if filename:
             load_system_config(filename, mmcore=self._mmc)
 
+    def _edit_cfg(self) -> None:
+        if self._groups_presets_dialog.isHidden():
+            self._groups_presets_dialog.show()
+        else:
+            self._groups_presets_dialog.raise_()
+            self._groups_presets_dialog.activateWindow()
+
     def _disconnect(self) -> None:
         self._mmc.events.systemConfigurationLoaded.disconnect(self._populate_table)
-        # self._mmc.events.configGroupDeleted.disconnect(self._on_group_deleted)
-        # self._mmc.events.configDefined.disconnect(self._on_new_group_preset)
+        self._mmc.events.configGroupDeleted.disconnect(self._populate_table)
+        self._mmc.events.configDefined.disconnect(self._populate_table)
