@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import warnings
-
 from pymmcore_plus import CMMCorePlus, DeviceType
 from qtpy.QtCore import Qt
 from qtpy.QtGui import QBrush
 from qtpy.QtWidgets import QComboBox, QHBoxLayout, QWidget
 from superqt.utils import signals_blocked
-
-from ._util import block_core
 
 
 class PresetsWidget(QWidget):
@@ -71,25 +67,8 @@ class PresetsWidget(QWidget):
 
         self._mmc.events.configDeleted.connect(self._on_preset_deleted)
         self._mmc.events.configGroupDeleted.connect(self._on_group_deleted)
-        self._mmc.events.configDefined.connect(self._on_new_group_preset)
 
         self.destroyed.connect(self._disconnect)
-
-        self._delete_presets_with_different_properties()
-
-    def _delete_presets_with_different_properties(self) -> None:
-        """Prevent the group to have presets containing different properties."""
-        for preset in self._presets:
-            if preset == self._presets[0]:
-                continue
-
-            dpv = [
-                (k[0], k[1], k[2]) for k in self._mmc.getConfigData(self._group, preset)
-            ]
-            d, v, p = dpv[0]
-            self._on_new_group_preset(self._group, preset, d, p, v)
-
-            self._presets = list(self._mmc.getAvailableConfigs(self._group))
 
     def _on_text_activate(self, text: str) -> None:
         # used if there is only 1 preset and you want to set it
@@ -227,68 +206,9 @@ class PresetsWidget(QWidget):
                     break
         return _to_delete
 
-    def _on_new_group_preset(
-        self, group: str, preset: str, device: str, property: str, value: str
-    ) -> None:
-        if group != self._group:
-            return
-
-        if not device or not property or not value:
-            self._refresh()
-            return
-
-        # remove any of the [(dev, prop, value), ...] in the new preset
-        # that are not in the group
-        if (
-            self._mmc.isGroupDefined(group)
-            and len(self._mmc.getAvailableConfigs(group)) > 1
-            and self.dev_prop
-        ):
-            new_preset_dp = [
-                (k[0], k[1]) for k in self._mmc.getConfigData(self._group, preset)
-            ]
-
-            _to_delete = self._find_dev_prop_to_remove(preset)
-
-            if _to_delete:
-                warnings.warn(
-                    f"{_to_delete} are not included in the '{self._group}' "
-                    "group and will not be added!",
-                    stacklevel=2,
-                )
-
-                dev_prop_val = [
-                    (k[0], k[1], k[2]) for k in self._mmc.getConfigData(group, preset)
-                ]
-
-                with block_core(self._mmc.events):
-                    self._mmc.deleteConfig(group, preset)
-
-                    for d, p, v in dev_prop_val:
-                        if (d, p) not in _to_delete:
-                            self._mmc.defineConfig(group, preset, d, p, v)
-
-            # if the new preset won't have any (dev, prop, val)
-            if len(_to_delete) == len(new_preset_dp):
-                self._refresh()
-                return
-
-        preset_dev_props = self._get_preset_dev_prop(self._group, preset)
-
-        if len(preset_dev_props) != len(set(self.dev_prop)) and self.dev_prop:
-            missing_props = set(self.dev_prop) - set(preset_dev_props)
-            warnings.warn(
-                f"'{preset}' preset is missing the following properties: "
-                f"{list(missing_props)}.",
-                stacklevel=2,
-            )
-
-        self._refresh()
-
     def _disconnect(self) -> None:
         self._mmc.events.configSet.disconnect(self._on_cfg_set)
         self._mmc.events.systemConfigurationLoaded.disconnect(self._refresh)
         self._mmc.events.propertyChanged.disconnect(self._on_property_changed)
         self._mmc.events.configDeleted.disconnect(self._on_preset_deleted)
         self._mmc.events.configGroupDeleted.disconnect(self._on_group_deleted)
-        self._mmc.events.configDefined.disconnect(self._on_new_group_preset)
