@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-from typing import Iterable
-
 from pymmcore_plus import CMMCorePlus
 from pymmcore_plus.model import ConfigGroup, ConfigPreset, Setting
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import (
-    QCheckBox,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
-    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -21,7 +17,14 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
-from pymmcore_widgets._device_property_table import DevicePropertyTable
+from ._properties_groupboxes import (
+    _CameraGroupBox,
+    _LightPathGroupBox,
+    _ObjectiveGroupBox,
+    _OtherGroupBox,
+    _PropertiesGroupBox,
+    _StageGroupBox,
+)
 
 
 class ListWidget(QGroupBox):
@@ -98,15 +101,37 @@ class GroupPresetDialog(QWidget):
         self._preset_list.activate.clicked.connect(self._activate_preset)
 
         # Properties -----------------------------------------------------
-        self._props_group = _PropertiesGroupBox(self, mmcore=self._mmc)
-        self._props_group.valueChanged.connect(self._on_value_changed)
+        self._light_group = _LightPathGroupBox(self, mmcore=self._mmc)
+        self._light_group.valueChanged.connect(self._on_value_changed)
+        self._camera_group = _CameraGroupBox(self, mmcore=self._mmc)
+        self._camera_group.valueChanged.connect(self._on_value_changed)
+        self._stage_group = _StageGroupBox(self, mmcore=self._mmc)
+        self._stage_group.valueChanged.connect(self._on_value_changed)
+        self._obj_group = _ObjectiveGroupBox(self, mmcore=self._mmc)
+        self._obj_group.valueChanged.connect(self._on_value_changed)
+        self._other_group = _OtherGroupBox(self, mmcore=self._mmc)
+        self._other_group.valueChanged.connect(self._on_value_changed)
+
+        self.PROP_GROUPS: list[_PropertiesGroupBox] = [
+            self._light_group,
+            self._camera_group,
+            self._stage_group,
+            self._obj_group,
+            self._other_group,
+        ]
 
         group_splitter = QSplitter(Qt.Orientation.Vertical, self)
         group_splitter.setContentsMargins(0, 0, 0, 0)
-        group_splitter.addWidget(self._props_group)
+        group_splitter.addWidget(self._light_group)
+        group_splitter.addWidget(self._camera_group)
+        group_splitter.addWidget(self._stage_group)
+        group_splitter.addWidget(self._obj_group)
+        group_splitter.addWidget(self._other_group)
         group_splitter.setStretchFactor(0, 3)
-        group_splitter.setStretchFactor(1, 1)
-        group_splitter.setStretchFactor(2, 0)
+        group_splitter.setStretchFactor(1, 3)
+        group_splitter.setStretchFactor(2, 3)
+        group_splitter.setStretchFactor(3, 3)
+        group_splitter.setStretchFactor(4, 3)
 
         # Buttons -----------------------------------------------------
         self._apply_button = QPushButton("Apply Changes")
@@ -159,7 +184,11 @@ class GroupPresetDialog(QWidget):
 
     def _reset(self) -> None:
         self._model_map.clear()
-        self._props_group.props.setValue([])
+
+        for prop_wdg in self.PROP_GROUPS:
+            prop_wdg.setValue([])
+            prop_wdg.setChecked(False)
+
         with signals_blocked(self._group_list):
             self._group_list.list.clear()
         with signals_blocked(self._preset_list):
@@ -190,8 +219,10 @@ class GroupPresetDialog(QWidget):
         self._group_list.list.editItem(item)
 
         self._add_preset(edit=False)
+
         # clear the properties
-        self._props_group.props.setValue([])
+        for prop_wdg in self.PROP_GROUPS:
+            prop_wdg.setValue([])
 
     def _remove_group_dialog(self) -> None:
         if (current := self._group_list.list.currentItem()) is None:
@@ -208,8 +239,8 @@ class GroupPresetDialog(QWidget):
     def _load_preset(self, name: str) -> None:
         group = self._group_list.list.currentItem().text()
         settings = self._model_map[group].presets[name].settings
-        self._props_group.props.setValue(settings)
-        self._props_group._update_filter()
+        for prop_wdg in self.PROP_GROUPS:
+            prop_wdg.setValue(settings)
 
     def _add_preset(self, *, edit: bool = True) -> None:
         group = self._group_list.list.currentItem().text()
@@ -329,10 +360,16 @@ class GroupPresetDialog(QWidget):
         group = self._group_list.list.currentItem().text()
         self._model_map[group].presets[current_name].settings = self._current_settings()
 
+        from rich import print
+
+        print(self._model_map)
+
     def _current_settings(self) -> list[Setting]:
-        return [
-            Setting(dev, prop, val) for dev, prop, val in self._props_group.settings()
-        ]
+        tmp = {}
+        for prop_wdg in self.PROP_GROUPS:
+            if prop_wdg.isChecked():
+                tmp.update({(dev, prop): val for dev, prop, val in prop_wdg.value()})
+        return [Setting(*k, v) for k, v in tmp.items()]
 
     def _validate_all_presets(self) -> bool:
         """Make sure all the groups in the _model_map have presets with settings."""
@@ -393,53 +430,3 @@ class GroupPresetDialog(QWidget):
         if filename:
             self._mmc.unloadAllDevices()
             self._mmc.loadSystemConfiguration(filename)
-
-
-class _PropertiesGroupBox(QGroupBox):
-    valueChanged = Signal()
-
-    def __init__(
-        self, parent: QWidget | None = None, mmcore: CMMCorePlus | None = None
-    ) -> None:
-        super().__init__(parent)
-        self.toggled.connect(self.valueChanged)
-        self._core = mmcore or CMMCorePlus.instance()
-
-        self._filter_text = QLineEdit()
-        self._filter_text.setClearButtonEnabled(True)
-        self._filter_text.setPlaceholderText("Filter by device or property name...")
-        self._filter_text.textChanged.connect(self._update_filter)
-
-        self._show_selected = QCheckBox("Show Selected Only")
-        self._show_selected.toggled.connect(self._update_filter)
-
-        top_layout = QHBoxLayout()
-        top_layout.setContentsMargins(0, 0, 0, 0)
-        top_layout.setSpacing(5)
-        top_layout.addWidget(self._filter_text, 1)
-        top_layout.addWidget(self._show_selected)
-
-        self.props = DevicePropertyTable(self, mmcore=mmcore, connect_core=False)
-        self.props.valueChanged.connect(self.valueChanged)
-        self.props.setRowsCheckable(True)
-        self.props.filterDevices(
-            include_read_only=False,
-            include_pre_init=False,
-        )
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(5)
-        layout.addLayout(top_layout)
-        layout.addWidget(self.props)
-
-    def settings(self) -> Iterable[tuple[str, str, str]]:
-        yield from self.props.value()
-
-    def _update_filter(self) -> None:
-        filt = self._filter_text.text().lower()
-        self.props.filterDevices(
-            filt,
-            include_read_only=False,
-            include_pre_init=False,
-            selected_only=self._show_selected.isChecked(),
-        )
