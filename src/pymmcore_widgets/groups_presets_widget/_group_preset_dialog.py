@@ -4,6 +4,7 @@ from pymmcore_plus import CMMCorePlus
 from pymmcore_plus.model import ConfigGroup, ConfigPreset, Setting
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import (
+    QCheckBox,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -28,6 +29,8 @@ from ._properties_groupboxes import (
 
 
 class ListWidget(QGroupBox):
+    """A widget that displays a list of items."""
+
     itemSelectionChanged = Signal(object)
 
     def __init__(self, parent: QWidget | None = None, title: str = "") -> None:
@@ -68,6 +71,8 @@ class ListWidget(QGroupBox):
 
 
 class GroupPresetDialog(QWidget):
+    """A dialog to manage Micro-Manager groups and presets."""
+
     def __init__(
         self, parent: QWidget | None = None, mmcore: CMMCorePlus | None = None
     ) -> None:
@@ -83,34 +88,20 @@ class GroupPresetDialog(QWidget):
         self._group_list.duplicate.hide()
         self._group_list.activate.hide()
         self._group_list.list.addItems(self._mmc.getAvailableConfigGroups())
-        self._group_list.itemSelectionChanged.connect(self._load_group)
-        self._group_list.list.currentTextChanged.connect(self._on_group_name_changed)
-        self._group_list.list.itemChanged.connect(self._on_group_item_changed)
-        self._group_list.new.clicked.connect(self._add_group)
-        self._group_list.remove.clicked.connect(self._remove_group_dialog)
 
         # Presets -----------------------------------------------------
         self._active_preset_item_name = ""
         self._preset_list = ListWidget(self, title="Presets")
-        self._preset_list.itemSelectionChanged.connect(self._on_selection_changed)
-        self._preset_list.list.currentTextChanged.connect(self._on_preset_name_changed)
-        self._preset_list.list.itemChanged.connect(self._on_preset_item_changed)
-        self._preset_list.new.clicked.connect(self._add_preset)
-        self._preset_list.remove.clicked.connect(self._remove_preset_dialog)
-        self._preset_list.duplicate.clicked.connect(self._duplicate_preset)
-        self._preset_list.activate.clicked.connect(self._activate_preset)
+
+        # Show Selected Checkbox -------------------------------------
+        self._show_checked = QCheckBox("Show Selected")
 
         # Properties -----------------------------------------------------
         self._light_group = _LightPathGroupBox(self, mmcore=self._mmc)
-        self._light_group.valueChanged.connect(self._on_value_changed)
         self._camera_group = _CameraGroupBox(self, mmcore=self._mmc)
-        self._camera_group.valueChanged.connect(self._on_value_changed)
         self._stage_group = _StageGroupBox(self, mmcore=self._mmc)
-        self._stage_group.valueChanged.connect(self._on_value_changed)
         self._obj_group = _ObjectiveGroupBox(self, mmcore=self._mmc)
-        self._obj_group.valueChanged.connect(self._on_value_changed)
         self._other_group = _OtherGroupBox(self, mmcore=self._mmc)
-        self._other_group.valueChanged.connect(self._on_value_changed)
 
         self.PROP_GROUPS: list[_PropertiesGroupBox] = [
             self._light_group,
@@ -127,11 +118,20 @@ class GroupPresetDialog(QWidget):
         group_splitter.addWidget(self._stage_group)
         group_splitter.addWidget(self._obj_group)
         group_splitter.addWidget(self._other_group)
-        group_splitter.setStretchFactor(0, 3)
-        group_splitter.setStretchFactor(1, 3)
-        group_splitter.setStretchFactor(2, 3)
-        group_splitter.setStretchFactor(3, 3)
-        group_splitter.setStretchFactor(4, 3)
+        group_splitter.setStretchFactor(0, 10)
+        group_splitter.setStretchFactor(1, 10)
+        group_splitter.setStretchFactor(2, 10)
+        group_splitter.setStretchFactor(3, 10)
+        group_splitter.setStretchFactor(4, 10)
+
+        props_group = QGroupBox()
+        props_group_layout = QVBoxLayout(props_group)
+        props_group_layout.setContentsMargins(10, 10, 10, 10)
+        props_group_layout.setSpacing(5)
+        props_group_layout.addWidget(group_splitter)
+        props_group_layout.addWidget(
+            self._show_checked, alignment=Qt.AlignmentFlag.AlignRight
+        )
 
         # Buttons -----------------------------------------------------
         self._apply_button = QPushButton("Apply Changes")
@@ -148,7 +148,7 @@ class GroupPresetDialog(QWidget):
 
         top_layout = QHBoxLayout()
         top_layout.addLayout(left_layout)
-        top_layout.addWidget(group_splitter, 1)
+        top_layout.addWidget(props_group, 1)
 
         bottom_layout = QHBoxLayout()
         bottom_layout.addStretch()
@@ -161,6 +161,28 @@ class GroupPresetDialog(QWidget):
         main_layout.addLayout(bottom_layout)
 
         self.resize(1080, 920)
+
+        # Connect signals -------------------------------------------
+
+        # list widgets
+        self._group_list.itemSelectionChanged.connect(self._load_group)
+        self._group_list.list.currentTextChanged.connect(self._on_group_name_changed)
+        self._group_list.list.itemChanged.connect(self._on_group_item_changed)
+        self._group_list.new.clicked.connect(self._add_group)
+        self._group_list.remove.clicked.connect(self._remove_group_dialog)
+
+        self._preset_list.itemSelectionChanged.connect(self._on_selection_changed)
+        self._preset_list.list.currentTextChanged.connect(self._on_preset_name_changed)
+        self._preset_list.list.itemChanged.connect(self._on_preset_item_changed)
+        self._preset_list.new.clicked.connect(self._add_preset)
+        self._preset_list.remove.clicked.connect(self._remove_preset_dialog)
+        self._preset_list.duplicate.clicked.connect(self._duplicate_preset)
+        self._preset_list.activate.clicked.connect(self._activate_preset)
+
+        # widgets
+        for prop_wdg in self.PROP_GROUPS:
+            self._show_checked.toggled.connect(prop_wdg.update_filter)
+            prop_wdg.valueChanged.connect(self._on_value_changed)
 
         # core connections
         self._mmc.events.systemConfigurationLoaded.connect(self._on_sys_config_loaded)
@@ -183,6 +205,7 @@ class GroupPresetDialog(QWidget):
         self._group_list.list.setCurrentRow(0)
 
     def _reset(self) -> None:
+        """Reset the widget to a blank state."""
         self._model_map.clear()
 
         for prop_wdg in self.PROP_GROUPS:
@@ -195,15 +218,29 @@ class GroupPresetDialog(QWidget):
             self._preset_list.list.clear()
 
     def _load_group(self, group: str) -> None:
+        """Load the selected group."""
         with signals_blocked(self._preset_list):
             self._preset_list.list.clear()
             for n in self._model_map[group].presets:
                 item = self._create_editable_item(n)
                 self._preset_list.list.addItem(item)
+
+        # uncheck the show checked checkbox to properly update the filter
+        checked = self._show_checked.isChecked()
+        self._show_checked.setChecked(False)
+
+        for prop_wdg in self.PROP_GROUPS:
+            prop_wdg.update_filter()
+
         self._preset_list.list.setCurrentRow(0)
 
+        # restore the previous state of the show checked checkbox
+        self._show_checked.setChecked(checked)
+
     def _add_group(self) -> None:
+        """Add a new group to the list."""
         self._group_list.list.clearSelection()
+        self._show_checked.setChecked(False)
 
         i = 1
         new_name = "NewGroup"
@@ -225,6 +262,7 @@ class GroupPresetDialog(QWidget):
             prop_wdg.setValue([])
 
     def _remove_group_dialog(self) -> None:
+        """Show a dialog to confirm the removal of a group."""
         if (current := self._group_list.list.currentItem()) is None:
             return
         if self._show_confirmation_dialog(
@@ -237,12 +275,14 @@ class GroupPresetDialog(QWidget):
             self._group_list.list.takeItem(self._group_list.list.currentRow())
 
     def _load_preset(self, name: str) -> None:
+        """Load the selected preset."""
         group = self._group_list.list.currentItem().text()
         settings = self._model_map[group].presets[name].settings
         for prop_wdg in self.PROP_GROUPS:
             prop_wdg.setValue(settings)
 
     def _add_preset(self, *, edit: bool = True) -> None:
+        """Add a new preset to the list."""
         group = self._group_list.list.currentItem().text()
         i = 1
         new_name = "NewPreset"
@@ -258,6 +298,7 @@ class GroupPresetDialog(QWidget):
             self._preset_list.list.editItem(item)
 
     def _remove_preset_dialog(self) -> None:
+        """Show a dialog to confirm the removal of a preset."""
         if (current := self._preset_list.list.currentItem()) is None:
             return
         if self._show_confirmation_dialog(
@@ -270,6 +311,7 @@ class GroupPresetDialog(QWidget):
             self._preset_list.list.takeItem(self._preset_list.list.currentRow())
 
     def _duplicate_preset(self) -> None:
+        """Duplicate the selected preset."""
         if (current := self._preset_list.list.currentItem()) is None:
             return
         selected = current.text()
@@ -289,6 +331,7 @@ class GroupPresetDialog(QWidget):
         self._preset_list.list.setCurrentItem(item)  # select it
 
     def _activate_preset(self) -> None:
+        """Set the selected preset as the active configuration."""
         if (current := self._preset_list.list.currentItem()) is None:
             return
         group = self._group_list.list.currentItem().text()
@@ -296,6 +339,7 @@ class GroupPresetDialog(QWidget):
             self._mmc.setProperty(dev, prop, value)
 
     def _create_editable_item(self, name: str) -> QListWidgetItem:
+        """Create a QListWidgetItem that is editable."""
         item = QListWidgetItem(name)
         item.setFlags(
             Qt.ItemFlag.ItemIsEditable
@@ -305,6 +349,7 @@ class GroupPresetDialog(QWidget):
         return item
 
     def _show_confirmation_dialog(self, parent: QWidget, title: str, text: str) -> bool:
+        """Show a confirmation dialog as a QMessageBox."""
         return (  # type: ignore
             QMessageBox.question(
                 parent,
@@ -316,13 +361,16 @@ class GroupPresetDialog(QWidget):
         )
 
     def _on_group_name_changed(self, text: str) -> None:
+        """Update the active group name."""
         self._active_group_item_name = text
 
     def _on_selection_changed(self) -> None:
+        """Load the selected preset when the selection in the preset list changes."""
         if item := self._preset_list.list.currentItem():
             self._load_preset(item.text())
 
     def _on_group_item_changed(self, item: QListWidgetItem) -> None:
+        """Update the group in the model when the item is changed."""
         new_text = item.text()
         previous_text = self._active_group_item_name
         if new_text in self._model_map and new_text != previous_text:
@@ -337,9 +385,11 @@ class GroupPresetDialog(QWidget):
             self._active_group_item_name = new_text
 
     def _on_preset_name_changed(self, text: str) -> None:
+        """Update the active preset name."""
         self._active_preset_item_name = text
 
     def _on_preset_item_changed(self, item: QListWidgetItem) -> None:
+        """Update the preset in the model when the item is changed."""
         new_text = item.text()
         previous_text = self._active_preset_item_name
         group = self._group_list.list.currentItem().text()
@@ -354,17 +404,15 @@ class GroupPresetDialog(QWidget):
             self._active_preset_item_name = new_text
 
     def _on_value_changed(self) -> None:
+        """Update the settings of the current preset in the model."""
         if (current := self._preset_list.list.currentItem()) is None:
             return
         current_name = current.text()
         group = self._group_list.list.currentItem().text()
         self._model_map[group].presets[current_name].settings = self._current_settings()
 
-        from rich import print
-
-        print(self._model_map)
-
     def _current_settings(self) -> list[Setting]:
+        """Return the current settings of the properties groupboxes."""
         tmp = {}
         for prop_wdg in self.PROP_GROUPS:
             if prop_wdg.isChecked():

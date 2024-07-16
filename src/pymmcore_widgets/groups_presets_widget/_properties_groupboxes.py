@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 
 
 class _PropertiesGroupBox(QGroupBox):
+    """Base class for all property group boxes."""
+
     valueChanged = Signal()
 
     def __init__(
@@ -41,6 +43,7 @@ class _PropertiesGroupBox(QGroupBox):
         self.props.setRowsCheckable(True)
 
     def value(self) -> Iterable[tuple[str, str, str]]:
+        """Yield all the properties that are checked."""
         for d, p, v in self.props.value():
             with contextlib.suppress(IndexError):
                 item = self.props.findItems(f"{d}-{p}", Qt.MatchFlag.MatchExactly)[0]
@@ -49,6 +52,9 @@ class _PropertiesGroupBox(QGroupBox):
                     yield d, p, v
 
     def setValue(self, values: Sequence[tuple[str, str, str] | Setting]) -> None:
+        """Set the properties and check the group box if any property is set."""
+        # Check if the group box should be checked or not depending on the values.
+        # the properties are set only if the row is not hidden.
         _to_add = []
         for d, p, v in values:
             with contextlib.suppress(IndexError):
@@ -61,10 +67,17 @@ class _PropertiesGroupBox(QGroupBox):
         self.props.setValue(_to_add)
         self.setChecked(bool(_to_add))
 
+    def update_filter(self, checked: bool = False) -> None:
+        """Show only the selected properties."""
+        self.props.filterDevices(selected_only=checked)
+
 
 def light_path_predicate(prop: DeviceProperty) -> bool | None:
+    """Predicate to filter the light path properties."""
     devtype = prop.deviceType()
-    if devtype == DeviceType.Shutter:
+    # exclude all shutter devices but the Multi Shutter Utility  since we need to be
+    # able to set which shutter to use withuin the Multi Shutter.
+    if devtype == DeviceType.Shutter and "Physical Shutter" not in prop.name:
         return False
     if any(x in prop.device for x in prop.core.guessObjectiveDevices()):
         return False
@@ -72,28 +85,20 @@ def light_path_predicate(prop: DeviceProperty) -> bool | None:
 
 
 class _LightPathGroupBox(_PropertiesGroupBox):
+    """GroupBox to select the properties related to the light path."""
+
     def __init__(
         self, parent: QWidget | None = None, mmcore: CMMCorePlus | None = None
     ) -> None:
         super().__init__("Light Path", parent, mmcore)
 
+        # add active shutter combobox
         self.active_shutter = QComboBox(self)
         shutters = self._mmc.getLoadedDevicesOfType(DeviceType.Shutter)
         self.active_shutter.addItems(("", *shutters))
         self.active_shutter.currentIndexChanged.connect(self.valueChanged)
 
-        self.props.filterDevices(
-            exclude_devices=[
-                DeviceType.Camera,
-                DeviceType.Core,
-                DeviceType.AutoFocus,
-                DeviceType.Stage,
-                DeviceType.XYStage,
-            ],
-            include_read_only=False,
-            include_pre_init=False,
-            predicate=light_path_predicate,
-        )
+        self.update_filter()
 
         shutter_layout = QHBoxLayout()
         shutter_layout.setContentsMargins(2, 0, 0, 0)
@@ -108,6 +113,7 @@ class _LightPathGroupBox(_PropertiesGroupBox):
         layout.addWidget(self.props)
 
     def value(self) -> Iterable[tuple[str, str, str]]:
+        """Yield all the properties that are checked."""
         yield from super().value()
         yield (
             Keyword.CoreDevice.value,
@@ -116,6 +122,7 @@ class _LightPathGroupBox(_PropertiesGroupBox):
         )
 
     def setValue(self, values: Sequence[tuple[str, str, str] | Setting]) -> None:
+        """Set the properties and check the group box if any property is set."""
         enable: bool = False
         _to_add = []
         for d, p, v in values:
@@ -134,23 +141,38 @@ class _LightPathGroupBox(_PropertiesGroupBox):
         self.props.setValue(_to_add)
         self.setChecked(bool(enable or _to_add))
 
+    def update_filter(self, checked: bool = False) -> None:
+        """Show only the selected properties."""
+        self.props.filterDevices(
+            exclude_devices=[
+                DeviceType.Camera,
+                DeviceType.Core,
+                DeviceType.AutoFocus,
+                DeviceType.Stage,
+                DeviceType.XYStage,
+            ],
+            include_read_only=False,
+            include_pre_init=False,
+            predicate=light_path_predicate,
+            selected_only=checked,
+        )
+
 
 class _CameraGroupBox(_PropertiesGroupBox):
+    """GroupBox to select the properties related to the cameras."""
+
     def __init__(
         self, parent: QWidget | None = None, mmcore: CMMCorePlus | None = None
     ) -> None:
         super().__init__("Camera", parent, mmcore)
 
+        # add active camera combobox
         self.active_camera = QComboBox(self)
         cameras = self._mmc.getLoadedDevicesOfType(DeviceType.Camera)
         self.active_camera.addItems(("", *cameras))
         self.active_camera.currentIndexChanged.connect(self.valueChanged)
 
-        self.props.filterDevices(
-            include_devices=[DeviceType.Camera],
-            include_read_only=False,
-            include_pre_init=False,
-        )
+        self.update_filter()
 
         camera_layout = QHBoxLayout()
         camera_layout.setContentsMargins(2, 0, 0, 0)
@@ -164,6 +186,7 @@ class _CameraGroupBox(_PropertiesGroupBox):
         layout.addWidget(self.props)
 
     def value(self) -> Iterable[tuple[str, str, str]]:
+        """Yield all the properties that are checked."""
         yield from super().value()
         yield (
             Keyword.CoreDevice.value,
@@ -172,6 +195,7 @@ class _CameraGroupBox(_PropertiesGroupBox):
         )
 
     def setValue(self, values: Sequence[tuple[str, str, str] | Setting]) -> None:
+        """Set the properties and check the group box if any property is set."""
         enable: bool = False
         _to_add = []
         for d, p, v in values:
@@ -190,28 +214,37 @@ class _CameraGroupBox(_PropertiesGroupBox):
         self.props.setValue(_to_add)
         self.setChecked(bool(enable or _to_add))
 
+    def update_filter(self, checked: bool = False) -> None:
+        """Show only the selected properties."""
+        self.props.filterDevices(
+            include_devices=[DeviceType.Camera],
+            include_read_only=False,
+            include_pre_init=False,
+            selected_only=checked,
+        )
+
 
 class _StageGroupBox(_PropertiesGroupBox):
+    """GroupBox to select the properties related to the stages."""
+
     def __init__(
         self, parent: QWidget | None = None, mmcore: CMMCorePlus | None = None
     ) -> None:
         super().__init__("Stage", parent, mmcore)
 
-        self.active_z_stage = QComboBox(self)
-        stages = self._mmc.getLoadedDevicesOfType(DeviceType.Stage)
-        self.active_z_stage.addItems(("", *stages))
-        self.active_z_stage.currentIndexChanged.connect(self.valueChanged)
-
+        # add active xy stage combobox
         self.active_xy_stage = QComboBox(self)
         xy_stages = self._mmc.getLoadedDevicesOfType(DeviceType.XYStage)
         self.active_xy_stage.addItems(("", *xy_stages))
         self.active_xy_stage.currentIndexChanged.connect(self.valueChanged)
 
-        self.props.filterDevices(
-            include_devices=[DeviceType.Stage, DeviceType.XYStage],
-            include_read_only=False,
-            include_pre_init=False,
-        )
+        # add active x stage combobox
+        self.active_z_stage = QComboBox(self)
+        stages = self._mmc.getLoadedDevicesOfType(DeviceType.Stage)
+        self.active_z_stage.addItems(("", *stages))
+        self.active_z_stage.currentIndexChanged.connect(self.valueChanged)
+
+        self.update_filter()
 
         stage_layout = QHBoxLayout()
         stage_layout.setContentsMargins(0, 0, 0, 0)
@@ -227,6 +260,7 @@ class _StageGroupBox(_PropertiesGroupBox):
         layout.addWidget(self.props)
 
     def value(self) -> Iterable[tuple[str, str, str]]:
+        """Yield all the properties that are checked."""
         yield from super().value()
         yield (
             Keyword.CoreDevice.value,
@@ -240,6 +274,7 @@ class _StageGroupBox(_PropertiesGroupBox):
         )
 
     def setValue(self, values: Sequence[tuple[str, str, str] | Setting]) -> None:
+        """Set the properties and check the group box if any property is set."""
         enable: bool = False
         _to_add = []
         for d, p, v in values:
@@ -262,19 +297,25 @@ class _StageGroupBox(_PropertiesGroupBox):
         self.props.setValue(_to_add)
         self.setChecked(bool(enable or _to_add))
 
+    def update_filter(self, checked: bool = False) -> None:
+        """Show only the selected properties."""
+        self.props.filterDevices(
+            include_devices=[DeviceType.Stage, DeviceType.XYStage],
+            include_read_only=False,
+            include_pre_init=False,
+            selected_only=checked,
+        )
+
 
 class _ObjectiveGroupBox(_PropertiesGroupBox):
+    """GroupBox to select the properties related to the objectives."""
+
     def __init__(
         self, parent: QWidget | None = None, mmcore: CMMCorePlus | None = None
     ) -> None:
         super().__init__("Objective", parent, mmcore)
 
-        self.props.filterDevices(
-            include_devices=[DeviceType.StateDevice],
-            include_read_only=False,
-            include_pre_init=False,
-            predicate=self._objective_predicate,
-        )
+        self.update_filter()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -288,6 +329,16 @@ class _ObjectiveGroupBox(_PropertiesGroupBox):
             if prop.device not in obj_devices:
                 return False
         return None
+
+    def update_filter(self, checked: bool = False) -> None:
+        """Show only the selected properties."""
+        self.props.filterDevices(
+            include_devices=[DeviceType.StateDevice],
+            include_read_only=False,
+            include_pre_init=False,
+            predicate=self._objective_predicate,
+            selected_only=checked,
+        )
 
 
 def other_predicate(prop: DeviceProperty) -> bool | None:
@@ -303,24 +354,32 @@ def other_predicate(prop: DeviceProperty) -> bool | None:
 
 
 class _OtherGroupBox(_PropertiesGroupBox):
+    """GroupBox to select the properties related to the general devices."""
+
     def __init__(
         self, parent: QWidget | None = None, mmcore: CMMCorePlus | None = None
     ) -> None:
         super().__init__("Other", parent, mmcore)
 
+        self.update_filter()
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(0)
+        layout.addWidget(self.props)
+
+    def update_filter(self, checked: bool = False) -> None:
+        """Show only the selected properties."""
         self.props.filterDevices(
             exclude_devices=[
                 DeviceType.Camera,
                 DeviceType.Stage,
                 DeviceType.XYStage,
                 DeviceType.StateDevice,
+                DeviceType.Shutter,
             ],
             include_read_only=False,
             include_pre_init=False,
             predicate=other_predicate,
+            selected_only=checked,
         )
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(0)
-        layout.addWidget(self.props)
