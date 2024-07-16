@@ -46,7 +46,7 @@ class _GroupsPresetsTable(QTableWidget):
         self.setHorizontalHeaderLabels(["Group", "Preset"])
 
 
-class GroupPresetTableWidget(QGroupBox):
+class GroupPresetWidget(QGroupBox):
     """A Widget to create, edit, delete and set micromanager group presets.
 
     Parameters
@@ -118,7 +118,7 @@ class GroupPresetTableWidget(QGroupBox):
 
         self._populate_table()
 
-        self.resize(self.minimumSizeHint())
+        self.resize(self.sizeHint())
 
     def _populate_table(self) -> None:
         self._reset_table()

@@ -28,7 +28,7 @@ from ._property_widget import PropertyWidget
 from ._shutter_widget import ShuttersWidget
 from ._snap_button_widget import SnapButton
 from ._stage_widget import StageWidget
-from .groups_presets_widget import GroupPresetDialog
+from .group_preset_widget import GroupPresetDialog, GroupPresetWidget
 from .hcwizard import ConfigWizard
 from .mda import MDAWidget
 from .useq_widgets import (
@@ -78,6 +78,7 @@ __all__ = [
     "DeviceWidget",
     "ExposureWidget",
     "GridPlanWidget",
+    "GroupPresetWidget",
     "GroupPresetTableWidget",
     "ImagePreview",
     "InstallWidget",

@@ -8,6 +8,8 @@ from qtpy.QtWidgets import (
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
+    QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -18,7 +20,7 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
-from ._properties_groupboxes import (
+from ._properties_tables import (
     _CameraGroupBox,
     _LightPathGroupBox,
     _ObjectiveGroupBox,
@@ -35,7 +37,9 @@ class ListWidget(QGroupBox):
 
     def __init__(self, parent: QWidget | None = None, title: str = "") -> None:
         super().__init__(parent)
-        self.setTitle(title)
+
+        label = QLabel(title)
+        label.setStyleSheet("font-weight: bold;")
 
         self.list = QListWidget()
         self.list.setEditTriggers(
@@ -57,11 +61,20 @@ class ListWidget(QGroupBox):
         button_column.addWidget(self.activate)
         button_column.addStretch()
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(5)
-        layout.addWidget(self.list)
-        layout.addLayout(button_column)
+        title_layout = QHBoxLayout()
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.addWidget(label, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        list_layout = QHBoxLayout()
+        list_layout.setContentsMargins(0, 0, 0, 0)
+        list_layout.setSpacing(5)
+        list_layout.addWidget(self.list)
+        list_layout.addLayout(button_column)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.addLayout(title_layout)
+        main_layout.addLayout(list_layout)
 
     def _on_selection_changed(self) -> None:
         item = self.list.currentItem()
@@ -93,10 +106,19 @@ class GroupPresetDialog(QWidget):
         self._active_preset_item_name = ""
         self._preset_list = ListWidget(self, title="Presets")
 
-        # Show Selected Checkbox -------------------------------------
+        # Filter LineEdit ---------------------------------------------
+        self._filter_text = QLineEdit()
+        self._filter_text.setClearButtonEnabled(True)
+        self._filter_text.setPlaceholderText("Filter by device or property name...")
+
+        # Show Selected Checkbox --------------------------------------
         self._show_checked = QCheckBox("Show Selected")
 
-        # Properties -----------------------------------------------------
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(self._filter_text, 1)
+        filter_layout.addWidget(self._show_checked)
+
+        # Properties --------------------------------------------------
         self._light_group = _LightPathGroupBox(self, mmcore=self._mmc)
         self._camera_group = _CameraGroupBox(self, mmcore=self._mmc)
         self._stage_group = _StageGroupBox(self, mmcore=self._mmc)
@@ -118,20 +140,19 @@ class GroupPresetDialog(QWidget):
         group_splitter.addWidget(self._stage_group)
         group_splitter.addWidget(self._obj_group)
         group_splitter.addWidget(self._other_group)
-        group_splitter.setStretchFactor(0, 10)
-        group_splitter.setStretchFactor(1, 10)
-        group_splitter.setStretchFactor(2, 10)
-        group_splitter.setStretchFactor(3, 10)
-        group_splitter.setStretchFactor(4, 10)
+
+        # Set initial sizes for the splitter
+        group_splitter.setSizes([1, 1, 1, 1, 1])
 
         props_group = QGroupBox()
         props_group_layout = QVBoxLayout(props_group)
         props_group_layout.setContentsMargins(10, 10, 10, 10)
         props_group_layout.setSpacing(5)
+        props_group_layout.addLayout(filter_layout)
         props_group_layout.addWidget(group_splitter)
-        props_group_layout.addWidget(
-            self._show_checked, alignment=Qt.AlignmentFlag.AlignRight
-        )
+        # props_group_layout.addWidget(
+        #     self._show_checked, alignment=Qt.AlignmentFlag.AlignRight
+        # )
 
         # Buttons -----------------------------------------------------
         self._apply_button = QPushButton("Apply Changes")
@@ -142,12 +163,12 @@ class GroupPresetDialog(QWidget):
         self._load_button.clicked.connect(self._load_cfg)
 
         # Layout -----------------------------------------------------
-        left_layout = QVBoxLayout()
-        left_layout.addWidget(self._group_list)
-        left_layout.addWidget(self._preset_list)
+        list_layout = QVBoxLayout()
+        list_layout.addWidget(self._group_list)
+        list_layout.addWidget(self._preset_list)
 
         top_layout = QHBoxLayout()
-        top_layout.addLayout(left_layout)
+        top_layout.addLayout(list_layout)
         top_layout.addWidget(props_group, 1)
 
         bottom_layout = QHBoxLayout()
@@ -181,7 +202,8 @@ class GroupPresetDialog(QWidget):
 
         # widgets
         for prop_wdg in self.PROP_GROUPS:
-            self._show_checked.toggled.connect(prop_wdg.update_filter)
+            self._show_checked.toggled.connect(self._update_filter)
+            self._filter_text.textChanged.connect(self._update_filter)
             prop_wdg.valueChanged.connect(self._on_value_changed)
 
         # core connections
@@ -192,6 +214,13 @@ class GroupPresetDialog(QWidget):
     def value(self) -> dict[str, ConfigGroup]:
         """Return the current state of the widget."""
         return self._model_map
+
+    def _update_filter(self) -> None:
+        """Update the filter of the properties groupboxes."""
+        for prop_wdg in self.PROP_GROUPS:
+            prop_wdg.update_filter(
+                query=self._filter_text.text(), checked=self._show_checked.isChecked()
+            )
 
     def _on_sys_config_loaded(self) -> None:
         """Update the widget when the system configuration is loaded."""
@@ -227,14 +256,14 @@ class GroupPresetDialog(QWidget):
 
         # uncheck the show checked checkbox to properly update the filter
         checked = self._show_checked.isChecked()
+        filter_text = self._filter_text.text()
+        self._filter_text.setText("")
         self._show_checked.setChecked(False)
-
-        for prop_wdg in self.PROP_GROUPS:
-            prop_wdg.update_filter()
 
         self._preset_list.list.setCurrentRow(0)
 
         # restore the previous state of the show checked checkbox
+        self._filter_text.setText(filter_text)
         self._show_checked.setChecked(checked)
 
     def _add_group(self) -> None:
@@ -278,8 +307,16 @@ class GroupPresetDialog(QWidget):
         """Load the selected preset."""
         group = self._group_list.list.currentItem().text()
         settings = self._model_map[group].presets[name].settings
+
+        # store filter stata
+        query = self._filter_text.text()
+        checked = self._show_checked.isChecked()
         for prop_wdg in self.PROP_GROUPS:
+            # remove any filyter to properly update the properties
+            prop_wdg.update_filter()
             prop_wdg.setValue(settings)
+            # restore the previous filter state
+            prop_wdg.update_filter(query=query, checked=checked)
 
     def _add_preset(self, *, edit: bool = True) -> None:
         """Add a new preset to the list."""
