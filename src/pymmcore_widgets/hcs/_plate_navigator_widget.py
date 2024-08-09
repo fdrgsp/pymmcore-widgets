@@ -214,7 +214,7 @@ class _WellPlateView(WellPlateView):
         """
         # NOTE: rewriting the whole method to use the _HoverWellItem
 
-        self.clear()
+        self._scene.clear()
 
         if isinstance(plan, useq.WellPlate):  # pragma: no cover
             plan = useq.WellPlatePlan(a1_center_xy=(0, 0), plate=plan)
@@ -275,7 +275,7 @@ class _WellPlateView(WellPlateView):
         """
         # NOTE: rewriting the whole method to use the _PresetPositionItem
 
-        self.clear()
+        self._scene.clear()
 
         if isinstance(plan, useq.WellPlate):  # pragma: no cover
             plan = useq.WellPlatePlan(a1_center_xy=(0, 0), plate=plan)
