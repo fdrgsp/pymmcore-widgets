@@ -41,9 +41,5 @@ class HCSCalibrationWidget(QWidget):
 
     def _on_calibration(self, state: bool) -> None:
         """Update the plate navigator widget when the calibration state changes."""
-        if not state:
-            self._plate_navigator_widget.clear()
-            return
-
-        plate_plan = self._plate_calibration_widget.platePlan()
+        plate_plan = self._plate_calibration_widget.platePlan() if state else None
         self._plate_navigator_widget.setPlate(plate_plan)
