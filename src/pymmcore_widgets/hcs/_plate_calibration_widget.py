@@ -87,6 +87,7 @@ class PlateCalibrationWidget(QWidget):
         info_layout.addWidget(self._info, 1)
 
         main = QVBoxLayout(self)
+        main.setContentsMargins(10, 10, 10, 10)
         main.addLayout(top)
         main.addLayout(info_layout)
 
