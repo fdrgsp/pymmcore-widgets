@@ -8,9 +8,9 @@ import useq
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import (
+    QCheckBox,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QStackedWidget,
     QStyle,
     QVBoxLayout,
@@ -18,6 +18,7 @@ from qtpy.QtWidgets import (
 )
 from superqt.fonticon import icon
 
+from pymmcore_widgets._util import SeparatorWidget
 from pymmcore_widgets.hcs._well_calibration_widget import (
     CALIBRATED_ICON,
     GREEN,
@@ -56,9 +57,8 @@ class PlateCalibrationWidget(QWidget):
         self._plate_view.setSelectionMode(WellPlateView.SelectionMode.SingleSelection)
         self._plate_view.setSelectedColor(Qt.GlobalColor.yellow)
 
-        self._test_btn = QPushButton("Test Well", self)
-        self._test_btn.setEnabled(False)
-        self._test_btn.hide()
+        self._test_checkbox = QCheckBox("Test Calibration", self)
+        self._test_checkbox.setEnabled(False)
 
         # mapping of well index (r, c) to calibration widget
         # these are created on demand in _get_or_create_well_calibration_widget
@@ -74,13 +74,13 @@ class PlateCalibrationWidget(QWidget):
         right_layout = QVBoxLayout()
         right_layout.setContentsMargins(6, 0, 0, 0)
         right_layout.addWidget(self._calibration_widget_stack)
-        # right_layout.addWidget(SeparatorWidget())
-        # right_layout.addWidget(self._test_btn)
+        right_layout.addWidget(SeparatorWidget())
+        right_layout.addWidget(self._test_checkbox)
         right_layout.addStretch()
 
-        top = QHBoxLayout()
-        top.addWidget(self._plate_view, 1)
-        top.addLayout(right_layout)
+        self.top = QHBoxLayout()
+        self.top.addWidget(self._plate_view, 1)
+        self.top.addLayout(right_layout)
 
         info_layout = QHBoxLayout()
         info_layout.addWidget(self._info_icon, 0)
@@ -88,7 +88,7 @@ class PlateCalibrationWidget(QWidget):
 
         main = QVBoxLayout(self)
         main.setContentsMargins(10, 10, 10, 10)
-        main.addLayout(top)
+        main.addLayout(self.top)
         main.addLayout(info_layout)
 
         # CONNECTIONS ---------------------------------------------------------
@@ -202,11 +202,11 @@ class PlateCalibrationWidget(QWidget):
             self._calibration_widget_stack.setCurrentWidget(well_calib_wdg)
 
         # enable/disable test button
-        self._test_btn.setEnabled(idx in self._calibrated_wells)
+        self._test_checkbox.setEnabled(idx in self._calibrated_wells)
 
     def _on_well_calibration_changed(self, calibrated: bool) -> None:
         """The current well calibration state has been changed."""
-        self._test_btn.setEnabled(calibrated)
+        self._test_checkbox.setEnabled(calibrated)
         if idx := self._selected_well_index():
             # update the color of the well in the plate view accordingly
             if calibrated and (well_calib_wdg := self._current_calibration_widget()):
