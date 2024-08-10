@@ -201,12 +201,8 @@ class PlateCalibrationWidget(QWidget):
             well_calib_wdg = self._get_or_create_well_calibration_widget(idx)
             self._calibration_widget_stack.setCurrentWidget(well_calib_wdg)
 
-        # enable/disable test button
-        self._test_checkbox.setEnabled(idx in self._calibrated_wells)
-
     def _on_well_calibration_changed(self, calibrated: bool) -> None:
         """The current well calibration state has been changed."""
-        self._test_checkbox.setEnabled(calibrated)
         if idx := self._selected_well_index():
             # update the color of the well in the plate view accordingly
             if calibrated and (well_calib_wdg := self._current_calibration_widget()):
@@ -220,6 +216,7 @@ class PlateCalibrationWidget(QWidget):
         osr = self._origin_spacing_rotation()
         fully_calibrated = osr is not None
         self._update_info(osr)
+        self._test_checkbox.setEnabled(fully_calibrated)
         self.calibrationChanged.emit(fully_calibrated)
 
     def _update_info(

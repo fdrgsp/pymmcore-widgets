@@ -12,6 +12,7 @@ wdg.setPlate("96-well")
 wdg.show()
 
 s = StageWidget("XY")
+s.setStep(9000)
 s.show()
 
 app.exec()
