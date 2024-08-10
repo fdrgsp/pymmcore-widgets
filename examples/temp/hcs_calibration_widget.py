@@ -14,4 +14,4 @@ wdg.show()
 s = StageWidget("XY")
 s.show()
 
-# app.exec()
+app.exec()
