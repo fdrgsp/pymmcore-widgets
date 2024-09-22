@@ -54,7 +54,7 @@ dependencies = [
     'pymmcore-plus[cli] >=0.11.0',
     'qtpy >=2.0',
     'superqt[quantity] >=0.6.5',
-    'useq-schema >=0.4.7',
+    'useq-schema ==0.4.7',
     "cmap",
     "pyconify",
 ]
