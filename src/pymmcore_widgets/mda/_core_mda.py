@@ -256,14 +256,14 @@ class MDAWidget(MDASequenceWidget):
     # ------------------- private Methods ----------------------
 
     def _on_sys_config_loaded(self) -> None:
-        self._update_autofocus_enablement()
+        self._update_autofocus_axis_wdg()
         # TODO: connect objective change event to update suggested step
         self.z_plan.setSuggestedStep(_guess_NA(self._mmc) or 0.5)
 
     def _on_property_changed(self, device: str, prop: str, val: str = "") -> None:
         if device != "Core" and prop != "AutoFocus":
             return
-        self._update_autofocus_enablement()
+        self._update_autofocus_axis_wdg()
         self.valueChanged.emit()
 
     def _get_current_stage_position(self) -> Position:
@@ -363,15 +363,18 @@ class MDAWidget(MDASequenceWidget):
             return
         return super()._enable_af(state, tooltip1, tooltip2)
 
-    def _update_autofocus_enablement(self) -> None:
-        if (
-            self.tab_wdg.isChecked(self.z_plan)
+    def _update_autofocus_axis_wdg(self) -> None:
+        """Update the autofocus axis and autofocus per position widgets."""
+        # enable af_axis and af_per_pos if there is an autofocus device and no absolute
+        # z plan is selected
+        af_device = (
+            None
+            if self.tab_wdg.isChecked(self.z_plan)
             and self.z_plan.mode() == Mode.TOP_BOTTOM
-        ):
-            af_device = None
-        else:
-            af_device = self._mmc.getAutoFocusDevice()
+            else self._mmc.getAutoFocusDevice()
+        )
         self.af_axis.setEnabled(bool(af_device))
+        self.stage_positions.af_per_position.setEnabled(bool(af_device))
 
 
 class _MDAControlButtons(QWidget):
