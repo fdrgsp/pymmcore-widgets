@@ -150,11 +150,6 @@ def _assert_position_wdg_state(
         if is_hidden:
             sub_seq = [v.sequence for v in pos_table.value()]
             assert all(s is None for s in sub_seq)
-        # the use autofocus checkbox should be unchecked depending af_per_pos
-        assert (
-            pos_table.af_per_position.isChecked()
-            == pos_table.af_per_position.isChecked()
-        )
         # the use autofocus checkbox should be disabled if Autofocus device is not
         # loaded/selected
         assert pos_table.af_per_position.isEnabled() == (not is_hidden)
