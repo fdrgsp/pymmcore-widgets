@@ -259,7 +259,7 @@ class CoreConnectedPositionTable(PositionTable):
         self._update_autofocus_enablement()
 
     def _on_property_changed(self, device: str, prop: str, _val: str = "") -> None:
-        """Update the autofocus device combo box when the autofocus device changes."""
+        """Enable/Disable stages columns."""
         if device == "Core":
             if prop == "XYStage":
                 self._update_xy_enablement()
