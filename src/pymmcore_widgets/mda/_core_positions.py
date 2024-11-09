@@ -64,6 +64,10 @@ class CoreConnectedPositionTable(PositionTable):
         super().__init__(rows, parent)
         self._mmc = mmcore or CMMCorePlus.instance()
 
+        # to keep track of the state of the af_per_position checkbox and re-check it
+        # when the core autofocus state changes
+        self._use_af_per_pos: bool = False
+
         # -------------- HCS Wizard ----------------
         self._hcs_wizard: HCSWizard | None = None
         self._plate_plan: WellPlatePlan | None = None
@@ -293,7 +297,11 @@ class CoreConnectedPositionTable(PositionTable):
         self.af_per_position.setEnabled(bool(af_device))
         # also hide the AF column if the autofocus device is not available
         if not af_device:
+            self._use_af_per_pos = self.af_per_position.isChecked()
             self.af_per_position.setChecked(False)
+        # recheck the AF column if it was checked before
+        elif self._use_af_per_pos:
+            self.af_per_position.setChecked(True)
         self.af_per_position.setToolTip(
             AF_DEFAULT_TOOLTIP if af_device else "AutoFocus device unavailable."
         )

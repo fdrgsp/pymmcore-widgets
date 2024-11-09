@@ -21,6 +21,7 @@ from pymmcore_widgets._util import get_next_available_path
 from pymmcore_widgets.useq_widgets import MDASequenceWidget
 from pymmcore_widgets.useq_widgets._mda_sequence import PYMMCW_METADATA_KEY, MDATabs
 from pymmcore_widgets.useq_widgets._time import TimePlanWidget
+from pymmcore_widgets.useq_widgets._z import Mode
 
 from ._core_channels import CoreConnectedChannelTable
 from ._core_grid import CoreConnectedGridPlanWidget
@@ -108,6 +109,7 @@ class MDAWidget(MDASequenceWidget):
         self._mmc.mda.events.sequenceStarted.connect(self._on_mda_started)
         self._mmc.mda.events.sequenceFinished.connect(self._on_mda_finished)
         self._mmc.events.systemConfigurationLoaded.connect(self._on_sys_config_loaded)
+        self._mmc.events.propertyChanged.connect(self._on_property_changed)
 
         self.destroyed.connect(self._disconnect)
 
@@ -254,8 +256,15 @@ class MDAWidget(MDASequenceWidget):
     # ------------------- private Methods ----------------------
 
     def _on_sys_config_loaded(self) -> None:
+        self._update_autofocus_enablement()
         # TODO: connect objective change event to update suggested step
         self.z_plan.setSuggestedStep(_guess_NA(self._mmc) or 0.5)
+
+    def _on_property_changed(self, device: str, prop: str, val: str = "") -> None:
+        if device != "Core" and prop != "AutoFocus":
+            return
+        self._update_autofocus_enablement()
+        self.valueChanged.emit()
 
     def _get_current_stage_position(self) -> Position:
         """Return the current stage position."""
@@ -342,6 +351,10 @@ class MDAWidget(MDASequenceWidget):
         with suppress(Exception):
             self._mmc.mda.events.sequenceStarted.disconnect(self._on_mda_started)
             self._mmc.mda.events.sequenceFinished.disconnect(self._on_mda_finished)
+        self._mmc.events.systemConfigurationLoaded.disconnect(
+            self._on_sys_config_loaded
+        )
+        self._mmc.events.propertyChanged.disconnect(self._on_property_changed)
 
     def _enable_af(self, state: bool, tooltip1: str, tooltip2: str) -> None:
         """Override the autofocus enablement to account for the autofocus device."""
@@ -349,6 +362,16 @@ class MDAWidget(MDASequenceWidget):
             self.stage_positions._update_autofocus_enablement()
             return
         return super()._enable_af(state, tooltip1, tooltip2)
+
+    def _update_autofocus_enablement(self) -> None:
+        if (
+            self.tab_wdg.isChecked(self.z_plan)
+            and self.z_plan.mode() == Mode.TOP_BOTTOM
+        ):
+            af_device = None
+        else:
+            af_device = self._mmc.getAutoFocusDevice()
+        self.af_axis.setEnabled(bool(af_device))
 
 
 class _MDAControlButtons(QWidget):

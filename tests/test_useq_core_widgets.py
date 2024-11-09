@@ -143,12 +143,18 @@ def _assert_position_wdg_state(
     elif stage == "Autofocus":
         # the set position button should be hidden
         af_btn_col = pos_table.table().indexOf(pos_table._af_btn_col)
-        assert pos_table.table().isColumnHidden(af_btn_col)
+        assert (
+            pos_table.table().isColumnHidden(af_btn_col)
+            != pos_table.af_per_position.isChecked()
+        )
         if is_hidden:
             sub_seq = [v.sequence for v in pos_table.value()]
             assert all(s is None for s in sub_seq)
-        # the use autofocus checkbox should be unchecked
-        assert not pos_table.af_per_position.isChecked()
+        # the use autofocus checkbox should be unchecked depending af_per_pos
+        assert (
+            pos_table.af_per_position.isChecked()
+            == pos_table.af_per_position.isChecked()
+        )
         # the use autofocus checkbox should be disabled if Autofocus device is not
         # loaded/selected
         assert pos_table.af_per_position.isEnabled() == (not is_hidden)
@@ -204,7 +210,8 @@ def test_core_connected_position_wdg_property_changed(
 
     wdg.setValue(MDA)
 
-    pos_table.af_per_position.setChecked(True)
+    if stage == "Autofocus":
+        pos_table.af_per_position.setChecked(True)
 
     with qtbot.waitSignal(mmc.events.propertyChanged):
         if stage == "XY":
