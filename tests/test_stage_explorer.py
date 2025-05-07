@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
-from qtpy.QtWidgets import QToolBar
 from vispy.app.canvas import MouseEvent
 from vispy.scene.visuals import Image
 
@@ -100,12 +99,23 @@ def test_stage_explorer_actions(qtbot: QtBot) -> None:
     qtbot.addWidget(explorer)
     explorer.add_image(IMG, 0, 0)
 
-    tb = explorer.findChild(QToolBar)
-    actions = tb.actions()
+    actions = explorer.toolBar().actions()
     snap_action = next(a for a in actions if a.text() == _stage_explorer.SNAP)
     with qtbot.waitSignal(snap_action.triggered):
         snap_action.trigger()
     assert explorer.snap_on_double_click is True
+
+    auto_action = explorer._actions[_stage_explorer.AUTO_ZOOM_TO_FIT]
+    auto_action.trigger()
+    assert explorer.auto_zoom_to_fit
+    # this turns it off
+    explorer._actions[_stage_explorer.ZOOM_TO_FIT].trigger()
+    assert not explorer.auto_zoom_to_fit
+
+    assert not explorer._grid_lines.visible
+    grid_action = explorer._actions[_stage_explorer.SHOW_GRID]
+    grid_action.trigger()
+    assert explorer._grid_lines.visible
 
 
 def test_stage_explorer_move_on_click(qtbot: QtBot) -> None:
@@ -118,6 +128,42 @@ def test_stage_explorer_move_on_click(qtbot: QtBot) -> None:
     explorer._snap_on_double_click = True
     event = MouseEvent("mouse_press", pos=(100, 100), button=1)
     with qtbot.waitSignal(explorer._mmc.events.imageSnapped):
-        explorer._move_to_clicked_position(event)
+        explorer._on_mouse_double_click(event)
 
     assert explorer._mmc.getXYPosition() != stage_pos
+
+
+def test_stage_explorer_position_indicator(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+
+    poll_action = explorer._actions[_stage_explorer.POLL_STAGE]
+    assert explorer._poll_stage_position is True
+    assert explorer._timer_id is not None
+
+    # wait for timerEvent to be triggered
+    qtbot.waitUntil(lambda: explorer._stage_pos_marker is not None, timeout=1000)
+    assert explorer._stage_pos_marker is not None
+    assert explorer._stage_pos_marker.visible
+
+    with qtbot.waitSignal(poll_action.triggered):
+        poll_action.trigger()
+
+    assert explorer._poll_stage_position is False
+    assert explorer._stage_pos_marker is None
+    assert explorer._timer_id is None
+
+
+def test_mouse_hover_shows_position(qtbot: QtBot) -> None:
+    viewer = StageViewer()
+    viewer.show()
+    qtbot.addWidget(viewer)
+    viewer.set_hover_label_visible(True)
+
+    # Simulate mouse move event
+    event = MouseEvent("mouse_move", pos=(100, 2))
+    viewer._on_mouse_move(event)
+
+    # Check if the hover label is visible and shows the correct position
+    assert viewer._hover_pos_label.isVisible()
+    assert viewer._hover_pos_label.text().startswith("(")

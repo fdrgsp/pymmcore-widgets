@@ -10,7 +10,11 @@ mmc = CMMCorePlus.instance()
 mmc.loadSystemConfiguration()
 
 # set camera roi (rectangular helps confirm orientation)
-mmc.setROI(0, 0, 400, 500)
+mmc.setROI(0, 0, 400, 600)
+
+xy = mmc.getXYStageDevice()
+if mmc.hasProperty(xy, "Velocity"):
+    mmc.setProperty(xy, "Velocity", 2)
 
 explorer = StageExplorer()
 
@@ -22,7 +26,6 @@ z_ctrl = StageWidget(mmc.getFocusDevice())
 z_ctrl.snap_checkbox.setChecked(True)
 
 mda_widget = MDAWidget()
-
 
 group_wdg = GroupPresetTableWidget()
 splitter = QSplitter()
@@ -38,4 +41,4 @@ rlayout.addWidget(mda_widget)
 splitter.addWidget(right)
 splitter.show()
 
-# app.exec()
+app.exec()
