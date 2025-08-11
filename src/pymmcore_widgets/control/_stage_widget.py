@@ -62,14 +62,14 @@ class MoveStageButton(QPushButton):
             MoveStageButton {{
                 border: none;
                 width: 38px;
-                image: url({svg_path(glyph, color="rgb(0, 180, 0)")});
+                image: url({svg_path(glyph, color="rgb(0, 180, 0)").as_posix()});
                 font-size: 38px;
             }}
             MoveStageButton:hover:!pressed {{
-                image: url({svg_path(glyph, color="lime")});
+                image: url({svg_path(glyph, color="lime").as_posix()});
             }}
             MoveStageButton:pressed {{
-                image: url({svg_path(glyph, color="green")});
+                image: url({svg_path(glyph, color="green").as_posix()});
             }}
             """
         )
@@ -81,8 +81,8 @@ class MoveStageSpinBox(QDoubleSpinBox):
     def __init__(
         self,
         label: str,
-        minimum: float = -99999,
-        maximum: float = 99999,
+        minimum: float = -10000000,
+        maximum: float = 10000000,
         *args: Any,
         **kwargs: Any,
     ) -> None:
