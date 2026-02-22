@@ -162,9 +162,15 @@ class PositionTable(DataTableWidget):
     """Table to edit a list of [useq.Position](https://pymmcore-plus.github.io/useq-schema/schema/axes/#useq.Position)."""
 
     NAME = TextColumn(key="name", default=None, is_row_selector=True)
-    X = FloatColumn(key="x", header="X [µm]", default=0.0, maximum=MAX, minimum=-MAX)
-    Y = FloatColumn(key="y", header="Y [µm]", default=0.0, maximum=MAX, minimum=-MAX)
-    Z = FloatColumn(key="z", header="Z [µm]", default=0.0, maximum=MAX, minimum=-MAX)
+    X = FloatColumn(
+        key="x", header="X [µm]", default=0.0, maximum=MAX, minimum=-MAX, nullable=True
+    )
+    Y = FloatColumn(
+        key="y", header="Y [µm]", default=0.0, maximum=MAX, minimum=-MAX, nullable=True
+    )
+    Z = FloatColumn(
+        key="z", header="Z [µm]", default=0.0, maximum=MAX, minimum=-MAX, nullable=True
+    )
     AF = FloatColumn(key="af", header="AF", default=0.0, maximum=MAX, minimum=-MAX)
     SEQ = SubSeqColumn(key="sequence", header="Sub-Sequence", default=None)
 
