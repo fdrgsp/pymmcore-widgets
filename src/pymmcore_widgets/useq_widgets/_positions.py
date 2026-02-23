@@ -123,9 +123,22 @@ class MDAButton(QWidget):
             self.setValue(dialog.mda_tabs.value())
 
     def _clear_xy_for_absolute_grid(self, value: useq.MDASequence | None) -> None:
-        """Clear x/y in the parent PositionTable row if value has an absolute grid."""
+        """Set x/y to the grid's starting point for display purposes.
+
+        When a sub-sequence has an absolute grid plan, the position's x/y are
+        not used by useq-schema.  We display the first grid position so the user
+        sees where the acquisition will start; PositionTable.value() will output
+        x/y as None to avoid useq-schema validation warnings.
+        """
         if not value or not value.grid_plan or value.grid_plan.is_relative:
             return
+
+        # get the first position from the grid plan
+        first = next(iter(value.grid_plan), None)
+        if first is None:
+            return
+        grid_x = getattr(first, "x", None)
+        grid_y = getattr(first, "y", None)
 
         # walk up to find the DataTable (QTableWidget) that contains this widget
         from ._data_table import DataTable
@@ -138,7 +151,7 @@ class MDAButton(QWidget):
         else:
             return
 
-        # find which row this button is in and clear x/y atomically
+        # find which row this button is in and set x/y atomically
         table = parent
         seq_col = table.indexOf(PositionTable.SEQ)
         for row in range(table.rowCount()):
@@ -148,8 +161,8 @@ class MDAButton(QWidget):
                 # block signals so setting x then y doesn't trigger
                 # intermediate valueChanged with only one cleared
                 with signals_blocked(table):
-                    PositionTable.X.set_cell_data(table, row, x_col, None)
-                    PositionTable.Y.set_cell_data(table, row, y_col, None)
+                    PositionTable.X.set_cell_data(table, row, x_col, grid_x)
+                    PositionTable.Y.set_cell_data(table, row, y_col, grid_y)
                 break
 
     def value(self) -> useq.MDASequence | None:
@@ -281,6 +294,15 @@ class PositionTable(DataTableWidget):
                     )
                     # update the sub-sequence dict in the record
                     r["sequence"] = sub_seq
+
+            # if the sub-sequence has an absolute grid plan, x/y are display-only
+            # (showing the grid starting point); output them as None/unset
+            seq = r.get("sequence")
+            if isinstance(seq, useq.MDASequence):
+                gp = seq.grid_plan
+                if gp is not None and not gp.is_relative:
+                    r.pop("x", None)
+                    r.pop("y", None)
 
             pos = useq.Position(**r)
             out.append(pos)

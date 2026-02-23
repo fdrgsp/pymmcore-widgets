@@ -317,7 +317,8 @@ def test_position_table_set_value(qtbot: QtBot) -> None:
 
 
 def test_position_absolute_grid_clears_xy(qtbot: QtBot) -> None:
-    """When a sub-sequence with an absolute grid plan is set, x/y should be cleared."""
+    """When a sub-sequence with an absolute grid plan is set, x/y should show
+    the grid starting point in the GUI but value() should return None."""
     wdg = PositionTable()
     qtbot.addWidget(wdg)
     wdg.show()
@@ -332,20 +333,20 @@ def test_position_absolute_grid_clears_xy(qtbot: QtBot) -> None:
     assert isinstance(mda_btn, MDAButton)
 
     # Set a sub-sequence with an absolute grid plan (GridFromEdges)
-    abs_seq = useq.MDASequence(
-        grid_plan=useq.GridFromEdges(
-            top=10, left=10, bottom=20, right=20, fov_width=5, fov_height=5
-        )
+    grid_plan = useq.GridFromEdges(
+        top=10, left=10, bottom=20, right=20, fov_width=5, fov_height=5
     )
+    abs_seq = useq.MDASequence(grid_plan=grid_plan)
     mda_btn.setValue(abs_seq)
 
-    # x and y should have been cleared to None
+    # GUI should display the first grid position's x/y
+    first_grid_pos = next(iter(grid_plan))
     x_wdg = wdg.table().cellWidget(0, x_col)
     y_wdg = wdg.table().cellWidget(0, y_col)
-    assert x_wdg.value() is None
-    assert y_wdg.value() is None
+    assert x_wdg.value() == first_grid_pos.x
+    assert y_wdg.value() == first_grid_pos.y
 
-    # Verify the position value reflects None x/y
+    # But value() should return None x/y to avoid useq-schema warnings
     positions = wdg.value()
     assert positions[0].x is None
     assert positions[0].y is None
