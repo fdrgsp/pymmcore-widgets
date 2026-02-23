@@ -316,6 +316,66 @@ def test_position_table_set_value(qtbot: QtBot) -> None:
     assert mda_btn.clear_btn.isVisible()
 
 
+def test_position_absolute_grid_clears_xy(qtbot: QtBot) -> None:
+    """When a sub-sequence with an absolute grid plan is set, x/y should be cleared."""
+    wdg = PositionTable()
+    qtbot.addWidget(wdg)
+    wdg.show()
+
+    # Add a position with x=10, y=20, z=5
+    wdg.setValue([useq.Position(x=10, y=20, z=5)])
+
+    seq_col = wdg.table().indexOf(wdg.SEQ)
+    x_col = wdg.table().indexOf(wdg.X)
+    y_col = wdg.table().indexOf(wdg.Y)
+    mda_btn = wdg.table().cellWidget(0, seq_col)
+    assert isinstance(mda_btn, MDAButton)
+
+    # Set a sub-sequence with an absolute grid plan (GridFromEdges)
+    abs_seq = useq.MDASequence(
+        grid_plan=useq.GridFromEdges(
+            top=10, left=10, bottom=20, right=20, fov_width=5, fov_height=5
+        )
+    )
+    mda_btn.setValue(abs_seq)
+
+    # x and y should have been cleared to None
+    x_wdg = wdg.table().cellWidget(0, x_col)
+    y_wdg = wdg.table().cellWidget(0, y_col)
+    assert x_wdg.value() is None
+    assert y_wdg.value() is None
+
+    # Verify the position value reflects None x/y
+    positions = wdg.value()
+    assert positions[0].x is None
+    assert positions[0].y is None
+    assert positions[0].z == 5
+    wdg.close()
+
+
+def test_position_relative_grid_preserves_xy(qtbot: QtBot) -> None:
+    """When a sub-sequence with a relative grid plan is set, x/y should be preserved."""
+    wdg = PositionTable()
+    qtbot.addWidget(wdg)
+    wdg.show()
+
+    wdg.setValue([useq.Position(x=10, y=20, z=5)])
+
+    seq_col = wdg.table().indexOf(wdg.SEQ)
+    mda_btn = wdg.table().cellWidget(0, seq_col)
+    assert isinstance(mda_btn, MDAButton)
+
+    # Set a sub-sequence with a relative grid plan (GridRowsColumns)
+    rel_seq = useq.MDASequence(grid_plan=useq.GridRowsColumns(rows=2, columns=2))
+    mda_btn.setValue(rel_seq)
+
+    # x and y should be preserved
+    positions = wdg.value()
+    assert positions[0].x == 10
+    assert positions[0].y == 20
+    wdg.close()
+
+
 def test_position_load_save(
     qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

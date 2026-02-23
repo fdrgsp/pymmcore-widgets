@@ -122,6 +122,36 @@ class MDAButton(QWidget):
         if dialog.exec():
             self.setValue(dialog.mda_tabs.value())
 
+    def _clear_xy_for_absolute_grid(self, value: useq.MDASequence | None) -> None:
+        """Clear x/y in the parent PositionTable row if value has an absolute grid."""
+        if not value or not value.grid_plan or value.grid_plan.is_relative:
+            return
+
+        # walk up to find the DataTable (QTableWidget) that contains this widget
+        from ._data_table import DataTable
+
+        parent = self.parent()
+        while parent is not None:
+            if isinstance(parent, DataTable):
+                break
+            parent = parent.parent()
+        else:
+            return
+
+        # find which row this button is in and clear x/y atomically
+        table = parent
+        seq_col = table.indexOf(PositionTable.SEQ)
+        for row in range(table.rowCount()):
+            if table.cellWidget(row, seq_col) is self:
+                x_col = table.indexOf(PositionTable.X)
+                y_col = table.indexOf(PositionTable.Y)
+                # block signals so setting x then y doesn't trigger
+                # intermediate valueChanged with only one cleared
+                with signals_blocked(table):
+                    PositionTable.X.set_cell_data(table, row, x_col, None)
+                    PositionTable.Y.set_cell_data(table, row, y_col, None)
+                break
+
     def value(self) -> useq.MDASequence | None:
         return self._value
 
@@ -140,6 +170,7 @@ class MDAButton(QWidget):
             else:
                 self.seq_btn.setIcon(QIconifyIcon("mdi:axis"))
                 self.clear_btn.hide()
+            self._clear_xy_for_absolute_grid(value)
             self.valueChanged.emit()
 
 
