@@ -30,6 +30,26 @@ if TYPE_CHECKING:
 
     from useq import Position
 
+
+def _get_absolute_grid_centroid(
+    seq: MDASequence | None,
+) -> tuple[float, float] | None:
+    """Return the (x, y) centroid of an absolute grid plan in a sub-sequence."""
+    if seq is None:
+        return None
+    grid_plan = seq.grid_plan
+    if grid_plan is None or grid_plan.is_relative:
+        return None
+    positions = list(grid_plan)
+    if not positions:
+        return None  # pragma: no cover
+    xs = [p.x for p in positions if getattr(p, "x", None) is not None]
+    ys = [p.y for p in positions if getattr(p, "y", None) is not None]
+    if not xs or not ys:
+        return None  # pragma: no cover
+    return sum(xs) / len(xs), sum(ys) / len(ys)  # type: ignore[arg-type]
+
+
 UPDATE_POSITIONS = "Update Positions List"
 ADD_POSITIONS = "Add to Positions List"
 AF_UNAVAILABLE = "AutoFocus device unavailable."

@@ -34,6 +34,20 @@ group_wdg = GroupPresetTableWidget()
 cam_roi = CameraRoiWidget()
 
 
+# As an example...
+# When the user clicks "Send to MDA", update the MDA widget's stage positions.
+def _on_send_to_mda(positions: list, replace: bool) -> None:
+    if replace:
+        mda_widget.stage_positions.setValue(positions)
+    else:
+        mda_widget.stage_positions.setValue(
+            list(mda_widget.stage_positions.value()) + positions
+        )
+
+
+explorer.sendToMDARequested.connect(_on_send_to_mda)
+
+
 # layout
 
 splitter = QSplitter()

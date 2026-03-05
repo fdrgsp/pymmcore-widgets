@@ -122,6 +122,49 @@ class MDAButton(QWidget):
         if dialog.exec():
             self.setValue(dialog.mda_tabs.value())
 
+    def _clear_xy_for_absolute_grid(self, value: useq.MDASequence | None) -> None:
+        """Set x/y to the grid's starting point for display purposes.
+
+        When a sub-sequence has an absolute grid plan, the position's x/y are
+        not used by useq-schema.  We display the first grid position so the user
+        sees where the acquisition will start; PositionTable.value() will output
+        x/y as None to avoid useq-schema validation warnings.
+        """
+        if not value or not value.grid_plan or value.grid_plan.is_relative:
+            return
+
+        # get the first position from the grid plan
+        first = next(iter(value.grid_plan), None)
+        if first is None:
+            return
+        grid_x = getattr(first, "x", None)
+        grid_y = getattr(first, "y", None)
+
+        # walk up to find the DataTable (QTableWidget) that contains this widget
+        from ._data_table import DataTable
+
+        parent = self.parent()
+        while parent is not None:
+            if isinstance(parent, DataTable):
+                break
+            parent = parent.parent()
+        else:
+            return
+
+        # find which row this button is in and set x/y
+        table = parent
+        seq_col = table.indexOf(PositionTable.SEQ)
+        for row in range(table.rowCount()):
+            if table.cellWidget(row, seq_col) is self:
+                x_col = table.indexOf(PositionTable.X)
+                y_col = table.indexOf(PositionTable.Y)
+                # block signals so setting x then y doesn't trigger
+                # intermediate valueChanged with only one cleared
+                with signals_blocked(table):
+                    PositionTable.X.set_cell_data(table, row, x_col, grid_x)
+                    PositionTable.Y.set_cell_data(table, row, y_col, grid_y)
+                break
+
     def value(self) -> useq.MDASequence | None:
         return self._value
 
@@ -140,6 +183,7 @@ class MDAButton(QWidget):
             else:
                 self.seq_btn.setIcon(QIconifyIcon("mdi:axis"))
                 self.clear_btn.hide()
+            self._clear_xy_for_absolute_grid(value)
             self.valueChanged.emit()
 
 
@@ -300,7 +344,7 @@ class PositionTable(DataTableWidget):
 
     def save(self, file: str | Path | None = None) -> None:
         """Save the current positions to a JSON file."""
-        if not isinstance(file, (str, Path)):
+        if not isinstance(file, str | Path):
             file, _ = QFileDialog.getSaveFileName(
                 self, "Save MDASequence and filename.", "", "json(*.json)"
             )
@@ -320,7 +364,7 @@ class PositionTable(DataTableWidget):
 
     def load(self, file: str | Path | None = None) -> None:
         """Load positions from a JSON file and set the table value."""
-        if not isinstance(file, (str, Path)):
+        if not isinstance(file, str | Path):
             file, _ = QFileDialog.getOpenFileName(
                 self, "Select an MDAsequence file.", "", "json(*.json)"
             )
