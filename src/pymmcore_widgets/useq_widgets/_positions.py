@@ -151,7 +151,7 @@ class MDAButton(QWidget):
         else:
             return
 
-        # find which row this button is in and set x/y atomically
+        # find which row this button is in and set x/y
         table = parent
         seq_col = table.indexOf(PositionTable.SEQ)
         for row in range(table.rowCount()):
@@ -206,15 +206,9 @@ class PositionTable(DataTableWidget):
     """Table to edit a list of [useq.Position](https://pymmcore-plus.github.io/useq-schema/schema/axes/#useq.Position)."""
 
     NAME = TextColumn(key="name", default=None, is_row_selector=True)
-    X = FloatColumn(
-        key="x", header="X [µm]", default=0.0, maximum=MAX, minimum=-MAX, nullable=True
-    )
-    Y = FloatColumn(
-        key="y", header="Y [µm]", default=0.0, maximum=MAX, minimum=-MAX, nullable=True
-    )
-    Z = FloatColumn(
-        key="z", header="Z [µm]", default=0.0, maximum=MAX, minimum=-MAX, nullable=True
-    )
+    X = FloatColumn(key="x", header="X [µm]", default=0.0, maximum=MAX, minimum=-MAX)
+    Y = FloatColumn(key="y", header="Y [µm]", default=0.0, maximum=MAX, minimum=-MAX)
+    Z = FloatColumn(key="z", header="Z [µm]", default=0.0, maximum=MAX, minimum=-MAX)
     AF = FloatColumn(key="af", header="AF", default=0.0, maximum=MAX, minimum=-MAX)
     SEQ = SubSeqColumn(key="sequence", header="Sub-Sequence", default=None)
 
@@ -295,15 +289,6 @@ class PositionTable(DataTableWidget):
                     # update the sub-sequence dict in the record
                     r["sequence"] = sub_seq
 
-            # if the sub-sequence has an absolute grid plan, x/y are display-only
-            # (showing the grid starting point); output them as None/unset
-            seq = r.get("sequence")
-            if isinstance(seq, useq.MDASequence):
-                gp = seq.grid_plan
-                if gp is not None and not gp.is_relative:
-                    r.pop("x", None)
-                    r.pop("y", None)
-
             pos = useq.Position(**r)
             out.append(pos)
 
@@ -359,7 +344,7 @@ class PositionTable(DataTableWidget):
 
     def save(self, file: str | Path | None = None) -> None:
         """Save the current positions to a JSON file."""
-        if not isinstance(file, (str, Path)):
+        if not isinstance(file, str | Path):
             file, _ = QFileDialog.getSaveFileName(
                 self, "Save MDASequence and filename.", "", "json(*.json)"
             )
@@ -379,7 +364,7 @@ class PositionTable(DataTableWidget):
 
     def load(self, file: str | Path | None = None) -> None:
         """Load positions from a JSON file and set the table value."""
-        if not isinstance(file, (str, Path)):
+        if not isinstance(file, str | Path):
             file, _ = QFileDialog.getOpenFileName(
                 self, "Select an MDAsequence file.", "", "json(*.json)"
             )

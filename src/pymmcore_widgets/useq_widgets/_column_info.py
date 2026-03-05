@@ -247,28 +247,7 @@ class TableSpinBox(_TableSpinboxMixin, QSpinBox):
 
 
 class TableDoubleSpinBox(_TableSpinboxMixin, QDoubleSpinBox):
-    """A QDoubleSpinBox for table cells, optionally supporting None values.
-
-    When ``nullable=True`` the spinbox shows ``"None"`` as a special value
-    (using the minimum sentinel).  Only an explicit Python ``None`` maps to that
-    state; any real number (0, 0.2, 0.03, …) is stored and returned as-is.
-    """
-
-    def __init__(self, *args: Any, nullable: bool = False, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self._nullable = nullable
-        if nullable:
-            self.setSpecialValueText("None")
-
-    def value(self) -> float | None:
-        v = QDoubleSpinBox.value(self)
-        return None if (self._nullable and v == self.minimum()) else v
-
-    def setValue(self, value: float | None) -> None:
-        if self._nullable and value is None:
-            QDoubleSpinBox.setValue(self, self.minimum())
-        else:
-            QDoubleSpinBox.setValue(self, value)
+    pass
 
 
 TableIntWidget = WdgGetSet(
@@ -316,32 +295,7 @@ class IntColumn(_RangeColumn):
 
 @dataclass(frozen=True)
 class FloatColumn(_RangeColumn):
-    """A float column, optionally supporting None values (displayed as 'None')."""
-
     data_type: WdgGetSet = TableFloatWidget
-    nullable: bool = False
-
-    def _init_widget(self) -> TableDoubleSpinBox:
-        if not self.nullable:
-            return super()._init_widget()  # type: ignore[no-any-return]
-        wdg = TableDoubleSpinBox(nullable=True)
-        if self.minimum is not None:
-            wdg.setMinimum(self.minimum - 1)  # one step below minimum as None sentinel
-        if self.maximum is not None:
-            wdg.setMaximum(self.maximum)
-        if self.decimals is not None:
-            wdg.setDecimals(self.decimals)
-        wdg.setValue(None)  # initialize to None
-        return wdg
-
-    def set_cell_data(
-        self, table: QTableWidget, row: int, col: int, value: Any
-    ) -> None:
-        if not self.nullable:
-            return super().set_cell_data(table, row, col, value)
-        # bypass the `if value is not None` guard in the parent to allow setting None
-        if wdg := table.cellWidget(row, col):
-            cast("TableDoubleSpinBox", wdg).setValue(value)
 
 
 # ########################  Timepoints  ################################

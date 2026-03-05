@@ -1,5 +1,4 @@
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtCore import QModelIndex
 from qtpy.QtWidgets import QApplication, QHBoxLayout, QSplitter, QVBoxLayout, QWidget
 
 from pymmcore_widgets import (
@@ -36,17 +35,17 @@ cam_roi = CameraRoiWidget()
 
 
 # As an example...
-# When ROIs are edited or destroyed, update the MDA widget's stage positions.
-def _on_data_changed(top_left: QModelIndex, bottom_right: QModelIndex) -> None:
-    positions = [roi.create_useq_position() for roi in explorer.roi_manager.all_rois()]
-    # optional: skip positions that don't actually have a valid sequence (grid plan)
-    positions = [pos for pos in positions if pos.sequence is not None]
-    mda_widget.stage_positions.setValue(positions)
+# When the user clicks "Send to MDA", update the MDA widget's stage positions.
+def _on_send_to_mda(positions: list, replace: bool) -> None:
+    if replace:
+        mda_widget.stage_positions.setValue(positions)
+    else:
+        mda_widget.stage_positions.setValue(
+            list(mda_widget.stage_positions.value()) + positions
+        )
 
 
-model = explorer.roi_manager.roi_model
-model.dataChanged.connect(_on_data_changed)
-model.rowsRemoved.connect(_on_data_changed)
+explorer.sendToMDARequested.connect(_on_send_to_mda)
 
 
 # layout

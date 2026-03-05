@@ -418,15 +418,9 @@ class CoreConnectedPositionTable(PositionTable):
             af_offset = self._mmc.getAutoFocusOffset() if af_engaged else None
 
             if self._mmc.getXYStageDevice():
-                x = data.get(self.X.key)
-                y = data.get(self.Y.key)
-                if x is None and y is None:
-                    pos_seq = data.get(self.SEQ.key)
-                    centroid = _get_absolute_grid_centroid(pos_seq)
-                    if centroid is not None:
-                        x, y = centroid
-                if x is not None and y is not None:
-                    self._mmc.setXYPosition(x, y)
+                x = data.get(self.X.key, self._mmc.getXPosition())
+                y = data.get(self.Y.key, self._mmc.getYPosition())
+                self._mmc.setXYPosition(x, y)
 
             if self.include_z.isChecked() and self._mmc.getFocusDevice():
                 z = data.get(self.Z.key, self._mmc.getZPosition())
