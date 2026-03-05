@@ -15,6 +15,7 @@ from qtpy.QtWidgets import (
     QFormLayout,
     QLabel,
     QMenu,
+    QMessageBox,
     QSizePolicy,
     QToolBar,
     QToolButton,
@@ -132,6 +133,8 @@ class StageExplorer(QWidget):
         around the current stage position. By default, False.
     """
 
+    sendToMDARequested = Signal(list, bool)  # (positions, clear)
+
     def __init__(
         self, parent: QWidget | None = None, mmcore: CMMCorePlus | None = None
     ):
@@ -196,6 +199,7 @@ class StageExplorer(QWidget):
         tb.scan_action.triggered.connect(self._on_scan_action)
         tb.marker_mode_action_group.triggered.connect(self._update_marker_mode)
         tb.scan_menu.valueChanged.connect(self._on_scan_options_changed)
+        tb._send_to_mda_action.triggered.connect(self._on_send_to_mda)
         # ensure newly-created ROIs inherit the current scan menu settings
         self.roi_manager.roi_model.rowsInserted.connect(self._on_roi_rows_inserted)
 
@@ -369,6 +373,31 @@ class StageExplorer(QWidget):
             roi.fov_overlap = (self._grid_overlap, self._grid_overlap)
             roi.scan_order = self._grid_mode
             self.roi_manager.roi_model.emitDataChange(roi)
+
+    def _on_send_to_mda(self) -> None:
+        z_pos = self._mmc.getZPosition()
+        positions: list[useq.Position] = []
+        roi_model = self.roi_manager.roi_model
+        for row in range(roi_model.rowCount()):
+            roi = roi_model.index(row).internalPointer()
+            if pos := roi.create_useq_position(*self._fov_w_h(), z_pos=z_pos):
+                positions.append(pos)
+        if not positions:
+            return
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Send to MDA")
+        msg.setText("Replace existing stage positions or add to them?")
+        replace_btn = msg.addButton("Replace", QMessageBox.ButtonRole.AcceptRole)
+        msg.addButton("Add", QMessageBox.ButtonRole.AcceptRole)
+        cancel_btn = msg.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        msg.exec()
+
+        clicked = msg.clickedButton()
+        if clicked is cancel_btn or clicked is None:
+            return
+
+        self.sendToMDARequested.emit(positions, clicked is replace_btn)
 
     def _on_roi_rows_inserted(self, parent: QModelIndex, first: int, last: int) -> None:
         """Initialize newly-inserted ROIs with the current scan menu values.
@@ -620,6 +649,11 @@ class StageExplorerToolbar(QToolBar):
         self.scan_menu = ScanMenu(self)
         scan_btn.setMenu(self.scan_menu)
         scan_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+
+        self._send_to_mda_action = self.addAction(
+            QIconifyIcon("mdi:send", color=GRAY),
+            "Send to MDA",
+        )
 
 
 class ScanMenu(QMenu):
