@@ -30,21 +30,15 @@ if TYPE_CHECKING:
 
 OME_ZARR = "ome-zarr"
 OME_TIFF = "ome-tiff"
-TIFF_SEQ = "tiff-sequence"
 
 # dict with writer name and extension
 WRITERS: dict[str, list[str]] = {
     OME_ZARR: [".ome.zarr"],
     OME_TIFF: [".ome.tif", ".ome.tiff"],
-    TIFF_SEQ: [""],
 }
 
 EXT_TO_WRITER = {x: w for w, exts in WRITERS.items() for x in exts}
 ALL_EXTENSIONS = [x for exts in WRITERS.values() for x in exts if x]
-DIRECTORY_WRITERS = {TIFF_SEQ}  # technically could be zarr too
-
-FILE_NAME = "Filename:"
-SUBFOLDER = "Subfolder:"
 
 
 def _known_extension(name: str) -> str | None:
@@ -88,7 +82,7 @@ class SaveGroupBox(QGroupBox):
         self.setCheckable(True)
         self.setChecked(False)
 
-        self.name_label = QLabel(FILE_NAME)
+        self.name_label = QLabel("Filename:")
 
         self.save_dir = QLineEdit()
         self.save_dir.setPlaceholderText("Select Save Directory")
@@ -111,11 +105,6 @@ class SaveGroupBox(QGroupBox):
         grid.addWidget(self.name_label, 1, 0)
         grid.addWidget(self.save_name, 1, 1)
         grid.addWidget(self._writer_combo, 1, 2, 1, 2)
-
-        # prevent jiggling when toggling the checkbox
-        width = self.fontMetrics().horizontalAdvance(SUBFOLDER)
-        grid.setColumnMinimumWidth(0, width)
-        self.setFixedHeight(self.minimumSizeHint().height())
 
         # connect
         self.toggled.connect(self.valueChanged)
@@ -151,7 +140,7 @@ class SaveGroupBox(QGroupBox):
         - format: str - Set the combo box to the writer with this name.
         - should_save: bool - Set the checked state of the checkbox.
         """
-        if isinstance(value, (str, Path)):
+        if isinstance(value, str | Path):
             self.setCurrentPath(value)
             self.setChecked(True)
             return
@@ -187,10 +176,10 @@ class SaveGroupBox(QGroupBox):
         elif not allow_name_change:
             if ext := Path(name).suffix:
                 warn(
-                    f"Invalid format {ext!r}. Defaulting to {TIFF_SEQ} writer.",
+                    f"Invalid format {ext!r}. Defaulting to {OME_TIFF} writer.",
                     stacklevel=2,
                 )
-            self._writer_combo.setCurrentText(TIFF_SEQ)
+            self._writer_combo.setCurrentText(OME_TIFF)
         elif name:
             # otherwise, if the name is not empty, add the first extension from the
             # current writer
@@ -207,12 +196,8 @@ class SaveGroupBox(QGroupBox):
     def _on_writer_combo_changed(self, writer: str) -> None:
         """Called when the writer format combo box is changed.
 
-        Updates save name to have the correct extension, and updates the label to
-        "Subfolder" or "Filename" depending on the writer type
+        Updates save name to have the correct extension.
         """
-        # update the label
-        self.name_label.setText(SUBFOLDER if writer in DIRECTORY_WRITERS else FILE_NAME)
-
         # if the name currently end with a known extension from the selected
         # writer, then we're done
         this_writer_extensions = WRITERS[writer]
