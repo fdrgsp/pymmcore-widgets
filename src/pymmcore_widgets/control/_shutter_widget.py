@@ -6,7 +6,14 @@ from typing import Any, Union
 from pymmcore_plus import CMMCorePlus, DeviceType
 from qtpy.QtCore import QSize, Qt
 from qtpy.QtGui import QColor, QIcon
-from qtpy.QtWidgets import QCheckBox, QHBoxLayout, QPushButton, QSizePolicy, QWidget
+from qtpy.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QHBoxLayout,
+    QPushButton,
+    QSizePolicy,
+    QWidget,
+)
 from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
@@ -186,6 +193,163 @@ class ShuttersWidget(QWidget):
     def _on_shutter_btn_clicked(self) -> None:
         new_state = not self._is_open
         self._mmc.setShutterOpen(self.shutter_device, new_state)
+
+    def _on_shutter_checkbox_toggled(self, state: bool) -> None:
+        self._mmc.setAutoShutter(state)
+
+    def _disconnect(self) -> None:
+        self._mmc.events.systemConfigurationLoaded.disconnect(self._refresh)
+        self._mmc.events.autoShutterSet.disconnect(self._on_autoshutter_changed)
+        self._mmc.events.propertyChanged.disconnect(self._on_property_changed)
+        self._mmc.events.configSet.disconnect(self._on_config_set)
+
+
+class ShutterWidgetBasic(QWidget):
+    """A simple Widget to control shutters with a combo box selection.
+
+    From left to right:
+    - A combo box populated with all loaded shutter devices.
+    - An Open/Close button that opens/closes the selected shutter.
+    - A checkbox for Micro-Manager autoshutter; when checked the button is
+      disabled.
+
+    Parameters
+    ----------
+    parent : QWidget | None
+        Optional parent widget.
+    mmcore : CMMCorePlus | None
+        Optional CMMCorePlus micromanager core.
+    """
+
+    def __init__(
+        self,
+        *,
+        parent: QWidget | None = None,
+        mmcore: CMMCorePlus | None = None,
+    ) -> None:
+        super().__init__(parent=parent)
+
+        self._mmc = mmcore or CMMCorePlus.instance()
+        self._is_open = False
+
+        layout = QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(7)
+
+        self.shutter_combo = QComboBox()
+        self.shutter_combo.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+        layout.addWidget(self.shutter_combo)
+
+        self.shutter_button = QPushButton("Open")
+        self.shutter_button.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+        layout.addWidget(self.shutter_button)
+
+        self.autoshutter_checkbox = QCheckBox("Auto")
+        self.autoshutter_checkbox.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+        layout.addWidget(self.autoshutter_checkbox)
+
+        self.setLayout(layout)
+
+        self.shutter_button.clicked.connect(self._on_shutter_btn_clicked)
+        self.autoshutter_checkbox.toggled.connect(self._on_shutter_checkbox_toggled)
+        self.shutter_combo.currentTextChanged.connect(self._on_combo_changed)
+
+        # Read current state BEFORE connecting core signals.
+        self._initializing = True
+        self._refresh()
+        self._initializing = False
+
+        self._mmc.events.systemConfigurationLoaded.connect(self._refresh)
+        self._mmc.events.autoShutterSet.connect(self._on_autoshutter_changed)
+        self._mmc.events.propertyChanged.connect(self._on_property_changed)
+        self._mmc.events.configSet.connect(self._on_config_set)
+
+        self.destroyed.connect(self._disconnect)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _refresh(self) -> None:
+        """Full widget refresh from current core state."""
+        loaded = list(self._mmc.getLoadedDevicesOfType(DeviceType.ShutterDevice))
+
+        with signals_blocked(self.shutter_combo):
+            self.shutter_combo.clear()
+            self.shutter_combo.addItems(loaded)
+
+        if not loaded:
+            self.shutter_button.setEnabled(False)
+            self.autoshutter_checkbox.setEnabled(False)
+            self._is_open = False
+            self._update_button_text()
+            return
+
+        self.autoshutter_checkbox.setEnabled(True)
+        with signals_blocked(self.autoshutter_checkbox):
+            self.autoshutter_checkbox.setChecked(self._mmc.getAutoShutter())
+
+        current = self.shutter_combo.currentText()
+        self._is_open = self._mmc.getShutterOpen(current) if current else False
+        self._update_button_text()
+        self._update_button_enabled()
+
+    def _update_button_text(self) -> None:
+        """Set button text based on current open/closed state."""
+        self.shutter_button.setText("Close" if self._is_open else "Open")
+
+    def _update_button_enabled(self) -> None:
+        """Disable button when autoshutter is on for the core shutter device."""
+        current = self.shutter_combo.currentText()
+        if self._mmc.getShutterDevice() == current:
+            self.shutter_button.setEnabled(not self._mmc.getAutoShutter())
+        else:
+            self.shutter_button.setEnabled(True)
+
+    # ------------------------------------------------------------------
+    # Slots
+    # ------------------------------------------------------------------
+
+    def _on_combo_changed(self, device: str) -> None:
+        if not device:
+            return
+        self._is_open = self._mmc.getShutterOpen(device)
+        self._update_button_text()
+        self._update_button_enabled()
+
+    def _on_property_changed(self, dev: str, prop: str, value: Any) -> None:
+        if self._initializing:
+            return
+        current = self.shutter_combo.currentText()
+        if dev == current and prop == "State":
+            self._is_open = self._mmc.getShutterOpen(current)
+            self._update_button_text()
+        elif dev == "Core" and prop == "Shutter":
+            self._update_button_enabled()
+
+    def _on_autoshutter_changed(self, state: bool) -> None:
+        if self._initializing:
+            return
+        with signals_blocked(self.autoshutter_checkbox):
+            self.autoshutter_checkbox.setChecked(state)
+        self._update_button_enabled()
+
+    def _on_config_set(self, group: str, preset: str) -> None:
+        if self._initializing:
+            return
+        self._update_button_enabled()
+
+    def _on_shutter_btn_clicked(self) -> None:
+        current = self.shutter_combo.currentText()
+        if not current:
+            return
+        self._mmc.setShutterOpen(current, not self._is_open)
 
     def _on_shutter_checkbox_toggled(self, state: bool) -> None:
         self._mmc.setAutoShutter(state)
