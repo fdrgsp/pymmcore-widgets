@@ -207,12 +207,6 @@ class ShuttersWidget(QWidget):
 class ShutterWidgetBasic(QWidget):
     """A simple Widget to control shutters with a combo box selection.
 
-    From left to right:
-    - A combo box populated with all loaded shutter devices.
-    - An Open/Close button that opens/closes the selected shutter.
-    - A checkbox for Micro-Manager autoshutter; when checked the button is
-      disabled.
-
     Parameters
     ----------
     parent : QWidget | None
@@ -272,10 +266,6 @@ class ShutterWidgetBasic(QWidget):
 
         self.destroyed.connect(self._disconnect)
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
     def _refresh(self) -> None:
         """Full widget refresh from current core state."""
         loaded = list(self._mmc.getLoadedDevicesOfType(DeviceType.ShutterDevice))
@@ -311,10 +301,6 @@ class ShutterWidgetBasic(QWidget):
             self.shutter_button.setEnabled(not self._mmc.getAutoShutter())
         else:
             self.shutter_button.setEnabled(True)
-
-    # ------------------------------------------------------------------
-    # Slots
-    # ------------------------------------------------------------------
 
     def _on_combo_changed(self, device: str) -> None:
         if not device:
