@@ -140,7 +140,7 @@ class ConfigWizard(QWizard):
         for i, label in enumerate(self.step_labels):
             font = label.font()
             if i == current_index:
-                font.setWeight(2000)
+                font.setWeight(1000)
             else:
                 font.setBold(False)
             label.setFont(font)
