@@ -140,9 +140,7 @@ class ConfigWizard(QWizard):
         for i, label in enumerate(self.step_labels):
             font = label.font()
             if i == current_index:
-                font.setBold(True)
-                label.setStyleSheet("color: black;")
+                font.setWeight(2000)
             else:
                 font.setBold(False)
-                label.setStyleSheet("color: gray;")
             label.setFont(font)
