@@ -427,7 +427,7 @@ def test_shutter_widget_basic_property_changed_state(
 def test_shutter_widget_basic_property_changed_core_shutter(
     qtbot: QtBot, global_mmcore: CMMCorePlus
 ) -> None:
-    """Button state depends solely on autoshutter, not on which shutter is Core."""
+    """Combo and core shutter device stay in sync; button follows autoshutter."""
     mmc = global_mmcore
     wdg = ShuttersWidgetBasic(mmcore=mmc)
     qtbot.addWidget(wdg)
@@ -437,22 +437,21 @@ def test_shutter_widget_basic_property_changed_core_shutter(
     if non_core is None:
         pytest.skip("Need at least two shutter devices for this test")
 
-    # Autoshutter is on by default: button disabled regardless of selected shutter.
-    assert mmc.getAutoShutter()
-    wdg.shutter_combo.setCurrentText(mmc.getShutterDevice())
-    assert not wdg.shutter_button.isEnabled()
+    # Changing the combo calls setShutterDevice on the core.
     wdg.shutter_combo.setCurrentText(non_core)
-    assert not wdg.shutter_button.isEnabled()
+    assert mmc.getShutterDevice() == non_core
 
-    # Turn autoshutter off: button enabled for any shutter selection.
+    # Changing Core/Shutter externally updates the combo.
+    initial = mmc.getShutterDevice()
+    other = next(d for d in shutter_devices if d != initial)
+    with wait_signal(qtbot, mmc.events.propertyChanged):
+        mmc.setProperty("Core", "Shutter", other)
+    assert wdg.shutter_combo.currentText() == other
+
+    # Button state depends only on autoshutter.
+    assert not wdg.shutter_button.isEnabled()  # autoshutter on by default
     with wait_signal(qtbot, mmc.events.autoShutterSet):
         mmc.setAutoShutter(False)
-    assert wdg.shutter_button.isEnabled()
-
-    # Reassigning Core/Shutter still triggers _update_button_enabled; button stays
-    # enabled because autoshutter is off.
-    with wait_signal(qtbot, mmc.events.propertyChanged):
-        mmc.setProperty("Core", "Shutter", non_core)
     assert wdg.shutter_button.isEnabled()
 
 

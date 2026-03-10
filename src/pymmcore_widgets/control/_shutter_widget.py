@@ -111,8 +111,11 @@ class ShuttersWidgetBasic(QWidget):
         with signals_blocked(self.autoshutter_checkbox):
             self.autoshutter_checkbox.setChecked(self._mmc.getAutoShutter())
 
-        current = self.shutter_combo.currentText()
-        self._is_open = self._mmc.getShutterOpen(current) if current else False
+        current = self._mmc.getShutterDevice()
+        with signals_blocked(self.shutter_combo):
+            self.shutter_combo.setCurrentText(current)
+
+        self._is_open = self._mmc.getShutterOpen(current)
         self._update_button_text()
         self._update_button_enabled()
 
@@ -127,6 +130,9 @@ class ShuttersWidgetBasic(QWidget):
     def _on_combo_changed(self, device: str) -> None:
         if not device:
             return
+
+        self._mmc.setShutterDevice(device)
+
         self._is_open = self._mmc.getShutterOpen(device)
         self._update_button_text()
         self._update_button_enabled()
@@ -139,7 +145,7 @@ class ShuttersWidgetBasic(QWidget):
             self._is_open = self._mmc.getShutterOpen(current)
             self._update_button_text()
         elif dev == "Core" and prop == "Shutter":
-            self._update_button_enabled()
+            self.shutter_combo.setCurrentText(value)
 
     def _on_autoshutter_changed(self, state: bool) -> None:
         if self._initializing:
@@ -151,7 +157,12 @@ class ShuttersWidgetBasic(QWidget):
     def _on_config_set(self, group: str, preset: str) -> None:
         if self._initializing:
             return
-        self._update_button_enabled()
+        wdg_current = self.shutter_combo.currentText()
+        current = self.shutter_combo.currentText()
+        if current == wdg_current:
+            self._update_button_enabled()
+        else:
+            self.shutter_combo.setCurrentText(current)
 
     def _on_shutter_btn_clicked(self) -> None:
         current = self.shutter_combo.currentText()
