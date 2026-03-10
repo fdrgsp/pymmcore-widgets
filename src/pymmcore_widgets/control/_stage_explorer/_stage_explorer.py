@@ -161,6 +161,7 @@ class StageExplorer(QWidget):
 
         # timer for polling stage position
         self._timer_id: int | None = None
+        self._last_stage_pos: tuple[float, float] | None = None
 
         # marker for stage position
         w, h = self._mmc.getImageWidth(), self._mmc.getImageHeight()
@@ -494,7 +495,8 @@ class StageExplorer(QWidget):
         self._stage_pos_marker.visible = checked
         self._poll_stage_position = checked
         if checked:
-            self._timer_id = self.startTimer(20)
+            self._last_stage_pos = None
+            self._timer_id = self.startTimer(100)
         elif self._timer_id is not None:
             self.killTimer(self._timer_id)
             self._timer_id = None
@@ -509,8 +511,18 @@ class StageExplorer(QWidget):
             self._stage_pos_label.setText("No XY stage device")
             return
 
-        # update the stage position label
         stage_x, stage_y = self._mmc.getXYPosition()
+
+        # skip vispy updates when the stage hasn't moved significantly
+        pos = (stage_x, stage_y)
+        if self._last_stage_pos is not None:
+            dx = stage_x - self._last_stage_pos[0]
+            dy = stage_y - self._last_stage_pos[1]
+            if dx * dx + dy * dy < 0.01:  # < 0.1 µm
+                return
+        self._last_stage_pos = pos
+
+        # update the stage position label
         self._stage_pos_label.setText(f"X: {stage_x:.2f} µm  Y: {stage_y:.2f} µm")
 
         # fast path: copy cached rotation/scale part and just update translation
