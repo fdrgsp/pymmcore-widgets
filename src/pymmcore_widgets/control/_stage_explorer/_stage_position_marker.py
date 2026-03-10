@@ -25,7 +25,7 @@ class StagePositionMarker(Compound):
         marker_symbol_color: str = GREEN,
         marker_symbol_size: float = 10,
         marker_symbol_edge_width: float = 2,
-        show_marker_symbol: bool = True,
+        show_marker_symbol: bool = False,
     ) -> None:
         self._rect = Rectangle(
             center=center,
