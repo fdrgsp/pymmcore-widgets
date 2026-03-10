@@ -427,25 +427,33 @@ def test_shutter_widget_basic_property_changed_state(
 def test_shutter_widget_basic_property_changed_core_shutter(
     qtbot: QtBot, global_mmcore: CMMCorePlus
 ) -> None:
-    """propertyChanged Core/Shutter updates button enabled state."""
+    """Button state depends solely on autoshutter, not on which shutter is Core."""
     mmc = global_mmcore
     wdg = ShuttersWidgetBasic(mmcore=mmc)
     qtbot.addWidget(wdg)
 
-    # Set combo to a non-core shutter and verify button is enabled.
     shutter_devices = list(mmc.getLoadedDevicesOfType(DeviceType.ShutterDevice))
     non_core = next((d for d in shutter_devices if d != mmc.getShutterDevice()), None)
     if non_core is None:
         pytest.skip("Need at least two shutter devices for this test")
 
+    # Autoshutter is on by default: button disabled regardless of selected shutter.
+    assert mmc.getAutoShutter()
+    wdg.shutter_combo.setCurrentText(mmc.getShutterDevice())
+    assert not wdg.shutter_button.isEnabled()
     wdg.shutter_combo.setCurrentText(non_core)
+    assert not wdg.shutter_button.isEnabled()
+
+    # Turn autoshutter off: button enabled for any shutter selection.
+    with wait_signal(qtbot, mmc.events.autoShutterSet):
+        mmc.setAutoShutter(False)
     assert wdg.shutter_button.isEnabled()
 
-    # Reassign core shutter to non_core - btn should become disabled (autoshutter on).
+    # Reassigning Core/Shutter still triggers _update_button_enabled; button stays
+    # enabled because autoshutter is off.
     with wait_signal(qtbot, mmc.events.propertyChanged):
         mmc.setProperty("Core", "Shutter", non_core)
-
-    assert not wdg.shutter_button.isEnabled()
+    assert wdg.shutter_button.isEnabled()
 
 
 def test_shutter_widget_basic_system_config_loaded(

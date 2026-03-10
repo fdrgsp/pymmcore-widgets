@@ -121,12 +121,8 @@ class ShuttersWidgetBasic(QWidget):
         self.shutter_button.setText("Close" if self._is_open else "Open")
 
     def _update_button_enabled(self) -> None:
-        """Disable button when autoshutter is on for the core shutter device."""
-        current = self.shutter_combo.currentText()
-        if self._mmc.getShutterDevice() == current:
-            self.shutter_button.setEnabled(not self._mmc.getAutoShutter())
-        else:
-            self.shutter_button.setEnabled(True)
+        """Disable button when autoshutter is on."""
+        self.shutter_button.setEnabled(not self._mmc.getAutoShutter())
 
     def _on_combo_changed(self, device: str) -> None:
         if not device:
