@@ -3,8 +3,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from pymmcore_plus import DeviceType
 
-from pymmcore_widgets.control._shutter_widget import GRAY, GREEN, ShuttersWidget
+from pymmcore_widgets.control._shutter_widget import (
+    GRAY,
+    GREEN,
+    ShuttersWidget,
+    ShuttersWidgetBasic,
+)
 from tests._utils import wait_signal
 
 if TYPE_CHECKING:
@@ -293,3 +299,188 @@ def test_on_shutter_device_changed(qtbot: QtBot, global_mmcore: CMMCorePlus):
     assert multi_shutter.shutter_button.isEnabled()
     assert not shutter.shutter_button.isEnabled()
     assert shutter1.shutter_button.isEnabled()
+
+
+# ---------------------------------------------------------------------------
+# ShuttersWidgetBasic tests
+# ---------------------------------------------------------------------------
+
+
+def test_shutter_widget_basic_initial_state(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Combo is populated, button/checkbox reflect core state on creation."""
+    mmc = global_mmcore
+    wdg = ShuttersWidgetBasic(mmcore=mmc)
+    qtbot.addWidget(wdg)
+
+    loaded = list(mmc.getLoadedDevicesOfType(DeviceType.ShutterDevice))
+    assert wdg.shutter_combo.count() == len(loaded)
+    for name in loaded:
+        assert wdg.shutter_combo.findText(name) >= 0
+
+    current = wdg.shutter_combo.currentText()
+    assert wdg._is_open == mmc.getShutterOpen(current)
+    expected_text = "Close" if wdg._is_open else "Open"
+    assert wdg.shutter_button.text() == expected_text
+    assert wdg.autoshutter_checkbox.isChecked() == mmc.getAutoShutter()
+
+
+def test_shutter_widget_basic_no_devices(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """When no shutter devices are loaded button and checkbox are disabled."""
+    mmc = global_mmcore
+    mmc.unloadAllDevices()
+    wdg = ShuttersWidgetBasic(mmcore=mmc)
+    qtbot.addWidget(wdg)
+
+    assert wdg.shutter_combo.count() == 0
+    assert not wdg.shutter_button.isEnabled()
+    assert not wdg.autoshutter_checkbox.isEnabled()
+    assert wdg.shutter_button.text() == "Open"
+
+
+def test_shutter_widget_basic_button_click_toggles_shutter(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Clicking the button opens or closes the currently selected shutter."""
+    mmc = global_mmcore
+    # Disable autoshutter so the button is enabled for the core shutter device.
+    mmc.setAutoShutter(False)
+    wdg = ShuttersWidgetBasic(mmcore=mmc)
+    qtbot.addWidget(wdg)
+
+    current = wdg.shutter_combo.currentText()
+    initial_open = mmc.getShutterOpen(current)
+
+    with wait_signal(qtbot, mmc.events.propertyChanged):
+        wdg.shutter_button.click()
+
+    assert mmc.getShutterOpen(current) != initial_open
+    expected_text = "Close" if mmc.getShutterOpen(current) else "Open"
+    assert wdg.shutter_button.text() == expected_text
+
+    # Toggle back.
+    with wait_signal(qtbot, mmc.events.propertyChanged):
+        wdg.shutter_button.click()
+
+    assert mmc.getShutterOpen(current) == initial_open
+
+
+def test_shutter_widget_basic_autoshutter_checkbox(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Toggling the auto checkbox calls setAutoShutter on the core."""
+    mmc = global_mmcore
+    wdg = ShuttersWidgetBasic(mmcore=mmc)
+    qtbot.addWidget(wdg)
+
+    initial = mmc.getAutoShutter()
+    with wait_signal(qtbot, mmc.events.autoShutterSet):
+        wdg.autoshutter_checkbox.setChecked(not initial)
+
+    assert mmc.getAutoShutter() == (not initial)
+
+
+def test_shutter_widget_basic_autoshutter_changed_signal(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """autoShutterSet from core updates checkbox and button enabled state."""
+    mmc = global_mmcore
+    wdg = ShuttersWidgetBasic(mmcore=mmc)
+    qtbot.addWidget(wdg)
+
+    # The core shutter device is the current combo selection; button disabled when auto.
+    current = wdg.shutter_combo.currentText()
+    assert mmc.getShutterDevice() == current
+
+    with wait_signal(qtbot, mmc.events.autoShutterSet):
+        mmc.setAutoShutter(False)
+    assert not wdg.autoshutter_checkbox.isChecked()
+    assert wdg.shutter_button.isEnabled()
+
+    with wait_signal(qtbot, mmc.events.autoShutterSet):
+        mmc.setAutoShutter(True)
+    assert wdg.autoshutter_checkbox.isChecked()
+    assert not wdg.shutter_button.isEnabled()
+
+
+def test_shutter_widget_basic_property_changed_state(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """propertyChanged for the shutter State updates button text."""
+    mmc = global_mmcore
+    mmc.setAutoShutter(False)
+    mmc.setShutterOpen(mmc.getShutterDevice(), False)
+    wdg = ShuttersWidgetBasic(mmcore=mmc)
+    qtbot.addWidget(wdg)
+
+    assert wdg.shutter_button.text() == "Open"
+
+    with wait_signal(qtbot, mmc.events.propertyChanged):
+        mmc.setProperty(mmc.getShutterDevice(), "State", True)
+
+    assert wdg.shutter_button.text() == "Close"
+
+
+def test_shutter_widget_basic_property_changed_core_shutter(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """propertyChanged Core/Shutter updates button enabled state."""
+    mmc = global_mmcore
+    wdg = ShuttersWidgetBasic(mmcore=mmc)
+    qtbot.addWidget(wdg)
+
+    # Set combo to a non-core shutter and verify button is enabled.
+    shutter_devices = list(mmc.getLoadedDevicesOfType(DeviceType.ShutterDevice))
+    non_core = next((d for d in shutter_devices if d != mmc.getShutterDevice()), None)
+    if non_core is None:
+        pytest.skip("Need at least two shutter devices for this test")
+
+    wdg.shutter_combo.setCurrentText(non_core)
+    assert wdg.shutter_button.isEnabled()
+
+    # Reassign core shutter to non_core - btn should become disabled (autoshutter on).
+    with wait_signal(qtbot, mmc.events.propertyChanged):
+        mmc.setProperty("Core", "Shutter", non_core)
+
+    assert not wdg.shutter_button.isEnabled()
+
+
+def test_shutter_widget_basic_system_config_loaded(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """systemConfigurationLoaded refreshes the widget."""
+    mmc = global_mmcore
+    wdg = ShuttersWidgetBasic(mmcore=mmc)
+    qtbot.addWidget(wdg)
+
+    count_before = wdg.shutter_combo.count()
+    assert count_before > 0
+
+    with wait_signal(qtbot, mmc.events.systemConfigurationLoaded):
+        mmc.loadSystemConfiguration("MMConfig_demo.cfg")
+
+    # After reload combo should still reflect new loaded devices.
+    loaded = list(mmc.getLoadedDevicesOfType(DeviceType.ShutterDevice))
+    assert wdg.shutter_combo.count() == len(loaded)
+
+
+def test_shutter_widget_basic_config_set_updates_button(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """configSet signal re-evaluates button enabled state."""
+    mmc = global_mmcore
+    wdg = ShuttersWidgetBasic(mmcore=mmc)
+    qtbot.addWidget(wdg)
+
+    # With autoshutter on and core shutter selected, button is disabled.
+    assert mmc.getAutoShutter()
+    assert not wdg.shutter_button.isEnabled()
+
+    with wait_signal(qtbot, mmc.events.configSet):
+        mmc.setConfig("Channel", "DAPI")
+
+    # Still disabled because autoshutter is still on.
+    assert not wdg.shutter_button.isEnabled()

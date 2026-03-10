@@ -30,7 +30,7 @@ COLOR_TYPE = Union[
 ]
 
 
-class ShutterWidgetBasic(QWidget):
+class ShuttersWidgetBasic(QWidget):
     """A simple Widget to control shutters with a combo box selection.
 
     Parameters
