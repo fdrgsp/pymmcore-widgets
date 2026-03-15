@@ -16,7 +16,6 @@ from qtpy.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSizePolicy,
-    QTabBar,
     QVBoxLayout,
     QWidget,
 )
@@ -29,7 +28,6 @@ from pymmcore_widgets.useq_widgets._checkable_tabwidget_widget import CheckableT
 from pymmcore_widgets.useq_widgets._grid import GridPlanWidget
 from pymmcore_widgets.useq_widgets._positions import (
     AF_PER_POS_TOOLTIP,
-    MDAButton,
     PositionTable,
 )
 from pymmcore_widgets.useq_widgets._time import TimePlanWidget
@@ -138,11 +136,9 @@ class MDATabs(CheckableTabWidget):
         # validation warnings.
         if grid_plan is not None and not grid_plan.is_relative and positions:
             positions = tuple(
-                (
-                    pos.replace(x=None, y=None)
-                    if pos.x is not None or pos.y is not None
-                    else pos
-                )
+                pos.replace(x=None, y=None)
+                if pos.x is not None or pos.y is not None
+                else pos
                 for pos in positions
             )
 
@@ -355,8 +351,7 @@ class MDASequenceWidget(QWidget):
         self.stage_positions.valueChanged.connect(self.valueChanged)
         self.stage_positions.valueChanged.connect(self._update_grid_absolute_modes)
         self.z_plan.valueChanged.connect(self._validate_af_with_z_plan)
-        self.grid_plan.valueChanged.connect(self.valueChanged)
-        self.grid_plan.valueChanged.connect(self._update_position_tab_checkable)
+        self.grid_plan.valueChanged.connect(self._on_grid_plan_value_changed)
         self.tab_wdg.tabChecked.connect(self._on_tab_checked)
         self.axis_order.currentTextChanged.connect(self.valueChanged)
         self.valueChanged.connect(self._update_time_estimate)
@@ -574,89 +569,21 @@ class MDASequenceWidget(QWidget):
             else:
                 self._enable_af(True)
 
-        if tab_idx == self.tab_wdg.indexOf(self.stage_positions):
-            self._update_grid_absolute_modes()
-
         if tab_idx in (
             self.tab_wdg.indexOf(self.grid_plan),
             self.tab_wdg.indexOf(self.stage_positions),
         ):
-            self._update_position_tab_checkable()
+            with signals_blocked(self):
+                self._on_grid_plan_value_changed()
 
         self._update_available_axis_orders()
 
-    def _has_global_absolute_grid(self) -> bool:
-        """Return True if the global grid tab is checked with an absolute grid."""
-        return bool(
-            self.tab_wdg.isChecked(self.grid_plan)
-            and not self.grid_plan.value().is_relative
-        )
-
-    def _update_grid_absolute_modes(self) -> None:
-        """Disable absolute grid modes when positions are present."""
-        has_positions = (
-            self.tab_wdg.isChecked(self.stage_positions)
-            and self.stage_positions.table().rowCount() > 0
-        )
-        self.grid_plan.setAbsoluteModesEnabled(not has_positions)
-
-    def _enforce_grid_position_constraints(self) -> None:
-        """Fix up state after setValue if both positions and absolute grid are set.
-
-        The global absolute grid is moved into each position's sub-sequence
-        (only those that don't already have a grid plan).  The global grid tab
-        is then unchecked.  x/y disabling is handled automatically by
-        `_update_row_xy_enabled` when each sub-sequence is set.
-        """
-        has_abs_grid = (
-            self.tab_wdg.isChecked(self.grid_plan)
-            and not self.grid_plan.value().is_relative
-        )
-        if (
-            not has_abs_grid
-            or not self.tab_wdg.isChecked(self.stage_positions)
-            or self.stage_positions.table().rowCount() == 0
-        ):
-            self._update_grid_absolute_modes()
-            self._update_position_tab_checkable()
-            return
-
-        # Move the global grid into each position that lacks its own grid plan.
-        grid_plan = self.grid_plan.value()
-        grid_seq = useq.MDASequence(grid_plan=grid_plan)
-        table = self.stage_positions.table()
-        seq_col = table.indexOf(self.stage_positions.SEQ)
-        for row in range(table.rowCount()):
-            btn = table.cellWidget(row, seq_col)
-            if isinstance(btn, MDAButton):
-                existing = btn.value()
-                if existing and existing != NULL_SEQUENCE:
-                    # Only add the grid if the sub-sequence has no grid plan.
-                    if existing.grid_plan is None:
-                        btn.setValue(existing.replace(grid_plan=grid_plan))
-                else:
-                    btn.setValue(grid_seq)
-        self.tab_wdg.setChecked(self.grid_plan, False)
-
-        self._update_grid_absolute_modes()
-        self._update_position_tab_checkable()
-
-    def _update_position_tab_checkable(self) -> None:
-        """Disable the position tab checkbox when a global absolute grid is active."""
-        disabled = self._has_global_absolute_grid()
-        pos_idx = self.tab_wdg.indexOf(self.stage_positions)
-        tip = (
-            "Cannot use stage positions with a global absolute grid plan."
-            if disabled
-            else ""
-        )
-        self.tab_wdg.setTabToolTip(pos_idx, tip)
-        if not (tab_bar := self.tab_wdg.tabBar()):
-            return  # pragma: no cover
-        cbox = tab_bar.tabButton(pos_idx, QTabBar.ButtonPosition.LeftSide)
-        if cbox:
-            cbox.setEnabled(not disabled)
-            cbox.setToolTip(tip)
+    def _on_grid_plan_value_changed(self) -> None:
+        """Disable position X/Y when a global absolute grid is active."""
+        gp = self.grid_plan
+        has_abs_grid = self.tab_wdg.isChecked(gp) and not gp.value().is_relative
+        self.stage_positions.setXYEnabled(not has_abs_grid)
+        self.valueChanged.emit()
 
     def _on_af_toggled(self) -> None:
         # if the 'af_per_position' checkbox in the PositionTable is checked, set checked
