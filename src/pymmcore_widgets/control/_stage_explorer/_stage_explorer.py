@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from PyQt6.QtGui import QAction, QActionGroup, QKeyEvent
+    from qtpy.QtGui import QCloseEvent
     from vispy.app.canvas import MouseEvent
 
     from ._stage_viewer import VisualNode
@@ -45,8 +46,8 @@ else:
 # suppress scientific notation when printing numpy arrays
 np.set_printoptions(suppress=True)
 
-_STAGE_POLL_INTERVAL_MS = 100
-_STAGE_POS_TOLERANCE_UM_SQ = 0.01  # 0.1 µm squared
+STAGE_POLL_INTERVAL_MS = 100
+STAGE_POS_TOLERANCE_UM_SQ = 0.01  # 0.1 µm squared
 
 
 class _StagePoller(QThread):
@@ -57,25 +58,28 @@ class _StagePoller(QThread):
     def __init__(self, mmc: CMMCorePlus, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._mmc = mmc
-        self._running = False
 
     def run(self) -> None:
-        self._running = True
+        """Poll the stage position.
+
+        If the stage position has changed by more than the tolerance since the last
+        poll, emit the positionChanged signal with the new stage position.
+        """
         last: tuple[float, float] | None = None
-        while self._running:
+        while not self.isInterruptionRequested():
             if self._mmc.getXYStageDevice():
                 x, y = self._mmc.getXYPosition()
                 if last is not None:
                     dx, dy = x - last[0], y - last[1]
-                    if dx * dx + dy * dy < _STAGE_POS_TOLERANCE_UM_SQ:
-                        self.msleep(_STAGE_POLL_INTERVAL_MS)
+                    if dx * dx + dy * dy < STAGE_POS_TOLERANCE_UM_SQ:
+                        self.msleep(STAGE_POLL_INTERVAL_MS)
                         continue
                 last = (x, y)
                 self.positionChanged.emit(x, y)
-            self.msleep(_STAGE_POLL_INTERVAL_MS)
+            self.msleep(STAGE_POLL_INTERVAL_MS)
 
     def stop(self) -> None:
-        self._running = False
+        self.requestInterruption()
         self.wait()
 
 
@@ -192,7 +196,7 @@ class StageExplorer(QWidget):
         self._grid_mode: OrderMode = OrderMode.row_wise_snake
 
         # background thread for polling stage position
-        self._stage_poller = _StagePoller(self._mmc, self)
+        self._stage_poller = _StagePoller(self._mmc)
         self._stage_poller.positionChanged.connect(self._on_stage_position_polled)
 
         # marker for stage position
@@ -264,9 +268,16 @@ class StageExplorer(QWidget):
         self._toolbar.poll_stage_action.trigger()
         self.zoom_to_fit()
 
-    def closeEvent(self, a0: object) -> None:
-        self._stage_poller.stop()
+    def closeEvent(self, a0: QCloseEvent | None) -> None:
+        self._stop_poller()
         super().closeEvent(a0)
+
+    def __del__(self) -> None:
+        self._stop_poller()
+
+    def _stop_poller(self) -> None:
+        if self._stage_poller.isRunning():
+            self._stage_poller.stop()
 
     # -----------------------------PUBLIC METHODS-------------------------------------
 
@@ -792,7 +803,7 @@ class AffineState:
             S[0, 0] *= -1
         if flip_y:
             S[1, 1] *= -1
-        return R @ S
+        return R @ S  # type: ignore
 
     def _pixel_config_is_identity(self) -> bool:
         return np.allclose(self.pixel_size_affine, (1.0, 0.0, 0.0, 0.0, 1.0, 0.0))
