@@ -46,8 +46,6 @@ def test_stage_viewer_clims_cmaps(qtbot: QtBot) -> None:
 
     # just some smoke tests
     stage_viewer.set_clims((0, 1))
-    stage_viewer.global_autoscale(ignore_min=0.1, ignore_max=0.1)
-    stage_viewer.set_colormap("viridis")
 
 
 def test_stage_viewer_clear_scene(qtbot: QtBot) -> None:
@@ -161,7 +159,6 @@ def test_mouse_hover_shows_position(qtbot: QtBot) -> None:
     viewer = StageViewer()
     viewer.show()
     qtbot.addWidget(viewer)
-    viewer.set_hover_label_visible(True)
 
     # Simulate mouse move event
     event = MouseEvent("mouse_move", pos=(100, 2))
@@ -182,7 +179,7 @@ def test_scan_menu_default_value(qtbot: QtBot) -> None:
     qtbot.addWidget(menu)
     overlap, mode = menu.value()
     assert overlap == 0.0
-    assert mode == useq.OrderMode.row_wise_snake
+    assert mode == useq.OrderMode.spiral
 
 
 def test_scan_menu_value_changed_signal(qtbot: QtBot) -> None:
@@ -197,8 +194,8 @@ def test_scan_menu_mode_change(qtbot: QtBot) -> None:
     menu = ScanMenu()
     qtbot.addWidget(menu)
     with qtbot.waitSignal(menu.valueChanged):
-        menu._mode_cbox.setCurrentEnum(useq.OrderMode.spiral)
-    assert menu.value()[1] == useq.OrderMode.spiral
+        menu._mode_cbox.setCurrentEnum(useq.OrderMode.row_wise_snake)
+    assert menu.value()[1] == useq.OrderMode.row_wise_snake
 
 
 # ---------------------------------------------------------------------------

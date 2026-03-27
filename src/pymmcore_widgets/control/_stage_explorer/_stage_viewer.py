@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import cmap
 import numpy as np
 import vispy
 import vispy.scene
 import vispy.visuals
-from qtpy.QtCore import Qt
-from qtpy.QtWidgets import QLabel, QVBoxLayout, QWidget
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import QLabel, QMenu, QVBoxLayout, QWidget
 from vispy import scene
 from vispy.scene.visuals import Image
 
@@ -25,6 +25,9 @@ if TYPE_CHECKING:
 class StageViewer(QWidget):
     """A widget to add images with a transform to a vispy canves."""
 
+    climRangeChanged = Signal(float, float, float)
+    """Emitted as (data_min, data_max, dtype_max) when global data range changes."""
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Stage Explorer")
@@ -32,11 +35,16 @@ class StageViewer(QWidget):
 
         self._clims: tuple[float, float] | None = None
         self._cmap: cmap.Colormap = cmap.Colormap("gray")
+        # running global data range across all images
+        self._global_min: float = float("inf")
+        self._global_max: float = float("-inf")
+        self._dtype_max: float = 65535.0
 
         self.canvas = vispy.scene.SceneCanvas(show=True)
 
         self.view = cast("ViewBox", self.canvas.central_widget.add_view())
         self.view.camera = scene.PanZoomCamera(aspect=1)
+        self.view.camera.flip = (True, True)
 
         self._grid_lines = vispy.scene.GridLines(
             parent=self.view.scene,
@@ -58,49 +66,25 @@ class StageViewer(QWidget):
         )
         self.canvas.events.mouse_move.connect(self._on_mouse_move)
 
-    # --------------------PUBLIC METHODS--------------------
+        # context menu
+        self.canvas.native.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.canvas.native.customContextMenuRequested.connect(self._show_context_menu)
 
-    def set_hover_label_visible(self, visible: bool) -> None:
-        """Set the visibility of the hover label."""
-        self._show_hover_label = visible
+    # --------------------PUBLIC METHODS--------------------
 
     def set_clims(self, clim: tuple[float, float] | None) -> None:
         """Set the color limits of the images in the scene."""
         self._clims = clim
+        value = "auto" if clim is None else clim
+        # Suppress per-image canvas redraws; repaint once at the end.
+        self.canvas._update_pending = True
         for child in self._get_images():
-            child.clim = "auto" if clim is None else clim
-
-    def set_colormap(self, colormap: cmap.ColormapLike) -> None:
-        """Set the colormap of the images in the scene."""
-        self._cmap = cmap.Colormap(colormap)
-        for child in self._get_images():
-            child.cmap = self._cmap.to_vispy()
+            child.clim = value
+        self.canvas._update_pending = False
+        self.canvas.update()
 
     def set_grid_visible(self, visible: bool) -> None:
         self._grid_lines.visible = visible
-
-    def global_autoscale(self, *, ignore_min: float = 0, ignore_max: float = 0) -> None:
-        """Set the color limits of all images in the scene to the global min and max.
-
-        Parameters
-        ----------
-        ignore_min : float
-            The fraction of dim values to ignore. Default is 0. Ranges from 0 to 1.
-            Passed to `numpy.quantile`.
-        ignore_max : float
-            The fraction of bright values to ignore. Default is 0. Ranges from 0 to 1.
-            Passed to `numpy.quantile`.
-        """
-        if not (visuals := list(self._get_images())):
-            return
-
-        # NOTE: if this function is to be called more often, we could retain a running
-        # min and max for each image and only update min and max when adding an image.
-        mi, ma = np.quantile(
-            np.concatenate([child._data.flatten() for child in visuals]),
-            (np.clip(ignore_min, 0, 1), np.clip(1 - ignore_max, 0, 1)),
-        )
-        self.set_clims((mi, ma))
 
     def add_image(self, img: np.ndarray, transform: np.ndarray | None = None) -> None:
         """Add an image to the scene with the given transform.
@@ -128,12 +112,29 @@ class StageViewer(QWidget):
             if np.allclose(transform[-1], (0, 0, 0, 1)):
                 transform = transform.T
 
+        # update running global data range
+        img_min, img_max = float(img.min()), float(img.max())
+        if np.issubdtype(img.dtype, np.integer):
+            self._dtype_max = float(np.iinfo(img.dtype).max)
+        else:
+            self._dtype_max = 1.0
+        old_min, old_max = self._global_min, self._global_max
+        self._global_min = min(self._global_min, img_min)
+        self._global_max = max(self._global_max, img_max)
+        if self._global_min != old_min or self._global_max != old_max:
+            self.climRangeChanged.emit(
+                self._global_min, self._global_max, self._dtype_max
+            )
+
         # add the image to the scene with the transform
+        # texture_format="auto" uses GPUScaledTexture2D so that clim changes
+        # only update a shader uniform instead of re-uploading the texture.
         frame = Image(
             img,
             cmap=self._cmap.to_vispy(),
             parent=self.view.scene,
             clim="auto" if self._clims is None else self._clims,
+            texture_format="auto",
         )
         # keep the added image on top of the others
         frame.order = min(child.order for child in self._get_images()) - 1
@@ -145,6 +146,8 @@ class StageViewer(QWidget):
         for child in reversed(self.view.scene.children):
             if isinstance(child, Image):
                 child.parent = None
+        self._global_min = float("inf")
+        self._global_max = float("-inf")
 
     def zoom_to_fit(self, *, margin: float = 0.05) -> None:
         """Recenter the view to the center of all images.
@@ -173,6 +176,31 @@ class StageViewer(QWidget):
         return canvas_x, canvas_y
 
     # --------------------PRIVATE METHODS--------------------
+
+    def _show_context_menu(self, pos: Any) -> None:
+        menu = QMenu(self)
+
+        flip_x, flip_y, *_ = self.view.camera.flip
+
+        flip_x_action = menu.addAction("Flip X")
+        flip_x_action.setCheckable(True)
+        flip_x_action.setChecked(flip_x)
+        flip_x_action.toggled.connect(lambda checked: self._set_flip(x=checked))
+
+        flip_y_action = menu.addAction("Flip Y")
+        flip_y_action.setCheckable(True)
+        flip_y_action.setChecked(flip_y)
+        flip_y_action.toggled.connect(lambda checked: self._set_flip(y=checked))
+
+        menu.exec(self.canvas.native.mapToGlobal(pos))
+
+    def _set_flip(self, x: bool | None = None, y: bool | None = None) -> None:
+        cur_x, cur_y, cur_z = self.view.camera.flip
+        self.view.camera.flip = (
+            x if x is not None else cur_x,
+            y if y is not None else cur_y,
+            cur_z,
+        )
 
     def _get_images(self) -> Iterator[Image]:
         """Yield images in the scene."""
