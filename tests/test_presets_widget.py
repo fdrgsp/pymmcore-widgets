@@ -91,3 +91,26 @@ def test_preset_widget_ignores_empty_device(
     qtbot.addWidget(wdg)
     # Should not raise RuntimeError: No device with label ""
     global_mmcore.events.propertyChanged.emit("", "State", "1")
+
+
+def test_preset_widget_no_match_removal_does_not_apply_preset(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Internal combo refreshes must not call ``setConfig``."""
+    global_mmcore.setConfig("Camera", "HighRes")
+    wdg = PresetsWidget("Camera", mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+
+    global_mmcore.setProperty("Camera", "Binning", "8")
+    assert wdg.value() == "<no match>"
+
+    config_set_events: list[tuple[str, str]] = []
+    global_mmcore.events.configSet.connect(
+        lambda group, preset: config_set_events.append((group, preset))
+    )
+
+    global_mmcore.setProperty("Camera", "Binning", "1")
+
+    assert wdg.value() == "HighRes"
+    assert global_mmcore.getCurrentConfig("Camera") == "HighRes"
+    assert config_set_events == []
