@@ -547,6 +547,44 @@ class ChoiceColumn(WidgetColumn):
         wdg.setCheckState(state)
 
 
+class TableComboBox(QComboBox):
+    """A QComboBox suitable for use inside a table cell."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+
+    def wheelEvent(self, event: Any) -> None:
+        # disable mouse wheel scrolling on table combo boxes
+        pass  # pragma: no cover
+
+
+TableComboWidget = WdgGetSet(
+    TableComboBox,
+    TableComboBox.currentText,
+    TableComboBox.setCurrentText,
+    lambda w, cb: w.currentTextChanged.connect(cb),
+)
+
+
+@dataclass(frozen=True)
+class ComboColumn(WidgetColumn):
+    """A column of plain combo boxes (no row-selector checkbox).
+
+    Unlike [`ChoiceColumn`][pymmcore_widgets.useq_widgets.ChoiceColumn], which pairs
+    the combo with a checkbox so it can act as the row selector, this is just a
+    drop-down.
+    """
+
+    data_type: WdgGetSet[TableComboBox, str] = TableComboWidget
+    allowed_values: tuple[str, ...] = ()
+
+    def _init_widget(self) -> TableComboBox:
+        wdg = self.data_type.widget()
+        wdg.addItems(self.allowed_values)
+        return wdg
+
+
 ButtonWidget = WdgGetSet(
     QPushButton,
     QPushButton.text,

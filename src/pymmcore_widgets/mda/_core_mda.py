@@ -28,6 +28,10 @@ from pymmcore_widgets.useq_widgets._positions import AF_PER_POS_TOOLTIP
 from pymmcore_widgets.useq_widgets._time import TimePlanWidget
 from pymmcore_widgets.useq_widgets._z import Mode
 
+from ._channel_properties import (
+    CHANNEL_PROPERTIES_KEY,
+    to_channel_properties_sequence,
+)
 from ._core_channels import CoreConnectedChannelTable
 from ._core_grid import CoreConnectedGridPlanWidget
 from ._core_positions import AF_UNAVAILABLE, CoreConnectedPositionTable
@@ -161,7 +165,16 @@ class MDAWidget(MDASequenceWidget):
     # ------------------- public Methods ----------------------
 
     def value(self) -> MDASequence:
-        """Set the current state of the widget from a [`useq.MDASequence`][]."""
+        """Return the current state of the widget as a [`useq.MDASequence`][].
+
+        If any channel has a light source selected in the channel table, the returned
+        object is a
+        [`ChannelPropertiesSequence`][pymmcore_widgets.mda.ChannelPropertiesSequence]
+        (a `useq.MDASequence` subclass) whose events carry the corresponding
+        `MDAEvent.properties`, so that passing it to `CMMCorePlus.run_mda` applies the
+        per-channel property. The settings themselves live in
+        `metadata[PYMMCW_METADATA_KEY]["channel_properties"]`.
+        """
         val = super().value()
         replace: dict = {}
 
@@ -209,12 +222,22 @@ class MDAWidget(MDASequenceWidget):
         meta: dict = val.metadata.setdefault(PYMMCW_METADATA_KEY, {})
         if self.save_info.isChecked():
             meta.update(self.save_info.value())
+
+        # per-channel device properties (e.g. light source intensity) are not
+        # useq.Channel fields, so they ride along in the metadata and are turned into
+        # MDAEvent.properties by ChannelPropertiesSequence.iter_events()
+        if ch_props := self.channels.channelProperties():
+            meta[CHANNEL_PROPERTIES_KEY] = ch_props
+            val = to_channel_properties_sequence(val)
         return val
 
     def setValue(self, value: MDASequence) -> None:
-        """Get the current state of the widget as a [`useq.MDASequence`][]."""
+        """Set the current state of the widget from a [`useq.MDASequence`][]."""
         super().setValue(value)
-        self.save_info.setValue(value.metadata.get(PYMMCW_METADATA_KEY, {}))
+        meta = value.metadata.get(PYMMCW_METADATA_KEY, {})
+        self.save_info.setValue(meta)
+        # must come after super().setValue(), which recreates the channel rows
+        self.channels.setChannelProperties(meta.get(CHANNEL_PROPERTIES_KEY, ()))
 
     def get_next_available_path(self, requested_path: Path) -> Path:
         """Get the next available path.

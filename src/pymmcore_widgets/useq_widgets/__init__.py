@@ -4,6 +4,7 @@ from ._channels import ChannelTable
 from ._column_info import (
     BoolColumn,
     ChoiceColumn,
+    ComboColumn,
     FloatColumn,
     IntColumn,
     TextColumn,
@@ -23,6 +24,7 @@ __all__ = [
     "BoolColumn",
     "ChannelTable",
     "ChoiceColumn",
+    "ComboColumn",
     "DataTable",
     "DataTableWidget",
     "FloatColumn",

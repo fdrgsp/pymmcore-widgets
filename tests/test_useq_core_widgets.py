@@ -12,6 +12,10 @@ from qtpy.QtWidgets import QMessageBox
 from pymmcore_widgets import HCSWizard
 from pymmcore_widgets._util import get_next_available_path
 from pymmcore_widgets.mda import MDAWidget
+from pymmcore_widgets.mda._channel_properties import (
+    CHANNEL_PROPERTIES_KEY,
+    ChannelPropertiesSequence,
+)
 from pymmcore_widgets.mda._core_channels import CoreConnectedChannelTable
 from pymmcore_widgets.mda._core_grid import CoreConnectedGridPlanWidget
 from pymmcore_widgets.mda._core_positions import (
@@ -1148,3 +1152,207 @@ def test_sub_wdg_channel_tab(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
 
     # Click the button (this will open the dialog)
     btn.seq_btn.click()
+
+
+# ------------------- channel light source / intensity columns -------------------
+
+
+def _define_light_source_groups(core: CMMCorePlus) -> None:
+    """Define two single-preset, single-property config groups on `core`.
+
+    "Light" wraps a Float property with limits, "Power" wraps an Integer one -
+    both qualify as a "light source" (see `CoreConnectedChannelTable`).
+    """
+    core.defineConfig("Light", "Level", "Camera", "TestProperty2", "0")
+    core.defineConfig("Power", "Level", "Camera", "Gain", "0")
+
+
+def test_light_source_columns_shown_for_preexisting_group(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    """No new group defined -> only the pre-existing `_slider_test` group qualifies."""
+    tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+
+    # test_config.cfg ships a single-preset, single-property "_slider_test" group
+    # specifically to exercise this "acts like a slider" rule.
+    assert tbl.lightSources() == {"_slider_test": ("Camera", "TestProperty1")}
+    table = tbl.table()
+    ls_col = table.indexOf(tbl._light_source_column)
+    int_col = table.indexOf(tbl.INTENSITY)
+    assert not table.isColumnHidden(ls_col)
+    assert not table.isColumnHidden(int_col)
+
+
+def test_light_source_columns_hidden_with_no_qualifying_group(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    """Deleting the only qualifying group hides both columns again."""
+    tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+    assert tbl.lightSources()  # sanity: _slider_test qualifies before deletion
+
+    global_mmcore.deleteConfigGroup("_slider_test")
+
+    assert tbl.lightSources() == {}
+    table = tbl.table()
+    ls_col = table.indexOf(tbl._light_source_column)
+    int_col = table.indexOf(tbl.INTENSITY)
+    assert table.isColumnHidden(ls_col)
+    assert table.isColumnHidden(int_col)
+
+
+def test_light_source_columns_shown_for_qualifying_group(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+    tbl.setValue([useq.Channel(config="DAPI")])
+
+    _define_light_source_groups(global_mmcore)
+
+    assert tbl.lightSources() == {
+        "_slider_test": ("Camera", "TestProperty1"),
+        "Light": ("Camera", "TestProperty2"),
+        "Power": ("Camera", "Gain"),
+    }
+    table = tbl.table()
+    ls_col = table.indexOf(tbl._light_source_column)
+    int_col = table.indexOf(tbl.INTENSITY)
+    assert not table.isColumnHidden(ls_col)
+    assert not table.isColumnHidden(int_col)
+
+    combo = table.cellWidget(0, ls_col)
+    items = [combo.itemText(i) for i in range(combo.count())]
+    assert items[0] == ""  # "no light source" is always first
+    assert set(items) == {"", "_slider_test", "Light", "Power"}
+
+
+def test_channel_properties(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
+    _define_light_source_groups(global_mmcore)
+
+    tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+    tbl.setValue(
+        [
+            useq.Channel(config="DAPI", exposure=50),
+            useq.Channel(config="FITC", exposure=30),
+        ]
+    )
+
+    table = tbl.table()
+    ls_col = table.indexOf(tbl._light_source_column)
+    int_col = table.indexOf(tbl.INTENSITY)
+
+    table.cellWidget(0, ls_col).setCurrentText("Light")
+    table.cellWidget(0, int_col).setValue(150.5)
+    table.cellWidget(1, ls_col).setCurrentText("Power")
+    table.cellWidget(1, int_col).setValue(7)
+
+    # per-row range/decimals follow the underlying property's type and limits
+    assert table.cellWidget(0, int_col).decimals() == 2
+    assert table.cellWidget(0, int_col).minimum() == -200
+    assert table.cellWidget(0, int_col).maximum() == 200
+    assert table.cellWidget(1, int_col).decimals() == 0
+    assert table.cellWidget(1, int_col).minimum() == -5
+    assert table.cellWidget(1, int_col).maximum() == 8
+
+    # extra columns must not leak into useq.Channel construction
+    channels = tbl.value()
+    assert channels == (
+        useq.Channel(config="DAPI", exposure=50),
+        useq.Channel(config="FITC", exposure=30),
+    )
+
+    props = tbl.channelProperties()
+    assert props == [
+        {
+            "channel_index": 0,
+            "config": "DAPI",
+            "group": "Light",
+            "device": "Camera",
+            "property": "TestProperty2",
+            "value": 150.5,
+        },
+        {
+            "channel_index": 1,
+            "config": "FITC",
+            "group": "Power",
+            "device": "Camera",
+            "property": "Gain",
+            # Integer property -> cast to int
+            "value": 7,
+        },
+    ]
+    assert isinstance(props[1]["value"], int)
+
+
+def test_mda_widget_value_returns_channel_properties_sequence(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    _define_light_source_groups(global_mmcore)
+
+    wdg = MDAWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.setValue(
+        useq.MDASequence(
+            channels=[
+                {"config": "DAPI", "exposure": 50},
+                {"config": "FITC", "exposure": 30},
+            ]
+        )
+    )
+
+    table = wdg.channels.table()
+    ls_col = table.indexOf(wdg.channels._light_source_column)
+    int_col = table.indexOf(wdg.channels.INTENSITY)
+    table.cellWidget(0, ls_col).setCurrentText("Light")
+    table.cellWidget(0, int_col).setValue(150)
+    # FITC (row 1) keeps the default "no light source"
+
+    seq = wdg.value()
+    assert isinstance(seq, ChannelPropertiesSequence)
+    assert isinstance(seq, useq.MDASequence)
+
+    events = list(seq)
+    dapi_events = [e for e in events if e.channel and e.channel.config == "DAPI"]
+    fitc_events = [e for e in events if e.channel and e.channel.config == "FITC"]
+    assert dapi_events and fitc_events
+    for e in dapi_events:
+        assert e.properties == [useq.PropertyTuple("Camera", "TestProperty2", 150.0)]
+    for e in fitc_events:
+        assert e.properties is None
+
+
+def test_channel_properties_round_trip(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    _define_light_source_groups(global_mmcore)
+
+    wdg = MDAWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.setValue(
+        useq.MDASequence(
+            channels=[
+                {"config": "DAPI", "exposure": 50},
+                {"config": "FITC", "exposure": 30},
+            ]
+        )
+    )
+    table = wdg.channels.table()
+    ls_col = table.indexOf(wdg.channels._light_source_column)
+    int_col = table.indexOf(wdg.channels.INTENSITY)
+    table.cellWidget(0, ls_col).setCurrentText("Light")
+    table.cellWidget(0, int_col).setValue(42)
+
+    seq = wdg.value()
+
+    wdg2 = MDAWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg2)
+    wdg2.setValue(seq)
+
+    assert wdg2.channels.channelProperties() == wdg.channels.channelProperties()
+    assert (
+        wdg2.value().metadata[PYMMCW_METADATA_KEY][CHANNEL_PROPERTIES_KEY]
+        == seq.metadata[PYMMCW_METADATA_KEY][CHANNEL_PROPERTIES_KEY]
+    )

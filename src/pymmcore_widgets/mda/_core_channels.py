@@ -1,20 +1,108 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, cast
 
-from pymmcore_plus import CMMCorePlus
+import useq
+from pymmcore_plus import CMMCorePlus, PropertyType
 from qtpy.QtCore import Slot
+from superqt.utils import signals_blocked
 
-from pymmcore_widgets.useq_widgets import ChannelTable
+from pymmcore_widgets.useq_widgets import ChannelTable, ComboColumn
+from pymmcore_widgets.useq_widgets._column_info import (
+    TableDoubleSpinBox,
+    WdgGetSet,
+    WidgetColumn,
+)
+
+from ._channel_properties import ChannelProperty
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
+
     from qtpy.QtWidgets import QWidget
 
 DEFAULT_EXP = 100.0
 
+# keys of the columns that are *not* useq.Channel fields
+LIGHT_SOURCE_KEY = "light_source"
+INTENSITY_KEY = "intensity"
+_EXTRA_KEYS = frozenset({LIGHT_SOURCE_KEY, INTENSITY_KEY})
+
+# value of the light source combo meaning "this channel sets no property"
+NO_LIGHT_SOURCE = ""
+
+
+class IntensitySpinBox(TableDoubleSpinBox):
+    """Spin box for a light source value, ranged from the property's limits.
+
+    The property differs from row to row (and may be absent), so unlike the other
+    numeric columns the range/decimals are configured per cell rather than on the
+    column.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        # the light source group this spin box is currently configured for, used to
+        # avoid needlessly re-ranging (which can clobber a value the user is editing)
+        self._group: str = NO_LIGHT_SOURCE
+        self.setEnabled(False)
+
+    def group(self) -> str:
+        """Return the light source group this spin box is configured for."""
+        return self._group
+
+    def setPropertyLimits(
+        self, group: str, limits: tuple[float, float] | None, is_integer: bool
+    ) -> None:
+        """Configure this spin box for `group`'s underlying device property."""
+        self._group = group
+        if limits is None:
+            self.setEnabled(False)
+            self.setRange(0, 0)
+            return
+
+        self.setEnabled(True)
+        self.setDecimals(0 if is_integer else 2)
+        self.setRange(*limits)
+
+
+TableIntensityWidget = WdgGetSet(
+    IntensitySpinBox,
+    IntensitySpinBox.value,
+    IntensitySpinBox.setValue,
+    lambda w, cb: w.valueChanged.connect(cb),
+)
+
+
+@dataclass(frozen=True)
+class IntensityColumn(WidgetColumn):
+    """Column of intensity spin boxes, ranged per row by the row's light source."""
+
+    data_type: WdgGetSet = TableIntensityWidget
+
 
 class CoreConnectedChannelTable(ChannelTable):
     """[ChannelTable](../ChannelTable#) connected to a Micro-Manager core instance.
+
+    In addition to the standard [`useq.Channel`][] fields, this table has *Light
+    Source* and *Intensity* columns, which let each channel set a single device
+    property (typically an illumination intensity) while it is being acquired.
+
+    The *Light Source* drop-down lists config groups that behave like a slider in
+    Micro-Manager: exactly one preset, containing exactly one device property, where
+    that property is numeric and has limits. Both columns are hidden when the loaded
+    configuration has no such group.
+
+    These values are not part of `useq.Channel`; see
+    [`MDAWidget.value`][pymmcore_widgets.MDAWidget.value] for how they are carried on
+    the sequence and applied at acquisition time.
+
+    !!! note
+        Within a hardware-sequenced batch, `pymmcore_plus`'s event combiner treats a
+        property that an event does not mention as static, applying the first event's
+        value for the whole batch. So if some channels set a light source and others
+        do not, a sequenced batch may leave the previous channel's value applied.
 
     Parameters
     ----------
@@ -29,6 +117,11 @@ class CoreConnectedChannelTable(ChannelTable):
         Optional parent widget, by default None.
     """
 
+    # fmt: off
+    LIGHT_SOURCE = ComboColumn(key=LIGHT_SOURCE_KEY, header="Light Source", default=NO_LIGHT_SOURCE, allowed_values=(NO_LIGHT_SOURCE,))  # noqa: E501
+    INTENSITY = IntensityColumn(key=INTENSITY_KEY, header="Intensity", default=0.0)
+    # fmt: on
+
     def __init__(
         self,
         rows: int = 0,
@@ -38,15 +131,110 @@ class CoreConnectedChannelTable(ChannelTable):
         super().__init__(rows, parent)
         self._mmc = mmcore or CMMCorePlus.instance()
 
+        # {group name -> (device, property)} for groups usable as a light source
+        self._light_sources: dict[str, tuple[str, str]] = {}
+        self._light_source_column: ComboColumn = self.LIGHT_SOURCE
+        # guards _sync_intensity_widgets against re-entrancy
+        self._syncing_intensity = False
+
         # connections
-        self._mmc.events.systemConfigurationLoaded.connect(self._update_channel_groups)
-        self._mmc.events.configGroupDeleted.connect(self._update_channel_groups)
-        self._mmc.events.configDefined.connect(self._update_channel_groups)
+        self._mmc.events.systemConfigurationLoaded.connect(self._on_configs_changed)
+        self._mmc.events.configGroupDeleted.connect(self._on_configs_changed)
+        self._mmc.events.configDefined.connect(self._on_configs_changed)
         self._mmc.events.channelGroupChanged.connect(self._update_channel_groups)
+        self.valueChanged.connect(self._sync_intensity_widgets)
 
         self.destroyed.connect(self._disconnect)
 
+        self._on_configs_changed()
+
+    # ------------------- public API -------------------
+
+    def value(self, exclude_unchecked: bool = True) -> tuple[useq.Channel, ...]:
+        """Return the current value of the table as a tuple of [useq.Channels](https://pymmcore-plus.github.io/useq-schema/schema/axes/#useq.Channel).
+
+        The light source and intensity columns are not `useq.Channel` fields; use
+        [`channelProperties`][pymmcore_widgets.mda.CoreConnectedChannelTable.channelProperties]
+        to retrieve those.
+
+        Parameters
+        ----------
+        exclude_unchecked : bool, optional
+            Exclude unchecked rows, by default True
+        """
+        return tuple(
+            useq.Channel(**{k: v for k, v in rec.items() if k not in _EXTRA_KEYS})
+            for rec in self.table().iterRecords(exclude_unchecked=exclude_unchecked)
+        )
+
+    def channelProperties(
+        self, exclude_unchecked: bool = True
+    ) -> list[ChannelProperty]:
+        """Return the device property set by each channel that has a light source.
+
+        Entries are sparse: channels with no light source selected are omitted. Each
+        entry's `channel_index` indexes into the tuple returned by `value()` called
+        with the same `exclude_unchecked`.
+        """
+        props: list[ChannelProperty] = []
+        records = self.table().iterRecords(exclude_unchecked=exclude_unchecked)
+        for idx, rec in enumerate(records):
+            group = rec.get(LIGHT_SOURCE_KEY) or NO_LIGHT_SOURCE
+            if group not in self._light_sources:
+                continue
+            device, prop = self._light_sources[group]
+            value = float(rec.get(INTENSITY_KEY) or 0.0)
+            if self._mmc.getPropertyType(device, prop) is PropertyType.Integer:
+                value = int(value)
+            props.append(
+                ChannelProperty(
+                    channel_index=idx,
+                    config=str(rec.get("config", "")),
+                    group=group,
+                    device=device,
+                    property=prop,
+                    value=value,
+                )
+            )
+        return props
+
+    def setChannelProperties(self, value: Iterable[ChannelProperty]) -> None:
+        """Restore the light source and intensity columns from `channelProperties`.
+
+        Like [`DataTableWidget.setValue`][], this does not itself emit
+        `valueChanged` - it is meant to be called as part of restoring state (e.g.
+        from `MDAWidget.setValue`), not as a user edit.
+        """
+        table = self.table()
+        ls_col = table.indexOf(self._light_source_column)
+        int_col = table.indexOf(self.INTENSITY)
+        if ls_col < 0 or int_col < 0:  # pragma: no cover
+            return
+
+        with signals_blocked(self):
+            for entry in value:
+                row = entry["channel_index"]
+                if not (0 <= row < table.rowCount()):  # pragma: no cover
+                    continue
+                if entry["group"] not in self._light_sources:
+                    continue
+                self._light_source_column.set_cell_data(
+                    table, row, ls_col, entry["group"]
+                )
+                # range must be set before the value, or it would be clamped away
+                self._configure_intensity_widget(row, int_col, entry["group"])
+                self.INTENSITY.set_cell_data(table, row, int_col, entry["value"])
+
+    def lightSources(self) -> Mapping[str, tuple[str, str]]:
+        """Return {group name: (device, property)} for the available light sources."""
+        return dict(self._light_sources)
+
+    # ------------------- Private API -------------------
+
+    @Slot()
+    def _on_configs_changed(self, *_: Any) -> None:
         self._update_channel_groups()
+        self._update_light_sources()
 
     @Slot()
     def _update_channel_groups(self) -> None:
@@ -62,11 +250,112 @@ class CoreConnectedChannelTable(ChannelTable):
         if ch_group and ch_group in self.channelGroups():
             self._group_combo.setCurrentText(ch_group)
 
+    def _find_light_sources(self) -> dict[str, tuple[str, str]]:
+        """Return config groups that act as a single ranged property.
+
+        A group qualifies when it has exactly one preset containing exactly one
+        device property, and that property is numeric with limits. This mirrors the
+        rule `GroupPresetTableWidget` uses to decide whether to show a group as a
+        `PropertyWidget` (i.e. a slider) rather than a preset combo box.
+        """
+        found: dict[str, tuple[str, str]] = {}
+        for group in self._mmc.getAvailableConfigGroups():
+            presets = self._mmc.getAvailableConfigs(group)
+            if len(presets) != 1:
+                continue
+            data = list(self._mmc.getConfigData(group, presets[0]))
+            if len(data) != 1:
+                continue
+            device, prop, _ = data[0]
+            if not self._mmc.hasPropertyLimits(device, prop):
+                continue
+            if self._mmc.getPropertyType(device, prop) not in (
+                PropertyType.Integer,
+                PropertyType.Float,
+            ):
+                continue
+            found[group] = (device, prop)
+        return found
+
+    def _update_light_sources(self) -> None:
+        """Rebuild the light source column from the current configuration."""
+        self._light_sources = self._find_light_sources()
+
+        table = self.table()
+        ls_col = table.indexOf(self._light_source_column)
+        int_col = table.indexOf(self.INTENSITY)
+        if ls_col < 0 or int_col < 0:  # pragma: no cover
+            return
+
+        # swap in a column with the new choices (same approach as _on_group_changed)
+        with signals_blocked(self):
+            table.removeColumn(ls_col)
+            self._light_source_column = ComboColumn(
+                key=LIGHT_SOURCE_KEY,
+                header="Light Source",
+                default=NO_LIGHT_SOURCE,
+                allowed_values=(NO_LIGHT_SOURCE, *self._light_sources),
+            )
+            table.addColumn(self._light_source_column, ls_col)
+
+            # nothing to choose from -> keep both columns out of the way
+            hidden = not self._light_sources
+            table.setColumnHidden(ls_col, hidden)
+            table.setColumnHidden(int_col, hidden)
+            self._sync_intensity_widgets(force=True)
+        self.valueChanged.emit()
+
+    def _configure_intensity_widget(self, row: int, col: int, group: str) -> None:
+        """Range the intensity spin box at `row` for `group`'s property."""
+        wdg = cast("IntensitySpinBox | None", self.table().cellWidget(row, col))
+        if wdg is None:  # pragma: no cover
+            return
+        if (dev_prop := self._light_sources.get(group)) is None:
+            wdg.setPropertyLimits(NO_LIGHT_SOURCE, None, False)
+            return
+        device, prop = dev_prop
+        limits = (
+            self._mmc.getPropertyLowerLimit(device, prop),
+            self._mmc.getPropertyUpperLimit(device, prop),
+        )
+        is_int = self._mmc.getPropertyType(device, prop) is PropertyType.Integer
+        wdg.setPropertyLimits(group, limits, is_int)
+
+    @Slot()
+    def _sync_intensity_widgets(self, force: bool = False) -> None:
+        """Re-range each row's intensity spin box to match its light source.
+
+        Driven by `valueChanged` rather than by wiring each combo box, so that it
+        keeps working across row insertion *and* wholesale column rebuilds.
+        """
+        if self._syncing_intensity:
+            return
+
+        table = self.table()
+        ls_col = table.indexOf(self._light_source_column)
+        int_col = table.indexOf(self.INTENSITY)
+        if ls_col < 0 or int_col < 0:  # pragma: no cover
+            return
+
+        self._syncing_intensity = True
+        try:
+            with signals_blocked(table):
+                for row in range(table.rowCount()):
+                    data = self._light_source_column.get_cell_data(table, row, ls_col)
+                    group = data.get(LIGHT_SOURCE_KEY) or NO_LIGHT_SOURCE
+                    wdg = cast(
+                        "IntensitySpinBox | None", table.cellWidget(row, int_col)
+                    )
+                    if wdg is None:  # pragma: no cover
+                        continue
+                    if force or wdg.group() != group:
+                        self._configure_intensity_widget(row, int_col, group)
+        finally:
+            self._syncing_intensity = False
+
     def _disconnect(self) -> None:
         """Disconnect from the core instance."""
-        self._mmc.events.systemConfigurationLoaded.disconnect(
-            self._update_channel_groups
-        )
-        self._mmc.events.configGroupDeleted.disconnect(self._update_channel_groups)
-        self._mmc.events.configDefined.disconnect(self._update_channel_groups)
+        self._mmc.events.systemConfigurationLoaded.disconnect(self._on_configs_changed)
+        self._mmc.events.configGroupDeleted.disconnect(self._on_configs_changed)
+        self._mmc.events.configDefined.disconnect(self._on_configs_changed)
         self._mmc.events.channelGroupChanged.disconnect(self._update_channel_groups)
