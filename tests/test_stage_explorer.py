@@ -6,6 +6,7 @@ from unittest.mock import patch
 import numpy as np
 import useq
 from pymmcore_plus import CMMCorePlus
+from qtpy.QtWidgets import QMessageBox
 from vispy.app.canvas import MouseEvent
 from vispy.scene.visuals import Image
 
@@ -643,3 +644,25 @@ def test_sequence_finished_resets_our_mda_running(qtbot: QtBot) -> None:
     explorer._our_mda_running = True
     explorer._on_sequence_finished()
     assert not explorer._our_mda_running
+
+
+def test_send_to_mda_emits_roi_positions(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.roi_manager.add_roi(RectangleROI((0, 0), (100, 100), fov_size=(50, 50)))
+
+    def choose_replace(msg: QMessageBox) -> int:
+        replace = next(btn for btn in msg.buttons() if btn.text() == "Replace")
+        replace.click()
+        return 0
+
+    with (
+        patch.object(QMessageBox, "exec", choose_replace),
+        qtbot.waitSignal(explorer.sendToMDARequested) as emitted,
+    ):
+        explorer._toolbar.send_to_mda_action.trigger()
+
+    positions, replace = emitted.args
+    assert len(positions) == 1
+    assert isinstance(positions[0], useq.AbsolutePosition)
+    assert replace is True

@@ -16,6 +16,7 @@ from qtpy.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QSpinBox,
@@ -137,6 +138,8 @@ class StageExplorer(QWidget):
         around the current stage position. By default, False.
     """
 
+    sendToMDARequested = Signal(list, bool)
+
     def __init__(
         self, parent: QWidget | None = None, mmcore: CMMCorePlus | None = None
     ):
@@ -193,6 +196,7 @@ class StageExplorer(QWidget):
         tb.delete_rois_action.triggered.connect(self.roi_manager.clear)
         tb.scan_action.triggered.connect(self._on_scan_action)
         tb.stop_scan_action.triggered.connect(self._on_stop_scan_action)
+        tb.send_to_mda_action.triggered.connect(self._on_send_to_mda)
         tb.marker_mode_action_group.triggered.connect(self._update_marker_mode)
         tb.scan_menu.valueChanged.connect(self._on_scan_options_changed)
 
@@ -440,6 +444,41 @@ class StageExplorer(QWidget):
         overlap, mode = value
         self.roi_manager.set_scan_options(overlap, mode)
 
+    @Slot()
+    def _on_send_to_mda(self) -> None:
+        """Send every Explorer ROI to an MDA position table."""
+        fov_w, fov_h = self._fov_w_h()
+        z_pos = self._mmc.getZPosition() if self._mmc.getFocusDevice() else None
+        manager = self.roi_manager
+        positions = [
+            roi.create_useq_position(
+                fov_w,
+                fov_h,
+                z_pos=z_pos,
+                overlap=manager.scan_overlap,
+                mode=manager.scan_mode,
+            )
+            for roi in manager.all_rois()
+        ]
+        if not positions:
+            return
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Send to MDA")
+        msg.setText("Replace existing stage positions or add to them?")
+        replace_btn = msg.addButton("Replace", QMessageBox.ButtonRole.AcceptRole)
+        add_btn = msg.addButton("Add", QMessageBox.ButtonRole.AcceptRole)
+        cancel_btn = msg.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        msg.exec()
+
+        clicked = msg.clickedButton()
+        if clicked is replace_btn:
+            self.sendToMDARequested.emit(positions, True)
+        elif clicked is add_btn:
+            self.sendToMDARequested.emit(positions, False)
+        elif clicked is cancel_btn or clicked is None:
+            return
+
     def keyPressEvent(self, a0: QKeyEvent | None) -> None:
         if a0 is None:
             return
@@ -618,37 +657,6 @@ class StageExplorer(QWidget):
         return all(view_rect.contains(*vertex) for vertex in vertices)
 
 
-_CLIM_SLIDER_SS = """
-QSlider::groove:horizontal {
-    height: 15px;
-    background: qlineargradient(
-        x1:0, y1:0, x2:0, y2:1,
-        stop:0 rgba(128, 128, 128, 0.25),
-        stop:1 rgba(128, 128, 128, 0.1)
-    );
-    border-radius: 3px;
-}
-QSlider::handle:horizontal {
-    width: 38px;
-    background: #999999;
-    border-radius: 3px;
-}
-QSlider::sub-page:horizontal {
-    background: qlineargradient(
-        x1:0, y1:0, x2:0, y2:1,
-        stop:0 rgba(100, 100, 100, 0.25),
-        stop:1 rgba(100, 100, 100, 0.1)
-    );
-}
-QRangeSlider { qproperty-barColor: qlineargradient(
-    x1:0, y1:0, x2:0, y2:1,
-    stop:0 rgba(100, 80, 120, 0.2),
-    stop:1 rgba(100, 80, 120, 0.4)
-)}
-SliderLabel { font-size: 10px; color: white; }
-"""
-
-
 class _MaxSpinBox(QSpinBox):
     """Frameless spinbox for the contrast slider maximum, with a context menu."""
 
@@ -663,11 +671,7 @@ class _MaxSpinBox(QSpinBox):
         self.setKeyboardTracking(False)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
-        font = self.font()
-        font.setPointSize(11)
-        self.setFont(font)
-        self.setFixedWidth(self.fontMetrics().horizontalAdvance("888888"))
-        self.setStyleSheet("_MaxSpinBox { background: transparent; border: none; }")
+        self.setMinimumWidth(self.fontMetrics().horizontalAdvance("888888"))
 
     def _core(self) -> CMMCorePlus | None:
         """Walk up the widget tree to find the CMMCorePlus instance."""
@@ -706,7 +710,6 @@ class ContrastSlider(QWidget):
 
         self._slider = QLabeledRangeSlider(Qt.Orientation.Horizontal, self)
         self._slider.setRange(0, _MaxSpinBox._DEFAULT_MAX)
-        self._slider.setStyleSheet(_CLIM_SLIDER_SS)
         self._slider.setHandleLabelPosition(
             QLabeledRangeSlider.LabelPosition.LabelsOnHandle
         )
@@ -803,8 +806,8 @@ class StageExplorerToolbar(QToolBar):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setIconSize(QSize(22, 22))
-        # self.setMovable(False)
-        self.setContentsMargins(0, 0, 8, 0)
+        self.setMovable(False)
+        self.setContentsMargins(0, 0, 0, 0)
 
         self.clear_action = self.addAction(
             QIconifyIcon("mdi:close", color=GRAY),
@@ -859,6 +862,10 @@ class StageExplorerToolbar(QToolBar):
         self.stop_scan_action = self.addAction(
             QIconifyIcon("bi:sign-stop", color=GRAY),
             "Stop Scan",
+        )
+        self.send_to_mda_action = self.addAction(
+            QIconifyIcon("mdi:send", color=GRAY),
+            "Send to MDA",
         )
 
 
