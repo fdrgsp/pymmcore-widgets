@@ -1229,6 +1229,38 @@ def test_light_source_columns_shown_for_qualifying_group(
     assert set(items) == {"", "_slider_test", "Light", "Power"}
 
 
+def test_light_source_columns_positioned_after_exposure(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+    table = tbl.table()
+
+    def order() -> list[str]:
+        return [table.columnInfo(c).key for c in range(table.columnCount())]
+
+    expected = [
+        "group",
+        "config",
+        "exposure",
+        "light_source",
+        "intensity",
+        "acquire_every",
+        "do_stack",
+        "z_offset",
+    ]
+    assert order() == expected
+
+    # the light source column is rebuilt whenever the config changes; that must
+    # not shuffle it back to the end of the table
+    global_mmcore.defineConfig("Light", "Level", "Camera", "TestProperty2", "0")
+    assert order() == expected
+    global_mmcore.deleteConfigGroup("Light")
+    assert order() == expected
+    tbl.refresh()
+    assert order() == expected
+
+
 def test_light_source_columns_follow_preset_deletion(
     global_mmcore: CMMCorePlus, qtbot: QtBot
 ) -> None:

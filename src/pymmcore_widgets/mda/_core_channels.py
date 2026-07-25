@@ -147,6 +147,7 @@ class CoreConnectedChannelTable(ChannelTable):
 
         self.destroyed.connect(self._disconnect)
 
+        self._position_extra_columns()
         self.refresh()
 
     # ------------------- public API -------------------
@@ -244,6 +245,28 @@ class CoreConnectedChannelTable(ChannelTable):
         return dict(self._light_sources)
 
     # ------------------- Private API -------------------
+
+    def _position_extra_columns(self) -> None:
+        """Move the light source/intensity columns to just after Exposure.
+
+        `DataTableWidget.__init_subclass__` orders columns by first appearance in the
+        MRO, so columns declared here would otherwise land at the end of the table,
+        after the (less frequently used) acquire_every/do_stack/z_offset ones.
+        """
+        table = self.table()
+        if (exposure_col := table.indexOf(self.EXPOSURE)) < 0:  # pragma: no cover
+            return
+
+        with signals_blocked(self):
+            for offset, info in enumerate(
+                (self._light_source_column, self.INTENSITY), start=1
+            ):
+                current = table.indexOf(info)
+                target = exposure_col + offset
+                if current < 0 or current == target:  # pragma: no cover
+                    continue
+                table.removeColumn(current)
+                table.addColumn(info, target)
 
     @Slot()
     def _on_configs_changed(self, *_: Any) -> None:
