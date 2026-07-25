@@ -141,14 +141,28 @@ class CoreConnectedChannelTable(ChannelTable):
         self._mmc.events.systemConfigurationLoaded.connect(self._on_configs_changed)
         self._mmc.events.configGroupDeleted.connect(self._on_configs_changed)
         self._mmc.events.configDefined.connect(self._on_configs_changed)
+        self._mmc.events.configDeleted.connect(self._on_configs_changed)
         self._mmc.events.channelGroupChanged.connect(self._update_channel_groups)
         self.valueChanged.connect(self._sync_intensity_widgets)
 
         self.destroyed.connect(self._disconnect)
 
-        self._on_configs_changed()
+        self.refresh()
 
     # ------------------- public API -------------------
+
+    def refresh(self) -> None:
+        """Re-read the channel groups and light sources from the core.
+
+        Both are normally kept up to date by core signals, so calling this is not
+        usually necessary. It exists for applications that rewrite the core's config
+        groups in bulk with those signals suppressed (e.g. inside a
+        `pymmcore_plus.core.events.block_core` block) and so cannot notify listeners
+        the usual way; such an application should call this when the widget is next
+        shown.
+        """
+        self._update_channel_groups()
+        self._update_light_sources()
 
     def value(self, exclude_unchecked: bool = True) -> tuple[useq.Channel, ...]:
         """Return the current value of the table as a tuple of [useq.Channels](https://pymmcore-plus.github.io/useq-schema/schema/axes/#useq.Channel).
@@ -233,8 +247,8 @@ class CoreConnectedChannelTable(ChannelTable):
 
     @Slot()
     def _on_configs_changed(self, *_: Any) -> None:
-        self._update_channel_groups()
-        self._update_light_sources()
+        # accepts (and ignores) the varying args of the config* core signals
+        self.refresh()
 
     @Slot()
     def _update_channel_groups(self) -> None:
@@ -358,4 +372,5 @@ class CoreConnectedChannelTable(ChannelTable):
         self._mmc.events.systemConfigurationLoaded.disconnect(self._on_configs_changed)
         self._mmc.events.configGroupDeleted.disconnect(self._on_configs_changed)
         self._mmc.events.configDefined.disconnect(self._on_configs_changed)
+        self._mmc.events.configDeleted.disconnect(self._on_configs_changed)
         self._mmc.events.channelGroupChanged.disconnect(self._update_channel_groups)

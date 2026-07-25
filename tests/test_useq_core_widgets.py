@@ -10,6 +10,7 @@ from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import QMessageBox
 
 from pymmcore_widgets import HCSWizard
+from pymmcore_widgets._models._core_functions import block_core
 from pymmcore_widgets._util import get_next_available_path
 from pymmcore_widgets.mda import MDAWidget
 from pymmcore_widgets.mda._channel_properties import (
@@ -1226,6 +1227,39 @@ def test_light_source_columns_shown_for_qualifying_group(
     items = [combo.itemText(i) for i in range(combo.count())]
     assert items[0] == ""  # "no light source" is always first
     assert set(items) == {"", "_slider_test", "Light", "Power"}
+
+
+def test_light_source_columns_follow_preset_deletion(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    """Deleting a group's only preset (not the group) must update the columns."""
+    tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+    assert "_slider_test" in tbl.lightSources()
+
+    # deleteConfig fires configDeleted, not configGroupDeleted
+    global_mmcore.deleteConfig("_slider_test", "NewPreset")
+
+    assert "_slider_test" not in tbl.lightSources()
+
+
+def test_refresh_picks_up_changes_made_with_signals_blocked(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    """Bulk config rewrites may suppress core signals; refresh() re-scans."""
+    tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+    assert "Light" not in tbl.lightSources()
+
+    # this is exactly how a bulk config rewrite suppresses core events
+    with block_core(global_mmcore.events):
+        global_mmcore.defineConfig("Light", "Level", "Camera", "TestProperty2", "0")
+
+    # no signal was emitted, so the widget is still stale
+    assert "Light" not in tbl.lightSources()
+
+    tbl.refresh()
+    assert tbl.lightSources()["Light"] == ("Camera", "TestProperty2")
 
 
 def test_channel_properties(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
