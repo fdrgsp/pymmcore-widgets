@@ -1205,14 +1205,14 @@ def test_show_intensity_checkbox_toggles_columns(
     ls_col = table.indexOf(wdg.channels._light_source_column)
     int_col = table.indexOf(wdg.channels.INTENSITY)
 
-    assert not wdg.show_intensity.isChecked()
+    assert not wdg.channels.show_intensity.isChecked()
     assert table.isColumnHidden(ls_col)
 
-    wdg.show_intensity.setChecked(True)
+    wdg.channels.show_intensity.setChecked(True)
     assert not table.isColumnHidden(ls_col)
     assert not table.isColumnHidden(int_col)
 
-    wdg.show_intensity.setChecked(False)
+    wdg.channels.show_intensity.setChecked(False)
     assert table.isColumnHidden(ls_col)
     assert table.isColumnHidden(int_col)
 
@@ -1225,7 +1225,7 @@ def test_show_intensity_acts_as_on_off_switch(
 
     wdg = MDAWidget(mmcore=global_mmcore)
     qtbot.addWidget(wdg)
-    wdg.show_intensity.setChecked(True)
+    wdg.channels.show_intensity.setChecked(True)
     wdg.setValue(useq.MDASequence(channels=[{"config": "DAPI", "exposure": 50}]))
 
     table = wdg.channels.table()
@@ -1242,7 +1242,7 @@ def test_show_intensity_acts_as_on_off_switch(
     ]
 
     # switch it off: no properties, and a plain MDASequence again
-    wdg.show_intensity.setChecked(False)
+    wdg.channels.show_intensity.setChecked(False)
 
     assert wdg.channels.channelProperties() == []
     seq = wdg.value()
@@ -1251,7 +1251,7 @@ def test_show_intensity_acts_as_on_off_switch(
     assert next(iter(seq)).properties is None
 
     # switching back on restores the previous selection
-    wdg.show_intensity.setChecked(True)
+    wdg.channels.show_intensity.setChecked(True)
     assert wdg.channels.channelProperties() == [
         {
             "channel_index": 0,
@@ -1429,7 +1429,7 @@ def test_mda_widget_value_returns_channel_properties_sequence(
 
     wdg = MDAWidget(mmcore=global_mmcore)
     qtbot.addWidget(wdg)
-    wdg.show_intensity.setChecked(True)
+    wdg.channels.show_intensity.setChecked(True)
     wdg.setValue(
         useq.MDASequence(
             channels=[
@@ -1467,7 +1467,7 @@ def test_channel_properties_round_trip(
 
     wdg = MDAWidget(mmcore=global_mmcore)
     qtbot.addWidget(wdg)
-    wdg.show_intensity.setChecked(True)
+    wdg.channels.show_intensity.setChecked(True)
     wdg.setValue(
         useq.MDASequence(
             channels=[
@@ -1490,7 +1490,7 @@ def test_channel_properties_round_trip(
 
     # loading a sequence that carries channel properties reveals the columns,
     # otherwise the restored values would be invisible
-    assert wdg2.show_intensity.isChecked()
+    assert wdg2.channels.show_intensity.isChecked()
     assert not wdg2.channels.table().isColumnHidden(
         wdg2.channels.table().indexOf(wdg2.channels.INTENSITY)
     )

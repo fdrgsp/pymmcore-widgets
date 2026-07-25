@@ -322,8 +322,7 @@ class MDASequenceWidget(QWidget):
 
         self.keep_shutter_open = KeepShutterOpen()
         self.af_axis = AutofocusAxis()
-        # kept as an attribute so subclasses can add their own checkboxes to this row
-        self._cbox_row = cbox_row = QVBoxLayout()
+        cbox_row = QVBoxLayout()
         cbox_row.setContentsMargins(0, 0, 0, 0)
         cbox_row.setSpacing(5)
         cbox_row.addWidget(self.keep_shutter_open)

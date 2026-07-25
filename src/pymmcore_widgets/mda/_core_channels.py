@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 import useq
 from pymmcore_plus import CMMCorePlus, PropertyType
 from qtpy.QtCore import Slot
+from qtpy.QtWidgets import QCheckBox, QHBoxLayout, QVBoxLayout, QWidget
 from superqt.utils import signals_blocked
 
 from pymmcore_widgets.useq_widgets import ChannelTable, ComboColumn
@@ -19,8 +20,6 @@ from ._channel_properties import ChannelProperty
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
-
-    from qtpy.QtWidgets import QWidget
 
 DEFAULT_EXP = 100.0
 
@@ -143,6 +142,20 @@ class CoreConnectedChannelTable(ChannelTable):
         # the extra columns are opt-in; see setLightSourceVisible
         self._light_source_visible = False
 
+        self.show_intensity = QCheckBox("Show Intensity")
+        self.show_intensity.setToolTip(
+            "Set a device property (e.g. a light source intensity) per channel, via "
+            "the Light Source and Intensity columns.\n"
+            "While unchecked those columns are hidden and set no properties."
+        )
+        self.show_intensity.toggled.connect(self.setLightSourceVisible)
+
+        self._btn_row = QHBoxLayout()
+        self._btn_row.setSpacing(15)
+        self._btn_row.addWidget(self.show_intensity)
+        self._btn_row.addStretch()
+        cast("QVBoxLayout", self.layout()).addLayout(self._btn_row)
+
         # connections
         self._mmc.events.systemConfigurationLoaded.connect(self._on_configs_changed)
         self._mmc.events.configGroupDeleted.connect(self._on_configs_changed)
@@ -170,6 +183,8 @@ class CoreConnectedChannelTable(ChannelTable):
         restores the previous selections.
         """
         self._light_source_visible = bool(visible)
+        with signals_blocked(self.show_intensity):
+            self.show_intensity.setChecked(self._light_source_visible)
         self._apply_light_source_visibility()
         self.valueChanged.emit()
 
