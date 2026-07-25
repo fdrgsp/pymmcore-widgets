@@ -91,8 +91,12 @@ class CoreConnectedChannelTable(ChannelTable):
 
     The *Light Source* drop-down lists config groups that behave like a slider in
     Micro-Manager: exactly one preset, containing exactly one device property, where
-    that property is numeric and has limits. Both columns are hidden when the loaded
-    configuration has no such group.
+    that property is numeric and has limits. Its choices are kept in sync with the
+    core's config groups.
+
+    The feature is off by default; use
+    [`setLightSourceVisible`][pymmcore_widgets.mda.CoreConnectedChannelTable.setLightSourceVisible]
+    to enable it. While off, both columns are hidden and set no properties.
 
     These values are not part of `useq.Channel`; see
     [`MDAWidget.value`][pymmcore_widgets.MDAWidget.value] for how they are carried on
@@ -136,6 +140,8 @@ class CoreConnectedChannelTable(ChannelTable):
         self._light_source_column: ComboColumn = self.LIGHT_SOURCE
         # guards _sync_intensity_widgets against re-entrancy
         self._syncing_intensity = False
+        # the extra columns are opt-in; see setLightSourceVisible
+        self._light_source_visible = False
 
         # connections
         self._mmc.events.systemConfigurationLoaded.connect(self._on_configs_changed)
@@ -151,6 +157,25 @@ class CoreConnectedChannelTable(ChannelTable):
         self.refresh()
 
     # ------------------- public API -------------------
+
+    def setLightSourceVisible(self, visible: bool) -> None:
+        """Enable or disable the per-channel light source feature.
+
+        This is an on/off switch, not just a view toggle: it shows/hides the *Light
+        Source* and *Intensity* columns **and** determines whether they have any
+        effect. While off, `channelProperties` is empty and no device property is
+        applied. Off by default.
+
+        Turning it off keeps whatever the columns hold, so turning it back on
+        restores the previous selections.
+        """
+        self._light_source_visible = bool(visible)
+        self._apply_light_source_visibility()
+        self.valueChanged.emit()
+
+    def lightSourceVisible(self) -> bool:
+        """Return whether the per-channel light source feature is enabled."""
+        return self._light_source_visible
 
     def refresh(self) -> None:
         """Re-read the channel groups and light sources from the core.
@@ -187,10 +212,14 @@ class CoreConnectedChannelTable(ChannelTable):
     ) -> list[ChannelProperty]:
         """Return the device property set by each channel that has a light source.
 
-        Entries are sparse: channels with no light source selected are omitted. Each
+        Empty while the feature is off (see `setLightSourceVisible`). Otherwise
+        entries are sparse: channels with no light source selected are omitted. Each
         entry's `channel_index` indexes into the tuple returned by `value()` called
         with the same `exclude_unchecked`.
         """
+        if not self._light_source_visible:
+            return []
+
         props: list[ChannelProperty] = []
         records = self.table().iterRecords(exclude_unchecked=exclude_unchecked)
         for idx, rec in enumerate(records):
@@ -314,14 +343,19 @@ class CoreConnectedChannelTable(ChannelTable):
             found[group] = (device, prop)
         return found
 
+    def _apply_light_source_visibility(self) -> None:
+        table = self.table()
+        for info in (self._light_source_column, self.INTENSITY):
+            if (col := table.indexOf(info)) >= 0:
+                table.setColumnHidden(col, not self._light_source_visible)
+
     def _update_light_sources(self) -> None:
-        """Rebuild the light source column from the current configuration."""
+        """Rebuild the light source column's choices from the current configuration."""
         self._light_sources = self._find_light_sources()
 
         table = self.table()
         ls_col = table.indexOf(self._light_source_column)
-        int_col = table.indexOf(self.INTENSITY)
-        if ls_col < 0 or int_col < 0:  # pragma: no cover
+        if ls_col < 0:  # pragma: no cover
             return
 
         # swap in a column with the new choices (same approach as _on_group_changed)
@@ -334,11 +368,8 @@ class CoreConnectedChannelTable(ChannelTable):
                 allowed_values=(NO_LIGHT_SOURCE, *self._light_sources),
             )
             table.addColumn(self._light_source_column, ls_col)
-
-            # nothing to choose from -> keep both columns out of the way
-            hidden = not self._light_sources
-            table.setColumnHidden(ls_col, hidden)
-            table.setColumnHidden(int_col, hidden)
+            # the fresh column defaults to visible; restore the user's choice
+            self._apply_light_source_visibility()
             self._sync_intensity_widgets(force=True)
         self.valueChanged.emit()
 

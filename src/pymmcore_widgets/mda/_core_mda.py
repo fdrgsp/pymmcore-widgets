@@ -8,6 +8,7 @@ from pymmcore_plus import CMMCorePlus, Keyword
 from qtpy.QtCore import QSize, Qt, Slot
 from qtpy.QtWidgets import (
     QBoxLayout,
+    QCheckBox,
     QHBoxLayout,
     QMessageBox,
     QPushButton,
@@ -122,6 +123,13 @@ class MDAWidget(MDASequenceWidget):
         self.save_info.valueChanged.connect(self.valueChanged)
         self.control_btns = _MDAControlButtons(self._mmc, self)
 
+        self.show_intensity = QCheckBox("Show Intensity")
+        self.show_intensity.setToolTip(
+            "Set a device property (e.g. a light source intensity) per channel, via "
+            "the Light Source and Intensity columns in the Channels tab.\n"
+            "While unchecked those columns are hidden and set no properties."
+        )
+
         # -------- initialize -----------
 
         self._on_sys_config_loaded()
@@ -131,9 +139,11 @@ class MDAWidget(MDASequenceWidget):
         layout = cast("QBoxLayout", self.layout())
         layout.insertWidget(0, self.save_info)
         layout.addWidget(self.control_btns)
+        self._cbox_row.insertWidget(0, self.show_intensity)
 
         # ------------ connect signals ------------
 
+        self.show_intensity.toggled.connect(self.channels.setLightSourceVisible)
         self.control_btns.run_btn.clicked.connect(self.run_mda)
         self.control_btns.pause_btn.released.connect(self._mmc.mda.toggle_pause)
         self.control_btns.cancel_btn.released.connect(self._mmc.mda.cancel)
@@ -237,7 +247,10 @@ class MDAWidget(MDASequenceWidget):
         meta = value.metadata.get(PYMMCW_METADATA_KEY, {})
         self.save_info.setValue(meta)
         # must come after super().setValue(), which recreates the channel rows
-        self.channels.setChannelProperties(meta.get(CHANNEL_PROPERTIES_KEY, ()))
+        if ch_props := meta.get(CHANNEL_PROPERTIES_KEY):
+            # reveal the columns, or the restored values would be invisible
+            self.show_intensity.setChecked(True)
+            self.channels.setChannelProperties(ch_props)
 
     def get_next_available_path(self, requested_path: Path) -> Path:
         """Get the next available path.

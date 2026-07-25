@@ -1168,46 +1168,108 @@ def _define_light_source_groups(core: CMMCorePlus) -> None:
     core.defineConfig("Power", "Level", "Camera", "Gain", "0")
 
 
-def test_light_source_columns_shown_for_preexisting_group(
+def test_light_source_columns_hidden_by_default(
     global_mmcore: CMMCorePlus, qtbot: QtBot
 ) -> None:
-    """No new group defined -> only the pre-existing `_slider_test` group qualifies."""
+    """The extra columns are opt-in, regardless of what the config offers."""
     tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
     qtbot.addWidget(tbl)
 
     # test_config.cfg ships a single-preset, single-property "_slider_test" group
     # specifically to exercise this "acts like a slider" rule.
     assert tbl.lightSources() == {"_slider_test": ("Camera", "TestProperty1")}
+
     table = tbl.table()
     ls_col = table.indexOf(tbl._light_source_column)
     int_col = table.indexOf(tbl.INTENSITY)
+    assert not tbl.lightSourceVisible()
+    assert table.isColumnHidden(ls_col)
+    assert table.isColumnHidden(int_col)
+
+    tbl.setLightSourceVisible(True)
+    assert tbl.lightSourceVisible()
     assert not table.isColumnHidden(ls_col)
     assert not table.isColumnHidden(int_col)
 
-
-def test_light_source_columns_hidden_with_no_qualifying_group(
-    global_mmcore: CMMCorePlus, qtbot: QtBot
-) -> None:
-    """Deleting the only qualifying group hides both columns again."""
-    tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
-    qtbot.addWidget(tbl)
-    assert tbl.lightSources()  # sanity: _slider_test qualifies before deletion
-
-    global_mmcore.deleteConfigGroup("_slider_test")
-
-    assert tbl.lightSources() == {}
-    table = tbl.table()
-    ls_col = table.indexOf(tbl._light_source_column)
-    int_col = table.indexOf(tbl.INTENSITY)
+    tbl.setLightSourceVisible(False)
     assert table.isColumnHidden(ls_col)
     assert table.isColumnHidden(int_col)
 
 
-def test_light_source_columns_shown_for_qualifying_group(
+def test_show_intensity_checkbox_toggles_columns(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    wdg = MDAWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    table = wdg.channels.table()
+    ls_col = table.indexOf(wdg.channels._light_source_column)
+    int_col = table.indexOf(wdg.channels.INTENSITY)
+
+    assert not wdg.show_intensity.isChecked()
+    assert table.isColumnHidden(ls_col)
+
+    wdg.show_intensity.setChecked(True)
+    assert not table.isColumnHidden(ls_col)
+    assert not table.isColumnHidden(int_col)
+
+    wdg.show_intensity.setChecked(False)
+    assert table.isColumnHidden(ls_col)
+    assert table.isColumnHidden(int_col)
+
+
+def test_show_intensity_acts_as_on_off_switch(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    """Unchecking must stop the properties being applied, not just hide them."""
+    _define_light_source_groups(global_mmcore)
+
+    wdg = MDAWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.show_intensity.setChecked(True)
+    wdg.setValue(useq.MDASequence(channels=[{"config": "DAPI", "exposure": 50}]))
+
+    table = wdg.channels.table()
+    table.cellWidget(
+        0, table.indexOf(wdg.channels._light_source_column)
+    ).setCurrentText("Light")
+    table.cellWidget(0, table.indexOf(wdg.channels.INTENSITY)).setValue(42)
+
+    assert wdg.channels.channelProperties()
+    seq = wdg.value()
+    assert CHANNEL_PROPERTIES_KEY in seq.metadata[PYMMCW_METADATA_KEY]
+    assert next(iter(seq)).properties == [
+        useq.PropertyTuple("Camera", "TestProperty2", 42.0)
+    ]
+
+    # switch it off: no properties, and a plain MDASequence again
+    wdg.show_intensity.setChecked(False)
+
+    assert wdg.channels.channelProperties() == []
+    seq = wdg.value()
+    assert CHANNEL_PROPERTIES_KEY not in seq.metadata[PYMMCW_METADATA_KEY]
+    assert not isinstance(seq, ChannelPropertiesSequence)
+    assert next(iter(seq)).properties is None
+
+    # switching back on restores the previous selection
+    wdg.show_intensity.setChecked(True)
+    assert wdg.channels.channelProperties() == [
+        {
+            "channel_index": 0,
+            "config": "DAPI",
+            "group": "Light",
+            "device": "Camera",
+            "property": "TestProperty2",
+            "value": 42.0,
+        }
+    ]
+
+
+def test_light_source_choices_track_config_changes(
     global_mmcore: CMMCorePlus, qtbot: QtBot
 ) -> None:
     tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
     qtbot.addWidget(tbl)
+    tbl.setLightSourceVisible(True)
     tbl.setValue([useq.Channel(config="DAPI")])
 
     _define_light_source_groups(global_mmcore)
@@ -1220,6 +1282,7 @@ def test_light_source_columns_shown_for_qualifying_group(
     table = tbl.table()
     ls_col = table.indexOf(tbl._light_source_column)
     int_col = table.indexOf(tbl.INTENSITY)
+    # rebuilding the column for the new choices must not undo the user's toggle
     assert not table.isColumnHidden(ls_col)
     assert not table.isColumnHidden(int_col)
 
@@ -1227,6 +1290,11 @@ def test_light_source_columns_shown_for_qualifying_group(
     items = [combo.itemText(i) for i in range(combo.count())]
     assert items[0] == ""  # "no light source" is always first
     assert set(items) == {"", "_slider_test", "Light", "Power"}
+
+    # ...and deleting a group drops it from the choices
+    global_mmcore.deleteConfigGroup("Power")
+    combo = table.cellWidget(0, table.indexOf(tbl._light_source_column))
+    assert "Power" not in [combo.itemText(i) for i in range(combo.count())]
 
 
 def test_light_source_columns_positioned_after_exposure(
@@ -1299,6 +1367,7 @@ def test_channel_properties(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
 
     tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
     qtbot.addWidget(tbl)
+    tbl.setLightSourceVisible(True)
     tbl.setValue(
         [
             useq.Channel(config="DAPI", exposure=50),
@@ -1360,6 +1429,7 @@ def test_mda_widget_value_returns_channel_properties_sequence(
 
     wdg = MDAWidget(mmcore=global_mmcore)
     qtbot.addWidget(wdg)
+    wdg.show_intensity.setChecked(True)
     wdg.setValue(
         useq.MDASequence(
             channels=[
@@ -1397,6 +1467,7 @@ def test_channel_properties_round_trip(
 
     wdg = MDAWidget(mmcore=global_mmcore)
     qtbot.addWidget(wdg)
+    wdg.show_intensity.setChecked(True)
     wdg.setValue(
         useq.MDASequence(
             channels=[
@@ -1416,6 +1487,13 @@ def test_channel_properties_round_trip(
     wdg2 = MDAWidget(mmcore=global_mmcore)
     qtbot.addWidget(wdg2)
     wdg2.setValue(seq)
+
+    # loading a sequence that carries channel properties reveals the columns,
+    # otherwise the restored values would be invisible
+    assert wdg2.show_intensity.isChecked()
+    assert not wdg2.channels.table().isColumnHidden(
+        wdg2.channels.table().indexOf(wdg2.channels.INTENSITY)
+    )
 
     assert wdg2.channels.channelProperties() == wdg.channels.channelProperties()
     assert (
