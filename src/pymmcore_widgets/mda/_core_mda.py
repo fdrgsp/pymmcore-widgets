@@ -116,7 +116,7 @@ class MDAWidget(MDASequenceWidget):
         # create a couple core-connected variants of the tab widgets
         self._mmc = mmcore or CMMCorePlus.instance()
 
-        super().__init__(parent=parent, tab_widget=CoreMDATabs(None, self._mmc))
+        super().__init__(parent=parent, tab_widget=self._create_tab_widget())
 
         self.save_info = SaveGroupBox(parent=self)
         self.save_info.valueChanged.connect(self.valueChanged)
@@ -143,6 +143,15 @@ class MDAWidget(MDASequenceWidget):
         self._mmc.events.propertyChanged.connect(self._on_property_changed)
 
         self.destroyed.connect(self._disconnect)
+
+    def _create_tab_widget(self) -> CoreMDATabs:
+        """Create the axis tab container.
+
+        Subclasses may override this to inject an alternate presentation of the
+        MDA axes (for example a collapsible-sections container) without
+        otherwise changing the widget's behavior.
+        """
+        return CoreMDATabs(None, self._mmc)
 
     # ----------- Override type hints in superclass -----------
 
