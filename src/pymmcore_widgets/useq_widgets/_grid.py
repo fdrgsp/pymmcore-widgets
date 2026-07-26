@@ -4,9 +4,10 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol
 
 import useq
-from qtpy.QtCore import QPointF, Qt, Signal
+from qtpy.QtCore import QEvent, QPointF, Qt, Signal
 from qtpy.QtGui import (
     QBrush,
+    QFontMetrics,
     QPainter,
     QPainterPath,
     QPen,
@@ -193,6 +194,54 @@ class GridPlanWidget(QScrollArea):
         self.width_height_wdg.valueChanged.connect(self._on_change)
         self.bounds_wdg.valueChanged.connect(self._on_change)
         self._bottom_stuff.valueChanged.connect(self._on_change)
+
+        self._align_label_columns()
+
+    def changeEvent(self, event: QEvent | None) -> None:
+        super().changeEvent(event)
+        # the label column width is measured from the font, so re-align whenever
+        # the font or style changes (e.g. an application zoom/theme change).
+        if event is not None and event.type() in (
+            QEvent.Type.FontChange,
+            QEvent.Type.StyleChange,
+        ):
+            self._align_label_columns()
+
+    def _align_label_columns(self) -> None:
+        """Give every mode form and the bottom form one label-column width.
+
+        Each mode widget and the common controls use their own ``QFormLayout``,
+        so without this the field column would start at a different x in each
+        mode -- the short ``Grid Rows:``/``Width:`` labels leave their fields
+        further left than the wider ``Acquisition order:`` below. Sizing every
+        label to the widest one lines the fields up across modes and with the
+        common controls.
+        """
+        labels: list[QLabel] = []
+        for wdg in (
+            self.row_col_wdg,
+            self.width_height_wdg,
+            self.bounds_wdg,
+            self._bottom_stuff,
+        ):
+            form = wdg.layout()
+            if not isinstance(form, QFormLayout):
+                continue  # pragma: no cover
+            for row in range(form.rowCount()):
+                item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+                label = item.widget() if item is not None else None
+                if isinstance(label, QLabel) and label.text():
+                    labels.append(label)
+        if not labels:
+            return  # pragma: no cover
+        # Measure with QFontMetrics rather than sizeHint(): it is correct even
+        # before the labels are shown/polished (sizeHint() can still be 0 then).
+        width = max(
+            QFontMetrics(label.font()).horizontalAdvance(label.text())
+            for label in labels
+        )
+        for label in labels:
+            label.setMinimumWidth(width)
 
     # ------------------------- Public API -------------------------
 
