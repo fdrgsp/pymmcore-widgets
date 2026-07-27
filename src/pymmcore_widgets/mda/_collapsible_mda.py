@@ -19,7 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from qtpy.QtCore import QEvent, Qt, Signal
+from qtpy.QtCore import QEvent, QRectF, Qt, QTimer, Signal
+from qtpy.QtGui import QColor, QPainter, QPaintEvent, QPalette, QPen, QShowEvent
 from qtpy.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -29,6 +30,7 @@ from qtpy.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QTabBar,
+    QTableWidget,
     QTabWidget,
     QToolButton,
     QVBoxLayout,
@@ -40,6 +42,12 @@ from ._core_mda import CoreMDATabs, MDAWidget
 if TYPE_CHECKING:
     import useq
     from pymmcore_plus import CMMCorePlus
+    from qtpy.QtWidgets import QComboBox
+
+    from pymmcore_widgets.useq_widgets._mda_sequence import (
+        AutofocusAxis,
+        KeepShutterOpen,
+    )
 
     from ._save_widget import SaveGroupBox
 
@@ -64,6 +72,33 @@ class SectionMetrics:
     footer_margin_h: int = 8
     footer_margin_top: int = 4
     footer_margin_bottom: int = 8
+
+
+class _CardFrame(QFrame):
+    """A frame that paints a subtle rounded border around a section.
+
+    The border color is derived from the palette's ``Text`` role at a low alpha
+    so it reads in both light and dark themes. It is painted (rather than set
+    via a stylesheet or a border palette role) so it survives a downstream
+    application that clears stylesheets or overrides widget palettes.
+    """
+
+    _RADIUS = 6
+    _BORDER_ALPHA = 70
+    _FILL_ALPHA = 14
+
+    def paintEvent(self, a0: QPaintEvent | None) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        text = self.palette().color(QPalette.ColorRole.Text)
+        border = QColor(text)
+        border.setAlpha(self._BORDER_ALPHA)
+        fill = QColor(text)
+        fill.setAlpha(self._FILL_ALPHA)
+        painter.setPen(QPen(border, 1))
+        painter.setBrush(fill)
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        painter.drawRoundedRect(rect, self._RADIUS, self._RADIUS)
 
 
 class CollapsibleAcquisitionSection(QWidget):
@@ -141,11 +176,21 @@ class CollapsibleAcquisitionSection(QWidget):
         self._body.setObjectName("mdaSectionBody")
         self._body_layout = QVBoxLayout(self._body)
 
+        # Wrap header + body in a bordered "card" so sections read as distinct
+        # groups (see _CardFrame for why the border is painted rather than
+        # styled via a stylesheet or palette role).
+        self._card = _CardFrame()
+        self._card.setObjectName("mdaSectionCard")
+        self._card_layout = QVBoxLayout(self._card)
+        self._card_layout.setContentsMargins(0, 0, 0, 0)
+        self._card_layout.setSpacing(0)
+        self._card_layout.addWidget(self._header)
+        self._card_layout.addWidget(self._body)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(self._header)
-        layout.addWidget(self._body)
+        layout.addWidget(self._card)
 
         self._apply_metrics()
         self._on_disclosure_toggled(expanded)
@@ -241,6 +286,9 @@ class CollapsibleAcquisitionSection(QWidget):
     def _apply_metrics(self) -> None:
         m = self._metrics
         self._header.setMinimumHeight(m.header_height)
+        # small horizontal inset so the disclosure/title are not flush against
+        # the card border.
+        self._header_layout.setContentsMargins(m.header_spacing, 0, m.header_spacing, 0)
         self._header_layout.setSpacing(m.header_spacing)
         self._disclosure.setFixedSize(m.disclosure_width, m.header_height)
         self._body_layout.setContentsMargins(
@@ -275,6 +323,8 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         ("z", "Z Stack", "z_plan", 3, False),
         ("t", "Time Series", "time_plan", 0, False),
     )
+    # minimum number of table rows kept visible for the row-based editors
+    _MIN_TABLE_ROWS = 3
 
     def __init__(
         self, parent: QWidget | None = None, core: CMMCorePlus | None = None
@@ -327,6 +377,8 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             self._widget_by_logical_index[logical_index] = widget
             self._content_layout.addWidget(section)
 
+        self._apply_editor_min_heights()
+
         self._scroll = QScrollArea()
         self._scroll.setObjectName("mdaSectionsScrollArea")
         self._scroll.setWidgetResizable(True)
@@ -352,7 +404,23 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
                         axis_widget
                     )
                 )
+        # the grid editor's natural height changes with its mode (Absolute
+        # Bounds is tallest); re-pin it whenever the mode/value changes.
+        self.grid_plan.valueChanged.connect(self._schedule_editor_min_heights)
         self.refresh_summaries()
+
+    def showEvent(self, a0: QShowEvent | None) -> None:
+        # size hints are only fully reliable once the widget is realized, so
+        # re-derive the editor heights here (the grid editor especially reports
+        # a not-yet-settled hint during construction).
+        super().showEvent(a0)
+        self._schedule_editor_min_heights()
+
+    def _schedule_editor_min_heights(self, *_: object) -> None:
+        # run now and again one event-loop cycle later, so a just-switched grid
+        # mode has settled its layout before we measure the content height.
+        self._apply_editor_min_heights()
+        QTimer.singleShot(0, self._apply_editor_min_heights)
 
     @property
     def sections(self) -> tuple[CollapsibleAcquisitionSection, ...]:
@@ -414,9 +482,9 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
     def add_supporting_sections(
         self,
         *,
-        axis_order: QWidget,
-        keep_shutter_open: QWidget,
-        autofocus_axis: QWidget,
+        axis_order: QComboBox,
+        keep_shutter_open: KeepShutterOpen,
+        autofocus_axis: AutofocusAxis,
         save_button: QWidget,
         load_button: QWidget,
         save_info: SaveGroupBox,
@@ -441,11 +509,21 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
 
         self.settings_section = CollapsibleAcquisitionSection(
             "Settings",
-            summary="Order · AF · Shutter",
             expanded=False,
             metrics=self._metrics,
             parent=self._content,
         )
+        self._axis_order = axis_order
+        self._keep_shutter_open = keep_shutter_open
+        self._autofocus_axis = autofocus_axis
+        axis_order.currentTextChanged.connect(self._update_settings_summary)
+        keep_shutter_open.valueChanged.connect(self._update_settings_summary)
+        autofocus_axis.valueChanged.connect(self._update_settings_summary)
+        # Toggling an axis repopulates the order combo with signals blocked (so
+        # currentTextChanged does not fire); tabChecked does fire, and this
+        # connection runs after the upstream handler that rebuilds the combo, so
+        # the order string is already up to date when we read it.
+        self.tabChecked.connect(self._update_settings_summary)
         axis_row = QWidget()
         axis_layout = QHBoxLayout(axis_row)
         axis_layout.setContentsMargins(0, 0, 0, 0)
@@ -468,6 +546,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         self._save_info = save_info
         self._supporting_sections_added = True
         self._update_save_summary()
+        self._update_settings_summary()
         self.apply_save_body_style()
 
     def apply_save_body_style(self) -> None:
@@ -496,6 +575,21 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             self._update_axis_summary(widget)
         if self._supporting_sections_added:
             self._update_save_summary()
+            self._update_settings_summary()
+
+    def _update_settings_summary(self, *_: object) -> None:
+        # Show the acquisition axis order (e.g. "cz"), and only append the
+        # shutter/autofocus axes when they are actually in use -- naming the
+        # axes (e.g. "Keep Shutter Open: z", "AF: p") rather than just the
+        # feature.
+        parts: list[str] = []
+        if order := self._axis_order.currentText():
+            parts.append(order)
+        if shutter := self._keep_shutter_open.value():
+            parts.append(f"Keep Shutter Open: {', '.join(shutter)}")
+        if af := self._autofocus_axis.value():
+            parts.append(f"AF: {', '.join(af)}")
+        self.settings_section.set_summary(" · ".join(parts))
 
     def set_section_metrics(self, metrics: SectionMetrics) -> None:
         """Adopt new pixel sizes for every section and the content spacing."""
@@ -503,6 +597,43 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         self._content_layout.setSpacing(metrics.content_spacing)
         for section in self.sections:
             section.apply_metrics(metrics)
+        # heights scale with the font, so re-derive the editor minimums too.
+        self._apply_editor_min_heights()
+
+    def _apply_editor_min_heights(self) -> None:
+        """Keep editors tall enough to remain usable when several are open.
+
+        The sections live in a scroll area, so an editor with an Expanding
+        height would otherwise be squeezed when its neighbors are also expanded:
+        the channel/position/time tables collapse to a single row, and the
+        grid editor (itself a scroll area) collapses to just its mode selector.
+        Give each a sensible minimum; the outer scroll area then scrolls instead
+        of collapsing the editors.
+        """
+        for widget in self._section_by_widget:
+            table_getter = getattr(widget, "table", None)
+            if callable(table_getter) and isinstance(
+                table := table_getter(), QTableWidget
+            ):
+                row_h = table.verticalHeader().defaultSectionSize()
+                h_header = table.horizontalHeader()
+                header_h = max(h_header.height(), h_header.sizeHint().height())
+                table.setMinimumHeight(
+                    header_h + row_h * self._MIN_TABLE_ROWS + 2 * table.frameWidth()
+                )
+            elif isinstance(widget, QScrollArea) and (inner := widget.widget()):
+                # The grid editor is itself a scroll area whose mode pages have
+                # an Expanding size policy, so any extra height becomes a gap in
+                # the middle, while too little clips the fields. Pin it to its
+                # content's natural height for the current mode (it changes with
+                # the mode -- Absolute Bounds is tallest). Activate the layout
+                # first, and note this is re-run deferred on show / mode change
+                # so the hint is measured once settled.
+                if (inner_layout := inner.layout()) is not None:
+                    inner_layout.activate()
+                widget.setFixedHeight(
+                    inner.sizeHint().height() + 2 * widget.frameWidth()
+                )
 
     def set_editor_enabled(self, enabled: bool) -> None:
         """Enable or disable MDA editing while retaining disclosure access."""

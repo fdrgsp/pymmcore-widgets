@@ -132,3 +132,22 @@ def test_collapsible_section_metrics(qtbot: QtBot) -> None:
     for section in wdg.tabs.sections:
         assert section._header.minimumHeight() == 44
         assert section._disclosure.width() == 30
+
+
+def test_collapsible_sections_have_card_frame(qtbot: QtBot) -> None:
+    wdg = MDAWidgetCollapsible()
+    qtbot.addWidget(wdg)
+    for section in wdg.tabs.sections:
+        # each section is wrapped in a bordered card so they read as distinct
+        assert section._card.objectName() == "mdaSectionCard"
+
+
+def test_collapsible_table_editors_keep_min_height(qtbot: QtBot) -> None:
+    """Row-based editors must not collapse to a single row when several sections
+    are expanded together."""
+    wdg = MDAWidgetCollapsible()
+    qtbot.addWidget(wdg)
+    for axis in ("c", "p", "t"):  # channel / position / time tables
+        table = wdg.tabs.section(axis).content_widget.table()
+        # tall enough for the header + a few rows
+        assert table.minimumHeight() >= 3 * table.verticalHeader().defaultSectionSize()
