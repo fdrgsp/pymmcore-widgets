@@ -640,6 +640,13 @@ class ButtonColumn(WidgetColumn):
         table.setCellWidget(row, col, new_wdg)
         header = table.horizontalHeader()
         header.setSectionResizeMode(col, header.ResizeMode.Fixed)
+        # Set an explicit width rather than relying on whatever the Stretch-mode
+        # column happened to measure at the moment it flipped to Fixed: that
+        # value depends on how many other Stretch columns existed (and how they'd
+        # divided the available space) at that instant, so otherwise multiple
+        # ButtonColumns inserted at different points end up with different,
+        # inconsistent widths for the same icon-only button.
+        table.setColumnWidth(col, new_wdg.sizeHint().width())
 
     def get_cell_data(self, table: QTableWidget, row: int, col: int) -> dict[str, Any]:
         return {}
