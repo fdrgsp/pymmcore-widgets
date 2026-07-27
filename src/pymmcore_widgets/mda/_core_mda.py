@@ -62,6 +62,8 @@ class _CoreConnectedPositionTable(CoreConnectedPositionTable):
 
 
 class CoreMDATabs(MDATabs):
+    channels: CoreConnectedChannelTable
+
     def __init__(
         self, parent: QWidget | None = None, core: CMMCorePlus | None = None
     ) -> None:
@@ -74,6 +76,15 @@ class CoreMDATabs(MDATabs):
         self.z_plan = CoreConnectedZPlanWidget(self._mmc)
         self.grid_plan = CoreConnectedGridPlanWidget(self._mmc)
         self.channels = CoreConnectedChannelTable(1, self._mmc)
+
+    def _on_tab_checked(self, idx: int, checked: bool) -> None:
+        # The base class shows/hides Do Stack purely on the Z-stack axis state.
+        # Here Do Stack is further gated behind the channel table's "Advanced"
+        # toggle, so route the Z-stack state through the table (which recomputes
+        # Do Stack visibility from both inputs).
+        super()._on_tab_checked(idx, checked)
+        if idx == self.indexOf(self.z_plan):
+            self.channels.setZStackActive(checked)
 
     def _enable_tabs(self, enable: bool) -> None:
         """Enable or disable the tab checkboxes and their contents.

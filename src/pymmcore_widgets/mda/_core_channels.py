@@ -141,6 +141,11 @@ class CoreConnectedChannelTable(ChannelTable):
         self._syncing_intensity = False
         # the extra columns are opt-in by default visibility; see setLightSourceVisible
         self._light_source_visible = True
+        # the advanced columns (Do Stack / Z Offset) are hidden by default; see
+        # setAdvancedVisible. Do Stack additionally requires the Z-stack axis to
+        # be active, tracked here and updated by the owning MDA tab widget.
+        self._advanced_visible = False
+        self._z_stack_active = False
 
         self.show_light_source = QCheckBox("Show Light Source")
         self.show_light_source.setToolTip(
@@ -151,9 +156,19 @@ class CoreConnectedChannelTable(ChannelTable):
         self.show_light_source.setChecked(self._light_source_visible)
         self.show_light_source.toggled.connect(self.setLightSourceVisible)
 
+        self.advanced = QCheckBox("Advanced")
+        self.advanced.setToolTip(
+            "Show the advanced per-channel columns: Z Offset, and Do Stack (the "
+            "latter only while the Z Stack axis is active).\n"
+            "While unchecked those columns are hidden."
+        )
+        self.advanced.setChecked(self._advanced_visible)
+        self.advanced.toggled.connect(self.setAdvancedVisible)
+
         self._btn_row = QHBoxLayout()
         self._btn_row.setSpacing(15)
         self._btn_row.addWidget(self.show_light_source)
+        self._btn_row.addWidget(self.advanced)
         self._btn_row.addStretch()
         cast("QVBoxLayout", self.layout()).addLayout(self._btn_row)
 
@@ -168,6 +183,7 @@ class CoreConnectedChannelTable(ChannelTable):
         self.destroyed.connect(self._disconnect)
 
         self._position_extra_columns()
+        self._apply_advanced_visibility()
         self.refresh()
 
     # ------------------- public API -------------------
@@ -192,6 +208,33 @@ class CoreConnectedChannelTable(ChannelTable):
     def lightSourceVisible(self) -> bool:
         """Return whether the per-channel light source feature is enabled."""
         return self._light_source_visible
+
+    def setAdvancedVisible(self, visible: bool) -> None:
+        """Show or hide the advanced per-channel columns (Z Offset and Do Stack).
+
+        This is a pure view toggle: the columns always keep their values (used at
+        acquisition time regardless), it only controls whether they are shown. The
+        *Do Stack* column is additionally shown only while the Z-stack axis is
+        active. Off by default.
+        """
+        self._advanced_visible = bool(visible)
+        with signals_blocked(self.advanced):
+            self.advanced.setChecked(self._advanced_visible)
+        self._apply_advanced_visibility()
+
+    def advancedVisible(self) -> bool:
+        """Return whether the advanced per-channel columns are shown."""
+        return self._advanced_visible
+
+    def setZStackActive(self, active: bool) -> None:
+        """Record whether the Z-stack axis is active.
+
+        The *Do Stack* column is only meaningful with a Z-stack, so it is shown
+        only when the advanced columns are visible *and* the axis is active. The
+        owning MDA tab widget calls this as the Z-stack axis is toggled.
+        """
+        self._z_stack_active = bool(active)
+        self._apply_advanced_visibility()
 
     def refresh(self) -> None:
         """Re-read the channel groups and light sources from the core.
@@ -364,6 +407,14 @@ class CoreConnectedChannelTable(ChannelTable):
         for info in (self._light_source_column, self.INTENSITY):
             if (col := table.indexOf(info)) >= 0:
                 table.setColumnHidden(col, not self._light_source_visible)
+
+    def _apply_advanced_visibility(self) -> None:
+        table = self.table()
+        if (z_off_col := table.indexOf(self.Z_OFFSET)) >= 0:
+            table.setColumnHidden(z_off_col, not self._advanced_visible)
+        if (do_stack_col := table.indexOf(self.DO_STACK)) >= 0:
+            show_do_stack = self._advanced_visible and self._z_stack_active
+            table.setColumnHidden(do_stack_col, not show_do_stack)
 
     def _update_light_sources(self) -> None:
         """Rebuild the light source column's choices from the current configuration."""

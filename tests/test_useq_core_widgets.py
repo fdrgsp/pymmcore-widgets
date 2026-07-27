@@ -1217,6 +1217,38 @@ def test_show_light_source_checkbox_toggles_columns(
     assert not table.isColumnHidden(int_col)
 
 
+def test_advanced_checkbox_toggles_columns(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    wdg = MDAWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    ch = wdg.channels
+    table = ch.table()
+    z_off_col = table.indexOf(ch.Z_OFFSET)
+    do_stack_col = table.indexOf(ch.DO_STACK)
+
+    # advanced columns are hidden by default
+    assert not ch.advanced.isChecked()
+    assert not ch.advancedVisible()
+    assert table.isColumnHidden(z_off_col)
+    assert table.isColumnHidden(do_stack_col)
+
+    # turning it on shows Z Offset, but Do Stack still needs the Z-stack axis
+    ch.advanced.setChecked(True)
+    assert ch.advancedVisible()
+    assert not table.isColumnHidden(z_off_col)
+    assert table.isColumnHidden(do_stack_col)
+
+    # activating the Z-stack axis reveals Do Stack too
+    wdg.tab_wdg.setChecked(wdg.z_plan, True)
+    assert not table.isColumnHidden(do_stack_col)
+
+    # turning advanced off hides both again even while the Z-stack axis is active
+    ch.advanced.setChecked(False)
+    assert table.isColumnHidden(z_off_col)
+    assert table.isColumnHidden(do_stack_col)
+
+
 def test_show_light_source_acts_as_on_off_switch(
     global_mmcore: CMMCorePlus, qtbot: QtBot
 ) -> None:
