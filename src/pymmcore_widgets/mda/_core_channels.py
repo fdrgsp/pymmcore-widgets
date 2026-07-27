@@ -93,9 +93,9 @@ class CoreConnectedChannelTable(ChannelTable):
     that property is numeric and has limits. Its choices are kept in sync with the
     core's config groups.
 
-    The feature is off by default; use
+    The feature is on by default; use
     [`setLightSourceVisible`][pymmcore_widgets.mda.CoreConnectedChannelTable.setLightSourceVisible]
-    to enable it. While off, both columns are hidden and set no properties.
+    to disable it. While off, both columns are hidden and set no properties.
 
     These values are not part of `useq.Channel`; see
     [`MDAWidget.value`][pymmcore_widgets.MDAWidget.value] for how they are carried on
@@ -139,20 +139,21 @@ class CoreConnectedChannelTable(ChannelTable):
         self._light_source_column: ComboColumn = self.LIGHT_SOURCE
         # guards _sync_intensity_widgets against re-entrancy
         self._syncing_intensity = False
-        # the extra columns are opt-in; see setLightSourceVisible
-        self._light_source_visible = False
+        # the extra columns are opt-in by default visibility; see setLightSourceVisible
+        self._light_source_visible = True
 
-        self.show_intensity = QCheckBox("Show Intensity")
-        self.show_intensity.setToolTip(
+        self.show_light_source = QCheckBox("Show Light Source")
+        self.show_light_source.setToolTip(
             "Set a device property (e.g. a light source intensity) per channel, via "
             "the Light Source and Intensity columns.\n"
             "While unchecked those columns are hidden and set no properties."
         )
-        self.show_intensity.toggled.connect(self.setLightSourceVisible)
+        self.show_light_source.setChecked(self._light_source_visible)
+        self.show_light_source.toggled.connect(self.setLightSourceVisible)
 
         self._btn_row = QHBoxLayout()
         self._btn_row.setSpacing(15)
-        self._btn_row.addWidget(self.show_intensity)
+        self._btn_row.addWidget(self.show_light_source)
         self._btn_row.addStretch()
         cast("QVBoxLayout", self.layout()).addLayout(self._btn_row)
 
@@ -177,14 +178,14 @@ class CoreConnectedChannelTable(ChannelTable):
         This is an on/off switch, not just a view toggle: it shows/hides the *Light
         Source* and *Intensity* columns **and** determines whether they have any
         effect. While off, `channelProperties` is empty and no device property is
-        applied. Off by default.
+        applied. On by default.
 
         Turning it off keeps whatever the columns hold, so turning it back on
         restores the previous selections.
         """
         self._light_source_visible = bool(visible)
-        with signals_blocked(self.show_intensity):
-            self.show_intensity.setChecked(self._light_source_visible)
+        with signals_blocked(self.show_light_source):
+            self.show_light_source.setChecked(self._light_source_visible)
         self._apply_light_source_visibility()
         self.valueChanged.emit()
 

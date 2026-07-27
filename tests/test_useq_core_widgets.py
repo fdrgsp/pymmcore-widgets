@@ -1168,10 +1168,10 @@ def _define_light_source_groups(core: CMMCorePlus) -> None:
     core.defineConfig("Power", "Level", "Camera", "Gain", "0")
 
 
-def test_light_source_columns_hidden_by_default(
+def test_light_source_columns_visible_by_default(
     global_mmcore: CMMCorePlus, qtbot: QtBot
 ) -> None:
-    """The extra columns are opt-in, regardless of what the config offers."""
+    """The extra columns are shown by default, regardless of what the config offers."""
     tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
     qtbot.addWidget(tbl)
 
@@ -1182,21 +1182,21 @@ def test_light_source_columns_hidden_by_default(
     table = tbl.table()
     ls_col = table.indexOf(tbl._light_source_column)
     int_col = table.indexOf(tbl.INTENSITY)
-    assert not tbl.lightSourceVisible()
-    assert table.isColumnHidden(ls_col)
-    assert table.isColumnHidden(int_col)
-
-    tbl.setLightSourceVisible(True)
     assert tbl.lightSourceVisible()
     assert not table.isColumnHidden(ls_col)
     assert not table.isColumnHidden(int_col)
 
     tbl.setLightSourceVisible(False)
+    assert not tbl.lightSourceVisible()
     assert table.isColumnHidden(ls_col)
     assert table.isColumnHidden(int_col)
 
+    tbl.setLightSourceVisible(True)
+    assert not table.isColumnHidden(ls_col)
+    assert not table.isColumnHidden(int_col)
 
-def test_show_intensity_checkbox_toggles_columns(
+
+def test_show_light_source_checkbox_toggles_columns(
     global_mmcore: CMMCorePlus, qtbot: QtBot
 ) -> None:
     wdg = MDAWidget(mmcore=global_mmcore)
@@ -1205,19 +1205,19 @@ def test_show_intensity_checkbox_toggles_columns(
     ls_col = table.indexOf(wdg.channels._light_source_column)
     int_col = table.indexOf(wdg.channels.INTENSITY)
 
-    assert not wdg.channels.show_intensity.isChecked()
-    assert table.isColumnHidden(ls_col)
-
-    wdg.channels.show_intensity.setChecked(True)
+    assert wdg.channels.show_light_source.isChecked()
     assert not table.isColumnHidden(ls_col)
-    assert not table.isColumnHidden(int_col)
 
-    wdg.channels.show_intensity.setChecked(False)
+    wdg.channels.show_light_source.setChecked(False)
     assert table.isColumnHidden(ls_col)
     assert table.isColumnHidden(int_col)
 
+    wdg.channels.show_light_source.setChecked(True)
+    assert not table.isColumnHidden(ls_col)
+    assert not table.isColumnHidden(int_col)
 
-def test_show_intensity_acts_as_on_off_switch(
+
+def test_show_light_source_acts_as_on_off_switch(
     global_mmcore: CMMCorePlus, qtbot: QtBot
 ) -> None:
     """Unchecking must stop the properties being applied, not just hide them."""
@@ -1225,7 +1225,7 @@ def test_show_intensity_acts_as_on_off_switch(
 
     wdg = MDAWidget(mmcore=global_mmcore)
     qtbot.addWidget(wdg)
-    wdg.channels.show_intensity.setChecked(True)
+    wdg.channels.show_light_source.setChecked(True)
     wdg.setValue(useq.MDASequence(channels=[{"config": "DAPI", "exposure": 50}]))
 
     table = wdg.channels.table()
@@ -1242,7 +1242,7 @@ def test_show_intensity_acts_as_on_off_switch(
     ]
 
     # switch it off: no properties, and a plain MDASequence again
-    wdg.channels.show_intensity.setChecked(False)
+    wdg.channels.show_light_source.setChecked(False)
 
     assert wdg.channels.channelProperties() == []
     seq = wdg.value()
@@ -1251,7 +1251,7 @@ def test_show_intensity_acts_as_on_off_switch(
     assert next(iter(seq)).properties is None
 
     # switching back on restores the previous selection
-    wdg.channels.show_intensity.setChecked(True)
+    wdg.channels.show_light_source.setChecked(True)
     assert wdg.channels.channelProperties() == [
         {
             "channel_index": 0,
@@ -1429,7 +1429,7 @@ def test_mda_widget_value_returns_channel_properties_sequence(
 
     wdg = MDAWidget(mmcore=global_mmcore)
     qtbot.addWidget(wdg)
-    wdg.channels.show_intensity.setChecked(True)
+    wdg.channels.show_light_source.setChecked(True)
     wdg.setValue(
         useq.MDASequence(
             channels=[
@@ -1467,7 +1467,7 @@ def test_channel_properties_round_trip(
 
     wdg = MDAWidget(mmcore=global_mmcore)
     qtbot.addWidget(wdg)
-    wdg.channels.show_intensity.setChecked(True)
+    wdg.channels.show_light_source.setChecked(True)
     wdg.setValue(
         useq.MDASequence(
             channels=[
@@ -1490,7 +1490,7 @@ def test_channel_properties_round_trip(
 
     # loading a sequence that carries channel properties reveals the columns,
     # otherwise the restored values would be invisible
-    assert wdg2.channels.show_intensity.isChecked()
+    assert wdg2.channels.show_light_source.isChecked()
     assert not wdg2.channels.table().isColumnHidden(
         wdg2.channels.table().indexOf(wdg2.channels.INTENSITY)
     )
