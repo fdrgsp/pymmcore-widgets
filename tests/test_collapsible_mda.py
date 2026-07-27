@@ -84,6 +84,24 @@ def test_collapsible_value_parity_with_mda_widget(qtbot: QtBot) -> None:
     assert restored[0].sequence.autofocus_plan.autofocus_motor_offset == 25.0
 
 
+def test_unchecked_axis_summaries_only_show_off(qtbot: QtBot) -> None:
+    wdg = MDAWidgetCollapsible()
+    qtbot.addWidget(wdg)
+    wdg.setValue(MDA)
+
+    for axis in "cpgzt":
+        section = wdg.tabs.section(axis)
+        wdg.tabs.setChecked(axis, False)
+        assert section.summary == "Off"
+
+        # Refreshing after editor values change must not expose inactive details.
+        wdg.tabs.refresh_summaries()
+        assert section.summary == "Off"
+
+        wdg.tabs.setChecked(axis, True)
+        assert section.summary.startswith("On · ")
+
+
 def test_collapsible_position_subsequence_popup_omits_positions(
     qtbot: QtBot,
 ) -> None:

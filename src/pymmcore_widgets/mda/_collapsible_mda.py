@@ -697,9 +697,11 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
 
     def _update_axis_summary(self, widget: QWidget) -> None:
         section = self._section_by_widget[widget]
-        state = "On" if section.checked else "Off"
+        if not section.checked:
+            section.set_summary("Off")
+            return
         detail = self._axis_detail(widget)
-        section.set_summary(f"{state} · {detail}" if detail else state)
+        section.set_summary(f"On · {detail}" if detail else "On")
 
     def _axis_detail(self, widget: QWidget) -> str:
         if widget is self.channels:
