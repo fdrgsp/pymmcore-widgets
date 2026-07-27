@@ -16,6 +16,7 @@ it with a stylesheet.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from html import escape
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -50,6 +51,19 @@ if TYPE_CHECKING:
     )
 
     from ._save_widget import SaveGroupBox
+
+
+# Semantic status-dot colors shown before a section summary. They read on both
+# light and dark themes; they are inline rich-text colors (not a stylesheet), so
+# they survive a downstream app that clears stylesheets or overrides palettes.
+_STATUS_ON_COLOR = "#4caf50"
+_STATUS_OFF_COLOR = "#f44336"
+
+
+def _status_dot_html(on: bool, text: str) -> str:
+    """Return ``text`` prefixed with a small colored status dot as rich text."""
+    color = _STATUS_ON_COLOR if on else _STATUS_OFF_COLOR
+    return f'<span style="color: {color};">&#9679;</span>&nbsp;{escape(text)}'
 
 
 @dataclass(frozen=True)
@@ -162,6 +176,7 @@ class CollapsibleAcquisitionSection(QWidget):
             checkbox.toggled.connect(self.checkedChanged)
             self._header_layout.addWidget(checkbox)
 
+        self._summary_text = summary
         self._summary = QLabel(summary)
         self._summary.setObjectName("mdaSectionSummary")
         self._summary.setAlignment(
@@ -217,8 +232,8 @@ class CollapsibleAcquisitionSection(QWidget):
 
     @property
     def summary(self) -> str:
-        """Return the collapsed summary text."""
-        return str(self._summary.text())
+        """Return the collapsed summary text (without any status-dot markup)."""
+        return self._summary_text
 
     @property
     def content_widget(self) -> QWidget | None:
@@ -263,9 +278,17 @@ class CollapsibleAcquisitionSection(QWidget):
             raise TypeError(f"{self._title!r} is not a checkable section")
         self._checkbox.setChecked(checked)
 
-    def set_summary(self, summary: str) -> None:
-        """Update the derived collapsed summary."""
-        self._summary.setText(summary)
+    def set_summary(self, summary: str, *, status: bool | None = None) -> None:
+        """Update the derived collapsed summary.
+
+        When ``status`` is given, a small colored dot is shown before the text:
+        green for ``True`` (on) and red for ``False`` (off).
+        """
+        self._summary_text = summary
+        if status is None:
+            self._summary.setText(summary)
+        else:
+            self._summary.setText(_status_dot_html(status, summary))
 
     def set_checkbox_enabled(self, enabled: bool) -> None:
         """Enable or disable the acquisition checkbox."""
@@ -698,10 +721,10 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
     def _update_axis_summary(self, widget: QWidget) -> None:
         section = self._section_by_widget[widget]
         if not section.checked:
-            section.set_summary("Off")
+            section.set_summary("Off", status=False)
             return
         detail = self._axis_detail(widget)
-        section.set_summary(f"On · {detail}" if detail else "On")
+        section.set_summary(f"On · {detail}" if detail else "On", status=True)
 
     def _axis_detail(self, widget: QWidget) -> str:
         if widget is self.channels:
