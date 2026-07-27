@@ -122,7 +122,7 @@ class CoreConnectedChannelTable(ChannelTable):
 
     # fmt: off
     LIGHT_SOURCE = ComboColumn(key=LIGHT_SOURCE_KEY, header="Light Source", default=NO_LIGHT_SOURCE, allowed_values=(NO_LIGHT_SOURCE,))  # noqa: E501
-    INTENSITY = IntensityColumn(key=INTENSITY_KEY, header="Intensity", default=0.0)
+    INTENSITY = IntensityColumn(key=INTENSITY_KEY, header="Intensity [%]", default=0.0)
     # fmt: on
 
     def __init__(
