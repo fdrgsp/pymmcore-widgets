@@ -9,6 +9,7 @@ from pymmcore_widgets.mda import (
     CollapsibleCoreMDATabs,
     SectionMetrics,
 )
+from pymmcore_widgets.useq_widgets._positions import MDAButton, _MDAPopup
 
 if TYPE_CHECKING:
     from pytestqt.qtbot import QtBot
@@ -81,6 +82,28 @@ def test_collapsible_value_parity_with_mda_widget(qtbot: QtBot) -> None:
     assert restored[0].sequence is not None
     assert restored[0].sequence.autofocus_plan is not None
     assert restored[0].sequence.autofocus_plan.autofocus_motor_offset == 25.0
+
+
+def test_collapsible_position_subsequence_popup_omits_positions(
+    qtbot: QtBot,
+) -> None:
+    wdg = MDAWidgetCollapsible()
+    qtbot.addWidget(wdg)
+    table = wdg.stage_positions.table()
+    button = table.cellWidget(0, table.indexOf(wdg.stage_positions.SEQ))
+    assert isinstance(button, MDAButton)
+
+    popup = _MDAPopup(
+        useq.MDASequence(stage_positions=[useq.Position(x=1, y=2)]),
+        button,
+    )
+    qtbot.addWidget(popup)
+
+    assert isinstance(popup.mda_tabs, CollapsibleCoreMDATabs)
+    positions_section = popup.mda_tabs.section("p")
+    assert positions_section.isHidden()
+    assert not popup.mda_tabs.isChecked("p")
+    assert popup.mda_tabs.value().stage_positions == ()
 
 
 def test_collapsible_disables_editors_during_run(qtbot: QtBot) -> None:

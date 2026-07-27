@@ -446,6 +446,24 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             return self._logical_index_by_widget[widget]
         return int(QTabWidget.indexOf(self, widget))
 
+    def removeTab(self, index: int) -> None:
+        """Remove a logical axis from the collapsible presentation.
+
+        ``MDATabs`` consumers use ``removeTab(indexOf(axis_widget))`` to omit an
+        axis entirely, notably the per-position sub-sequence editor.  The
+        collapsible presentation has only one physical ``QTabWidget`` page, so
+        route logical axis indices to their section instead.
+        """
+        if not self._sections_ready:
+            super().removeTab(index)
+            return
+        if (widget := self._widget_by_logical_index.get(index)) is not None:
+            section = self._section_by_widget[widget]
+            section.set_checked(False)
+            section.hide()
+            return
+        QTabWidget.removeTab(self, index)
+
     def isChecked(
         self,
         key: str | int | QWidget,

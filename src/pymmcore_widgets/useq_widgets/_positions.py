@@ -57,9 +57,8 @@ class _MDAPopup(QDialog):
                 break
             wdg = wdg.parent()
 
-        # create a new MDA tab widget without the stage positions tab
+        # create a new MDA tab widget
         self.mda_tabs = tab_type(self)
-        self.mda_tabs.removeTab(self.mda_tabs.indexOf(self.mda_tabs.stage_positions))
 
         # use the parent's channel groups if possible, but only for non-core-connected
         # channel tables. Core-connected tables manage their own channel groups.
@@ -78,6 +77,12 @@ class _MDAPopup(QDialog):
         # set the value if provided
         if value:
             self.mda_tabs.setValue(value)
+
+        # A position sub-sequence cannot itself contain another position list.
+        # Do this after restoring the value so an incoming sequence cannot
+        # re-enable Positions. Collapsible MDATabs maps this logical remove to
+        # hiding and disabling the corresponding section.
+        self.mda_tabs.removeTab(self.mda_tabs.indexOf(self.mda_tabs.stage_positions))
 
         # create ok and cancel buttons
         self._btns = QDialogButtonBox(OK_CANCEL)
