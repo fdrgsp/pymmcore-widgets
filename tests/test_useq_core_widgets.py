@@ -1243,14 +1243,11 @@ def test_sub_wdg_channel_tab(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
 # ------------------- channel light source / intensity columns -------------------
 
 
-def _define_light_source_groups(core: CMMCorePlus) -> None:
-    """Define two single-preset, single-property config groups on `core`.
-
-    "Light" wraps a Float property with limits, "Power" wraps an Integer one -
-    both qualify as a "light source" (see `CoreConnectedChannelTable`).
-    """
-    core.defineConfig("Light", "Level", "Camera", "TestProperty2", "0")
-    core.defineConfig("Power", "Level", "Camera", "Gain", "0")
+# Labels the Light Source combo lists device properties under. Both belong to
+# test_config.cfg's demo Camera: TestProperty2 is a Float limited to -200..200,
+# Gain an Integer limited to -5..8.
+LS_FLOAT = "Camera · TestProperty2"
+LS_INT = "Camera · Gain"
 
 
 def test_light_source_columns_visible_by_default(
@@ -1260,9 +1257,9 @@ def test_light_source_columns_visible_by_default(
     tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
     qtbot.addWidget(tbl)
 
-    # test_config.cfg ships a single-preset, single-property "_slider_test" group
-    # specifically to exercise this "acts like a slider" rule.
-    assert tbl.lightSources() == {"_slider_test": ("Camera", "TestProperty1")}
+    # every writable numeric property with limits is offered, keyed "device · prop"
+    assert tbl.lightSources()[LS_FLOAT] == ("Camera", "TestProperty2")
+    assert tbl.lightSources()[LS_INT] == ("Camera", "Gain")
 
     table = tbl.table()
     ls_col = table.indexOf(tbl._light_source_column)
@@ -1338,8 +1335,6 @@ def test_show_light_source_acts_as_on_off_switch(
     global_mmcore: CMMCorePlus, qtbot: QtBot
 ) -> None:
     """Unchecking must stop the properties being applied, not just hide them."""
-    _define_light_source_groups(global_mmcore)
-
     wdg = MDAWidget(mmcore=global_mmcore)
     qtbot.addWidget(wdg)
     wdg.channels.show_light_source.setChecked(True)
@@ -1348,7 +1343,7 @@ def test_show_light_source_acts_as_on_off_switch(
     table = wdg.channels.table()
     table.cellWidget(
         0, table.indexOf(wdg.channels._light_source_column)
-    ).setCurrentText("Light")
+    ).setCurrentText(LS_FLOAT)
     table.cellWidget(0, table.indexOf(wdg.channels.INTENSITY)).setValue(42)
 
     assert wdg.channels.channelProperties()
@@ -1373,7 +1368,7 @@ def test_show_light_source_acts_as_on_off_switch(
         {
             "channel_index": 0,
             "config": "DAPI",
-            "group": "Light",
+            "group": LS_FLOAT,
             "device": "Camera",
             "property": "TestProperty2",
             "value": 42.0,
@@ -1381,37 +1376,30 @@ def test_show_light_source_acts_as_on_off_switch(
     ]
 
 
-def test_light_source_choices_track_config_changes(
+def test_light_source_choices_list_ranged_properties(
     global_mmcore: CMMCorePlus, qtbot: QtBot
 ) -> None:
+    """Only writable numeric properties that have limits can be swept."""
     tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
     qtbot.addWidget(tbl)
     tbl.setLightSourceVisible(True)
     tbl.setValue([useq.Channel(config="DAPI")])
 
-    _define_light_source_groups(global_mmcore)
-
-    assert tbl.lightSources() == {
-        "_slider_test": ("Camera", "TestProperty1"),
-        "Light": ("Camera", "TestProperty2"),
-        "Power": ("Camera", "Gain"),
-    }
     table = tbl.table()
     ls_col = table.indexOf(tbl._light_source_column)
     int_col = table.indexOf(tbl.INTENSITY)
-    # rebuilding the column for the new choices must not undo the user's toggle
     assert not table.isColumnHidden(ls_col)
     assert not table.isColumnHidden(int_col)
 
     combo = table.cellWidget(0, ls_col)
     items = [combo.itemText(i) for i in range(combo.count())]
     assert items[0] == ""  # "no light source" is always first
-    assert set(items) == {"", "_slider_test", "Light", "Power"}
-
-    # ...and deleting a group drops it from the choices
-    global_mmcore.deleteConfigGroup("Power")
-    combo = table.cellWidget(0, table.indexOf(tbl._light_source_column))
-    assert "Power" not in [combo.itemText(i) for i in range(combo.count())]
+    assert LS_FLOAT in items
+    assert LS_INT in items
+    # numeric but unbounded -> nothing to range an intensity spin box with
+    assert "Camera · Binning" not in items
+    # not numeric -> cannot be a light source level
+    assert "Camera · PixelType" not in items
 
 
 def test_light_source_columns_positioned_after_exposure(
@@ -1446,42 +1434,26 @@ def test_light_source_columns_positioned_after_exposure(
     assert order() == expected
 
 
-def test_light_source_columns_follow_preset_deletion(
-    global_mmcore: CMMCorePlus, qtbot: QtBot
-) -> None:
-    """Deleting a group's only preset (not the group) must update the columns."""
-    tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
-    qtbot.addWidget(tbl)
-    assert "_slider_test" in tbl.lightSources()
-
-    # deleteConfig fires configDeleted, not configGroupDeleted
-    global_mmcore.deleteConfig("_slider_test", "NewPreset")
-
-    assert "_slider_test" not in tbl.lightSources()
-
-
 def test_refresh_picks_up_changes_made_with_signals_blocked(
     global_mmcore: CMMCorePlus, qtbot: QtBot
 ) -> None:
-    """Bulk config rewrites may suppress core signals; refresh() re-scans."""
+    """Bulk core rewrites may suppress signals; refresh() re-scans."""
     tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
     qtbot.addWidget(tbl)
-    assert "Light" not in tbl.lightSources()
+    assert LS_FLOAT in tbl.lightSources()
 
-    # this is exactly how a bulk config rewrite suppresses core events
+    # this is exactly how a bulk rewrite suppresses core events
     with block_core(global_mmcore.events):
-        global_mmcore.defineConfig("Light", "Level", "Camera", "TestProperty2", "0")
+        global_mmcore.unloadDevice("Camera")
 
     # no signal was emitted, so the widget is still stale
-    assert "Light" not in tbl.lightSources()
+    assert LS_FLOAT in tbl.lightSources()
 
     tbl.refresh()
-    assert tbl.lightSources()["Light"] == ("Camera", "TestProperty2")
+    assert LS_FLOAT not in tbl.lightSources()
 
 
 def test_channel_properties(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
-    _define_light_source_groups(global_mmcore)
-
     tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
     qtbot.addWidget(tbl)
     tbl.setLightSourceVisible(True)
@@ -1496,9 +1468,9 @@ def test_channel_properties(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
     ls_col = table.indexOf(tbl._light_source_column)
     int_col = table.indexOf(tbl.INTENSITY)
 
-    table.cellWidget(0, ls_col).setCurrentText("Light")
+    table.cellWidget(0, ls_col).setCurrentText(LS_FLOAT)
     table.cellWidget(0, int_col).setValue(150.5)
-    table.cellWidget(1, ls_col).setCurrentText("Power")
+    table.cellWidget(1, ls_col).setCurrentText(LS_INT)
     table.cellWidget(1, int_col).setValue(7)
 
     # per-row range/decimals follow the underlying property's type and limits
@@ -1521,7 +1493,7 @@ def test_channel_properties(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
         {
             "channel_index": 0,
             "config": "DAPI",
-            "group": "Light",
+            "group": LS_FLOAT,
             "device": "Camera",
             "property": "TestProperty2",
             "value": 150.5,
@@ -1529,7 +1501,7 @@ def test_channel_properties(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
         {
             "channel_index": 1,
             "config": "FITC",
-            "group": "Power",
+            "group": LS_INT,
             "device": "Camera",
             "property": "Gain",
             # Integer property -> cast to int
@@ -1542,8 +1514,6 @@ def test_channel_properties(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
 def test_mda_widget_value_returns_channel_properties_sequence(
     global_mmcore: CMMCorePlus, qtbot: QtBot
 ) -> None:
-    _define_light_source_groups(global_mmcore)
-
     wdg = MDAWidget(mmcore=global_mmcore)
     qtbot.addWidget(wdg)
     wdg.channels.show_light_source.setChecked(True)
@@ -1559,7 +1529,7 @@ def test_mda_widget_value_returns_channel_properties_sequence(
     table = wdg.channels.table()
     ls_col = table.indexOf(wdg.channels._light_source_column)
     int_col = table.indexOf(wdg.channels.INTENSITY)
-    table.cellWidget(0, ls_col).setCurrentText("Light")
+    table.cellWidget(0, ls_col).setCurrentText(LS_FLOAT)
     table.cellWidget(0, int_col).setValue(150)
     # FITC (row 1) keeps the default "no light source"
 
@@ -1580,8 +1550,6 @@ def test_mda_widget_value_returns_channel_properties_sequence(
 def test_channel_properties_round_trip(
     global_mmcore: CMMCorePlus, qtbot: QtBot
 ) -> None:
-    _define_light_source_groups(global_mmcore)
-
     wdg = MDAWidget(mmcore=global_mmcore)
     qtbot.addWidget(wdg)
     wdg.channels.show_light_source.setChecked(True)
@@ -1596,7 +1564,7 @@ def test_channel_properties_round_trip(
     table = wdg.channels.table()
     ls_col = table.indexOf(wdg.channels._light_source_column)
     int_col = table.indexOf(wdg.channels.INTENSITY)
-    table.cellWidget(0, ls_col).setCurrentText("Light")
+    table.cellWidget(0, ls_col).setCurrentText(LS_FLOAT)
     table.cellWidget(0, int_col).setValue(42)
 
     seq = wdg.value()
@@ -1617,3 +1585,39 @@ def test_channel_properties_round_trip(
         wdg2.value().metadata[PYMMCW_METADATA_KEY][CHANNEL_PROPERTIES_KEY]
         == seq.metadata[PYMMCW_METADATA_KEY][CHANNEL_PROPERTIES_KEY]
     )
+
+
+def test_channel_properties_restore_ignores_stale_group(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    """`group` is display state; device/property is what identifies the entry.
+
+    Sequences saved when `group` held a config group name must still restore.
+    """
+    wdg = MDAWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.setValue(useq.MDASequence(channels=[{"config": "DAPI", "exposure": 50}]))
+    wdg.channels.setChannelProperties(
+        [
+            {
+                "channel_index": 0,
+                "config": "DAPI",
+                "group": "SomeRetiredConfigGroup",
+                "device": "Camera",
+                "property": "TestProperty2",
+                "value": 42.0,
+            }
+        ]
+    )
+
+    # re-labelled to the current scheme, and still pointing at the same property
+    assert wdg.channels.channelProperties() == [
+        {
+            "channel_index": 0,
+            "config": "DAPI",
+            "group": LS_FLOAT,
+            "device": "Camera",
+            "property": "TestProperty2",
+            "value": 42.0,
+        }
+    ]

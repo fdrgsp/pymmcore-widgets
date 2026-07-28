@@ -31,6 +31,9 @@ _EXTRA_KEYS = frozenset({LIGHT_SOURCE_KEY, INTENSITY_KEY})
 # value of the light source combo meaning "this channel sets no property"
 NO_LIGHT_SOURCE = ""
 
+# joins device label and property name into a light source combo entry
+PROPERTY_SEPARATOR = " · "
+
 
 class IntensitySpinBox(TableDoubleSpinBox):
     """Spin box for a light source value, ranged from the property's limits.
@@ -88,10 +91,11 @@ class CoreConnectedChannelTable(ChannelTable):
     Source* and *Intensity* columns, which let each channel set a single device
     property (typically an illumination intensity) while it is being acquired.
 
-    The *Light Source* drop-down lists config groups that behave like a slider in
-    Micro-Manager: exactly one preset, containing exactly one device property, where
-    that property is numeric and has limits. Its choices are kept in sync with the
-    core's config groups.
+    The *Light Source* drop-down lists every writable numeric device property that
+    has limits, as `"<device> · <property>"`. Which of those actually drives a light
+    source cannot be known ahead of time -- the property name differs per adapter --
+    so all of them are offered and the user picks. Choices are kept in sync with the
+    core's loaded devices.
 
     The feature is on by default; use
     [`setLightSourceVisible`][pymmcore_widgets.mda.CoreConnectedChannelTable.setLightSourceVisible]
@@ -134,7 +138,7 @@ class CoreConnectedChannelTable(ChannelTable):
         super().__init__(rows, parent)
         self._mmc = mmcore or CMMCorePlus.instance()
 
-        # {group name -> (device, property)} for groups usable as a light source
+        # {combo label -> (device, property)} for the selectable properties
         self._light_sources: dict[str, tuple[str, str]] = {}
         self._light_source_column: ComboColumn = self.LIGHT_SOURCE
         # guards _sync_intensity_widgets against re-entrancy
@@ -314,22 +318,29 @@ class CoreConnectedChannelTable(ChannelTable):
         if ls_col < 0 or int_col < 0:  # pragma: no cover
             return
 
+        labels = {dev_prop: label for label, dev_prop in self._light_sources.items()}
+
         with signals_blocked(self):
             for entry in value:
                 row = entry["channel_index"]
                 if not (0 <= row < table.rowCount()):  # pragma: no cover
                     continue
-                if entry["group"] not in self._light_sources:
-                    continue
-                self._light_source_column.set_cell_data(
-                    table, row, ls_col, entry["group"]
-                )
+                # `group` is display state; (device, property) is what actually gets
+                # applied, so resolve on that first. A sequence saved when `group`
+                # held a config group name then still restores its property instead
+                # of being silently dropped.
+                label = labels.get((entry["device"], entry["property"]))
+                if label is None:
+                    if entry["group"] not in self._light_sources:
+                        continue
+                    label = entry["group"]
+                self._light_source_column.set_cell_data(table, row, ls_col, label)
                 # range must be set before the value, or it would be clamped away
-                self._configure_intensity_widget(row, int_col, entry["group"])
+                self._configure_intensity_widget(row, int_col, label)
                 self.INTENSITY.set_cell_data(table, row, int_col, entry["value"])
 
     def lightSources(self) -> Mapping[str, tuple[str, str]]:
-        """Return {group name: (device, property)} for the available light sources."""
+        """Return {combo label: (device, property)} for the available light sources."""
         return dict(self._light_sources)
 
     # ------------------- Private API -------------------
@@ -376,31 +387,29 @@ class CoreConnectedChannelTable(ChannelTable):
             self._group_combo.setCurrentText(ch_group)
 
     def _find_light_sources(self) -> dict[str, tuple[str, str]]:
-        """Return config groups that act as a single ranged property.
+        """Return every writable numeric device property that has limits.
 
-        A group qualifies when it has exactly one preset containing exactly one
-        device property, and that property is numeric with limits. This mirrors the
-        rule `GroupPresetTableWidget` uses to decide whether to show a group as a
-        `PropertyWidget` (i.e. a slider) rather than a preset combo box.
+        Micro-Manager gives no way to know ahead of time which property drives a
+        light source -- the name varies by adapter (`Intensity`, `White_Level`,
+        `Power`, ...) -- so any property that can be swept over a range is offered
+        and the user picks the right one. Pre-init properties are excluded: they
+        cannot be changed once the device is initialized.
         """
-        found: dict[str, tuple[str, str]] = {}
-        for group in self._mmc.getAvailableConfigGroups():
-            presets = self._mmc.getAvailableConfigs(group)
-            if len(presets) != 1:
-                continue
-            data = list(self._mmc.getConfigData(group, presets[0]))
-            if len(data) != 1:
-                continue
-            device, prop, _ = data[0]
-            if not self._mmc.hasPropertyLimits(device, prop):
-                continue
-            if self._mmc.getPropertyType(device, prop) not in (
-                PropertyType.Integer,
-                PropertyType.Float,
-            ):
-                continue
-            found[group] = (device, prop)
-        return found
+        properties = self._mmc.iterProperties(
+            property_type=(PropertyType.Integer, PropertyType.Float),
+            has_limits=True,
+            is_read_only=False,
+            as_object=False,
+        )
+        pairs = sorted(
+            (
+                (str(device), str(prop))
+                for device, prop in properties
+                if not self._mmc.isPropertyPreInit(device, prop)
+            ),
+            key=lambda pair: (pair[0].casefold(), pair[1].casefold()),
+        )
+        return {f"{dev}{PROPERTY_SEPARATOR}{prop}": (dev, prop) for dev, prop in pairs}
 
     def _apply_light_source_visibility(self) -> None:
         table = self.table()

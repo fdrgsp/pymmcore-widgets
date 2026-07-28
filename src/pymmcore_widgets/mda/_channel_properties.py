@@ -42,8 +42,9 @@ class ChannelProperty(TypedDict):
         Name of that channel's config preset. Informational; `channel_index` is what
         is matched against at iteration time.
     group : str
-        Name of the config group the property was selected from. Used to restore the
-        widget state, not to execute.
+        Label the property was selected under in the widget, e.g.
+        `"LumencorSola · White_Level"`. Used to restore the widget state, not to
+        execute; `device`/`property` are what get applied.
     device : str
         Device label, e.g. `"LumencorSola"`.
     property : str
