@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar, cast
 
 from qtpy.QtCore import QSize, Qt, Signal
+from qtpy.QtGui import QPainter
 from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -24,6 +25,8 @@ from ._column_info import ColumnInfo
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
     from typing import Any
+
+    from qtpy.QtGui import QMouseEvent, QPaintEvent
 
     ValueWidget = type[QCheckBox | QSpinBox | QDoubleSpinBox | QComboBox]
     from PyQt6.QtGui import QAction
@@ -202,6 +205,75 @@ class DataTable(QTableWidget):
         self.valueChanged.emit()
 
 
+class _TableResizeGrip(QWidget):
+    """A thin handle that resizes `table` vertically when dragged.
+
+    The tables live in scroll areas that would otherwise size them to a fixed
+    number of rows, so this lets the user trade vertical space between them.
+    """
+
+    GRIP_HEIGHT = 8
+
+    def __init__(self, table: QTableWidget, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._table = table
+        self._press_y = 0
+        self._press_height = 0
+        self._user_resized = False
+        # the smallest height we will shrink the table to. Captured on the first
+        # drag rather than here, since owners (e.g. the collapsible MDA layout)
+        # set a minimum height on the table after we've been constructed.
+        self._min_height: int | None = None
+
+        self.setCursor(Qt.CursorShape.SizeVerCursor)
+        self.setFixedHeight(self.GRIP_HEIGHT)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setToolTip("Drag to resize the table.")
+
+    def isUserResized(self) -> bool:
+        """Whether the user has dragged this grip to pick an explicit height.
+
+        Owners that impose their own height policy on the table should leave it
+        alone once this is True.
+        """
+        return self._user_resized
+
+    def _one_row_height(self) -> int:
+        """Return the height of the table showing its header and a single row."""
+        h_header = cast("QHeaderView", self._table.horizontalHeader())
+        header_h = max(h_header.height(), h_header.sizeHint().height())
+        row_h = self._table.verticalHeader().defaultSectionSize()
+        return int(header_h + row_h + 2 * self._table.frameWidth())
+
+    def mousePressEvent(self, e: QMouseEvent | None) -> None:
+        if e is None:  # pragma: no cover
+            return
+        if self._min_height is None:
+            # setFixedHeight() below also overwrites minimumHeight, so we can only
+            # trust the table's own minimum before the first resize.
+            self._min_height = max(self._table.minimumHeight(), self._one_row_height())
+        self._press_y = int(e.globalPosition().y())
+        self._press_height = self._table.height()
+
+    def mouseMoveEvent(self, e: QMouseEvent | None) -> None:
+        if e is None or self._min_height is None:  # pragma: no cover
+            return  # move without a press
+        delta = int(e.globalPosition().y()) - self._press_y
+        self._table.setFixedHeight(max(self._min_height, self._press_height + delta))
+        self._user_resized = True
+
+    def paintEvent(self, a0: QPaintEvent | None) -> None:
+        # a pair of short centered lines, to read as a grab handle
+        painter = QPainter(self)
+        painter.setPen(self.palette().mid().color())
+        rect = self.rect()
+        width = min(rect.width(), 40)
+        x0 = rect.center().x() - width // 2
+        for dy in (-1, 2):
+            y = rect.center().y() + dy
+            painter.drawLine(x0, y, x0 + width, y)
+
+
 class DataTableWidget(QWidget):
     valueChanged = Signal()
 
@@ -275,12 +347,16 @@ class DataTableWidget(QWidget):
         self._toolbar.addAction(self.act_remove_row)
         self._toolbar.addAction(self.act_clear)
 
+        # -------- resize grip --------
+        self._resize_grip = _TableResizeGrip(self._table, self)
+
         # -------- layout --------
         layout = QVBoxLayout(self)
         layout.setSpacing(5)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._toolbar)
         layout.addWidget(self._table)
+        layout.addWidget(self._resize_grip)
 
     # ################ Public methods ####################
 

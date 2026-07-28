@@ -65,10 +65,8 @@ class ZPlanWidget(QWidget):
 
         # #################### Mode Buttons ####################
 
-        self._btn_top_bot = QRadioButton("Top/Bottom")
-        self._btn_top_bot.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_top_bot.setIcon(QIconifyIcon("mdi:arrow-expand-vertical"))
-        self._btn_top_bot.setToolTip("Mark top and bottom.")
+        # note: the relative modes come first, and the absolute (Top/Bottom) mode
+        # last, since the latter is incompatible with the hardware autofocus.
         self._btn_range = QRadioButton("Range Around (Symmetric)")
         self._btn_range.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._btn_range.setIcon(QIconifyIcon("mdi:arrow-split-horizontal"))
@@ -79,20 +77,24 @@ class ZPlanWidget(QWidget):
         self._button_above_below.setToolTip(
             "Range asymmetrically above/below reference."
         )
+        self._btn_top_bot = QRadioButton("Top/Bottom")
+        self._btn_top_bot.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_top_bot.setIcon(QIconifyIcon("mdi:arrow-expand-vertical"))
+        self._btn_top_bot.setToolTip("Mark top and bottom.")
 
         self._mode_btn_group = QButtonGroup()
-        self._mode_btn_group.addButton(self._btn_top_bot)
         self._mode_btn_group.addButton(self._btn_range)
         self._mode_btn_group.addButton(self._button_above_below)
+        self._mode_btn_group.addButton(self._btn_top_bot)
         self._mode_btn_group.buttonToggled.connect(self.setMode)
 
         # radio buttons on the top row
         btn_wdg = QWidget()
         btn_layout = QHBoxLayout(btn_wdg)
         btn_layout.setContentsMargins(0, 0, 0, 0)
-        btn_layout.addWidget(self._btn_top_bot, 0)
         btn_layout.addWidget(self._btn_range, 0)
-        btn_layout.addWidget(self._button_above_below, 1)
+        btn_layout.addWidget(self._button_above_below, 0)
+        btn_layout.addWidget(self._btn_top_bot, 1)
 
         # FIXME: On Windows 11, buttons within an inner widget of a ScrollArea
         # are filled in with the accent color, making it very difficult to see

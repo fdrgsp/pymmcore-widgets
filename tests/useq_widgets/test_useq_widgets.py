@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pint
 import pytest
 import useq
-from qtpy.QtCore import Qt, QTimer
+from qtpy.QtCore import QPoint, Qt, QTimer
 from qtpy.QtWidgets import QMessageBox
 
 import pymmcore_widgets
@@ -71,6 +71,33 @@ def test_z_widget(qtbot: QtBot) -> None:
     assert isinstance(val, useq.ZRangeAround)
     assert val.range == 4
     assert val.step == 0.5
+
+
+def test_data_table_resize_grip(qtbot: QtBot) -> None:
+    wdg = DataTableWidget()
+    qtbot.addWidget(wdg)
+    wdg.show()
+    qtbot.waitUntil(wdg.isVisible)
+
+    grip = wdg._resize_grip
+    table = wdg.table()
+    assert not grip.isUserResized()
+
+    def _drag_to(dy: int) -> None:
+        qtbot.mousePress(grip, Qt.MouseButton.LeftButton, pos=QPoint(5, 2))
+        qtbot.mouseMove(grip, QPoint(5, 2 + dy))
+
+    # dragging down grows the table. Note we assert on the fixed height rather than
+    # height(), since the latter only updates once the layout has been processed.
+    start_height = table.height()
+    _drag_to(100)
+    assert table.maximumHeight() == start_height + 100
+    assert grip.isUserResized()
+
+    # dragging far up clamps at the minimum rather than collapsing the table
+    _drag_to(-5000)
+    assert table.maximumHeight() == grip._min_height
+    assert grip._min_height > 0
 
 
 def test_data_table(qtbot: QtBot) -> None:

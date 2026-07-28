@@ -467,6 +467,83 @@ def test_run_mda_af_warning(qtbot: QtBot):
             assert wdg._mmc.mda.is_running()
 
 
+def test_run_mda_af_engaged_but_unused(qtbot: QtBot):
+    """AF engaged with no axis selected: offer to switch it off for the run."""
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    wdg.show()
+
+    wdg.setValue(useq.MDASequence(stage_positions=[useq.Position(x=0, y=0, z=0)]))
+    assert not wdg.af_axis.value()
+
+    messages: list[str] = []
+
+    def _capture(_self, _title, msg, *args, **kwargs):
+        messages.append(msg)
+        return QMessageBox.StandardButton.Cancel
+
+    # the AF device is engaged, but no autofocus axis is selected
+    with patch.object(wdg._mmc, "isContinuousFocusLocked", return_value=True):
+        with patch.object(QMessageBox, "warning", _capture):
+            wdg.control_btns.run_btn.click()
+
+        # cancelling does not run, and leaves the autofocus alone
+        assert not wdg._mmc.mda.is_running()
+        assert not wdg._restore_af_after_run
+        assert len(messages) == 1
+        assert "no autofocus axis is selected" in messages[0]
+
+        # accepting switches the autofocus off for the run, then restores it
+        with patch.object(QMessageBox, "warning", return_value=QMessageBox.Ok):
+            with patch.object(wdg._mmc, "enableContinuousFocus") as mock_af:
+                with qtbot.waitSignal(wdg._mmc.mda.events.sequenceFinished):
+                    wdg.control_btns.run_btn.click()
+                qtbot.waitUntil(lambda: not wdg._restore_af_after_run)
+                assert mock_af.call_args_list[0].args == (False,)
+                assert mock_af.call_args_list[-1].args == (True,)
+
+    # selecting an axis makes the dialog go away for good
+    messages.clear()
+    wdg.af_axis.use_af_p.setChecked(True)
+    with patch.object(wdg._mmc, "isContinuousFocusLocked", return_value=True):
+        with patch.object(QMessageBox, "warning", _capture):
+            with qtbot.waitSignal(wdg._mmc.mda.events.sequenceFinished):
+                wdg.control_btns.run_btn.click()
+    assert not messages
+
+
+def test_run_mda_af_engaged_with_absolute_z(qtbot: QtBot):
+    """With an absolute z plan there is no axis to select, so say so instead."""
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    wdg.show()
+
+    # an absolute (TOP_BOTTOM) z plan disables the af_axis widget entirely
+    with patch.object(QMessageBox, "warning", return_value=QMessageBox.Ok):
+        wdg.setValue(
+            useq.MDASequence(
+                stage_positions=[useq.Position(x=0, y=0, z=0)],
+                z_plan=useq.ZTopBottom(top=1, bottom=-1, step=1),
+            )
+        )
+    assert not wdg.af_axis.isEnabled()
+    assert not wdg.af_axis.value()
+
+    messages: list[str] = []
+
+    def _capture(_self, _title, msg, *args, **kwargs):
+        messages.append(msg)
+        return QMessageBox.StandardButton.Cancel
+
+    with patch.object(wdg._mmc, "isContinuousFocusLocked", return_value=True):
+        with patch.object(QMessageBox, "warning", _capture):
+            wdg.control_btns.run_btn.click()
+
+    assert not wdg._mmc.mda.is_running()
+    assert len(messages) == 1
+    assert "cannot be used with a Z Plan with Absolute Z Positions" in messages[0]
+
+
 def test_core_connected_channel_wdg(qtbot: QtBot):
     wdg = CoreConnectedChannelTable()
     qtbot.addWidget(wdg)

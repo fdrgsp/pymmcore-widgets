@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from pymmcore_plus import CMMCorePlus, Keyword
+from pymmcore_plus._logger import logger
 from qtpy.QtCore import QSize, Qt, Slot
 from qtpy.QtWidgets import (
     QBoxLayout,
@@ -42,6 +43,23 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from pymmcore_plus.mda import SupportsFrameReady
+
+
+# shown when the autofocus device is engaged but the sequence does not use it.
+# the first variant is used when the user can still opt in by selecting an axis,
+# the second when the axis widget is disabled (an absolute z plan is selected) and
+# telling them to select an axis would be a dead end.
+AF_ENGAGED_NO_AXIS = (
+    "The {af} autofocus device is currently engaged, but no autofocus axis is "
+    "selected.\n\nSelect an axis in 'Use Hardware Autofocus on Axis' to use the "
+    "hardware autofocus during this run, otherwise it will be switched off before "
+    "the acquisition starts.\n\nRun anyway?"
+)
+AF_ENGAGED_ABSOLUTE_Z = (
+    "The {af} autofocus device is currently engaged, but it cannot be used with a "
+    "Z Plan with Absolute Z Positions (TOP_BOTTOM mode).\n\nIt will be switched off "
+    "before the acquisition starts.\n\nRun anyway?"
+)
 
 
 class _CoreConnectedPositionTable(CoreConnectedPositionTable):
@@ -126,6 +144,11 @@ class MDAWidget(MDASequenceWidget):
     ) -> None:
         # create a couple core-connected variants of the tab widgets
         self._mmc = mmcore or CMMCorePlus.instance()
+
+        # set when the user agrees to switch the hardware autofocus off for a run,
+        # and while it is actually off, so we can re-engage it when the run ends.
+        self._disable_af_on_run = False
+        self._restore_af_after_run = False
 
         super().__init__(parent=parent, tab_widget=self._create_tab_widget())
 
@@ -309,6 +332,16 @@ class MDAWidget(MDASequenceWidget):
         ):
             return False
 
+        # conversely, if the autofocus device is engaged but the sequence does not
+        # use it, offer to switch it off so that the GUI describes the whole run.
+        # NOTE: this is mutually exclusive with the check above, which requires an
+        # autofocus axis to be selected.
+        self._disable_af_on_run = False
+        if not self.af_axis.value() and self._mmc.isContinuousFocusLocked():
+            if not self._confirm_af_disable():
+                return False
+            self._disable_af_on_run = True
+
         # technically, this is in the metadata as well, but isChecked is more direct
         if self.save_info.isChecked():
             return self._update_save_path_from_metadata(
@@ -329,8 +362,16 @@ class MDAWidget(MDASequenceWidget):
     ) -> None:
         """Execute the MDA experiment corresponding to the current value."""
         sequence = self.value()
-        # run the MDA experiment asynchronously
-        self._mmc.run_mda(sequence, output=output)
+        if self._disable_af_on_run:
+            self._disable_af_on_run = False
+            self._disable_continuous_focus()
+        try:
+            # run the MDA experiment asynchronously
+            self._mmc.run_mda(sequence, output=output)
+        except Exception:
+            # the run never started, so sequenceFinished will not fire to restore it
+            self._restore_continuous_focus()
+            raise
 
     def run_mda(self) -> None:
         save_path = self.prepare_mda()
@@ -473,6 +514,42 @@ class MDAWidget(MDASequenceWidget):
         )
         return bool(response == QMessageBox.StandardButton.Ok)
 
+    def _confirm_af_disable(self) -> bool:
+        """Warn that the engaged autofocus will be switched off for this run."""
+        af = f"{self._mmc.getAutoFocusDevice()!r}"
+        # if the axis widget is disabled there is no axis for the user to select,
+        # so explain why the autofocus cannot be used instead.
+        template = (
+            AF_ENGAGED_NO_AXIS if self.af_axis.isEnabled() else AF_ENGAGED_ABSOLUTE_Z
+        )
+        response = QMessageBox.warning(
+            self,
+            "Confirm AutoFocus",
+            template.format(af=af),
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        return bool(response == QMessageBox.StandardButton.Ok)
+
+    def _disable_continuous_focus(self) -> None:
+        """Switch the hardware autofocus off for the upcoming run."""
+        try:
+            self._mmc.enableContinuousFocus(False)
+        except RuntimeError as e:  # pragma: no cover
+            logger.warning("Failed to disable the hardware autofocus. %s", e)
+            return
+        self._restore_af_after_run = True
+
+    def _restore_continuous_focus(self) -> None:
+        """Re-engage the hardware autofocus if we switched it off for a run."""
+        if not self._restore_af_after_run:
+            return
+        self._restore_af_after_run = False
+        try:
+            self._mmc.enableContinuousFocus(True)
+        except RuntimeError as e:  # pragma: no cover
+            logger.warning("Failed to re-enable the hardware autofocus. %s", e)
+
     def _enable_widgets(self, enable: bool) -> None:
         for child in self.children():
             if isinstance(child, CoreMDATabs):
@@ -487,6 +564,8 @@ class MDAWidget(MDASequenceWidget):
     @Slot(object)
     def _on_mda_finished(self, sequence: MDASequence) -> None:
         self._enable_widgets(True)
+        # sequenceFinished is emitted on cancellation too, so this covers both paths
+        self._restore_continuous_focus()
         # update the save name in the gui with the next available path
         # FIXME: this is actually a bit error prone in the case of super fast
         # experiments and delayed writers that haven't yet written anything to disk

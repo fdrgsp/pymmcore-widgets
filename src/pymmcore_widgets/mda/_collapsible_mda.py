@@ -656,6 +656,10 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             if callable(table_getter) and isinstance(
                 table := table_getter(), QTableWidget
             ):
+                # if the user dragged the table's resize grip, that height wins
+                grip = getattr(widget, "_resize_grip", None)
+                if grip is not None and grip.isUserResized():
+                    continue
                 row_h = table.verticalHeader().defaultSectionSize()
                 h_header = table.horizontalHeader()
                 header_h = max(h_header.height(), h_header.sizeHint().height())
