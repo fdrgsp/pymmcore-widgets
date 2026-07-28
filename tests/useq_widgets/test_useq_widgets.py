@@ -633,8 +633,20 @@ def test_autofocus_with_z_plans(qtbot: QtBot) -> None:
     def _qmsgbox(*args, **kwargs):
         return True
 
+    # the z_plan defaults to RANGE_AROUND mode, which is compatible with
+    # autofocus, so checking the tab should not disable anything.
     with patch.object(QMessageBox, "warning", _qmsgbox):
         wdg.tab_wdg.setChecked(wdg.z_plan, True)
+
+    assert wdg.z_plan.mode() == _z.Mode.RANGE_AROUND
+    assert wdg.af_axis.isEnabled()
+    assert wdg.stage_positions.af_per_position.isEnabled()
+    assert wdg.af_axis.value() == ("p", "t")
+
+    # switching to TOP_BOTTOM (absolute Z positions) is incompatible with
+    # autofocus, so it should trigger a warning and disable the AF widgets.
+    with patch.object(QMessageBox, "warning", _qmsgbox):
+        wdg.z_plan.setValue(useq.ZTopBottom(top=10, bottom=0, step=1))
 
     assert wdg.z_plan.mode() == _z.Mode.TOP_BOTTOM
     assert not wdg.af_axis.isEnabled()

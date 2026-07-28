@@ -988,9 +988,11 @@ def test_core_mda_autofocus_and_z_plan(
         def _qmsgbox(*args, **kwargs):
             return True
 
-        # check the z plan tab: since z_plan defaults to TopBottom mode, we should get a
+        # switch the z plan to TopBottom (absolute Z) mode and check its tab:
+        # since this mode is incompatible with autofocus, we should get a
         # warning since the autofocus options are active
         with patch.object(QMessageBox, "warning", _qmsgbox):
+            wdg.z_plan.setValue(useq.ZTopBottom(top=10, bottom=0, step=1))
             wdg.tab_wdg.setChecked(wdg.z_plan, True)
 
     # disable autofocus device
@@ -1044,7 +1046,13 @@ def test_core_mda_autofocus_and_z_plan(
         with qtbot.waitSignal(mmc.events.propertyChanged):
             mmc.setProperty("Core", "AutoFocus", "")
 
-        wdg.tab_wdg.setChecked(wdg.z_plan, True)
+        def _qmsgbox(*args, **kwargs):
+            return True
+
+        # switch the z plan to TopBottom (absolute Z) mode and check its tab
+        with patch.object(QMessageBox, "warning", _qmsgbox):
+            wdg.z_plan.setValue(useq.ZTopBottom(top=10, bottom=0, step=1))
+            wdg.tab_wdg.setChecked(wdg.z_plan, True)
         assert not wdg.af_axis.isEnabled()
         assert wdg.af_axis.use_af_p.isChecked()
         assert not wdg.af_axis.value()
