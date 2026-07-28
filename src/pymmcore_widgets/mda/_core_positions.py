@@ -159,7 +159,7 @@ class CoreConnectedPositionTable(PositionTable):
         """
         if not self.af_per_position.isEnabled():
             # leave the checkbox checked but disable it
-            self.af_per_position.setEnabled(False)
+            # self.af_per_position.setEnabled(False)
             self._on_af_per_position_toggled(False)
         elif self.af_per_position.isChecked():
             self._on_af_per_position_toggled(True)
