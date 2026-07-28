@@ -256,7 +256,7 @@ class ZPlanWidget(QWidget):
 
         # #################### Defaults ####################
 
-        self.setMode(Mode.TOP_BOTTOM)
+        self.setMode(Mode.RANGE_AROUND)
 
     # ------------------------- Public API -------------------------
 
