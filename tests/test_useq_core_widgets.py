@@ -122,6 +122,81 @@ def test_core_connected_position_wdg(qtbot: QtBot, qapp) -> None:
     pos_table._on_selection_change()
 
 
+def test_set_from_core_btn_click_sets_skip_flag(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """A real mouse-press on a 'set from core' button flags the skip.
+
+    When move_to_selection is checked, changing the table selection moves the
+    stage. Clicking _xy_btn_col / _z_btn_col / _af_btn_col can also change the
+    selection, but their purpose is to copy the current core position into the
+    table row -- not to move the stage. The fix installs an event filter on
+    each button widget that sets _skip_move_to_selection=True on
+    MouseButtonPress (installed after setCellWidget, so it runs first in Qt's
+    LIFO filter stack), reset on the next event-loop tick.
+
+    This drives the actual button widget with a real QMouseEvent (via
+    qtbot.mousePress) rather than poking the private flag directly, so it
+    fails if the filter is ever installed on the wrong widget, at the wrong
+    time, or removed entirely.
+    """
+    mmc = global_mmcore
+    wdg = MDAWidget(mmcore=mmc)
+    qtbot.addWidget(wdg)
+    wdg.show()
+
+    pos_table = wdg.stage_positions
+    assert isinstance(pos_table, CoreConnectedPositionTable)
+
+    wdg.setValue(MDA)  # at least one row
+    table = pos_table.table()
+    xy_idx = table.indexOf(pos_table._xy_btn_col)
+    btn = table.cellWidget(0, xy_idx)
+    assert btn is not None
+
+    assert pos_table._skip_move_to_selection is False
+    qtbot.mousePress(btn, Qt.MouseButton.LeftButton)
+    # Flag must be set synchronously, before the button's own click handling
+    # (and any selection change it triggers) runs.
+    assert pos_table._skip_move_to_selection is True
+
+    qtbot.mouseRelease(btn, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: not pos_table._skip_move_to_selection)
+
+
+def test_on_selection_change_skips_move_while_flag_set(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """_on_selection_change is a no-op while _skip_move_to_selection is set."""
+    mmc = global_mmcore
+    wdg = MDAWidget(mmcore=mmc)
+    qtbot.addWidget(wdg)
+    wdg.show()
+
+    pos_table = wdg.stage_positions
+    assert isinstance(pos_table, CoreConnectedPositionTable)
+
+    wdg.setValue(MDA)  # row 0 has position x=0, y=1, z=2
+    pos_table.move_to_selection.setChecked(True)
+
+    # Stage starts at (0, 0, 0) — clearly different from row 0's (0, 1, 2).
+    mmc.setXYPosition(0, 0)
+    mmc.setZPosition(0)
+    mmc.waitForSystem()
+
+    pos_table._skip_move_to_selection = True
+    pos_table.table().selectRow(0)  # would normally move the stage to row 0
+
+    mmc.waitForSystem()
+    # Row 0 has y=1, z=2; if move fired the assertions below would fail.
+    assert round(mmc.getXPosition()) == 0
+    assert round(mmc.getYPosition()) == 0
+    assert round(mmc.getZPosition()) == 0
+    pos_table._skip_move_to_selection = False
+
+    pos_table._skip_move_to_selection = False
+
+
 def _assert_position_wdg_state(
     stage: str, pos_table: CoreConnectedPositionTable, is_hidden: bool
 ) -> None:
