@@ -3,6 +3,7 @@ from __future__ import annotations
 import itertools
 import warnings
 from collections import Counter
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any, cast
 
 from pymmcore_plus import CMMCorePlus, DeviceProperty
@@ -25,6 +26,7 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from superqt import QIconifyIcon
 from superqt.utils import signals_blocked
 
 from pymmcore_widgets.device_properties._device_property_table import (
@@ -67,6 +69,14 @@ class PixelConfigurationWidget(QWidget):
         [`CMMCorePlus.instance`][pymmcore_plus.core._mmcore_plus.CMMCorePlus.instance].
     """
 
+    cleanChanged = Signal(bool)
+    """Emitted with the new clean state whenever it changes.
+
+    Mirrors `QUndoStack.cleanChanged`, which
+    [`ConfigGroupsEditor`][pymmcore_widgets.ConfigGroupsEditor] uses for the
+    same purpose, so both editors expose one dirty-tracking interface.
+    """
+
     def __init__(
         self,
         parent: QWidget | None = None,
@@ -80,6 +90,13 @@ class PixelConfigurationWidget(QWidget):
         self._mmc = mmcore or CMMCorePlus.instance()
 
         self._resID_map: dict[int, PixelSizePreset] = {}
+        # Baseline the current state is compared against to decide dirtiness.
+        # There is no QUndoStack here (unlike ConfigGroupsEditor), so this
+        # snapshot plays that role -- and because it's a value comparison
+        # rather than a one-way "edited" flag, reverting an edit by hand
+        # correctly returns the widget to clean.
+        self._clean_state: list[PixelSizePreset] = []
+        self._was_clean = True
 
         # pixel and affine tables widget
         left = QWidget()
@@ -103,15 +120,23 @@ class PixelConfigurationWidget(QWidget):
         splitter.addWidget(self._props_selector)
 
         # buttons
-        apply_btn = QPushButton("Apply and Close")
+        self._apply_btn = apply_btn = QPushButton("Apply and Close")
         apply_btn.setSizePolicy(FIXED)
         cancel_btn = QPushButton("Cancel")
         cancel_btn.setSizePolicy(FIXED)
+        # Same names/placement as ConfigGroupsEditor's indicator, so an
+        # embedding application can treat the two editors identically.
+        self._dirty_icon = QIconifyIcon("mdi:alert-circle-outline", color="orange")
+        self._clean_icon = QIconifyIcon("mdi:check-circle-outline", color="green")
+        self._status_icon = QLabel(self)
+        self._status_label = QLabel(self)
         btns_layout = QHBoxLayout()
         btns_layout.setContentsMargins(0, 0, 0, 0)
         btns_layout.addSpacerItem(
             QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         )
+        btns_layout.addWidget(self._status_icon)
+        btns_layout.addWidget(self._status_label)
         btns_layout.addWidget(cancel_btn)
         btns_layout.addWidget(apply_btn)
 
@@ -132,6 +157,16 @@ class PixelConfigurationWidget(QWidget):
         self._affine_table.valueChanged.connect(self._on_affine_value_changed)
         apply_btn.clicked.connect(self._on_apply)
         cancel_btn.clicked.connect(self.close)
+
+        # Re-evaluate dirtiness after every edit path. Connected last so each
+        # runs after the slot above it has updated `_resID_map` (Qt invokes
+        # direct connections in connection order). Selecting a different row
+        # also re-emits some of these, but that doesn't change `value()`, so
+        # comparing against the baseline correctly leaves the state clean.
+        self._px_table._table.itemChanged.connect(self._update_clean_state)
+        self._px_table.valueChanged.connect(self._update_clean_state)
+        self._props_selector.valueChanged.connect(self._update_clean_state)
+        self._affine_table.valueChanged.connect(self._update_clean_state)
 
         self.destroyed.connect(self._disconnect)
 
@@ -197,8 +232,36 @@ class PixelConfigurationWidget(QWidget):
             self._px_table.table().setRowData(row, data)
 
         self._px_table._table.selectRow(0)
+        self.setClean()
+
+    def isClean(self) -> bool:
+        """Return True if the widget has no unapplied changes."""
+        return self.value() == self._clean_state
+
+    def setClean(self) -> None:
+        """Mark the current state as the clean (saved) baseline."""
+        # deep copy: `_resID_map` holds the same mutable PixelSizePreset
+        # objects that later edits mutate in place, so a shallow copy would
+        # track those edits and the widget could never look dirty.
+        self._clean_state = deepcopy(self.value())
+        self._update_clean_state()
 
     # -------------- Private API --------------
+
+    @Slot()
+    def _update_clean_state(self, *_: Any) -> None:
+        """Refresh the status indicator and emit `cleanChanged` on a flip."""
+        clean = self.isClean()
+        if clean:
+            self._status_icon.setPixmap(self._clean_icon.pixmap(16, 16))
+            self._status_label.setText("No changes")
+        else:
+            self._status_icon.setPixmap(self._dirty_icon.pixmap(16, 16))
+            self._status_label.setText("Unsaved changes")
+        self._apply_btn.setEnabled(not clean)
+        if clean != self._was_clean:
+            self._was_clean = clean
+            self.cleanChanged.emit(clean)
 
     @Slot()
     def _on_sys_config_loaded(self) -> None:
@@ -209,6 +272,7 @@ class PixelConfigurationWidget(QWidget):
         if not px_groups.presets:
             self._props_selector._prop_table.uncheckAll()
             self._props_selector.setEnabled(False)
+            self.setClean()
             return
 
         for row, px_preset in enumerate(px_groups.presets.values()):
@@ -228,6 +292,9 @@ class PixelConfigurationWidget(QWidget):
                 self._props_selector.setValue(px_preset.settings)
                 # select first row of px_table corresponding to the first resolutionID
                 self._px_table._table.selectRow(row)
+
+        # freshly loaded from the core: this is the new clean baseline
+        self.setClean()
 
     @Slot(object)
     def _on_viewer_value_changed(self, value: list[Setting]) -> None:
@@ -288,6 +355,9 @@ class PixelConfigurationWidget(QWidget):
         row = table.indexAt(spin.pos()).row()
         self._resID_map[row].pixel_size_um = spin.value()
         self._update_affine_transformations(spin.value())
+        # these spin boxes are connected per row as rows are created, so they
+        # aren't covered by the shared signal hookups in __init__
+        self._update_clean_state()
 
     def _update_affine_transformations(self, px_value: float) -> None:
         """Update the affine transformations."""
@@ -358,6 +428,7 @@ class PixelConfigurationWidget(QWidget):
 
         # select the added row
         self._px_table._table.selectRow(end)
+        self._update_clean_state()
 
     def _update_other_resolutionIDs(
         self,
@@ -418,6 +489,8 @@ class PixelConfigurationWidget(QWidget):
         # px_groups = PixelSizeGroup(presets=self.value())
         px_groups = PixelSizeGroup(presets=self._value_to_dict(self.value()))
         px_groups.apply_to_core(self._mmc)
+        # what's in the widget is now what's in the core
+        self.setClean()
         self.close()
 
     def _check_for_errors(self) -> bool:

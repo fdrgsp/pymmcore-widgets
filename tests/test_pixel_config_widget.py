@@ -283,3 +283,92 @@ def p_delete_resID(qtbot: QtBot, global_mmcore: CMMCorePlus):
             "Res40x", [Setting("Objective", "Label", "Nikon 40X Plan Fluor ELWD")], 0.25
         ),
     ]
+
+
+def test_pixel_config_clean_state(qtbot: QtBot, global_mmcore: CMMCorePlus):
+    """Dirty tracking mirrors ConfigGroupsEditor's isClean/setClean/cleanChanged."""
+    wdg = PixelConfigurationWidget()
+    qtbot.addWidget(wdg)
+
+    flips: list[bool] = []
+    wdg.cleanChanged.connect(flips.append)
+
+    # freshly loaded from the core -> clean, and Apply has nothing to do
+    assert wdg.isClean()
+    assert not wdg._apply_btn.isEnabled()
+    assert wdg._status_label.text() == "No changes"
+
+    # merely selecting rows re-emits internal valueChanged signals, but does
+    # not change value(), so the widget must stay clean
+    wdg._px_table._table.selectRow(1)
+    wdg._px_table._table.selectRow(0)
+    assert wdg.isClean()
+    assert flips == []
+
+    # a real edit dirties it
+    spin = wdg._px_table._table.cellWidget(0, 1)
+    original = spin.value()
+    spin.setValue(original + 5)
+    assert not wdg.isClean()
+    assert wdg._apply_btn.isEnabled()
+    assert wdg._status_label.text() == "Unsaved changes"
+    assert flips == [False]
+
+    # reverting the edit by hand returns to clean, exactly as undoing would
+    spin.setValue(original)
+    assert wdg.isClean()
+    assert flips == [False, True]
+
+    # setClean() re-baselines whatever is currently in the widget
+    spin.setValue(original + 9)
+    assert not wdg.isClean()
+    wdg.setClean()
+    assert wdg.isClean()
+    assert wdg.value()[0].pixel_size_um == original + 9
+
+
+@pytest.mark.parametrize(
+    "edit", ["name", "affine", "add_row", "remove_row", "property"]
+)
+def test_pixel_config_edits_mark_dirty(
+    qtbot: QtBot, global_mmcore: CMMCorePlus, edit: str
+):
+    """Every user-reachable edit path flips the widget to dirty."""
+    wdg = PixelConfigurationWidget()
+    qtbot.addWidget(wdg)
+    assert wdg.isClean()
+
+    if edit == "name":
+        wdg._px_table.table().item(0, 0).setText("Renamed")
+    elif edit == "affine":
+        wdg._affine_table.cellWidget(0, 1).setValue(3.5)
+    elif edit == "add_row":
+        wdg._px_table._add_row()
+    elif edit == "remove_row":
+        wdg._px_table._table.selectRow(0)
+        wdg._px_table._remove_selected()
+    elif edit == "property":
+        table = wdg._props_selector._prop_table
+        for row in range(table.rowCount()):
+            item = table.item(row, 0)
+            if item is not None and item.checkState() == Qt.CheckState.Unchecked:
+                item.setCheckState(Qt.CheckState.Checked)
+                break
+
+    assert not wdg.isClean()
+
+
+def test_pixel_config_apply_marks_clean(qtbot: QtBot, global_mmcore: CMMCorePlus):
+    """Applying to the core makes the current state the new baseline."""
+    wdg = PixelConfigurationWidget()
+    qtbot.addWidget(wdg)
+
+    spin = wdg._px_table._table.cellWidget(0, 1)
+    spin.setValue(spin.value() + 3)
+    assert not wdg.isClean()
+
+    with patch.object(PixelConfigurationWidget, "close", lambda self: None):
+        wdg._on_apply()
+
+    assert wdg.isClean()
+    assert not wdg._apply_btn.isEnabled()

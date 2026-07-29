@@ -138,8 +138,10 @@ class CoreConnectedChannelTable(ChannelTable):
         super().__init__(rows, parent)
         self._mmc = mmcore or CMMCorePlus.instance()
 
-        # {combo label -> (device, property)} for the selectable properties
-        self._light_sources: dict[str, tuple[str, str]] = {}
+        # {combo label -> [(device, property), ...]} for the selectable properties.
+        # Single-property sources have a one-element list; single-preset config-group
+        # sources list every (device, property) in the preset (intensity is broadcast).
+        self._light_sources: dict[str, list[tuple[str, str]]] = {}
         self._light_source_column: ComboColumn = self.LIGHT_SOURCE
         # guards _sync_intensity_widgets against re-entrancy
         self._syncing_intensity = False
@@ -289,20 +291,24 @@ class CoreConnectedChannelTable(ChannelTable):
             group = rec.get(LIGHT_SOURCE_KEY) or NO_LIGHT_SOURCE
             if group not in self._light_sources:
                 continue
-            device, prop = self._light_sources[group]
+            dev_props = self._light_sources[group]
             value = float(rec.get(INTENSITY_KEY) or 0.0)
-            if self._mmc.getPropertyType(device, prop) is PropertyType.Integer:
-                value = int(value)
-            props.append(
-                ChannelProperty(
-                    channel_index=idx,
-                    config=str(rec.get("config", "")),
-                    group=group,
-                    device=device,
-                    property=prop,
-                    value=value,
+            for device, prop in dev_props:
+                cast_value: float | int = (
+                    int(value)
+                    if self._mmc.getPropertyType(device, prop) is PropertyType.Integer
+                    else value
                 )
-            )
+                props.append(
+                    ChannelProperty(
+                        channel_index=idx,
+                        config=str(rec.get("config", "")),
+                        group=group,
+                        device=device,
+                        property=prop,
+                        value=cast_value,
+                    )
+                )
         return props
 
     def setChannelProperties(self, value: Iterable[ChannelProperty]) -> None:
@@ -318,29 +324,44 @@ class CoreConnectedChannelTable(ChannelTable):
         if ls_col < 0 or int_col < 0:  # pragma: no cover
             return
 
-        labels = {dev_prop: label for label, dev_prop in self._light_sources.items()}
+        labels = {
+            dev_prop: label
+            for label, dev_props in self._light_sources.items()
+            for dev_prop in dev_props
+        }
 
         with signals_blocked(self):
             for entry in value:
                 row = entry["channel_index"]
                 if not (0 <= row < table.rowCount()):  # pragma: no cover
                     continue
-                # `group` is display state; (device, property) is what actually gets
-                # applied, so resolve on that first. A sequence saved when `group`
-                # held a config group name then still restores its property instead
-                # of being silently dropped.
-                label = labels.get((entry["device"], entry["property"]))
-                if label is None:
-                    if entry["group"] not in self._light_sources:
+                # Prefer the saved label while it still names a real source: a
+                # (device, property) pair can belong to BOTH a per-property
+                # source and a single-preset group source, so resolving via the
+                # reverse map first would silently rewrite one selection into
+                # the other. Fall back to (device, property) only for labels
+                # that no longer exist -- e.g. a sequence saved when `group`
+                # held a config group name that is no longer a light source --
+                # so those restore their property instead of being dropped.
+                label = entry["group"]
+                if label not in self._light_sources:
+                    dev_prop = (entry["device"], entry["property"])
+                    if (found := labels.get(dev_prop)) is None:
                         continue
-                    label = entry["group"]
+                    label = found
                 self._light_source_column.set_cell_data(table, row, ls_col, label)
                 # range must be set before the value, or it would be clamped away
                 self._configure_intensity_widget(row, int_col, label)
                 self.INTENSITY.set_cell_data(table, row, int_col, entry["value"])
 
-    def lightSources(self) -> Mapping[str, tuple[str, str]]:
-        """Return {combo label: (device, property)} for the available light sources."""
+    def lightSources(self) -> Mapping[str, list[tuple[str, str]]]:
+        """Return available light sources as ``{label: [(device, property), ...]}``.
+
+        Single-property sources (keyed ``"<device> · <property>"``) have a
+        one-element list. Single-preset config-group sources are keyed by the
+        group name and list every ``(device, property)`` pair in the preset --
+        setting the intensity broadcasts the same value to all of them.
+        """
         return dict(self._light_sources)
 
     # ------------------- Private API -------------------
@@ -386,8 +407,18 @@ class CoreConnectedChannelTable(ChannelTable):
         if ch_group and ch_group in self.channelGroups():
             self._group_combo.setCurrentText(ch_group)
 
-    def _find_light_sources(self) -> dict[str, tuple[str, str]]:
-        """Return every writable numeric device property that has limits.
+    def _find_light_sources(self) -> dict[str, list[tuple[str, str]]]:
+        """Return writable numeric range properties and eligible config groups.
+
+        **Individual properties** — any writable, non-pre-init numeric (Integer
+        or Float) property that has limits.  Keyed as ``"<device> · <property>"``.
+
+        **Single-preset group sources** — a config group that has exactly one
+        preset where *every* property in that preset is a writable, non-pre-init
+        numeric property with limits.  Keyed by the group name.  Setting the
+        intensity for such a group broadcasts the same value to all properties
+        in the preset, so a multi-slider light source (e.g. Lumencor LIDA) can
+        be driven by a single spin box.
 
         Micro-Manager gives no way to know ahead of time which property drives a
         light source -- the name varies by adapter (`Intensity`, `White_Level`,
@@ -395,6 +426,7 @@ class CoreConnectedChannelTable(ChannelTable):
         and the user picks the right one. Pre-init properties are excluded: they
         cannot be changed once the device is initialized.
         """
+        # --- per-property sources ---
         properties = self._mmc.iterProperties(
             property_type=(PropertyType.Integer, PropertyType.Float),
             has_limits=True,
@@ -409,7 +441,37 @@ class CoreConnectedChannelTable(ChannelTable):
             ),
             key=lambda pair: (pair[0].casefold(), pair[1].casefold()),
         )
-        return {f"{dev}{PROPERTY_SEPARATOR}{prop}": (dev, prop) for dev, prop in pairs}
+        sources: dict[str, list[tuple[str, str]]] = {
+            f"{dev}{PROPERTY_SEPARATOR}{prop}": [(dev, prop)] for dev, prop in pairs
+        }
+
+        # --- single-preset config-group sources ---
+        for group in self._mmc.getAvailableConfigGroups():
+            presets = self._mmc.getAvailableConfigs(group)
+            if len(presets) != 1:
+                continue
+            (preset,) = presets
+            dev_props: list[tuple[str, str]] = []
+            valid = True
+            try:
+                for device, prop, _value in self._mmc.getConfigData(group, preset):
+                    ptype = self._mmc.getPropertyType(device, prop)
+                    if (
+                        ptype not in (PropertyType.Integer, PropertyType.Float)
+                        or not self._mmc.hasPropertyLimits(device, prop)
+                        or self._mmc.isPropertyReadOnly(device, prop)
+                        or self._mmc.isPropertyPreInit(device, prop)
+                    ):
+                        valid = False
+                        break
+                    dev_props.append((str(device), str(prop)))
+            except RuntimeError:
+                # A device referenced by the group has been unloaded; skip.
+                valid = False
+            if valid and dev_props and group not in sources:
+                sources[group] = dev_props
+
+        return dict(sorted(sources.items(), key=lambda kv: kv[0].casefold()))
 
     def _apply_light_source_visibility(self) -> None:
         table = self.table()
@@ -450,20 +512,26 @@ class CoreConnectedChannelTable(ChannelTable):
         self.valueChanged.emit()
 
     def _configure_intensity_widget(self, row: int, col: int, group: str) -> None:
-        """Range the intensity spin box at `row` for `group`'s property."""
+        """Range the spin box at `row` for `group`'s property or properties."""
         wdg = cast("IntensitySpinBox | None", self.table().cellWidget(row, col))
         if wdg is None:  # pragma: no cover
             return
-        if (dev_prop := self._light_sources.get(group)) is None:
+        if (dev_props := self._light_sources.get(group)) is None:
             wdg.setPropertyLimits(NO_LIGHT_SOURCE, None, False)
             return
-        device, prop = dev_prop
-        limits = (
-            self._mmc.getPropertyLowerLimit(device, prop),
-            self._mmc.getPropertyUpperLimit(device, prop),
+        # For a multi-property group, use the intersection of all limits so the
+        # single spin-box value is always valid for every underlying property.
+        lower = max(
+            self._mmc.getPropertyLowerLimit(dev, prop) for dev, prop in dev_props
         )
-        is_int = self._mmc.getPropertyType(device, prop) is PropertyType.Integer
-        wdg.setPropertyLimits(group, limits, is_int)
+        upper = min(
+            self._mmc.getPropertyUpperLimit(dev, prop) for dev, prop in dev_props
+        )
+        is_int = all(
+            self._mmc.getPropertyType(dev, prop) is PropertyType.Integer
+            for dev, prop in dev_props
+        )
+        wdg.setPropertyLimits(group, (lower, upper), is_int)
 
     @Slot()
     def _sync_intensity_widgets(self, force: bool = False) -> None:

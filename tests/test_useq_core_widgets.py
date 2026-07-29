@@ -1258,8 +1258,8 @@ def test_light_source_columns_visible_by_default(
     qtbot.addWidget(tbl)
 
     # every writable numeric property with limits is offered, keyed "device · prop"
-    assert tbl.lightSources()[LS_FLOAT] == ("Camera", "TestProperty2")
-    assert tbl.lightSources()[LS_INT] == ("Camera", "Gain")
+    assert tbl.lightSources()[LS_FLOAT] == [("Camera", "TestProperty2")]
+    assert tbl.lightSources()[LS_INT] == [("Camera", "Gain")]
 
     table = tbl.table()
     ls_col = table.indexOf(tbl._light_source_column)
@@ -1621,3 +1621,99 @@ def test_channel_properties_restore_ignores_stale_group(
             "value": 42.0,
         }
     ]
+
+
+def test_channel_properties_restore_keeps_ambiguous_label(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    """A (device, property) shared by two sources must restore under its own label.
+
+    ``Camera/Gain`` is offered both as a per-property source and, here, as the
+    sole property of a single-preset group. Resolving purely by
+    (device, property) would rewrite one selection into the other.
+    """
+    global_mmcore.defineConfig("ZZIllum", "only", "Camera", "Gain", "1")
+
+    wdg = MDAWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.setValue(useq.MDASequence(channels=[{"config": "DAPI", "exposure": 50}]))
+    assert {LS_INT, "ZZIllum"} <= set(wdg.channels.lightSources())
+
+    def restore(group: str) -> str:
+        wdg.channels.setChannelProperties(
+            [
+                {
+                    "channel_index": 0,
+                    "config": "DAPI",
+                    "group": group,
+                    "device": "Camera",
+                    "property": "Gain",
+                    "value": 2,
+                }
+            ]
+        )
+        return wdg.channels.channelProperties()[0]["group"]
+
+    assert restore(LS_INT) == LS_INT
+    assert restore("ZZIllum") == "ZZIllum"
+    # only a label that no longer exists falls back to (device, property)
+    assert restore("SomeRetiredGroup") in {LS_INT, "ZZIllum"}
+
+
+def test_group_light_source_single_preset_all_ranged(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    """A config group with one preset whose every prop is a ranged numeric appears
+    as a single light-source entry; intensity is broadcast to all its properties."""
+    # Build a group with two ranged numeric props and exactly one preset.
+    global_mmcore.defineConfig("FakeLIDA", "On", "Camera", "TestProperty2", "0")
+    global_mmcore.defineConfig("FakeLIDA", "On", "Camera", "Gain", "0")
+    tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+
+    # The group must appear in the light sources with both (dev, prop) pairs.
+    assert "FakeLIDA" in tbl.lightSources()
+    assert set(tbl.lightSources()["FakeLIDA"]) == {
+        ("Camera", "TestProperty2"),
+        ("Camera", "Gain"),
+    }
+
+    # Spin-box range is the intersection of both properties' limits:
+    # TestProperty2: -200..200 (Float), Gain: -5..8 (Integer)
+    # intersection: max(-200, -5)=-5 .. min(200, 8)=8
+    tbl.setValue([useq.Channel(config="DAPI")])
+    table = tbl.table()
+    ls_col = table.indexOf(tbl._light_source_column)
+    int_col = table.indexOf(tbl.INTENSITY)
+    table.cellWidget(0, ls_col).setCurrentText("FakeLIDA")
+    spin = table.cellWidget(0, int_col)
+    assert spin.minimum() == -5
+    assert spin.maximum() == 8
+    # Mixed Integer + Float -> decimals are shown (Float wins)
+    assert spin.decimals() == 2
+
+    # channelProperties emits one entry per underlying (device, property).
+    spin.setValue(5)
+    props = tbl.channelProperties()
+    assert len(props) == 2
+    assert all(p["channel_index"] == 0 for p in props)
+    assert all(p["group"] == "FakeLIDA" for p in props)
+    assert {(p["device"], p["property"]) for p in props} == {
+        ("Camera", "TestProperty2"),
+        ("Camera", "Gain"),
+    }
+    # TestProperty2 is Float -> stays float; Gain is Integer -> cast to int
+    values_by_prop = {p["property"]: p["value"] for p in props}
+    assert values_by_prop["TestProperty2"] == 5.0
+    assert values_by_prop["Gain"] == 5
+    assert isinstance(values_by_prop["Gain"], int)
+
+    # A group with mixed (ranged + non-ranged) props must NOT appear.
+    global_mmcore.defineConfig("MixedGroup", "On", "Camera", "TestProperty2", "0")
+    global_mmcore.defineConfig("MixedGroup", "On", "Camera", "PixelType", "8bit")
+    tbl.refresh()
+    assert "MixedGroup" not in tbl.lightSources()
+
+    # Clean up.
+    global_mmcore.deleteConfigGroup("FakeLIDA")
+    global_mmcore.deleteConfigGroup("MixedGroup")

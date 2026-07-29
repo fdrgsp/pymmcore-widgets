@@ -76,21 +76,22 @@ class ChannelPropertiesSequence(useq.MDASequence):
     """
 
     def iter_events(self) -> Iterator[useq.MDAEvent]:
-        props: dict[int, useq.PropertyTuple] = {
-            entry["channel_index"]: useq.PropertyTuple(
-                entry["device"], entry["property"], entry["value"]
+        from collections import defaultdict
+
+        props: dict[int, list[useq.PropertyTuple]] = defaultdict(list)
+        for entry in channel_properties(self):
+            props[entry["channel_index"]].append(
+                useq.PropertyTuple(entry["device"], entry["property"], entry["value"])
             )
-            for entry in channel_properties(self)
-        }
         if not props:
             yield from super().iter_events()
             return
 
         for event in super().iter_events():
             c_idx = event.index.get(Axis.CHANNEL)
-            if c_idx is not None and (prop := props.get(c_idx)) is not None:
+            if c_idx is not None and (prop_list := props.get(c_idx)):
                 event = event.model_copy(
-                    update={"properties": [*(event.properties or ()), prop]}
+                    update={"properties": [*(event.properties or ()), *prop_list]}
                 )
             yield event
 
