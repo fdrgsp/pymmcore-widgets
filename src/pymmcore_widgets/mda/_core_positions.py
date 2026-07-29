@@ -6,8 +6,10 @@ from typing import TYPE_CHECKING
 from pymmcore_plus import CMMCorePlus
 from pymmcore_plus._logger import logger
 from pymmcore_plus._util import retry
-from qtpy.QtCore import QEvent, QObject, Qt, QTimer, Slot
+from qtpy.QtCore import QEvent, QObject, Qt, Slot
+from qtpy.QtGui import QCursor
 from qtpy.QtWidgets import (
+    QApplication,
     QCheckBox,
     QMessageBox,
     QPushButton,
@@ -103,16 +105,6 @@ class CoreConnectedPositionTable(PositionTable):
         table.addColumn(self._z_btn_col, table.indexOf(self.Z) + 1)
         table.addColumn(self._af_btn_col, table.indexOf(self.AF) + 1)
 
-        # Install our event filter on button-column widgets for all existing rows.
-        # For rows added later, rowsInserted fires _install_btn_col_event_filters
-        # *after* DataTable._on_rows_inserted (connected earlier in DataTable.__init__)
-        # has already created the cell widgets, so our filter is always installed last
-        # — which means it runs *first* (Qt uses a LIFO filter stack).
-        n = table.rowCount()
-        if n > 0:
-            self._install_btn_col_event_filters(None, 0, n - 1)
-        table.model().rowsInserted.connect(self._install_btn_col_event_filters)
-
         # add move_to_selection to toolbar and link up callback
         toolbar = self.toolBar()
         action0 = next(x for x in toolbar.children() if isinstance(x, QWidgetAction))
@@ -157,50 +149,7 @@ class CoreConnectedPositionTable(PositionTable):
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         if obj is self.af_per_position and event.type() == QEvent.Type.EnabledChange:
             self._on_af_per_position_enabled_change()
-        # When a 'set from core' button is mouse-pressed, prevent the resulting
-        # selection change from triggering a stage move.  Our filter runs before
-        # Qt's table event filter (installed by setCellWidget, which prepends to
-        # the chain), because we install ours afterward — and Qt's LIFO ordering
-        # means the last-installed filter runs first.
-        if event.type() == QEvent.Type.MouseButtonPress and self._is_btn_col_widget(
-            obj
-        ):
-            self._skip_move_to_selection = True
-            QTimer.singleShot(0, self._reset_skip_move)
         return super().eventFilter(obj, event)  # type: ignore [no-any-return]
-
-    def _is_btn_col_widget(self, obj: QObject) -> bool:
-        """Return True if *obj* is one of the button-column cell widgets."""
-        table = self.table()
-        for btn_col in (self._xy_btn_col, self._z_btn_col, self._af_btn_col):
-            col = table.indexOf(btn_col)
-            for row in range(table.rowCount()):
-                if obj is table.cellWidget(row, col):
-                    return True
-        return False
-
-    def _install_btn_col_event_filters(
-        self, _parent: object = None, first: int = 0, last: int = -1
-    ) -> None:
-        """Install our event filter on button-column cell widgets in a row range.
-
-        Called once at end of ``__init__`` for existing rows, and for every
-        subsequent ``rowsInserted`` batch.  Because this slot is connected
-        *after* ``DataTable._on_rows_inserted`` (which creates the cell widgets),
-        the widgets already exist when we run.  Installing our filter after
-        ``setCellWidget`` (which installs the table's own filter) ensures we run
-        first and can set ``_skip_move_to_selection`` before the selection changes.
-        """
-        table = self.table()
-        end = last if last >= 0 else table.rowCount() - 1
-        for btn_col in (self._xy_btn_col, self._z_btn_col, self._af_btn_col):
-            col = table.indexOf(btn_col)
-            for row in range(first, end + 1):
-                if wdg := table.cellWidget(row, col):
-                    wdg.installEventFilter(self)
-
-    def _reset_skip_move(self) -> None:
-        self._skip_move_to_selection = False
 
     def _on_af_per_position_enabled_change(self) -> None:
         """Hide or show the AF column based on the enabled state of af_per_position.
@@ -443,6 +392,22 @@ class CoreConnectedPositionTable(PositionTable):
             return
         if self._skip_move_to_selection:
             return
+        # Do not trigger a stage move when the selection change was caused by
+        # clicking one of the 'set from core' button columns.  When a mouse
+        # button is physically held, the cursor is still over the cell that was
+        # pressed.  If that cell belongs to a button column, the click should
+        # only update the table — not move the stage.
+        if QApplication.mouseButtons():
+            vp = self.table().viewport()
+            idx = self.table().indexAt(vp.mapFromGlobal(QCursor.pos()))
+            if idx.isValid():
+                btn_col_indices = {
+                    self.table().indexOf(self._xy_btn_col),
+                    self.table().indexOf(self._z_btn_col),
+                    self.table().indexOf(self._af_btn_col),
+                }
+                if idx.column() in btn_col_indices:
+                    return
 
         if not self._mmc.getXYStageDevice() and not self._mmc.getFocusDevice():
             return

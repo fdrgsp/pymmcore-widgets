@@ -122,23 +122,21 @@ def test_core_connected_position_wdg(qtbot: QtBot, qapp) -> None:
     pos_table._on_selection_change()
 
 
-def test_set_from_core_btn_click_sets_skip_flag(
+def test_no_stage_move_on_btn_col_click(
     qtbot: QtBot, global_mmcore: CMMCorePlus
 ) -> None:
-    """A real mouse-press on a 'set from core' button flags the skip.
+    """A real mouse-press on a 'set from core' button must not move the stage.
 
     When move_to_selection is checked, changing the table selection moves the
-    stage. Clicking _xy_btn_col / _z_btn_col / _af_btn_col can also change the
+    stage.  Clicking _xy_btn_col / _z_btn_col / _af_btn_col also changes the
     selection, but their purpose is to copy the current core position into the
-    table row -- not to move the stage. The fix installs an event filter on
-    each button widget that sets _skip_move_to_selection=True on
-    MouseButtonPress (installed after setCellWidget, so it runs first in Qt's
-    LIFO filter stack), reset on the next event-loop tick.
+    table row — not to move the stage.
 
-    This drives the actual button widget with a real QMouseEvent (via
-    qtbot.mousePress) rather than poking the private flag directly, so it
-    fails if the filter is ever installed on the wrong widget, at the wrong
-    time, or removed entirely.
+    The fix is in _on_selection_change: when QApplication.mouseButtons() is
+    non-zero and QCursor.pos() maps to a button-column cell in the viewport,
+    the handler returns early without moving the stage.  This test drives the
+    button widget with a real QMouseEvent via qtbot.mousePress so that both
+    QApplication.mouseButtons() and QCursor.pos() reflect the actual click.
     """
     mmc = global_mmcore
     wdg = MDAWidget(mmcore=mmc)
@@ -148,20 +146,28 @@ def test_set_from_core_btn_click_sets_skip_flag(
     pos_table = wdg.stage_positions
     assert isinstance(pos_table, CoreConnectedPositionTable)
 
-    wdg.setValue(MDA)  # at least one row
+    wdg.setValue(MDA)  # row 0 has y=1 — clearly different from stage start y=0
+    pos_table.move_to_selection.setChecked(True)
+
+    mmc.setXYPosition(0, 0)
+    mmc.setZPosition(0)
+    mmc.waitForSystem()
+
     table = pos_table.table()
     xy_idx = table.indexOf(pos_table._xy_btn_col)
     btn = table.cellWidget(0, xy_idx)
     assert btn is not None
 
-    assert pos_table._skip_move_to_selection is False
+    # A real mouse press: cursor moves to the button center, mouseButtons()
+    # becomes non-zero, which is what _on_selection_change reads.
     qtbot.mousePress(btn, Qt.MouseButton.LeftButton)
-    # Flag must be set synchronously, before the button's own click handling
-    # (and any selection change it triggers) runs.
-    assert pos_table._skip_move_to_selection is True
+    mmc.waitForSystem()
+
+    # If the stage had moved it would be at row 0's y=1, not y=0.
+    assert round(mmc.getXPosition()) == 0
+    assert round(mmc.getYPosition()) == 0
 
     qtbot.mouseRelease(btn, Qt.MouseButton.LeftButton)
-    qtbot.waitUntil(lambda: not pos_table._skip_move_to_selection)
 
 
 def test_on_selection_change_skips_move_while_flag_set(
