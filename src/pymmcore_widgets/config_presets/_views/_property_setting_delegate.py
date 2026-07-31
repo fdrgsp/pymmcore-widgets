@@ -23,6 +23,7 @@ from qtpy.QtWidgets import (
     QStyledItemDelegate,
     QStyleOptionButton,
     QStyleOptionComboBox,
+    QStyleOptionSlider,
     QStyleOptionSpinBox,
     QStyleOptionViewItem,
     QWidget,
@@ -39,12 +40,17 @@ class ControlType(Enum):
     READ_ONLY = auto()
     CHECKBOX = auto()
     COMBOBOX = auto()
+    SLIDER = auto()
     SPINBOX = auto()
     LINE_EDIT = auto()
 
 
 def _control_type(setting: DevicePropertySetting) -> ControlType:
-    """Classify a setting into the control type it should be painted as."""
+    """Classify a setting into the control type it should be painted as.
+
+    Must mirror `create_property_editor` so the painted (idle) cell matches
+    the widget that appears once editing starts.
+    """
     if setting.is_read_only:
         return ControlType.READ_ONLY
     ptype = setting.property_type
@@ -54,7 +60,7 @@ def _control_type(setting: DevicePropertySetting) -> ControlType:
     if allowed:
         return ControlType.COMBOBOX
     if ptype in (PropertyType.Integer, PropertyType.Float):
-        return ControlType.SPINBOX
+        return ControlType.SLIDER if setting.limits else ControlType.SPINBOX
     return ControlType.LINE_EDIT
 
 
@@ -88,6 +94,8 @@ class PropertySettingDelegate(QStyledItemDelegate):
             self._paint_checkbox(painter, opt, value, style)
         elif ctrl is ControlType.COMBOBOX:
             self._paint_combobox(painter, opt, value, style)
+        elif ctrl is ControlType.SLIDER:
+            self._paint_slider(painter, opt, setting, style)
         elif ctrl is ControlType.SPINBOX:
             self._paint_spinbox(painter, opt, value, style)
         else:
@@ -164,6 +172,60 @@ class PropertySettingDelegate(QStyledItemDelegate):
             option.widget,
         )
         self._draw_text(painter, text_rect, value, option)
+
+    def _paint_slider(
+        self,
+        painter: QPainter,
+        option: QStyleOptionViewItem,
+        setting: DevicePropertySetting,
+        style: QStyle,
+    ) -> None:
+        try:
+            val = float(setting.value)
+        except (ValueError, TypeError):
+            val = 0.0
+        lower, upper = setting.limits or (0.0, 1.0)
+
+        fm = option.widget.fontMetrics() if option.widget else painter.fontMetrics()
+        text_width = fm.horizontalAdvance("888888.888")
+        spacing = 6
+        margin = 4
+        text_rect = QRect(
+            option.rect.right() - text_width - margin,
+            option.rect.y(),
+            text_width,
+            option.rect.height(),
+        )
+        slider_rect = QRect(
+            option.rect.x() + margin,
+            option.rect.y(),
+            option.rect.width() - text_width - spacing - 2 * margin,
+            option.rect.height(),
+        )
+
+        so = QStyleOptionSlider()
+        so.rect = slider_rect
+        so.state = option.state | QStyle.StateFlag.State_Enabled
+        so.orientation = Qt.Orientation.Horizontal
+        so.minimum = 0
+        so.maximum = 1000
+        rng = upper - lower
+        frac = (val - lower) / rng if rng else 0.0
+        pos = int(max(0.0, min(1.0, frac)) * so.maximum)
+        so.sliderPosition = pos
+        so.sliderValue = pos
+        so.subControls = (
+            QStyle.SubControl.SC_SliderGroove | QStyle.SubControl.SC_SliderHandle
+        )
+        style.drawComplexControl(
+            QStyle.ComplexControl.CC_Slider, so, painter, option.widget
+        )
+
+        if setting.property_type is PropertyType.Float:
+            disp = f"{val:.4f}".rstrip("0").rstrip(".")
+        else:
+            disp = str(int(val))
+        self._draw_text(painter, text_rect, disp, option)
 
     @staticmethod
     def _draw_text(

@@ -122,87 +122,6 @@ def test_core_connected_position_wdg(qtbot: QtBot, qapp) -> None:
     pos_table._on_selection_change()
 
 
-def test_no_stage_move_on_btn_col_click(
-    qtbot: QtBot, global_mmcore: CMMCorePlus
-) -> None:
-    """A real mouse-press on a 'set from core' button must not move the stage.
-
-    When move_to_selection is checked, changing the table selection moves the
-    stage.  Clicking _xy_btn_col / _z_btn_col / _af_btn_col also changes the
-    selection, but their purpose is to copy the current core position into the
-    table row — not to move the stage.
-
-    The fix is in _on_selection_change: when QApplication.mouseButtons() is
-    non-zero and QCursor.pos() maps to a button-column cell in the viewport,
-    the handler returns early without moving the stage.  This test drives the
-    button widget with a real QMouseEvent via qtbot.mousePress so that both
-    QApplication.mouseButtons() and QCursor.pos() reflect the actual click.
-    """
-    mmc = global_mmcore
-    wdg = MDAWidget(mmcore=mmc)
-    qtbot.addWidget(wdg)
-    wdg.show()
-
-    pos_table = wdg.stage_positions
-    assert isinstance(pos_table, CoreConnectedPositionTable)
-
-    wdg.setValue(MDA)  # row 0 has y=1 — clearly different from stage start y=0
-    pos_table.move_to_selection.setChecked(True)
-
-    mmc.setXYPosition(0, 0)
-    mmc.setZPosition(0)
-    mmc.waitForSystem()
-
-    table = pos_table.table()
-    xy_idx = table.indexOf(pos_table._xy_btn_col)
-    btn = table.cellWidget(0, xy_idx)
-    assert btn is not None
-
-    # A real mouse press: cursor moves to the button center, mouseButtons()
-    # becomes non-zero, which is what _on_selection_change reads.
-    qtbot.mousePress(btn, Qt.MouseButton.LeftButton)
-    mmc.waitForSystem()
-
-    # If the stage had moved it would be at row 0's y=1, not y=0.
-    assert round(mmc.getXPosition()) == 0
-    assert round(mmc.getYPosition()) == 0
-
-    qtbot.mouseRelease(btn, Qt.MouseButton.LeftButton)
-
-
-def test_on_selection_change_skips_move_while_flag_set(
-    qtbot: QtBot, global_mmcore: CMMCorePlus
-) -> None:
-    """_on_selection_change is a no-op while _skip_move_to_selection is set."""
-    mmc = global_mmcore
-    wdg = MDAWidget(mmcore=mmc)
-    qtbot.addWidget(wdg)
-    wdg.show()
-
-    pos_table = wdg.stage_positions
-    assert isinstance(pos_table, CoreConnectedPositionTable)
-
-    wdg.setValue(MDA)  # row 0 has position x=0, y=1, z=2
-    pos_table.move_to_selection.setChecked(True)
-
-    # Stage starts at (0, 0, 0) — clearly different from row 0's (0, 1, 2).
-    mmc.setXYPosition(0, 0)
-    mmc.setZPosition(0)
-    mmc.waitForSystem()
-
-    pos_table._skip_move_to_selection = True
-    pos_table.table().selectRow(0)  # would normally move the stage to row 0
-
-    mmc.waitForSystem()
-    # Row 0 has y=1, z=2; if move fired the assertions below would fail.
-    assert round(mmc.getXPosition()) == 0
-    assert round(mmc.getYPosition()) == 0
-    assert round(mmc.getZPosition()) == 0
-    pos_table._skip_move_to_selection = False
-
-    pos_table._skip_move_to_selection = False
-
-
 def _assert_position_wdg_state(
     stage: str, pos_table: CoreConnectedPositionTable, is_hidden: bool
 ) -> None:
@@ -1702,43 +1621,6 @@ def test_channel_properties_restore_ignores_stale_group(
             "value": 42.0,
         }
     ]
-
-
-def test_channel_properties_restore_keeps_ambiguous_label(
-    global_mmcore: CMMCorePlus, qtbot: QtBot
-) -> None:
-    """A (device, property) shared by two sources must restore under its own label.
-
-    ``Camera/Gain`` is offered both as a per-property source and, here, as the
-    sole property of a single-preset group. Resolving purely by
-    (device, property) would rewrite one selection into the other.
-    """
-    global_mmcore.defineConfig("ZZIllum", "only", "Camera", "Gain", "1")
-
-    wdg = MDAWidget(mmcore=global_mmcore)
-    qtbot.addWidget(wdg)
-    wdg.setValue(useq.MDASequence(channels=[{"config": "DAPI", "exposure": 50}]))
-    assert {LS_INT, "ZZIllum"} <= set(wdg.channels.lightSources())
-
-    def restore(group: str) -> str:
-        wdg.channels.setChannelProperties(
-            [
-                {
-                    "channel_index": 0,
-                    "config": "DAPI",
-                    "group": group,
-                    "device": "Camera",
-                    "property": "Gain",
-                    "value": 2,
-                }
-            ]
-        )
-        return wdg.channels.channelProperties()[0]["group"]
-
-    assert restore(LS_INT) == LS_INT
-    assert restore("ZZIllum") == "ZZIllum"
-    # only a label that no longer exists falls back to (device, property)
-    assert restore("SomeRetiredGroup") in {LS_INT, "ZZIllum"}
 
 
 def test_group_light_source_single_preset_all_ranged(

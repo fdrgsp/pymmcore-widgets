@@ -335,20 +335,15 @@ class CoreConnectedChannelTable(ChannelTable):
                 row = entry["channel_index"]
                 if not (0 <= row < table.rowCount()):  # pragma: no cover
                     continue
-                # Prefer the saved label while it still names a real source: a
-                # (device, property) pair can belong to BOTH a per-property
-                # source and a single-preset group source, so resolving via the
-                # reverse map first would silently rewrite one selection into
-                # the other. Fall back to (device, property) only for labels
-                # that no longer exist -- e.g. a sequence saved when `group`
-                # held a config group name that is no longer a light source --
-                # so those restore their property instead of being dropped.
-                label = entry["group"]
-                if label not in self._light_sources:
-                    dev_prop = (entry["device"], entry["property"])
-                    if (found := labels.get(dev_prop)) is None:
+                # `group` is display state; (device, property) is what actually gets
+                # applied, so resolve on that first. A sequence saved when `group`
+                # held a config group name then still restores its property instead
+                # of being silently dropped.
+                label = labels.get((entry["device"], entry["property"]))
+                if label is None:
+                    if entry["group"] not in self._light_sources:
                         continue
-                    label = found
+                    label = entry["group"]
                 self._light_source_column.set_cell_data(table, row, ls_col, label)
                 # range must be set before the value, or it would be clamped away
                 self._configure_intensity_widget(row, int_col, label)
