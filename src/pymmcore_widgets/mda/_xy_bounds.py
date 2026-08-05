@@ -9,12 +9,20 @@ from qtpy.QtCore import QSize, Qt
 from qtpy.QtGui import QTransform
 from qtpy.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QDoubleSpinBox,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
+    QLabel,
     QPushButton,
+    QRadioButton,
     QSizePolicy,
+    QStackedWidget,
+    QStyle,
+    QStyleOptionButton,
+    QStylePainter,
     QVBoxLayout,
     QWidget,
 )
@@ -82,42 +90,175 @@ class XYBoundsControl(QWidget):
         self.btn_bottom_left = _MarkVisitButton("bottom_left")
         self.btn_bottom_right = _MarkVisitButton("bottom_right")
 
+        if compact_layout:
+            for button in (
+                self.btn_top,
+                self.btn_left,
+                self.btn_right,
+                self.btn_bottom,
+                self.btn_top_left,
+                self.btn_top_right,
+                self.btn_bottom_left,
+                self.btn_bottom_right,
+            ):
+                button.setIconSize(QSize(16, 16))
+                button.setFixedSize(30, 26)
+
         self.go_middle = QCheckBox("Move")
         self.go_middle.setSizePolicy(*FIXED_POLICY)
         self.go_middle.toggled.connect(self._update_buttons_icon)
 
-        grid = QWidget()
-        grid.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        grid_layout = QGridLayout(grid)
-        grid_layout.setSpacing(10)
-        grid_layout.setContentsMargins(0, 0, 0, 0)
-        grid_layout.addWidget(self.btn_top, 0, 2, CTR)
-        grid_layout.addWidget(self.btn_left, 1 if compact_layout else 2, 0, CTR)
-        grid_layout.addWidget(self.btn_right, 1 if compact_layout else 2, 4, CTR)
-        grid_layout.addWidget(self.btn_bottom, 4, 2, CTR)
-
-        grid_layout.addWidget(self.btn_top_left, 0, 0, CTR)
-        grid_layout.addWidget(self.btn_top_right, 0, 4, CTR)
-        grid_layout.addWidget(self.btn_bottom_left, 4, 0, CTR)
-        grid_layout.addWidget(self.btn_bottom_right, 4, 4, CTR)
-
-        grid_layout.addWidget(self.go_middle, 2, 2, CTR)
-
         self._bounds_wdg = _BoundsWidget()
+        self._bounds_wdg.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
 
         top_layout = QHBoxLayout()
         top_layout.setContentsMargins(0, 0, 0, 0)
-        top_layout.setSpacing(15)
-        top_layout.addWidget(grid, 0, Qt.AlignmentFlag.AlignVCenter)
-        top_layout.addWidget(self._bounds_wdg, 0, Qt.AlignmentFlag.AlignVCenter)
+        if compact_layout:
+            self._buttons_widget = self._make_compact_widget()
+            top_layout.addWidget(self._buttons_widget, 1)
+        else:
+            self._buttons_widget = self._make_direction_pad()
+            top_layout.setSpacing(15)
+            top_layout.addWidget(self._buttons_widget, 0, Qt.AlignmentFlag.AlignVCenter)
+            top_layout.addWidget(self._bounds_wdg, 0, Qt.AlignmentFlag.AlignVCenter)
+        top_layout.addStretch()
 
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
-        main_layout.addLayout(top_layout)
-        main_layout.addStretch()
+        main_layout.addLayout(top_layout, int(compact_layout))
+        if not compact_layout:
+            main_layout.addStretch()
         self.setLayout(main_layout)
         self.setWindowTitle("Mark XY Boundaries")
+
+    def _make_direction_pad(self) -> QWidget:
+        buttons_widget = QWidget()
+        buttons_widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        grid = QGridLayout(buttons_widget)
+        grid.setSpacing(10)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.addWidget(self.btn_top, 0, 2, CTR)
+        grid.addWidget(self.btn_left, 2, 0, CTR)
+        grid.addWidget(self.btn_right, 2, 4, CTR)
+        grid.addWidget(self.btn_bottom, 4, 2, CTR)
+        grid.addWidget(self.btn_top_left, 0, 0, CTR)
+        grid.addWidget(self.btn_top_right, 0, 4, CTR)
+        grid.addWidget(self.btn_bottom_left, 4, 0, CTR)
+        grid.addWidget(self.btn_bottom_right, 4, 4, CTR)
+        grid.addWidget(self.go_middle, 2, 2, CTR)
+        return buttons_widget
+
+    def _make_compact_widget(self) -> QWidget:
+        compact_widget = QWidget()
+        compact_widget.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding
+        )
+        layout = QGridLayout(compact_widget)
+        # Match the horizontal inset used by the common grid form below, so
+        # Mode, Top, and Left share its label-column starting edge.
+        layout.setContentsMargins(12, 0, 12, 0)
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(4)
+
+        self._edge_mode = QRadioButton("Edges")
+        self._corner_mode = QRadioButton("Corners")
+        mode_group = QButtonGroup(compact_widget)
+        mode_group.addButton(self._edge_mode)
+        mode_group.addButton(self._corner_mode)
+        mode_row = QHBoxLayout()
+        mode_row.setContentsMargins(0, 0, 0, 0)
+        mode_row.setSpacing(10)
+        mode_row.addWidget(QLabel("Mode:"))
+        mode_row.addWidget(self._edge_mode)
+        mode_row.addWidget(self._corner_mode)
+        self._action_separator = QFrame()
+        self._action_separator.setFrameShape(QFrame.Shape.VLine)
+        self._action_separator.setFrameShadow(QFrame.Shadow.Sunken)
+        mode_row.addWidget(self._action_separator)
+
+        self._mark_action = QRadioButton("Mark")
+        self._move_action = QRadioButton("Move")
+        action_group = QButtonGroup(compact_widget)
+        action_group.addButton(self._mark_action)
+        action_group.addButton(self._move_action)
+        mode_row.addWidget(QLabel("Action:"))
+        mode_row.addWidget(self._mark_action)
+        mode_row.addWidget(self._move_action)
+        mode_row.addStretch()
+        mode_widget = QWidget()
+        mode_widget.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
+        )
+        mode_widget.setLayout(mode_row)
+        layout.addWidget(mode_widget, 0, 0, 1, 2)
+
+        self._compact_action_stacks: list[QStackedWidget] = []
+        specs = (
+            ("Top", self._bounds_wdg.top, self.btn_top, self.btn_top_left, 0, 0),
+            (
+                "Bottom",
+                self._bounds_wdg.bottom,
+                self.btn_bottom,
+                self.btn_top_right,
+                0,
+                1,
+            ),
+            (
+                "Left",
+                self._bounds_wdg.left,
+                self.btn_left,
+                self.btn_bottom_left,
+                1,
+                0,
+            ),
+            (
+                "Right",
+                self._bounds_wdg.right,
+                self.btn_right,
+                self.btn_bottom_right,
+                1,
+                1,
+            ),
+        )
+        for text, field, edge_button, corner_button, row, column in specs:
+            control = QWidget()
+            control_layout = QHBoxLayout(control)
+            control_layout.setContentsMargins(0, 0, 0, 0)
+            control_layout.setSpacing(2)
+            label = QLabel(f"{text}:")
+            label.setFixedWidth(46)
+            control_layout.addWidget(label)
+            control_layout.addWidget(field)
+
+            action_stack = QStackedWidget()
+            action_stack.setFixedSize(30, 26)
+            action_stack.addWidget(edge_button)
+            action_stack.addWidget(corner_button)
+            self._compact_action_stacks.append(action_stack)
+            control_layout.addWidget(action_stack)
+            layout.addWidget(control, row + 1, column)
+        # The bounds page is kept as tall as the other grid modes.  Share that
+        # available height between its three visual rows instead of leaving an
+        # unused block underneath the compact controls.
+        for row in range(3):
+            layout.setRowStretch(row, 1)
+
+        self._corner_mode.toggled.connect(self._set_corner_mode)
+        self._move_action.toggled.connect(self.go_middle.setChecked)
+        self.go_middle.toggled.connect(self._sync_action_mode)
+        self._edge_mode.setChecked(True)
+        self._mark_action.setChecked(True)
+        return compact_widget
+
+    def _set_corner_mode(self, corners: bool) -> None:
+        for stack in self._compact_action_stacks:
+            stack.setCurrentIndex(int(corners))
+
+    def _sync_action_mode(self, move: bool) -> None:
+        (self._move_action if move else self._mark_action).setChecked(True)
 
     def _update_buttons_icon(self, state: bool) -> None:
         """Switch the icon of the buttons between `mark` and `visit`."""
@@ -228,6 +369,28 @@ class _MarkVisitButton(QPushButton):
         self.setToolTip(f"Move to the {self._name} bound.")
 
 
+class _LeftAlignedPushButton(QPushButton):
+    """A native push button whose icon/text group starts at the left edge."""
+
+    def paintEvent(self, event: object) -> None:
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        painter = QStylePainter(self)
+        painter.drawControl(QStyle.ControlElement.CE_PushButtonBevel, option)
+
+        contents = self.style().subElementRect(
+            QStyle.SubElement.SE_PushButtonContents, option, self
+        )
+        icon_width = 0 if option.icon.isNull() else option.iconSize.width()
+        spacing = 4 if icon_width and option.text else 0
+        label_width = (
+            icon_width + spacing + painter.fontMetrics().horizontalAdvance(option.text)
+        )
+        option.rect = contents
+        option.rect.setWidth(min(contents.width(), label_width + 4))
+        painter.drawControl(QStyle.ControlElement.CE_PushButtonLabel, option)
+
+
 class MarkVisit(QWidget):
     def __init__(
         self,
@@ -241,7 +404,7 @@ class MarkVisit(QWidget):
 
         mode = "top" if "top" in mark_text.lower() else "bottom"
 
-        self.mark = QPushButton(QIconifyIcon(mark_glyph), mark_text)
+        self.mark = _LeftAlignedPushButton(QIconifyIcon(mark_glyph), mark_text)
         self.mark.setIconSize(QSize(icon_size, icon_size))
         self.mark.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 

@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 import useq
-from qtpy.QtCore import Qt, QTimer
+from qtpy.QtCore import QPoint, Qt, QTimer
 from qtpy.QtWidgets import QMessageBox
 
 from pymmcore_widgets import HCSWizard
@@ -23,7 +23,10 @@ from pymmcore_widgets.mda._core_positions import (
     AF_UNAVAILABLE,
     CoreConnectedPositionTable,
 )
-from pymmcore_widgets.mda._core_z import CoreConnectedZPlanWidget
+from pymmcore_widgets.mda._core_z import (
+    CoreConnectedZPlanWidget,
+    _suggested_step_from_name,
+)
 from pymmcore_widgets.useq_widgets._mda_sequence import (
     AF_AXIS_TOOLTIP,
     AF_DISABLED_TOOLTIP,
@@ -328,6 +331,60 @@ def test_position_table_connected_popup(qtbot: QtBot):
 
     with qtbot.waitSignal(wdg.valueChanged):
         btn.seq_btn.click()
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("Plan Apo 60X NA 1.40", 1.4),
+        ("Plan Fluor 20X NA=0.75", 0.75),
+        ("Plan 40X 0.95 NA", 0.95),
+        ("Plan 10X", None),
+        ("Plan 20X NA unavailable", None),
+    ],
+)
+def test_suggested_step_from_objective_name(name: str, expected: float | None) -> None:
+    assert _suggested_step_from_name(name) == expected
+
+
+def test_z_suggestion_updates_with_objective(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    with patch.object(
+        global_mmcore, "getStateLabel", return_value="Plan Apo 40X NA 0.75"
+    ):
+        wdg = CoreConnectedZPlanWidget(global_mmcore)
+        qtbot.addWidget(wdg)
+        assert wdg.suggestedStep() == 0.75
+        assert not wdg._use_suggested_btn.isHidden()
+        assert wdg.bottom_btn.mark.width() == wdg.top_btn.mark.width()
+        assert wdg.bottom_btn.visit.width() == wdg.top_btn.visit.width()
+        assert (
+            wdg.bottom_btn.mark.mapTo(wdg, QPoint()).x()
+            == wdg.top_btn.mark.mapTo(wdg, QPoint()).x()
+        )
+        assert (
+            wdg.bottom_btn.visit.mapTo(wdg, QPoint()).x()
+            == wdg.top_btn.visit.mapTo(wdg, QPoint()).x()
+        )
+
+        wdg.show()
+        mode_heights = []
+        separator_positions = []
+        for mode in wdg.Mode:
+            wdg.setMode(mode)
+            mode_heights.append(wdg.minimumSizeHint().height())
+            separator_positions.append(wdg._bounds_separator.mapTo(wdg, QPoint()).y())
+        assert len(set(mode_heights)) == 1
+        assert len(set(separator_positions)) == 1
+
+        wdg.setMode(wdg.Mode.TOP_BOTTOM)
+        assert wdg.top.mapTo(wdg, QPoint()).y() < wdg.bottom.mapTo(wdg, QPoint()).y()
+
+    with patch.object(global_mmcore, "getStateLabel", return_value="Plan Apo 40X"):
+        global_mmcore.events.propertyChanged.emit("Objective", "Label", "Plan Apo 40X")
+        assert wdg.suggestedStep() is None
+        assert wdg._use_suggested_btn.isHidden()
 
 
 def test_core_position_table_checkboxes_toggled(qtbot: QtBot):
@@ -1091,6 +1148,52 @@ def test_grid_plan_fov_update(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
     wdg.tab_wdg.setChecked(wdg.grid_plan, True)
     grid_plan = useq.GridRowsColumns(rows=2, columns=1)
     wdg.grid_plan.setValue(grid_plan)
+
+    stack_heights = []
+    widget_heights = []
+    for mode in ("number", "area", "bounds"):
+        wdg.grid_plan.setMode(mode)
+        stack_heights.append(wdg.grid_plan._stack.sizeHint().height())
+        widget_heights.append(wdg.grid_plan.widget().sizeHint().height())
+    assert len(set(stack_heights)) == 1
+    assert len(set(widget_heights)) == 1
+    assert wdg.grid_plan._core_xy_bounds.left.width() == (
+        wdg.grid_plan.row_col_wdg.rows.width()
+    )
+
+    wdg.grid_plan.setMode("bounds")
+    bounds = wdg.grid_plan._core_xy_bounds
+    for field, value in zip(
+        (bounds.left, bounds.top, bounds.right, bounds.bottom),
+        (1.0, 2.0, 3.0, 4.0),
+        strict=True,
+    ):
+        field.setValue(value)
+    fields_right = bounds.bottom.mapTo(wdg.grid_plan, QPoint()).x() + (
+        bounds.bottom.width()
+    )
+    buttons_left = bounds._compact_action_stacks[1].mapTo(wdg.grid_plan, QPoint()).x()
+    assert 0 <= buttons_left - fields_right <= 4
+    assert bounds.btn_top.width() == 30
+    assert bounds._edge_mode.isChecked()
+    assert all(stack.currentIndex() == 0 for stack in bounds._compact_action_stacks)
+
+    bounds._corner_mode.setChecked(True)
+    assert all(stack.currentIndex() == 1 for stack in bounds._compact_action_stacks)
+    assert bounds._action_separator.frameShape() == bounds._action_separator.Shape.VLine
+    assert bounds._mark_action.isChecked()
+    bounds._move_action.setChecked(True)
+    assert bounds.go_middle.isChecked()
+    assert all(
+        stack.currentWidget().toolTip().startswith("Move to")
+        for stack in bounds._compact_action_stacks
+    )
+
+    wdg.grid_plan.setMode("number")
+    wdg.grid_plan.setMode("bounds")
+    assert (bounds.left.value(), bounds.top.value()) == (1.0, 2.0)
+    assert (bounds.right.value(), bounds.bottom.value()) == (3.0, 4.0)
+    wdg.grid_plan.setMode("number")
 
     assert wdg.value().grid_plan.fov_height == 512
     assert wdg.value().grid_plan.fov_width == 512

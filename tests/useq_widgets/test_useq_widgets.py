@@ -465,7 +465,7 @@ def test_z_plan_widget(qtbot: QtBot) -> None:
 
     assert wdg.isGoUp()
     wdg.setGoUp(False)
-    assert wdg._top_to_bottom.isChecked()
+    assert wdg._direction.currentText() == "Top \u2192 Bottom"
     assert not wdg.isGoUp()
 
     plan = useq.ZTopBottom(top=1, bottom=2, step=0.2)
@@ -484,6 +484,53 @@ def test_z_plan_widget(qtbot: QtBot) -> None:
     assert wdg.above.isVisible()
 
     assert wdg.currentZRange() == plan.above + plan.below
+    assert wdg._summary_label.text() == "Range: 3.000 µm"
+
+    mode_heights = []
+    separator_positions = []
+    step_positions = []
+    for mode in _z.Mode:
+        wdg.setMode(mode)
+        mode_heights.append(wdg.minimumSizeHint().height())
+        separator_positions.append(wdg._bounds_separator.mapTo(wdg, QPoint()).y())
+        step_positions.append(wdg.step.mapTo(wdg, QPoint()).y())
+    assert len(set(mode_heights)) == 1
+    assert len(set(separator_positions)) == 1
+    assert len(set(step_positions)) == 1
+
+    wdg.setMode(_z.Mode.TOP_BOTTOM)
+    separator_y = wdg._bounds_separator.mapTo(wdg, QPoint()).y()
+    assert wdg.step.mapTo(wdg, QPoint()).y() < separator_y
+    assert wdg.top.mapTo(wdg, QPoint()).y() > separator_y
+    wdg.setMode(_z.Mode.ABOVE_BELOW)
+
+    # Primary controls share the same grid column in every mode.
+    step_x = wdg.step.mapTo(wdg, QPoint()).x()
+    direction_x = wdg._direction.mapTo(wdg, QPoint()).x()
+    for field in (wdg.top, wdg.bottom, wdg.range, wdg.above, wdg.below):
+        assert field.mapTo(wdg, QPoint()).x() == step_x
+    assert direction_x == step_x
+    assert {label.width() for label in wdg._form_labels} == {
+        wdg._step_label.sizeHint().width()
+    }
+    assert all(
+        label.alignment() & Qt.AlignmentFlag.AlignLeft for label in wdg._form_labels
+    )
+
+    step_pos = wdg.step.mapTo(wdg, QPoint())
+    slices_pos = wdg.steps.mapTo(wdg, QPoint())
+    assert slices_pos.y() == step_pos.y()
+    assert slices_pos.x() > step_pos.x() + wdg.step.width()
+
+    assert wdg._viz.height() == wdg._controls_widget.sizeHint().height()
+    assert all(
+        not button.icon().isNull()
+        for button in (
+            wdg._btn_range,
+            wdg._button_above_below,
+            wdg._btn_top_bot,
+        )
+    )
 
     assert wdg.steps.value() == 16
     with qtbot.waitSignal(wdg.valueChanged):
@@ -499,7 +546,56 @@ def test_z_plan_widget(qtbot: QtBot) -> None:
 def test_grid_plan_widget(qtbot: QtBot) -> None:
     wdg = GridPlanWidget()
     qtbot.addWidget(wdg)
+    wdg.resize(1000, 500)
     wdg.show()
+
+    visible_mode_buttons = (
+        wdg._mode_number_radio,
+        wdg._mode_area_radio,
+        wdg._mode_bounds_radio,
+    )
+    assert all(
+        button.width() == button.sizeHint().width() for button in visible_mode_buttons
+    )
+    bounds_right = wdg._mode_bounds_radio.mapTo(wdg, QPoint()).x() + (
+        wdg._mode_bounds_radio.width()
+    )
+    assert bounds_right < wdg.width() * 0.6
+
+    form_fields = (
+        wdg.row_col_wdg.rows,
+        wdg.row_col_wdg.columns,
+        wdg.width_height_wdg.area_width,
+        wdg.width_height_wdg.area_height,
+        wdg.bounds_wdg.left,
+        wdg.bounds_wdg.top,
+        wdg.bounds_wdg.right,
+        wdg.bounds_wdg.bottom,
+        wdg.overlap,
+        wdg.order,
+        wdg.relative_to,
+        wdg.width_height_wdg.relative_to,
+    )
+    assert len({field.width() for field in form_fields}) == 1
+    assert form_fields[0].width() < wdg.width() * 0.3
+    assert (
+        wdg.row_col_wdg.rows.mapTo(wdg, QPoint()).x()
+        == wdg.overlap.mapTo(wdg, QPoint()).x()
+    )
+    assert wdg.row_col_wdg.relative_to.mapTo(wdg, QPoint()).y() > (
+        wdg.row_col_wdg.columns.mapTo(wdg, QPoint()).y()
+    )
+    wdg.relative_to.setCurrentEnum(_grid.RelativeTo.top_left)
+    assert wdg.width_height_wdg.relative_to.currentEnum() is (_grid.RelativeTo.top_left)
+
+    stack_heights = []
+    widget_heights = []
+    for mode in (_grid.Mode.NUMBER, _grid.Mode.AREA, _grid.Mode.BOUNDS):
+        wdg.setMode(mode)
+        stack_heights.append(wdg._stack.sizeHint().height())
+        widget_heights.append(wdg.widget().sizeHint().height())
+    assert len(set(stack_heights)) == 1
+    assert len(set(widget_heights)) == 1
 
     wdg.setMode("bounds")
     assert isinstance(wdg.value(), useq.GridFromEdges)

@@ -4,7 +4,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol
 
 import useq
-from qtpy.QtCore import QEvent, QPointF, Qt, Signal
+from qtpy.QtCore import QEvent, QPointF, QSize, Qt, Signal
 from qtpy.QtGui import (
     QBrush,
     QFontMetrics,
@@ -131,6 +131,11 @@ class GridPlanWidget(QScrollArea):
         self._mode_btn_group.addButton(self._mode_bounds_radio)
         self._mode_btn_group.addButton(self._mode_polygon_radio)
         self._mode_btn_group.buttonToggled.connect(self.setMode)
+        for button in self._mode_btn_group.buttons():
+            button.setSizePolicy(
+                QSizePolicy.Policy.Maximum,
+                QSizePolicy.Policy.Fixed,
+            )
 
         self.row_col_wdg = _RowsColsWidget()
         self.width_height_wdg = _WidthHeightWidget()
@@ -148,17 +153,23 @@ class GridPlanWidget(QScrollArea):
         # aliases
         self.overlap = self._bottom_stuff.overlap
         self.order = self._bottom_stuff.order
-        self.relative_to = self._bottom_stuff.relative_to
+        self.relative_to = self.row_col_wdg.relative_to
 
         # LAYOUT -----------------------------------------------
 
         # radio buttons on the top row
         btns_row = QHBoxLayout()
+        btns_row.setContentsMargins(0, 0, 0, 0)
         btns_row.addWidget(QLabel("Mode:"))
-        btns_row.addWidget(self._mode_number_radio)
-        btns_row.addWidget(self._mode_area_radio)
-        btns_row.addWidget(self._mode_bounds_radio)
-        btns_row.addWidget(self._mode_polygon_radio)
+        btns_row.addSpacing(24)
+        mode_buttons = QHBoxLayout()
+        mode_buttons.setSpacing(32)
+        mode_buttons.addWidget(self._mode_number_radio)
+        mode_buttons.addWidget(self._mode_area_radio)
+        mode_buttons.addWidget(self._mode_bounds_radio)
+        mode_buttons.addWidget(self._mode_polygon_radio)
+        btns_row.addLayout(mode_buttons)
+        btns_row.addStretch()
 
         # stack the different mode widgets on top of each other
         self._stack = _ResizableStackedWidget(self)
@@ -166,6 +177,11 @@ class GridPlanWidget(QScrollArea):
         self._stack.addWidget(self.width_height_wdg)
         self._stack.addWidget(self.bounds_wdg)
         self._stack.addWidget(self.polygon_wdg)
+        self._stack.setStableWidgets(
+            self.row_col_wdg,
+            self.width_height_wdg,
+            self.bounds_wdg,
+        )
 
         # wrap the whole thing in an inner widget so we can put it in this ScrollArea
         inner_widget = QWidget(self)
@@ -190,6 +206,20 @@ class GridPlanWidget(QScrollArea):
 
         # CONNECTIONS ------------------------------------------
 
+        self.row_col_wdg.relative_to.currentIndexChanged.connect(
+            lambda index: self._sync_relative_to(
+                index,
+                self.row_col_wdg,
+                self.width_height_wdg,
+            )
+        )
+        self.width_height_wdg.relative_to.currentIndexChanged.connect(
+            lambda index: self._sync_relative_to(
+                index,
+                self.width_height_wdg,
+                self.row_col_wdg,
+            )
+        )
         self.row_col_wdg.valueChanged.connect(self._on_change)
         self.width_height_wdg.valueChanged.connect(self._on_change)
         self.bounds_wdg.valueChanged.connect(self._on_change)
@@ -208,7 +238,7 @@ class GridPlanWidget(QScrollArea):
             self._align_label_columns()
 
     def _align_label_columns(self) -> None:
-        """Give every mode form and the bottom form one label-column width.
+        """Give every form common, bounded label and field widths.
 
         Each mode widget and the common controls use their own ``QFormLayout``,
         so without this the field column would start at a different x in each
@@ -218,6 +248,7 @@ class GridPlanWidget(QScrollArea):
         common controls.
         """
         labels: list[QLabel] = []
+        fields: list[QWidget] = []
         for wdg in (
             self.row_col_wdg,
             self.width_height_wdg,
@@ -227,11 +258,17 @@ class GridPlanWidget(QScrollArea):
             form = wdg.layout()
             if not isinstance(form, QFormLayout):
                 continue  # pragma: no cover
+            form.setFormAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+            )
             for row in range(form.rowCount()):
                 item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
                 label = item.widget() if item is not None else None
                 if isinstance(label, QLabel) and label.text():
                     labels.append(label)
+                    field_item = form.itemAt(row, QFormLayout.ItemRole.FieldRole)
+                    if field_item is not None and (field := field_item.widget()):
+                        fields.append(field)
         if not labels:
             return  # pragma: no cover
         # Measure with QFontMetrics rather than sizeHint(): it is correct even
@@ -242,6 +279,10 @@ class GridPlanWidget(QScrollArea):
         )
         for label in labels:
             label.setMinimumWidth(width)
+
+        field_width = max(175, *(field.sizeHint().width() for field in fields))
+        for field in fields:
+            field.setFixedWidth(field_width)
 
     # ------------------------- Public API -------------------------
 
@@ -280,7 +321,6 @@ class GridPlanWidget(QScrollArea):
         if previous != self._mode:
             current_wdg = self._mode_to_widget[self._mode]
             self._stack.setCurrentWidget(current_wdg)
-            self._bottom_stuff.setMode(mode)
             self._on_change()
 
     def value(self) -> GridPlan:
@@ -360,6 +400,16 @@ class GridPlanWidget(QScrollArea):
 
     # ------------------------- Private API -------------------------
 
+    def _sync_relative_to(
+        self,
+        index: int,
+        source: _RowsColsWidget | _WidthHeightWidget,
+        target: _RowsColsWidget | _WidthHeightWidget,
+    ) -> None:
+        with signals_blocked(target.relative_to):
+            target.relative_to.setCurrentIndex(index)
+        source.valueChanged.emit()
+
     def _on_change(self) -> None:
         if (val := self.value()) is None:
             return  # pragma: no cover
@@ -385,22 +435,29 @@ class _RowsColsWidget(QWidget):
         self.columns.setRange(1, 1000)
         self.columns.setValue(1)
         self.columns.setSuffix(" fields")
+        self.relative_to = QEnumComboBox(self, RelativeTo)
 
         layout = QFormLayout(self)
         layout.setContentsMargins(12, 12, 12, 4)
         layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         layout.addRow("Grid Rows:", self.rows)
         layout.addRow("Grid Cols:", self.columns)
+        layout.addRow("Current position:", self.relative_to)
 
         self.rows.valueChanged.connect(self.valueChanged)
         self.columns.valueChanged.connect(self.valueChanged)
 
-    def value(self) -> dict[str, int]:
-        return {"rows": self.rows.value(), "columns": self.columns.value()}
+    def value(self) -> dict[str, int | str]:
+        return {
+            "rows": self.rows.value(),
+            "columns": self.columns.value(),
+            "relative_to": self.relative_to.currentEnum().value,
+        }
 
     def setValue(self, plan: useq.GridRowsColumns) -> None:
         self.rows.setValue(plan.rows)
         self.columns.setValue(plan.columns)
+        self.relative_to.setCurrentText(plan.relative_to.value)
 
 
 class _WidthHeightWidget(QWidget):
@@ -422,21 +479,24 @@ class _WidthHeightWidget(QWidget):
         self.area_height.setDecimals(2)
         self.area_height.setSuffix(" mm")
         self.area_height.setSingleStep(0.1)
+        self.relative_to = QEnumComboBox(self, RelativeTo)
 
         layout = QFormLayout(self)
         layout.setContentsMargins(12, 12, 12, 4)
         layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         layout.addRow("Width:", self.area_width)
         layout.addRow("Height:", self.area_height)
+        layout.addRow("Current position:", self.relative_to)
 
         self.area_width.valueChanged.connect(self.valueChanged)
         self.area_height.valueChanged.connect(self.valueChanged)
 
-    def value(self) -> dict[str, float]:
+    def value(self) -> dict[str, float | str]:
         # converting width and height to microns because GridWidthHeight expects µm
         return {
             "width": self.area_width.value() * 1000,
             "height": self.area_height.value() * 1000,
+            "relative_to": self.relative_to.currentEnum().value,
         }
 
     def setValue(self, plan: useq.GridWidthHeight) -> None:
@@ -444,6 +504,7 @@ class _WidthHeightWidget(QWidget):
         # uses mm, so we convert width and height to mm here
         self.area_width.setValue(plan.width / 1000)
         self.area_height.setValue(plan.height / 1000)
+        self.relative_to.setCurrentText(plan.relative_to.value)
 
 
 class _BoundsWidget(QWidget):
@@ -467,6 +528,7 @@ class _BoundsWidget(QWidget):
 
         form = QFormLayout(self)
         form.setContentsMargins(12, 12, 12, 4)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         form.addRow("Left:", self.left)
         form.addRow("Top:", self.top)
@@ -664,22 +726,42 @@ class _PolygonWidget(QWidget):
 class _ResizableStackedWidget(QStackedWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent=parent)
+        self._stable_widgets: tuple[QWidget, ...] = ()
         self.currentChanged.connect(self.onCurrentChanged)
 
     def addWidget(self, w: QWidget | None) -> int:
         if w is not None:
-            w.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+            w.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Expanding,
+            )
         return super().addWidget(w)  # type: ignore [no-any-return]
 
+    def setStableWidgets(self, *widgets: QWidget) -> None:
+        """Reserve the largest size among ``widgets`` when one is current."""
+        self._stable_widgets = widgets
+        self.updateGeometry()
+
+    def sizeHint(self) -> QSize:
+        return self._combined_hint("sizeHint")
+
+    def minimumSizeHint(self) -> QSize:
+        return self._combined_hint("minimumSizeHint")
+
+    def _combined_hint(self, method: str) -> QSize:
+        current = self.currentWidget()
+        if current in self._stable_widgets:
+            widgets = self._stable_widgets
+        else:
+            widgets = (current,) if current is not None else ()
+
+        hint = QSize()
+        for widget in widgets:
+            hint = hint.expandedTo(getattr(widget, method)())
+        return hint
+
     def onCurrentChanged(self, idx: int) -> None:
-        for i in range(self.count()):
-            plc = (
-                QSizePolicy.Policy.Expanding if i == idx else QSizePolicy.Policy.Ignored
-            )
-            if wdg := self.widget(i):
-                wdg.setSizePolicy(plc, plc)
-                wdg.adjustSize()
-        self.adjustSize()
+        self.updateGeometry()
 
 
 class _BottomStuff(QWidget):
@@ -693,7 +775,6 @@ class _BottomStuff(QWidget):
         self.overlap.setValue(0)
         self.overlap.setSuffix(" %")
         self.order = QEnumComboBox(self, OrderMode)
-        self.relative_to = QEnumComboBox(self, RelativeTo)
 
         self._form_layout = QFormLayout(self)
         self._form_layout.setContentsMargins(12, 0, 12, 12)
@@ -704,27 +785,17 @@ class _BottomStuff(QWidget):
         self._form_layout.addRow("", SeparatorWidget())
         self._form_layout.addRow("Overlap:", self.overlap)
         self._form_layout.addRow("Acquisition order:", self.order)
-        self._form_layout.addRow("Current position:", self.relative_to)
 
         self.overlap.valueChanged.connect(self.valueChanged)
         self.order.currentIndexChanged.connect(self.valueChanged)
-        self.relative_to.currentIndexChanged.connect(self.valueChanged)
-
-    def setMode(self, mode: Mode) -> None:
-        vis = mode != Mode.BOUNDS
-        for role in (QFormLayout.ItemRole.LabelRole, QFormLayout.ItemRole.FieldRole):
-            self._form_layout.itemAt(3, role).widget().setVisible(vis)
 
     def value(self) -> dict:
         return {
             "overlap": (self.overlap.value(), self.overlap.value()),
             "mode": self.order.currentEnum().value,
-            "relative_to": self.relative_to.currentEnum().value,
         }
 
     def setValue(self, plan: GridPlan) -> None:
         if plan.overlap:
             self.overlap.setValue(plan.overlap[0])
-        if hasattr(plan, "relative_to"):
-            self.relative_to.setCurrentText(plan.relative_to.value)
         self.order.setCurrentEnum(OrderMode(plan.mode.value))

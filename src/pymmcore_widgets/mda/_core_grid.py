@@ -31,7 +31,10 @@ class CoreConnectedGridPlanWidget(GridPlanWidget):
         self, mmcore: CMMCorePlus | None = None, parent: QWidget | None = None
     ) -> None:
         self._mmc = mmcore or CMMCorePlus.instance()
-        self._core_xy_bounds = CoreXYBoundsControl(core=self._mmc)
+        self._core_xy_bounds = CoreXYBoundsControl(
+            core=self._mmc,
+            compact_layout=True,
+        )
 
         super().__init__(parent)
 
@@ -43,6 +46,19 @@ class CoreConnectedGridPlanWidget(GridPlanWidget):
         self.bounds_wdg.hide()
         # add CoreXYBoundsControl widget to GridPlanWidget
         self._stack.addWidget(self._core_xy_bounds)
+        field_width = self.row_col_wdg.rows.width()
+        for field in (
+            self._core_xy_bounds.left,
+            self._core_xy_bounds.top,
+            self._core_xy_bounds.right,
+            self._core_xy_bounds.bottom,
+        ):
+            field.setFixedWidth(field_width)
+        self._stack.setStableWidgets(
+            self.row_col_wdg,
+            self.width_height_wdg,
+            self._core_xy_bounds,
+        )
 
         self._mmc.events.systemConfigurationLoaded.connect(self._update_fov_size)
         self._mmc.events.pixelSizeChanged.connect(self._update_fov_size)

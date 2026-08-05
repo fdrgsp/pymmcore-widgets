@@ -4,7 +4,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from pymmcore_plus import CMMCorePlus, Keyword
+from pymmcore_plus import CMMCorePlus
 from pymmcore_plus._logger import logger
 from qtpy.QtCore import QSize, Qt, Slot
 from qtpy.QtWidgets import (
@@ -386,8 +386,6 @@ class MDAWidget(MDASequenceWidget):
         self.stage_positions._update_xy_enablement()
         self.stage_positions._update_z_enablement()
         self._update_autofocus_enablement()
-        # TODO: connect objective change event to update suggested step
-        self.z_plan.setSuggestedStep(_guess_NA(self._mmc) or 0.5)
 
     @Slot(str, str, object)
     def _on_property_changed(self, device: str, prop: str, _val: str = "") -> None:
@@ -664,23 +662,3 @@ class _MDAControlButtons(QWidget):
             self._mmc.mda.events.sequencePauseToggled.disconnect(self._on_mda_paused)
             self._mmc.mda.events.sequenceStarted.disconnect(self._on_mda_started)
             self._mmc.mda.events.sequenceFinished.disconnect(self._on_mda_finished)
-
-
-def _guess_NA(core: CMMCorePlus) -> float | None:
-    with suppress(RuntimeError):
-        if not (pix_cfg := core.getCurrentPixelSizeConfig()):
-            return None  # pragma: no cover
-
-        data = core.getPixelSizeConfigData(pix_cfg)
-        for obj in core.guessObjectiveDevices():
-            key = (obj, Keyword.Label)
-            if key in data:
-                val = data[key]
-                for word in val.split():
-                    try:
-                        na = float(word)
-                    except ValueError:
-                        continue
-                    if 0.1 < na < 1.5:
-                        return na
-    return None
