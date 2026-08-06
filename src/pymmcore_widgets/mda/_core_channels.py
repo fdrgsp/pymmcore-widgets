@@ -335,15 +335,29 @@ class CoreConnectedChannelTable(ChannelTable):
                 row = entry["channel_index"]
                 if not (0 <= row < table.rowCount()):  # pragma: no cover
                     continue
-                # `group` is display state; (device, property) is what actually gets
-                # applied, so resolve on that first. A sequence saved when `group`
-                # held a config group name then still restores its property instead
-                # of being silently dropped.
-                label = labels.get((entry["device"], entry["property"]))
-                if label is None:
-                    if entry["group"] not in self._light_sources:
-                        continue
-                    label = entry["group"]
+                # Prefer the saved `group` when it is still a light source that
+                # actually offers this (device, property): a single (device,
+                # property) can be reachable under more than one label -- e.g. a
+                # single-preset config group *and* the synthesized "Device ·
+                # Property" entry both wrap it -- and `labels` is a plain dict,
+                # so it silently keeps whichever of them `_light_sources`
+                # happens to yield last. Resolving on `group` first makes the
+                # round trip lossless and independent of that ordering.
+                #
+                # Otherwise fall back to (device, property), which is what
+                # actually gets applied, so a sequence saved under a group that
+                # no longer exists still restores its property rather than
+                # being silently dropped.
+                dev_prop = (entry["device"], entry["property"])
+                group = entry["group"]
+                if dev_prop in self._light_sources.get(group, ()):
+                    label = group
+                elif (resolved := labels.get(dev_prop)) is not None:
+                    label = resolved
+                elif group in self._light_sources:
+                    label = group
+                else:
+                    continue
                 self._light_source_column.set_cell_data(table, row, ls_col, label)
                 # range must be set before the value, or it would be clamped away
                 self._configure_intensity_widget(row, int_col, label)
