@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import useq
+from qtpy.QtWidgets import QWidget
 
 from pymmcore_widgets import MDAWidget, MDAWidgetCollapsible
 from pymmcore_widgets.mda import (
@@ -84,6 +85,32 @@ def test_collapsible_value_parity_with_mda_widget(qtbot: QtBot) -> None:
     assert restored[0].sequence.autofocus_plan.autofocus_motor_offset == 25.0
 
 
+def test_settings_file_actions_are_in_execution_footer(qtbot: QtBot) -> None:
+    wdg = MDAWidgetCollapsible()
+    qtbot.addWidget(wdg)
+    wdg.resize(800, 700)
+    wdg.show()
+
+    footer = wdg.findChild(QWidget, "mdaExecutionFooter")
+    assert footer is not None
+    for button in (wdg._save_button, wdg._load_button):
+        assert footer.isAncestorOf(button)
+        assert not wdg.tabs.settings_section._body.isAncestorOf(button)
+
+    qtbot.wait(1)
+    save_center = wdg._save_button.mapTo(footer, wdg._save_button.rect().center())
+    load_center = wdg._load_button.mapTo(footer, wdg._load_button.rect().center())
+    run = wdg.control_btns.run_btn
+    run_center = run.mapTo(footer, run.rect().center())
+    actions_row = footer.layout().itemAt(1).layout()
+    assert actions_row is not None
+    assert actions_row.indexOf(wdg._save_button) < actions_row.indexOf(wdg._load_button)
+    assert actions_row.indexOf(wdg._load_button) < actions_row.indexOf(wdg.control_btns)
+    assert abs(save_center.y() - run_center.y()) <= 2
+    assert abs(load_center.y() - run_center.y()) <= 2
+    assert save_center.x() < load_center.x() < run_center.x()
+
+
 def test_unchecked_axis_summaries_only_show_off(qtbot: QtBot) -> None:
     wdg = MDAWidgetCollapsible()
     qtbot.addWidget(wdg)
@@ -145,11 +172,15 @@ def test_collapsible_disables_editors_during_run(qtbot: QtBot) -> None:
         assert not widget.isEnabled()
     assert not tabs.settings_section._body.isEnabled()
     assert not wdg.save_info.isEnabled()
+    assert not wdg._save_button.isEnabled()
+    assert not wdg._load_button.isEnabled()
 
     wdg._enable_widgets(True)
     assert wdg.channels.isEnabled()
     assert tabs.settings_section._body.isEnabled()
     assert wdg.save_info.isEnabled()
+    assert wdg._save_button.isEnabled()
+    assert wdg._load_button.isEnabled()
 
 
 def test_collapsible_runs_acquisition(qtbot: QtBot) -> None:

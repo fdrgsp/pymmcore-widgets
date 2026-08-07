@@ -526,8 +526,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         axis_order: QComboBox,
         keep_shutter_open: KeepShutterOpen,
         autofocus_axis: AutofocusAxis,
-        save_button: QWidget,
-        load_button: QWidget,
         save_info: SaveGroupBox,
     ) -> None:
         """Append the Saving section and global Settings after the five axes."""
@@ -574,13 +572,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         self.settings_section.add_widget(axis_row)
         self.settings_section.add_widget(keep_shutter_open)
         self.settings_section.add_widget(autofocus_axis)
-
-        actions = QWidget()
-        actions_layout = QHBoxLayout(actions)
-        actions_layout.setContentsMargins(0, 0, 0, 0)
-        actions_layout.addWidget(save_button)
-        actions_layout.addWidget(load_button)
-        self.settings_section.add_widget(actions)
         self._content_layout.addWidget(self.settings_section)
         self._content_layout.addStretch()
 
@@ -832,6 +823,8 @@ class MDAWidgetCollapsible(MDAWidget):
     def _enable_widgets(self, enable: bool) -> None:
         """Disable editors during an acquisition while keeping controls usable."""
         self.tabs.set_editor_enabled(enable)
+        self._save_button.setEnabled(enable)
+        self._load_button.setEnabled(enable)
 
     def _install_layout(self) -> None:
         """Move the global/save/footer controls into the sectioned presentation."""
@@ -845,8 +838,6 @@ class MDAWidgetCollapsible(MDAWidget):
             axis_order=self.axis_order,
             keep_shutter_open=self.keep_shutter_open,
             autofocus_axis=self.af_axis,
-            save_button=self._save_button,
-            load_button=self._load_button,
             save_info=self.save_info,
         )
 
@@ -865,7 +856,13 @@ class MDAWidgetCollapsible(MDAWidget):
         estimate_row.addWidget(self._time_warning)
         estimate_row.addWidget(self._duration_label, 1)
         footer_layout.addLayout(estimate_row)
-        footer_layout.addWidget(self.control_btns)
+
+        actions_row = QHBoxLayout()
+        actions_row.addWidget(self._save_button)
+        actions_row.addWidget(self._load_button)
+        actions_row.addStretch()
+        actions_row.addWidget(self.control_btns)
+        footer_layout.addLayout(actions_row)
 
         box = cast("QVBoxLayout", layout)
         box.setContentsMargins(0, 0, 0, 0)
