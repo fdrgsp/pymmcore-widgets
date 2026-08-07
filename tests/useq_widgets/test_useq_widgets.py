@@ -384,6 +384,16 @@ def test_channel_groups(qtbot: QtBot) -> None:
 
     assert wdg.channelGroups() == GROUPS
     wdg.act_add_row.trigger()
+
+    # The nested config combo should fill the table cell vertically, just like
+    # combos installed directly as cell widgets do.
+    table = wdg.table()
+    table.setRowHeight(0, 60)
+    qtbot.wait(1)
+    config_cell = table.cellWidget(0, table.indexOf(wdg._config_column))
+    # Some Qt styles reserve one pixel for layout rounding/the cell border.
+    assert config_cell._combo.height() >= config_cell.height() - 1
+
     with qtbot.waitSignal(wdg.valueChanged):
         wdg.act_add_row.trigger()
     val = wdg.value()

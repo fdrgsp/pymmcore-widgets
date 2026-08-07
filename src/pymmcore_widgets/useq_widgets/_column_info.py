@@ -487,6 +487,13 @@ class CheckableCombo(QWidget):
         self._checkbox.setChecked(True)
         self._checkbox.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._combo = QComboBox()
+        # This wrapper is installed as the table's cell widget, so it is stretched
+        # to the full cell height.  Let the nested combo stretch with it as well;
+        # QComboBox's default vertical policy is Fixed, which otherwise leaves the
+        # config editor shorter than direct cell widgets such as ComboColumn.
+        self._combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         layout = QHBoxLayout(self)
         layout.setContentsMargins(5, 0, 0, 0)
         layout.addWidget(self._checkbox)
