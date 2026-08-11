@@ -105,6 +105,14 @@ def test_load_camera_roi_widget(qtbot: QtBot, multi_cam_cfg: Path):
     assert cam.lbl_info.text() == "Size: 512 px * 512 px [512.0 µm * 512.0 µm]"
     assert not cam.lbl_info.styleSheet()
 
+    assert cam.roiInfoVisible()
+    cam.setRoiInfoVisible(False)
+    assert not cam.roiInfoVisible()
+    assert cam._info_lbl_wdg.isHidden()
+    cam.setRoiInfoVisible(True)
+    assert cam.roiInfoVisible()
+    assert not cam._info_lbl_wdg.isHidden()
+
     cams_info = {
         "Camera": CameraInfo(
             pixel_width=512,

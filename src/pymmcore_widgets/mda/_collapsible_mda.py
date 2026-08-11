@@ -921,7 +921,13 @@ class MDAWidgetCollapsible(MDAWidget):
 
     def _apply_camera_roi(self) -> None:
         if not self.tabs.roi_section.checked:
-            self.camera_roi.applyFullFrame()
+            planned_roi = self.camera_roi.roiValue()
+            try:
+                self.camera_roi.applyFullFrame()
+            finally:
+                # Full frame is a hardware preflight state, not a change to the
+                # ROI the user has configured for the next enabled acquisition.
+                self.camera_roi.setRoiValue(planned_roi)
             return
         roi = self.camera_roi.roiValue()
         camera = roi["camera"]

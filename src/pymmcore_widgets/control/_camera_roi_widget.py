@@ -104,6 +104,7 @@ class CameraRoiWidget(QWidget):
 
         self._mmc = mmcore or CMMCorePlus.instance()
         self._show_auto_snap = show_auto_snap
+        self._show_roi_info = True
         self._live_restart_pending = False
 
         # this is use to store each camera information so that when the camera is
@@ -184,14 +185,14 @@ class CameraRoiWidget(QWidget):
         main_layout.addWidget(self._custom_roi_wdg)
 
         # info label groupbox ---------------------------------------------------
-        _info_lbl_wdg = QGroupBox()
-        _info_layout = QVBoxLayout(_info_lbl_wdg)
+        self._info_lbl_wdg = QGroupBox()
+        _info_layout = QVBoxLayout(self._info_lbl_wdg)
         _info_layout.setSpacing(5)
         _info_layout.setContentsMargins(3, 3, 3, 3)
         self.lbl_info = QLabel("....")
         _info_layout.addWidget(self.lbl_info)
 
-        main_layout.addWidget(_info_lbl_wdg)
+        main_layout.addWidget(self._info_lbl_wdg)
 
         # snap and crop buttons widget -------------------------------------------
         self._bottom_wdg = QWidget()
@@ -703,6 +704,8 @@ class CameraRoiWidget(QWidget):
     @Slot()
     def _update_lbl_info(self) -> None:
         """Update the info label with the current ROI information."""
+        if not self._show_roi_info:
+            return
         camera = self.camera
         if not camera or camera not in self._cameras:
             self.lbl_info.clear()
@@ -731,6 +734,17 @@ class CameraRoiWidget(QWidget):
             self.lbl_info.setStyleSheet("")
         else:
             self.lbl_info.setStyleSheet("color: magenta;")
+
+    def setRoiInfoVisible(self, visible: bool) -> None:
+        """Show or hide the current-hardware ROI status row."""
+        self._show_roi_info = visible
+        self._info_lbl_wdg.setVisible(visible)
+        if visible:
+            self._update_lbl_info()
+
+    def roiInfoVisible(self) -> bool:
+        """Return whether the current-hardware ROI status row is enabled."""
+        return self._show_roi_info
 
     def _update_roi_values(self, roi: ROI | None = None) -> None:
         """Set the ROI values for the specified camera."""

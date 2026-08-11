@@ -313,6 +313,17 @@ def test_collapsible_applies_roi_once_during_preflight(qtbot: QtBot) -> None:
     with qtbot.waitSignal(wdg._mmc.events.roiSet):
         assert wdg.prepare_mda() is None
     assert tuple(wdg._mmc.getROI("Camera")) == (0, 0, 512, 512)
+    assert wdg.camera_roi.roiValue() == roi
+    assert wdg.value().metadata[PYMMCW_METADATA_KEY][CAMERA_ROI_METADATA_KEY] == {
+        "enabled": False,
+        **roi,
+    }
+
+    # Re-enabling the section applies the retained plan.
+    wdg.tabs.roi_section.set_checked(True)
+    with qtbot.waitSignal(wdg._mmc.events.roiSet):
+        assert wdg.prepare_mda() is None
+    assert tuple(wdg._mmc.getROI("Camera")) == (10, 20, 200, 180)
 
 
 def test_collapsible_runs_acquisition(qtbot: QtBot) -> None:
