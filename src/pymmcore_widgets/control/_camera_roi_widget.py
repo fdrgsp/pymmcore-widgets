@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict
 
 from pymmcore_plus import CMMCorePlus, DeviceType
-from qtpy.QtCore import QSize, Qt, Signal, Slot
+from qtpy.QtCore import QSize, Qt, QTimer, Signal, Slot
 from qtpy.QtWidgets import (
     QAbstractSpinBox,
     QCheckBox,
@@ -104,6 +104,7 @@ class CameraRoiWidget(QWidget):
 
         self._mmc = mmcore or CMMCorePlus.instance()
         self._show_auto_snap = show_auto_snap
+        self._live_restart_pending = False
 
         # this is use to store each camera information so that when the camera is
         # changed in the widget, the proper values can be updated.
@@ -543,13 +544,7 @@ class CameraRoiWidget(QWidget):
     @Slot(str)
     def _on_crop_roi_mode_change(self, value: str) -> None:
         """Handle the crop mode change."""
-        if value == FULL:
-            self._clearROI()
-
-            if self.snap_checkbox.isChecked() and self.snap_checkbox.isVisible():
-                self._mmc.snap()
-
-        elif value == CUSTOM_ROI:
+        if value == CUSTOM_ROI:
             # enable all the spinboxes
             self._hide_spinbox_button(False)
             # disable start_x and start_y spinboxes if center_checkbox is checked
@@ -560,21 +555,46 @@ class CameraRoiWidget(QWidget):
             self.crop_btn.setEnabled(True)
 
             self.roiChanged.emit(*self._get_roi_values(), value)
+            self._update_lbl_info()
+            return
 
-        else:
-            self._hide_spinbox_button(True)
+        restart_live = self._mmc.isSequenceRunning() and not self._mmc.mda.is_running()
+        if restart_live:
+            self._mmc.stopSequenceAcquisition()
 
-            width = int(value.split(" x ")[0])
-            height = int(value.split(" x ")[1])
+        try:
+            if value == FULL:
+                self._clearROI()
 
-            camera = self._cameras[self.camera]
-            start_x = (camera.pixel_width - width) // 2
-            start_y = (camera.pixel_height - height) // 2
+            else:
+                self._hide_spinbox_button(True)
 
-            self._update_roi_values(ROI(start_x, start_y, width, height, True))
-            self._mmc.setROI(self.camera, start_x, start_y, width, height)
+                width = int(value.split(" x ")[0])
+                height = int(value.split(" x ")[1])
+
+                camera = self._cameras[self.camera]
+                start_x = (camera.pixel_width - width) // 2
+                start_y = (camera.pixel_height - height) // 2
+
+                self._update_roi_values(ROI(start_x, start_y, width, height, True))
+                self._mmc.setROI(self.camera, start_x, start_y, width, height)
+        finally:
+            if restart_live:
+                self._live_restart_pending = True
+                QTimer.singleShot(0, self._restart_live_after_roi_change)
 
         self._update_lbl_info()
+
+    def _restart_live_after_roi_change(self) -> None:
+        if not self._live_restart_pending:
+            return
+        self._live_restart_pending = False
+        if (
+            not self._mmc.mda.is_running()
+            and not self._mmc.isSequenceRunning()
+            and self._mmc.getCameraDevice()
+        ):
+            self._mmc.startContinuousSequenceAcquisition()
 
     @Slot(bool)
     def _on_center_checkbox(self, state: bool) -> None:

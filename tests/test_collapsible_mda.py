@@ -83,6 +83,52 @@ def test_collapsible_is_mda_widget(qtbot: QtBot) -> None:
     }
 
 
+def test_collapsible_camera_roi_auto_snaps_for_preset(qtbot: QtBot) -> None:
+    wdg = MDAWidgetCollapsible()
+    qtbot.addWidget(wdg)
+    wdg.tabs.roi_section.set_checked(True)
+    wdg.tabs.roi_section.set_expanded(True)
+    wdg.show()
+
+    assert wdg.camera_roi.snap_checkbox.isVisible()
+    assert wdg.camera_roi.snap_checkbox.isChecked()
+    with qtbot.waitSignal(wdg._mmc.events.imageSnapped):
+        wdg.camera_roi.camera_roi_combo.setCurrentText("256 x 256")
+
+    assert tuple(wdg._mmc.getROI("Camera")) == (128, 128, 256, 256)
+
+
+def test_collapsible_camera_roi_restarts_live_around_preset(qtbot: QtBot) -> None:
+    wdg = MDAWidgetCollapsible()
+    qtbot.addWidget(wdg)
+    wdg.tabs.roi_section.set_checked(True)
+    wdg.tabs.roi_section.set_expanded(True)
+    wdg.show()
+    mmc = wdg._mmc
+    transitions: list[str] = []
+    mmc.events.sequenceAcquisitionStopped.connect(
+        lambda *_args: transitions.append("stop")
+    )
+    mmc.events.imageSnapped.connect(lambda *_args: transitions.append("snap"))
+    mmc.events.continuousSequenceAcquisitionStarted.connect(
+        lambda *_args: transitions.append("start")
+    )
+
+    mmc.startContinuousSequenceAcquisition()
+    transitions.clear()
+    try:
+        wdg.camera_roi.camera_roi_combo.setCurrentText("64 x 64")
+
+        assert transitions == ["stop", "snap"]
+        qtbot.waitUntil(mmc.isSequenceRunning)
+        assert transitions == ["stop", "snap", "start"]
+        assert mmc.isSequenceRunning()
+        assert tuple(mmc.getROI("Camera")) == (224, 224, 64, 64)
+    finally:
+        if mmc.isSequenceRunning():
+            mmc.stopSequenceAcquisition()
+
+
 def test_collapsible_value_parity_with_mda_widget(qtbot: QtBot) -> None:
     """The collapsible presentation must build the identical sequence."""
     ref = MDAWidget()
