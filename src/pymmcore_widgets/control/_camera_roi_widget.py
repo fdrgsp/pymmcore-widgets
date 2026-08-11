@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from contextlib import ExitStack, suppress
 from dataclasses import dataclass
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict
 
 from pymmcore_plus import CMMCorePlus, DeviceType
 from qtpy.QtCore import QSize, Qt, Signal, Slot
@@ -23,6 +24,9 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 fixed_sizepolicy = QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 FULL = "Full Chip"
 CUSTOM_ROI = "Custom ROI"
@@ -34,6 +38,16 @@ class ROI(NamedTuple):
     w: int
     h: int
     centered: bool
+
+
+class CameraRoiValue(TypedDict):
+    """Serializable ROI state for one camera."""
+
+    camera: str
+    x: int
+    y: int
+    width: int
+    height: int
 
 
 @dataclass
@@ -67,20 +81,29 @@ class CameraRoiWidget(QWidget):
         By default, None. If not specified, the widget will use the active
         (or create a new)
         [`CMMCorePlus.instance`][pymmcore_plus.core._mmcore_plus.CMMCorePlus.instance].
+    show_live_selection : bool
+        Show a button that emits :attr:`roiSelectionRequested`. The host application
+        is responsible for opening and connecting a live viewer.
+    show_auto_snap : bool
+        Show the legacy Auto Snap option. Hosts with a live preview can hide it.
     """
 
     # (x, y, width, height, comboBoxText)
     roiChanged = Signal(int, int, int, int, str)
+    roiSelectionRequested = Signal(bool)
 
     def __init__(
         self,
         parent: QWidget | None = None,
         *,
         mmcore: CMMCorePlus | None = None,
+        show_live_selection: bool = False,
+        show_auto_snap: bool = True,
     ) -> None:
         super().__init__(parent=parent)
 
         self._mmc = mmcore or CMMCorePlus.instance()
+        self._show_auto_snap = show_auto_snap
 
         # this is use to store each camera information so that when the camera is
         # changed in the widget, the proper values can be updated.
@@ -178,12 +201,26 @@ class CameraRoiWidget(QWidget):
         self.snap_checkbox = QCheckBox(text="Auto Snap")
 
         self.crop_btn = QPushButton("Crop")
-        self.crop_btn.setMinimumWidth(100)
         self.crop_btn.setIcon(QIconifyIcon("mdi:crop", color="green"))
-        self.crop_btn.setIconSize(QSize(30, 30))
+        self.crop_btn.setIconSize(QSize(24, 24))
+
+        self.select_roi_btn = QPushButton("Select in Live View")
+        self.select_roi_btn.setIcon(
+            QIconifyIcon(
+                "material-symbols-light:screenshot-region-rounded",
+                color="green",
+            )
+        )
+        self.select_roi_btn.setIconSize(QSize(24, 24))
+        self.select_roi_btn.setCheckable(True)
+        self.select_roi_btn.setToolTip(
+            "Open the live preview and select the camera ROI on the image"
+        )
+        self.select_roi_btn.setVisible(show_live_selection)
 
         _bottom_layout.addWidget(self.snap_checkbox)
         _bottom_layout.addStretch()
+        _bottom_layout.addWidget(self.select_roi_btn)
         _bottom_layout.addWidget(self.crop_btn)
 
         main_layout.addWidget(self._bottom_wdg)
@@ -203,6 +240,7 @@ class CameraRoiWidget(QWidget):
         self.start_x.valueChanged.connect(self._on_start_spinbox_changed)
         self.start_y.valueChanged.connect(self._on_start_spinbox_changed)
         self.crop_btn.clicked.connect(self._on_crop_button_clicked)
+        self.select_roi_btn.toggled.connect(self.roiSelectionRequested.emit)
 
         self.destroyed.connect(self._disconnect)
 
@@ -217,10 +255,136 @@ class CameraRoiWidget(QWidget):
         """Return the camera information dict."""
         return self._cameras
 
+    def roiValue(self) -> CameraRoiValue:
+        """Return the currently displayed ROI as JSON-serializable primitives."""
+        x, y, width, height = self._get_roi_values()
+        return {
+            "camera": self.camera,
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+        }
+
+    def fullFrameValue(self, camera: str | None = None) -> CameraRoiValue:
+        """Return the full-frame ROI for ``camera`` without changing hardware."""
+        camera = camera or self.camera
+        if camera not in self._cameras:
+            raise ValueError(f"Camera {camera!r} is not available")
+        info = self._cameras[camera]
+        return {
+            "camera": camera,
+            "x": 0,
+            "y": 0,
+            "width": info.pixel_width,
+            "height": info.pixel_height,
+        }
+
+    def applyFullFrame(self) -> CameraRoiValue:
+        """Clear the active camera ROI and return its actual full-frame geometry."""
+        current = tuple(self._mmc.getROI(self.camera))
+        full = self.fullFrameValue()
+        expected = (full["x"], full["y"], full["width"], full["height"])
+        if current == expected:
+            return full
+        self._clearROI()
+        x, y, width, height = self._mmc.getROI(self.camera)
+        return {
+            "camera": self.camera,
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+        }
+
+    def setRoiValue(self, value: Mapping[str, object]) -> None:
+        """Restore a planned ROI in the editor without applying it to hardware."""
+        try:
+            camera = value["camera"]
+            x = value["x"]
+            y = value["y"]
+            width = value["width"]
+            height = value["height"]
+        except KeyError as e:
+            raise ValueError("Invalid camera ROI value") from e
+        if not isinstance(camera, str) or any(
+            not isinstance(item, int) or isinstance(item, bool)
+            for item in (x, y, width, height)
+        ):
+            raise ValueError("Invalid camera ROI value")
+        assert isinstance(x, int)
+        assert isinstance(y, int)
+        assert isinstance(width, int)
+        assert isinstance(height, int)
+
+        if camera not in self._cameras:
+            raise ValueError(f"Camera {camera!r} is not available")
+        info = self._cameras[camera]
+        if (
+            x < 0
+            or y < 0
+            or width <= 0
+            or height <= 0
+            or x + width > info.pixel_width
+            or y + height > info.pixel_height
+        ):
+            raise ValueError(
+                f"ROI {(x, y, width, height)!r} is outside camera {camera!r}"
+            )
+
+        centered = (
+            x == (info.pixel_width - width) // 2
+            and y == (info.pixel_height - height) // 2
+        )
+        roi = ROI(x, y, width, height, centered)
+        mode = self._get_updated_crop_mode(camera, x, y, width, height)
+        self._cameras[camera] = info.replace(crop_mode=mode, roi=roi)
+
+        widgets = (
+            self.camera_combo,
+            self.camera_roi_combo,
+            self.start_x,
+            self.start_y,
+            self.roi_width,
+            self.roi_height,
+            self.center_checkbox,
+        )
+        with ExitStack() as stack:
+            for widget in widgets:
+                stack.enter_context(signals_blocked(widget))
+            self.camera_combo.setCurrentText(camera)
+            self._update_roi_values(roi)
+            self.camera_roi_combo.setCurrentText(mode)
+
+        self._hide_spinbox_button(mode != CUSTOM_ROI)
+        self.start_x.setEnabled(mode == CUSTOM_ROI and not centered)
+        self.start_y.setEnabled(mode == CUSTOM_ROI and not centered)
+        self._custom_roi_wdg.setEnabled(mode == CUSTOM_ROI)
+        self.crop_btn.setEnabled(mode == CUSTOM_ROI)
+        self._update_lbl_info()
+        self.roiChanged.emit(x, y, width, height, mode)
+
+    def setLiveSelectionActive(self, active: bool) -> None:
+        """Update the live-selection button without emitting a new request."""
+        with signals_blocked(self.select_roi_btn):
+            self.select_roi_btn.setChecked(active)
+
+    def setRoiSelectionAvailable(self, available: bool) -> None:
+        """Show the live-selection action when a host has connected a viewer."""
+        self.select_roi_btn.setVisible(available)
+        if not available:
+            self.setLiveSelectionActive(False)
+
     def _disconnect(self) -> None:
-        self._mmc.events.systemConfigurationLoaded.disconnect(self._on_sys_cfg_loaded)
-        self._mmc.events.pixelSizeChanged.disconnect(self._update_lbl_info)
-        self._mmc.events.roiSet.disconnect(self._on_roi_set)
+        connections = (
+            (self._mmc.events.systemConfigurationLoaded, self._on_sys_cfg_loaded),
+            (self._mmc.events.pixelSizeChanged, self._update_lbl_info),
+            (self._mmc.events.roiSet, self._on_roi_set),
+            (self._mmc.events.propertyChanged, self._on_property_changed),
+        )
+        for signal, callback in connections:
+            with suppress(Exception):
+                signal.disconnect(callback)
 
     # ________________________________CORE CONNECTIONS________________________________
 
@@ -230,6 +394,13 @@ class CameraRoiWidget(QWidget):
         self.snap_checkbox.hide()
 
         if not cameras:
+            self._cameras.clear()
+            with signals_blocked(self.camera_combo):
+                self.camera_combo.clear()
+            with signals_blocked(self.camera_roi_combo):
+                self.camera_roi_combo.clear()
+            self.lbl_info.clear()
+            self.lbl_info.setStyleSheet("")
             self._enable(False)
             return
 
@@ -251,7 +422,7 @@ class CameraRoiWidget(QWidget):
         if curr_camera := self._mmc.getCameraDevice():
             with signals_blocked(self.camera_combo):
                 self.camera_combo.setCurrentText(curr_camera)
-                self.snap_checkbox.show()
+                self.snap_checkbox.setVisible(self._show_auto_snap)
 
         # make sure the roi is set to full chip
         with signals_blocked(self.camera_roi_combo):
@@ -274,11 +445,13 @@ class CameraRoiWidget(QWidget):
         if device != "Core" or prop != "Camera":
             return
         # show auto snap checkbox only if the selected camera is the core active camera
-        self.snap_checkbox.show() if value == self.camera else self.snap_checkbox.hide()
+        self.snap_checkbox.setVisible(self._show_auto_snap and value == self.camera)
 
     @Slot(str, int, int, int, int)
     def _on_roi_set(self, camera: str, x: int, y: int, width: int, height: int) -> None:
         """Handle the ROI set event."""
+        if camera not in self._cameras:
+            return
         # if the roi values are out of bounds, do not update, keep the current values
         # and show an 'out of bounds' error message
         if (x + width) > self._cameras[camera].pixel_width or (
@@ -363,10 +536,9 @@ class CameraRoiWidget(QWidget):
         self._update_lbl_info()
 
         # show auto snap checkbox only if the selected camera is the core active camera
-        if self._mmc.getCameraDevice() == camera:
-            self.snap_checkbox.show()
-        else:
-            self.snap_checkbox.hide()
+        self.snap_checkbox.setVisible(
+            self._show_auto_snap and self._mmc.getCameraDevice() == camera
+        )
 
     @Slot(str)
     def _on_crop_roi_mode_change(self, value: str) -> None:
@@ -511,6 +683,20 @@ class CameraRoiWidget(QWidget):
     @Slot()
     def _update_lbl_info(self) -> None:
         """Update the info label with the current ROI information."""
+        camera = self.camera
+        if not camera or camera not in self._cameras:
+            self.lbl_info.clear()
+            self.lbl_info.setStyleSheet("")
+            return
+        try:
+            hardware_roi = tuple(self._mmc.getROI(camera))
+        except RuntimeError:
+            # During configuration loading, the previous camera may already be
+            # unloaded while its combobox/model state has not yet been refreshed.
+            self.lbl_info.clear()
+            self.lbl_info.setStyleSheet("")
+            return
+
         start_x, start_y, width, height = self._get_roi_values()
 
         px_size = self._mmc.getPixelSizeUm() or 0
@@ -521,7 +707,7 @@ class CameraRoiWidget(QWidget):
 
         self.lbl_info.setText(text)
 
-        if tuple(self._mmc.getROI(self.camera)) == (start_x, start_y, width, height):
+        if hardware_roi == (start_x, start_y, width, height):
             self.lbl_info.setStyleSheet("")
         else:
             self.lbl_info.setStyleSheet("color: magenta;")
@@ -556,6 +742,22 @@ class CameraRoiWidget(QWidget):
 
     def _clearROI(self) -> None:
         """Clear the Camera ROI and reset to full chip."""
+        if self.camera == self._mmc.getCameraDevice():
+            # CMMCore.clearROI() is the only reliable way to recover the sensor's
+            # full dimensions when this widget was created after an earlier crop.
+            # It emits no CMMCorePlus event, so update our model first and then emit
+            # the same notification setROI would have produced.
+            self._mmc.clearROI()
+            x, y, width, height = self._mmc.getROI(self.camera)
+            self._cameras[self.camera] = CameraInfo(
+                pixel_width=width,
+                pixel_height=height,
+                crop_mode=FULL,
+                roi=ROI(x, y, width, height, True),
+            )
+            self._hide_spinbox_button(True)
+            self._mmc.events.roiSet.emit(self.camera, x, y, width, height)
+            return
         max_width = self._cameras[self.camera].pixel_width
         max_height = self._cameras[self.camera].pixel_height
         self._hide_spinbox_button(True)

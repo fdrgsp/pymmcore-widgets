@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import Mock, call
 
 import pytest
+from pymmcore_plus import CMMCorePlus
 
 from pymmcore_widgets.control._camera_roi_widget import (
     CUSTOM_ROI,
@@ -328,3 +329,85 @@ def test_roi_changed_signal(qtbot: QtBot):
 
     cam.start_y.setValue(20)
     mock.assert_has_calls([call(10, 20, 100, 200, CUSTOM_ROI)])
+
+
+def test_serializable_roi_value_does_not_apply_hardware(qtbot: QtBot) -> None:
+    cam = CameraRoiWidget(show_live_selection=True)
+    qtbot.addWidget(cam)
+    assert not cam.select_roi_btn.icon().isNull()
+    assert cam.select_roi_btn.iconSize().width() == 24
+    mmc = cam._mmc
+    before = tuple(mmc.getROI("Camera"))
+    changed = Mock()
+    cam.roiChanged.connect(changed)
+
+    value = {
+        "camera": "Camera",
+        "x": 11,
+        "y": 17,
+        "width": 200,
+        "height": 180,
+    }
+    cam.setRoiValue(value)
+
+    assert cam.roiValue() == value
+    assert tuple(mmc.getROI("Camera")) == before
+    assert cam.camera_roi_combo.currentText() == CUSTOM_ROI
+    changed.assert_called_once_with(11, 17, 200, 180, CUSTOM_ROI)
+
+    requested = Mock()
+    cam.roiSelectionRequested.connect(requested)
+    cam.select_roi_btn.click()
+    requested.assert_called_once_with(True)
+    cam.setLiveSelectionActive(False)
+    requested.assert_called_once()
+
+
+def test_apply_full_frame_recovers_sensor_size_after_existing_crop(
+    qtbot: QtBot,
+) -> None:
+    mmc = CMMCorePlus.instance()
+    mmc.setROI(20, 30, 200, 180)
+    cam = CameraRoiWidget()
+    qtbot.addWidget(cam)
+
+    assert cam.fullFrameValue()["width"] == 200
+    assert cam.applyFullFrame() == {
+        "camera": "Camera",
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512,
+    }
+    assert cam.fullFrameValue() == cam.roiValue()
+
+    roi_set = Mock()
+    mmc.events.roiSet.connect(roi_set)
+    try:
+        assert cam.applyFullFrame() == cam.fullFrameValue()
+        roi_set.assert_not_called()
+    finally:
+        mmc.events.roiSet.disconnect(roi_set)
+
+
+def test_config_load_pixel_size_event_before_camera_role(
+    qtbot: QtBot, global_mmcore: CMMCorePlus, tmp_path: Path
+) -> None:
+    """Pixel-size events during startup must tolerate no selected camera yet."""
+    camera_role = "Property,Core,Camera,Camera"
+    config = Path(TEST_CONFIG).read_text()
+    config = config.replace(f"{camera_role}\n", "")
+    config_path = tmp_path / "camera_role_last.cfg"
+    config_path.write_text(f"{config.rstrip()}\n{camera_role}\n")
+
+    global_mmcore.unloadAllDevices()
+    cam = CameraRoiWidget(mmcore=global_mmcore)
+    qtbot.addWidget(cam)
+    assert cam.camera == ""
+    assert cam.lbl_info.text() == ""
+
+    global_mmcore.loadSystemConfiguration(config_path)
+    qtbot.waitUntil(lambda: cam.camera == "Camera")
+
+    assert cam.camera == "Camera"
+    assert cam.lbl_info.text() == "Size: 512 px * 512 px [512.0 µm * 512.0 µm]"

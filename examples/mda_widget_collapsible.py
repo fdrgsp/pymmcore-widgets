@@ -18,7 +18,8 @@ with suppress(ImportError):
 
 app = QApplication([])
 
-CMMCorePlus.instance().loadSystemConfiguration()
+mmc = CMMCorePlus.instance()
+mmc.loadSystemConfiguration()
 
 wdg = MDAWidgetCollapsible()
 wdg.channels.setChannelGroups({"Channel": ["DAPI", "FITC"]})

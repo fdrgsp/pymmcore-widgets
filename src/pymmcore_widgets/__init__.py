@@ -13,6 +13,7 @@ except PackageNotFoundError:
     __version__ = "uninstalled"
 
 __all__ = [
+    "CameraRoiValue",
     "CameraRoiWidget",
     "ChannelGroupWidget",
     "ChannelTable",
@@ -61,6 +62,7 @@ from .config_presets import (
     PixelConfigurationWidget,
 )
 from .control import (
+    CameraRoiValue,
     CameraRoiWidget,
     ChannelGroupWidget,
     ChannelWidget,

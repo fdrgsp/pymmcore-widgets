@@ -7,9 +7,11 @@ from qtpy.QtWidgets import QWidget
 
 from pymmcore_widgets import MDAWidget, MDAWidgetCollapsible
 from pymmcore_widgets.mda import (
+    CAMERA_ROI_METADATA_KEY,
     CollapsibleCoreMDATabs,
     SectionMetrics,
 )
+from pymmcore_widgets.useq_widgets import PYMMCW_METADATA_KEY
 from pymmcore_widgets.useq_widgets._positions import MDAButton, _MDAPopup
 
 if TYPE_CHECKING:
@@ -49,19 +51,35 @@ def test_collapsible_is_mda_widget(qtbot: QtBot) -> None:
     assert isinstance(wdg, MDAWidget)
     assert isinstance(wdg.tab_wdg, CollapsibleCoreMDATabs)
     assert wdg.tabs is wdg.tab_wdg
-    # The axes are laid out as collapsible sections, plus Saving + Settings.
+    # The axes are followed by non-axis ROI, Saving, and Settings sections.
     assert [s.title for s in wdg.tabs.sections] == [
         "Channels",
         "Positions",
         "Grid / Tile Scan",
         "Z Stack",
         "Time Series",
+        "Camera ROI",
         "Saving",
         "Settings",
     ]
+    assert wdg.tabs.roi_section is wdg.tabs.sections[-3]
     assert wdg.tabs.saving_section is wdg.tabs.sections[-2]
     assert wdg.tabs.settings_section is wdg.tabs.sections[-1]
     assert wdg.tabs.tabBar().isHidden()
+    assert wdg.camera_roi.snap_checkbox.isHidden()
+
+    # Enabling the supporting section must not imply a cropped ROI.
+    assert wdg.camera_roi.camera_roi_combo.currentText() == "Full Chip"
+    wdg.tabs.roi_section.set_checked(True)
+    assert wdg.tabs.roi_section.checked
+    assert wdg.camera_roi.camera_roi_combo.currentText() == "Full Chip"
+    assert wdg.camera_roi.roiValue() == {
+        "camera": "Camera",
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512,
+    }
 
 
 def test_collapsible_value_parity_with_mda_widget(qtbot: QtBot) -> None:
@@ -74,7 +92,17 @@ def test_collapsible_value_parity_with_mda_widget(qtbot: QtBot) -> None:
     ref.setValue(MDA)
     wdg.setValue(MDA)
 
-    assert wdg.value() == ref.value()
+    collapsible_value = wdg.value()
+    reference_value = ref.value()
+    assert collapsible_value.replace(metadata={}) == reference_value.replace(
+        metadata={}
+    )
+    assert (
+        collapsible_value.metadata[PYMMCW_METADATA_KEY][CAMERA_ROI_METADATA_KEY][
+            "enabled"
+        ]
+        is False
+    )
     # per-axis inclusion mirrors the reference
     for axis in "cpgzt":
         assert wdg.tabs.isAxisUsed(axis) == ref.tab_wdg.isAxisUsed(axis)
@@ -171,6 +199,8 @@ def test_collapsible_disables_editors_during_run(qtbot: QtBot) -> None:
         assert not section.checkbox.isEnabled()
         assert not widget.isEnabled()
     assert not tabs.settings_section._body.isEnabled()
+    assert not tabs.roi_section.checkbox.isEnabled()
+    assert not wdg.camera_roi.isEnabled()
     assert not wdg.save_info.isEnabled()
     assert not wdg._save_button.isEnabled()
     assert not wdg._load_button.isEnabled()
@@ -178,9 +208,64 @@ def test_collapsible_disables_editors_during_run(qtbot: QtBot) -> None:
     wdg._enable_widgets(True)
     assert wdg.channels.isEnabled()
     assert tabs.settings_section._body.isEnabled()
+    assert tabs.roi_section.checkbox.isEnabled()
     assert wdg.save_info.isEnabled()
     assert wdg._save_button.isEnabled()
     assert wdg._load_button.isEnabled()
+
+
+def test_collapsible_roi_round_trip_without_hardware_change(qtbot: QtBot) -> None:
+    wdg = MDAWidgetCollapsible()
+    qtbot.addWidget(wdg)
+    before = tuple(wdg._mmc.getROI("Camera"))
+    roi = {
+        "camera": "Camera",
+        "x": 13,
+        "y": 19,
+        "width": 211,
+        "height": 173,
+    }
+    wdg.camera_roi.setRoiValue(roi)
+    wdg.tabs.roi_section.set_checked(True)
+
+    sequence = wdg.value()
+    assert sequence.metadata[PYMMCW_METADATA_KEY][CAMERA_ROI_METADATA_KEY] == {
+        "enabled": True,
+        **roi,
+    }
+    assert tuple(wdg._mmc.getROI("Camera")) == before
+
+    restored = MDAWidgetCollapsible(mmcore=wdg._mmc)
+    qtbot.addWidget(restored)
+    restored.setValue(sequence)
+    assert restored.tabs.roi_section.checked
+    assert restored.camera_roi.roiValue() == roi
+    assert tuple(wdg._mmc.getROI("Camera")) == before
+
+
+def test_collapsible_applies_roi_once_during_preflight(qtbot: QtBot) -> None:
+    wdg = MDAWidgetCollapsible()
+    qtbot.addWidget(wdg)
+    roi = {
+        "camera": "Camera",
+        "x": 10,
+        "y": 20,
+        "width": 200,
+        "height": 180,
+    }
+    wdg.camera_roi.setRoiValue(roi)
+    wdg.tabs.roi_section.set_checked(True)
+
+    with qtbot.waitSignal(wdg._mmc.events.roiSet):
+        assert wdg.prepare_mda() is None
+    assert tuple(wdg._mmc.getROI("Camera")) == (10, 20, 200, 180)
+
+    # A second preflight is idempotent, and disabling ROI restores full chip.
+    wdg.prepare_mda()
+    wdg.tabs.roi_section.set_checked(False)
+    with qtbot.waitSignal(wdg._mmc.events.roiSet):
+        assert wdg.prepare_mda() is None
+    assert tuple(wdg._mmc.getROI("Camera")) == (0, 0, 512, 512)
 
 
 def test_collapsible_runs_acquisition(qtbot: QtBot) -> None:

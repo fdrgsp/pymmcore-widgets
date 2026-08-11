@@ -607,7 +607,7 @@ class _MDAControlButtons(QWidget):
         icon_size = QSize(24, 24)
         self.run_btn = QPushButton("Run")
         self.run_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.run_btn.setIcon(QIconifyIcon("mdi:play-circle-outline", color="lime"))
+        self.run_btn.setIcon(QIconifyIcon("mdi:play-circle-outline", color="green"))
         self.run_btn.setIconSize(icon_size)
 
         self.pause_btn = QPushButton("Pause")

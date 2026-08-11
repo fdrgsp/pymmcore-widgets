@@ -15,6 +15,7 @@ it with a stylesheet.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
@@ -38,7 +39,12 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from pymmcore_widgets.control._camera_roi_widget import CameraRoiWidget
+from pymmcore_widgets.useq_widgets import PYMMCW_METADATA_KEY
+
 from ._core_mda import CoreMDATabs, MDAWidget
+
+CAMERA_ROI_METADATA_KEY = "camera_roi"
 
 if TYPE_CHECKING:
     import useq
@@ -526,11 +532,28 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         axis_order: QComboBox,
         keep_shutter_open: KeepShutterOpen,
         autofocus_axis: AutofocusAxis,
+        camera_roi: CameraRoiWidget,
         save_info: SaveGroupBox,
     ) -> None:
-        """Append the Saving section and global Settings after the five axes."""
+        """Append ROI, Saving, and global Settings after the five axes."""
         if self._supporting_sections_added:
             return
+
+        self.roi_section = CollapsibleAcquisitionSection(
+            "Camera ROI",
+            checked=False,
+            expanded=False,
+            metrics=self._metrics,
+            parent=self._content,
+        )
+        self.roi_section.setObjectName("mdaRoiSection")
+        self.roi_section.set_content_widget(camera_roi)
+        self.roi_section.checkedChanged.connect(self._on_roi_section_checked)
+        camera_roi.layout().setContentsMargins(5, 5, 5, 5)
+        camera_roi.roiChanged.connect(self._on_roi_value_changed)
+        camera_roi.setEnabled(False)
+        self._camera_roi = camera_roi
+        self._content_layout.addWidget(self.roi_section)
 
         self.saving_section = CollapsibleAcquisitionSection(
             "Saving",
@@ -577,6 +600,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
 
         self._save_info = save_info
         self._supporting_sections_added = True
+        self._update_roi_summary()
         self._update_save_summary()
         self._update_settings_summary()
         self.apply_save_body_style()
@@ -606,8 +630,38 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         for widget in self._section_by_widget:
             self._update_axis_summary(widget)
         if self._supporting_sections_added:
+            self._update_roi_summary()
             self._update_save_summary()
             self._update_settings_summary()
+
+    def _on_roi_section_checked(self, checked: bool) -> None:
+        self._camera_roi.setEnabled(self._editor_enabled and checked)
+        self._update_roi_summary()
+
+    def _on_roi_value_changed(
+        self, x: int, y: int, width: int, height: int, _mode: str
+    ) -> None:
+        self._update_roi_summary(x, y, width, height)
+
+    def _update_roi_summary(
+        self,
+        x: int | None = None,
+        y: int | None = None,
+        width: int | None = None,
+        height: int | None = None,
+    ) -> None:
+        if not self.roi_section.checked:
+            self.roi_section.set_summary("Off · Full chip", status=False)
+            return
+        if None in (x, y, width, height):
+            value = self._camera_roi.roiValue()
+            x = value["x"]
+            y = value["y"]
+            width = value["width"]
+            height = value["height"]
+        self.roi_section.set_summary(
+            f"On · {width} x {height} at ({x}, {y})", status=True
+        )
 
     def _update_settings_summary(self, *_: object) -> None:
         # Show the acquisition axis order (e.g. "cz"), and only append the
@@ -678,6 +732,8 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             section.set_checkbox_enabled(enabled)
             widget.setEnabled(enabled and bool(section.checked))
         if self._supporting_sections_added:
+            self.roi_section.set_checkbox_enabled(enabled)
+            self._camera_roi.setEnabled(enabled and bool(self.roi_section.checked))
             self.settings_section._body.setEnabled(enabled)
             self.saving_section.set_checkbox_enabled(enabled)
             self._save_info.setEnabled(enabled)
@@ -791,10 +847,19 @@ class MDAWidgetCollapsible(MDAWidget):
     sections with a fixed execution footer instead of a checkable tab widget.
     """
 
+    roiSelectionRequested = Signal(bool)
+
     def __init__(
         self, *, parent: QWidget | None = None, mmcore: CMMCorePlus | None = None
     ) -> None:
         super().__init__(parent=parent, mmcore=mmcore)
+        self.camera_roi = CameraRoiWidget(
+            parent=self,
+            mmcore=self._mmc,
+            show_auto_snap=False,
+        )
+        self.camera_roi.roiChanged.connect(self.valueChanged.emit)
+        self.camera_roi.roiSelectionRequested.connect(self.roiSelectionRequested.emit)
         self._footer_layout: QVBoxLayout | None = None
         self._install_layout()
 
@@ -820,6 +885,51 @@ class MDAWidgetCollapsible(MDAWidget):
                 metrics.footer_margin_bottom,
             )
 
+    def value(self) -> useq.MDASequence:
+        """Return the sequence with the planned camera ROI in widget metadata."""
+        value = super().value()
+        meta: dict = value.metadata.setdefault(PYMMCW_METADATA_KEY, {})
+        meta[CAMERA_ROI_METADATA_KEY] = {
+            "enabled": self.tabs.roi_section.checked,
+            **self.camera_roi.roiValue(),
+        }
+        return value
+
+    def setValue(self, value: useq.MDASequence) -> None:
+        """Restore the sequence and its planned ROI without changing hardware."""
+        super().setValue(value)
+        raw = value.metadata.get(PYMMCW_METADATA_KEY, {}).get(CAMERA_ROI_METADATA_KEY)
+        enabled = False
+        if isinstance(raw, Mapping):
+            try:
+                self.camera_roi.setRoiValue(raw)
+            except ValueError:
+                pass
+            else:
+                enabled = bool(raw.get("enabled", False))
+        self.tabs.roi_section.set_checked(enabled)
+        self.tabs.refresh_summaries()
+
+    def prepare_mda(self) -> bool | str | Path | None:
+        """Validate the MDA and apply its camera ROI once before acquisition."""
+        output = super().prepare_mda()
+        if isinstance(output, bool):
+            return output
+        self._apply_camera_roi()
+        return output
+
+    def _apply_camera_roi(self) -> None:
+        if not self.tabs.roi_section.checked:
+            self.camera_roi.applyFullFrame()
+            return
+        roi = self.camera_roi.roiValue()
+        camera = roi["camera"]
+        if not camera:
+            return
+        requested = (roi["x"], roi["y"], roi["width"], roi["height"])
+        if tuple(self._mmc.getROI(camera)) != requested:
+            self._mmc.setROI(camera, *requested)
+
     def _enable_widgets(self, enable: bool) -> None:
         """Disable editors during an acquisition while keeping controls usable."""
         self.tabs.set_editor_enabled(enable)
@@ -838,6 +948,7 @@ class MDAWidgetCollapsible(MDAWidget):
             axis_order=self.axis_order,
             keep_shutter_open=self.keep_shutter_open,
             autofocus_axis=self.af_axis,
+            camera_roi=self.camera_roi,
             save_info=self.save_info,
         )
 

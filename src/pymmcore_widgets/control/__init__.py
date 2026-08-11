@@ -1,6 +1,6 @@
 """Widgets that control various devices at runtime."""
 
-from ._camera_roi_widget import CameraRoiWidget
+from ._camera_roi_widget import CameraRoiValue, CameraRoiWidget
 from ._channel_group_widget import ChannelGroupWidget
 from ._channel_widget import ChannelWidget
 from ._exposure_widget import DefaultCameraExposureWidget, ExposureWidget
@@ -14,6 +14,7 @@ from ._stage_explorer import StageExplorer
 from ._stage_widget import StageWidget
 
 __all__ = [
+    "CameraRoiValue",
     "CameraRoiWidget",
     "ChannelGroupWidget",
     "ChannelWidget",
