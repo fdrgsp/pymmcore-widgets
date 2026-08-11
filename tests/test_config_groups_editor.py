@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 from qtpy.QtCore import QItemSelectionModel, Qt
-from qtpy.QtWidgets import QDialog, QMessageBox
+from qtpy.QtWidgets import QDialog, QMessageBox, QSplitter
 
 from pymmcore_widgets import ConfigGroupsEditor
 from pymmcore_widgets._help._config_groups_help import ConfigGroupsHelpDialog
@@ -45,6 +45,33 @@ def test_editor_create_and_data(editor: ConfigGroupsEditor, qtbot: QtBot) -> Non
     editor.setData(groups)
     with qtbot.waitSignal(editor.configChanged):
         editor._add_group()
+
+
+def test_editor_sections_are_side_by_side(editor: ConfigGroupsEditor) -> None:
+    """The navigator and presets table occupy a 1:4 horizontally split row."""
+    main_splitter = next(
+        splitter
+        for splitter in editor.findChildren(QSplitter)
+        if splitter.parent() is editor
+    )
+
+    assert main_splitter.orientation() == Qt.Orientation.Horizontal
+    assert main_splitter.widget(0).isAncestorOf(editor._group_preset_sel)
+    assert main_splitter.widget(1).isAncestorOf(editor._preset_table)
+
+    assert main_splitter.widget(0).sizePolicy().horizontalStretch() == 1
+    assert main_splitter.widget(1).sizePolicy().horizontalStretch() == 4
+
+
+def test_editor_transpose_action_is_in_main_toolbar(
+    editor: ConfigGroupsEditor,
+) -> None:
+    """Transpose is grouped with the editor view controls, not in a lone row."""
+    transpose_action = editor._preset_table.transpose_action
+
+    assert transpose_action in editor._tb.actions()
+    assert transpose_action.text() == "Transpose Table"
+    assert editor._preset_table._toolbar.isHidden()
 
 
 def test_editor_toolbar_states(editor: ConfigGroupsEditor) -> None:

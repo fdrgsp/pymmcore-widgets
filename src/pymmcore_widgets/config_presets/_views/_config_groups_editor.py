@@ -161,6 +161,9 @@ class ConfigGroupsEditor(QWidget):
         # Hide remove/duplicate in the table toolbar — the main toolbar has these
         self._preset_table.remove_action.setVisible(False)
         self._preset_table.duplicate_action.setVisible(False)
+        # Transpose is promoted to the editor toolbar below, so the table does not
+        # need a separate toolbar row for its single remaining action.
+        self._preset_table._toolbar.setVisible(False)
 
         # Set up undo/redo integration
         self._group_preset_sel.setUndoStack(self._undo_stack)
@@ -183,9 +186,11 @@ class ConfigGroupsEditor(QWidget):
         lay.setContentsMargins(margin, margin, margin, margin)
         lay.addWidget(self._preset_table)
 
-        main = QSplitter(Qt.Orientation.Vertical)
+        main = QSplitter(Qt.Orientation.Horizontal)
         main.addWidget(groups_presets)
         main.addWidget(table_group)
+        main.setStretchFactor(0, 1)
+        main.setStretchFactor(1, 4)
 
         # Bottom bar: status indicator (left) + Apply button (right)
         self._status_icon = QLabel(self)
@@ -733,6 +738,13 @@ class _ConfigEditorToolbar(QToolBar):
         ):
             tree_act.setCheckable(True)
             view_action_group.addAction(tree_act)
+
+        if transpose_act := parent._preset_table.transpose_action:
+            transpose_act.setText("Transpose Table")
+            transpose_act.setToolTip("Swap the preset and property axes")
+            self.addAction(transpose_act)
+
+        self.addSeparator()
 
         self.addAction(
             StandardIcon.FOLDER_ADD.icon(),
