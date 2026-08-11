@@ -856,8 +856,9 @@ class MDAWidgetCollapsible(MDAWidget):
         self.camera_roi = CameraRoiWidget(
             parent=self,
             mmcore=self._mmc,
-            show_auto_snap=False,
+            show_auto_snap=True,
         )
+        self.camera_roi.snap_checkbox.setChecked(True)
         self.camera_roi.roiChanged.connect(self.valueChanged.emit)
         self.camera_roi.roiSelectionRequested.connect(self.roiSelectionRequested.emit)
         self._footer_layout: QVBoxLayout | None = None

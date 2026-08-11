@@ -66,7 +66,8 @@ def test_collapsible_is_mda_widget(qtbot: QtBot) -> None:
     assert wdg.tabs.saving_section is wdg.tabs.sections[-2]
     assert wdg.tabs.settings_section is wdg.tabs.sections[-1]
     assert wdg.tabs.tabBar().isHidden()
-    assert wdg.camera_roi.snap_checkbox.isHidden()
+    assert not wdg.camera_roi.snap_checkbox.isHidden()
+    assert wdg.camera_roi.snap_checkbox.isChecked()
 
     # Enabling the supporting section must not imply a cropped ROI.
     assert wdg.camera_roi.camera_roi_combo.currentText() == "Full Chip"
