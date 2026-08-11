@@ -648,22 +648,25 @@ class _PropertySelector(QWidget):
         )
         self._prop_table.setRowsCheckable(True)
 
-        table_and_filter = QWidget()
-        table_and_filter_layout = QVBoxLayout(table_and_filter)
-        table_and_filter_layout.setContentsMargins(0, 0, 0, 0)
-        table_and_filter_layout.addWidget(self._filter_text)
-        table_and_filter_layout.addWidget(self._prop_table)
+        property_selector = QWidget()
+        property_selector_layout = QVBoxLayout(property_selector)
+        property_selector_layout.setContentsMargins(0, 0, 0, 0)
+        property_selector_layout.addWidget(self._device_toolbar)
+        property_selector_layout.addWidget(self._filter_text)
+        property_selector_layout.addWidget(self._prop_table)
 
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setContentsMargins(0, 0, 0, 0)
         splitter.setChildrenCollapsible(False)
+        splitter.addWidget(property_selector)
         splitter.addWidget(self._prop_viewer)
-        splitter.addWidget(table_and_filter)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([300, 100])
 
         # main layout
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.addWidget(self._device_toolbar)
         main_layout.addWidget(splitter)
 
         # connect

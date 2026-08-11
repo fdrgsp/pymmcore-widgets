@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 from pymmcore_plus.model import PixelSizePreset, Setting
 from qtpy.QtCore import Qt
+from qtpy.QtWidgets import QSplitter
 
 from pymmcore_widgets.config_presets._pixel_configuration_widget import (
     ID,
@@ -61,6 +62,34 @@ def test_pixel_config_wdg(qtbot: QtBot, global_mmcore: CMMCorePlus):
 
     assert wdg.value()[0].affine == (0.5, 0.0, 0.0, 0.0, 0.5, 0.0)
     assert wdg.value()[1].affine == (2, 0.0, 0.0, 0.0, 2, 0.0)
+
+
+def test_selected_properties_are_below_property_selector(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """The selected-property table is below the complete property picker."""
+    wdg = PixelConfigurationWidget()
+    qtbot.addWidget(wdg)
+    selector = wdg._props_selector
+    splitter = next(
+        child
+        for child in selector.findChildren(QSplitter)
+        if child.parent() is selector
+    )
+
+    assert splitter.orientation() == Qt.Orientation.Vertical
+    assert splitter.widget(0).isAncestorOf(selector._device_toolbar)
+    assert splitter.widget(0).isAncestorOf(selector._filter_text)
+    assert splitter.widget(0).isAncestorOf(selector._prop_table)
+    assert splitter.widget(1) is selector._prop_viewer
+    assert splitter.widget(0).sizePolicy().verticalStretch() == 3
+    assert splitter.widget(1).sizePolicy().verticalStretch() == 1
+
+    wdg.resize(1200, 800)
+    wdg.show()
+    qtbot.waitExposed(wdg)
+    picker_height, selected_height = splitter.sizes()
+    assert picker_height / selected_height == pytest.approx(3, rel=0.1)
 
 
 def test_pixel_config_wdg_sys_cfg_load(qtbot: QtBot):
