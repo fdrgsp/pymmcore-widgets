@@ -27,6 +27,7 @@ from pymmcore_widgets.mda._core_z import (
     CoreConnectedZPlanWidget,
     _suggested_step_from_name,
 )
+from pymmcore_widgets.mda._xy_bounds import CoreXYBoundsControl
 from pymmcore_widgets.useq_widgets._mda_sequence import (
     AF_AXIS_TOOLTIP,
     AF_DISABLED_TOOLTIP,
@@ -1229,6 +1230,34 @@ def test_grid_plan_fov_update(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
         mmc.setPixelSizeConfig("Res20x")
     assert wdg.value().grid_plan.fov_width == 50
     assert wdg.value().grid_plan.fov_height == 75
+
+
+def test_xy_bounds_mark_uses_outer_edge(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    # GridFromEdges expects each bound to be the *outer* edge of the image at
+    # that position (including the field of view), not the camera-center
+    # stage position -- marking a bound must shift by half a FOV outward.
+    mmc = global_mmcore
+    mmc.setROI(0, 0, 100, 200)  # fov_width=100um, fov_height=200um @ px=1.0
+
+    wdg = CoreXYBoundsControl(core=mmc)
+    qtbot.addWidget(wdg)
+
+    device = mmc.getXYStageDevice()
+    mmc.setXYPosition(device, 10.0, 20.0)
+    mmc.waitForDevice(device)
+    wdg.btn_top.click()
+    wdg.btn_left.click()
+    assert wdg.top.value() == pytest.approx(20.0 + 100.0, abs=0.01)
+    assert wdg.left.value() == pytest.approx(10.0 - 50.0, abs=0.01)
+
+    mmc.setXYPosition(device, 30.0, 40.0)
+    mmc.waitForDevice(device)
+    wdg.btn_bottom.click()
+    wdg.btn_right.click()
+    assert wdg.bottom.value() == pytest.approx(40.0 - 100.0, abs=0.01)
+    assert wdg.right.value() == pytest.approx(30.0 + 50.0, abs=0.01)
 
 
 def test_grid_plan_subsequence_fov_update(

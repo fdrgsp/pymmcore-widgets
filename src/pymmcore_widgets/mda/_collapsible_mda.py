@@ -366,6 +366,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         self._widget_by_logical_index: dict[int, QWidget] = {}
         self._supporting_sections_added = False
         self._editor_enabled = True
+        self._restoring_roi_section = False
         super().__init__(parent, core)
 
         # ``_sections_ready`` is still False, so ``self.isChecked`` routes to the
@@ -636,6 +637,18 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
 
     def _on_roi_section_checked(self, checked: bool) -> None:
         self._camera_roi.setEnabled(self._editor_enabled and checked)
+        if not checked and not self._restoring_roi_section:
+            # Mirrors MDAWidgetCollapsible._apply_camera_roi's prepare_mda-time
+            # reset, just triggered immediately so Live reflects "not using an
+            # ROI" right away instead of waiting for the next MDA run's own
+            # preflight. The planned ROI is restored into the editor right after,
+            # so re-checking still shows exactly what was configured before --
+            # only the real hardware moves, not the widget's remembered plan.
+            planned_roi = self._camera_roi.roiValue()
+            try:
+                self._camera_roi.applyFullFrame()
+            finally:
+                self._camera_roi.setRoiValue(planned_roi)
         self._update_roi_summary()
 
     def _on_roi_value_changed(
@@ -908,7 +921,14 @@ class MDAWidgetCollapsible(MDAWidget):
                 pass
             else:
                 enabled = bool(raw.get("enabled", False))
-        self.tabs.roi_section.set_checked(enabled)
+        # Restoring a saved sequence must not reach out and change live hardware
+        # as a side effect of setting the checkbox -- only an interactive uncheck
+        # should do that (see CollapsibleCoreMDATabs._on_roi_section_checked).
+        self.tabs._restoring_roi_section = True
+        try:
+            self.tabs.roi_section.set_checked(enabled)
+        finally:
+            self.tabs._restoring_roi_section = False
         self.tabs.refresh_summaries()
 
     def prepare_mda(self) -> bool | str | Path | None:

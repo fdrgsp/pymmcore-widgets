@@ -290,6 +290,47 @@ def test_collapsible_roi_round_trip_without_hardware_change(qtbot: QtBot) -> Non
     assert tuple(wdg._mmc.getROI("Camera")) == before
 
 
+def test_collapsible_restoring_disabled_roi_does_not_touch_hardware(
+    qtbot: QtBot,
+) -> None:
+    # Regression test: unchecking the ROI section interactively now resets
+    # hardware to full chip immediately (see
+    # test_collapsible_applies_roi_once_during_preflight), but restoring a
+    # previously saved sequence -- which sets the checkbox programmatically --
+    # must not reach out and change live hardware as a side effect.
+    wdg = MDAWidgetCollapsible()
+    qtbot.addWidget(wdg)
+    roi = {
+        "camera": "Camera",
+        "x": 7,
+        "y": 11,
+        "width": 123,
+        "height": 97,
+    }
+    wdg.camera_roi.setRoiValue(roi)
+    wdg.tabs.roi_section.set_checked(True)
+    sequence = wdg.value()
+
+    other = MDAWidgetCollapsible()
+    qtbot.addWidget(other)
+    before = tuple(other._mmc.getROI("Camera"))
+    # enabled=False: the exact state that now triggers a hardware reset when
+    # the checkbox is toggled interactively.
+    sequence = sequence.replace(
+        metadata={
+            **sequence.metadata,
+            PYMMCW_METADATA_KEY: {
+                **sequence.metadata[PYMMCW_METADATA_KEY],
+                CAMERA_ROI_METADATA_KEY: {**roi, "enabled": False},
+            },
+        }
+    )
+    other.setValue(sequence)
+    assert not other.tabs.roi_section.checked
+    assert other.camera_roi.roiValue() == roi
+    assert tuple(other._mmc.getROI("Camera")) == before
+
+
 def test_collapsible_applies_roi_once_during_preflight(qtbot: QtBot) -> None:
     wdg = MDAWidgetCollapsible()
     qtbot.addWidget(wdg)
@@ -307,17 +348,25 @@ def test_collapsible_applies_roi_once_during_preflight(qtbot: QtBot) -> None:
         assert wdg.prepare_mda() is None
     assert tuple(wdg._mmc.getROI("Camera")) == (10, 20, 200, 180)
 
-    # A second preflight is idempotent, and disabling ROI restores full chip.
+    # A second preflight is idempotent.
     wdg.prepare_mda()
-    wdg.tabs.roi_section.set_checked(False)
+
+    # Unchecking the section restores full chip immediately -- Live shouldn't
+    # have to wait for the next preflight to reflect "not using an ROI" -- but
+    # keeps the planned ROI in the editor so it can still be re-applied.
     with qtbot.waitSignal(wdg._mmc.events.roiSet):
-        assert wdg.prepare_mda() is None
+        wdg.tabs.roi_section.set_checked(False)
     assert tuple(wdg._mmc.getROI("Camera")) == (0, 0, 512, 512)
     assert wdg.camera_roi.roiValue() == roi
     assert wdg.value().metadata[PYMMCW_METADATA_KEY][CAMERA_ROI_METADATA_KEY] == {
         "enabled": False,
         **roi,
     }
+
+    # A preflight while disabled is then idempotent too -- hardware already
+    # matches, so no further roiSet fires.
+    assert wdg.prepare_mda() is None
+    assert tuple(wdg._mmc.getROI("Camera")) == (0, 0, 512, 512)
 
     # Re-enabling the section applies the retained plan.
     wdg.tabs.roi_section.set_checked(True)

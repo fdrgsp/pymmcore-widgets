@@ -306,13 +306,25 @@ class CoreXYBoundsControl(XYBoundsControl):
         self._visit(top, left) if self.go_middle.isChecked() else self._mark(top, left)
 
     def _mark(self, top: bool | None = None, left: bool | None = None) -> None:
+        # useq.GridFromEdges expects each bound to be the *outer* edge of the
+        # image at that position (i.e. including the field of view), not the
+        # camera-center stage position marked here -- so shift by half a FOV
+        # outward (top: +y, bottom: -y, left: -x, right: +x), matching the
+        # max(top, bottom) / min(left, right) convention GridFromEdges itself
+        # uses to compute tile centers.
         device = self._device or self._mmc.getXYStageDevice()
+        fov_w = fov_h = 0.0
+        if px := self._mmc.getPixelSizeUm():
+            *_, width, height = self._mmc.getROI()
+            fov_w, fov_h = width * px, height * px
         if top is not None:
             wdg = self.top if top else self.bottom
-            wdg.setValue(self._mmc.getYPosition(device))
+            y = self._mmc.getYPosition(device)
+            wdg.setValue(y + (fov_h / 2 if top else -fov_h / 2))
         if left is not None:
             wdg = self.left if left else self.right
-            wdg.setValue(self._mmc.getXPosition(device))
+            x = self._mmc.getXPosition(device)
+            wdg.setValue(x + (-fov_w / 2 if left else fov_w / 2))
 
     def _visit(self, top: bool | None = None, left: bool | None = None) -> None:
         device = self._device or self._mmc.getXYStageDevice()
