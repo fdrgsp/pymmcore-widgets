@@ -152,11 +152,26 @@ def get_next_available_path(requested_path: Path | str, min_digits: int = 3) -> 
             requested_num = int(num)
             stem = base_stem
 
-    # look for existing files in the folder that share the same base stem
+    # look for existing files in the folder that share the same base stem.
+    # Multi-file formats (e.g. multi-position OME-TIFF) collapse the requested
+    # "<stem><extension>" file into a bare "<stem>" directory holding one file
+    # per position, so also match directories that dropped the extension.
     current_max = 0
-    for existing in directory.glob(f"{stem}*{extension}"):
-        # cannot use existing.stem because of the ome (2-part-extension) special case
-        base = existing.name.replace(extension, "")
+    exists = requested_path.exists() or (
+        bool(extension) and (directory / stem).exists()
+    )
+    for existing in directory.glob(f"{stem}*"):
+        name = existing.name
+        if not extension:
+            # cannot use existing.stem because of the ome (2-part-extension)
+            # special case
+            base = name
+        elif name.endswith(extension):
+            base = name.replace(extension, "")
+        elif existing.is_dir():
+            base = name
+        else:
+            continue
         # if the base name ends with a number, increase the current_max
         if (match := NUM_SPLIT.match(base)) and (num := match.group(2)):
             current_max = max(int(num), current_max)
@@ -166,7 +181,7 @@ def get_next_available_path(requested_path: Path | str, min_digits: int = 3) -> 
 
     # if the path does not exist and there are no existing files,
     # return the requested path
-    if not requested_path.exists() and current_max == 0:
+    if not exists and current_max == 0:
         return requested_path
 
     current_max += 1

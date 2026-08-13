@@ -824,6 +824,28 @@ def test_get_next_available_paths_special_cases(tmp_path: Path) -> None:
     assert get_next_available_path(high).name == "test_12346.txt"
 
 
+def test_get_next_available_paths_multi_position_directory(tmp_path: Path) -> None:
+    # Multi-position OME-TIFF (and similar multi-file formats) collapse the
+    # requested "<stem><extension>" file into a bare "<stem>" directory
+    # holding one file per position, e.g. "sample.ome.tiff" -> "sample/" with
+    # "sample_p000.ome.tiff", "sample_p001.ome.tiff", ...
+    requested = tmp_path / "sample.ome.tiff"
+
+    run1_dir = tmp_path / "sample"
+    run1_dir.mkdir()
+    (run1_dir / "sample_p000.ome.tiff").touch()
+    (run1_dir / "sample_p001.ome.tiff").touch()
+
+    assert get_next_available_path(requested) == tmp_path / "sample_001.ome.tiff"
+
+    run2_dir = tmp_path / "sample_001"
+    run2_dir.mkdir()
+    (run2_dir / "sample_001_p000.ome.tiff").touch()
+    (run2_dir / "sample_001_p001.ome.tiff").touch()
+
+    assert get_next_available_path(requested) == tmp_path / "sample_002.ome.tiff"
+
+
 def test_core_mda_with_hcs_value(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
     wdg = MDAWidget()
     qtbot.addWidget(wdg)
