@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -45,6 +46,8 @@ else:
 # suppress scientific notation when printing numpy arrays
 np.set_printoptions(suppress=True)
 
+logger = logging.getLogger(__name__)
+
 STAGE_POLL_INTERVAL_MS = 100
 STAGE_POS_TOLERANCE_UM_SQ = 0.01  # 0.1 µm squared
 
@@ -65,9 +68,26 @@ class _StagePoller(QThread):
         poll, emit the positionChanged signal with the new stage position.
         """
         last: tuple[float, float] | None = None
+        was_erroring = False
         while not self.isInterruptionRequested():
             if self._mmc.getXYStageDevice():
-                x, y = self._mmc.getXYPosition()
+                try:
+                    x, y = self._mmc.getXYPosition()
+                except Exception:
+                    # A transient hardware/communication error here must not
+                    # kill this thread -- an uncaught exception ends run(), and
+                    # nothing ever restarts it, permanently freezing the
+                    # explorer's position display for the rest of the session
+                    # even after the device recovers and manual moves keep
+                    # working fine. Log once per failure streak, not every
+                    # poll, so a persistent fault doesn't spam the log every
+                    # STAGE_POLL_INTERVAL_MS.
+                    if not was_erroring:
+                        logger.exception("Failed to poll XY stage position")
+                        was_erroring = True
+                    self.msleep(STAGE_POLL_INTERVAL_MS)
+                    continue
+                was_erroring = False
                 if last is not None:
                     dx, dy = x - last[0], y - last[1]
                     if dx * dx + dy * dy < STAGE_POS_TOLERANCE_UM_SQ:
@@ -573,8 +593,14 @@ class StageExplorer(QWidget):
             return
         # get the snapped image
         img = self._mmc.getImage()
-        # get the current stage position
-        x, y = self._mmc.getXYPosition()
+        # get the current stage position -- a transient stage error here must
+        # not drop the already-captured image, so log and skip placing it
+        # rather than propagating (see _StagePoller.run for the same fault).
+        try:
+            x, y = self._mmc.getXYPosition()
+        except Exception:
+            logger.exception("Failed to read XY stage position for snapped image")
+            return
         self._add_image_and_update_widget(img, x, y)
 
     @Slot(object, object)

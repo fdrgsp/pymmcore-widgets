@@ -19,6 +19,8 @@ from pymmcore_widgets.control._stage_explorer._stage_explorer import (
 from pymmcore_widgets.control._stage_explorer._stage_viewer import StageViewer
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from pytestqt.qtbot import QtBot
 
 IMG = np.random.randint(0, 255, (100, 50), dtype=np.uint8)
@@ -157,6 +159,38 @@ def test_stage_explorer_position_indicator(qtbot: QtBot) -> None:
 
     assert explorer._poll_stage_position is False
     assert not explorer._stage_poller.isRunning()
+
+
+def test_stage_poller_survives_transient_hardware_error(qtbot: QtBot) -> None:
+    """A getXYPosition failure must not permanently kill the poller thread.
+
+    Regression test: the poller's run() loop used to call getXYPosition() with
+    no exception handling, so an uncaught error (e.g. a transient stage
+    communication fault) ended the QThread's run() method for good -- nothing
+    ever restarted it, silently freezing the position display for the rest of
+    the session even after the device recovered.
+    """
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    assert explorer._stage_poller.isRunning()
+
+    real_getXYPosition = explorer._mmc.getXYPosition
+    calls = {"n": 0}
+
+    def flaky_getXYPosition(*args: object, **kwargs: object) -> Sequence[float]:
+        calls["n"] += 1
+        if calls["n"] <= 3:
+            raise RuntimeError('Error in device "XYStage": (Error message unavailable)')
+        return real_getXYPosition(*args, **kwargs)
+
+    with patch.object(explorer._mmc, "getXYPosition", flaky_getXYPosition):
+        # The thread must still be alive and retrying after several failures.
+        qtbot.waitUntil(lambda: calls["n"] > 3, timeout=2000)
+        assert explorer._stage_poller.isRunning()
+
+        # And it recovers on its own once the device starts responding again.
+        qtbot.waitUntil(lambda: explorer._stage_pos_marker is not None, timeout=2000)
+    assert explorer._stage_poller.isRunning()
 
 
 def test_mouse_hover_shows_position(qtbot: QtBot) -> None:
