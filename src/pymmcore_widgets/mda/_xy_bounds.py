@@ -279,6 +279,9 @@ class CoreXYBoundsControl(XYBoundsControl):
         super().__init__(compact_layout, parent)
         self._mmc = core or CMMCorePlus.instance()
         self._device = device
+        # Raw (uncorrected) centers marked this session, keyed by "top",
+        # "bottom", "left", "right" -- see _mark_axis.
+        self._raw_marks: dict[str, float] = {}
 
         self.top = self._bounds_wdg.top
         self.left = self._bounds_wdg.left
@@ -301,30 +304,79 @@ class CoreXYBoundsControl(XYBoundsControl):
     def setValue(self, plan: useq.GridFromEdges) -> None:
         """Set the value of the grid plan widget."""
         self._bounds_wdg.setValue(plan)
+        # These marks belong to whatever region was previously being defined
+        # interactively; a freshly loaded plan should not anchor future marks
+        # to them.
+        self._raw_marks.clear()
 
     def _mark_or_visit(self, top: bool | None = None, left: bool | None = None) -> None:
         self._visit(top, left) if self.go_middle.isChecked() else self._mark(top, left)
 
     def _mark(self, top: bool | None = None, left: bool | None = None) -> None:
-        # useq.GridFromEdges expects each bound to be the *outer* edge of the
-        # image at that position (i.e. including the field of view), not the
-        # camera-center stage position marked here -- so shift by half a FOV
-        # outward (top: +y, bottom: -y, left: -x, right: +x), matching the
-        # max(top, bottom) / min(left, right) convention GridFromEdges itself
-        # uses to compute tile centers.
         device = self._device or self._mmc.getXYStageDevice()
         fov_w = fov_h = 0.0
         if px := self._mmc.getPixelSizeUm():
             *_, width, height = self._mmc.getROI()
             fov_w, fov_h = width * px, height * px
         if top is not None:
-            wdg = self.top if top else self.bottom
             y = self._mmc.getYPosition(device)
-            wdg.setValue(y + (fov_h / 2 if top else -fov_h / 2))
+            key, other_key = ("top", "bottom") if top else ("bottom", "top")
+            wdg, other_wdg = (self.top, self.bottom) if top else (self.bottom, self.top)
+            self._mark_axis(y, key, other_key, wdg, other_wdg, fov_h)
         if left is not None:
-            wdg = self.left if left else self.right
             x = self._mmc.getXPosition(device)
-            wdg.setValue(x + (-fov_w / 2 if left else fov_w / 2))
+            key, other_key = ("left", "right") if left else ("right", "left")
+            wdg, other_wdg = (
+                (self.left, self.right) if left else (self.right, self.left)
+            )
+            self._mark_axis(x, key, other_key, wdg, other_wdg, fov_w)
+
+    def _mark_axis(
+        self,
+        raw: float,
+        key: str,
+        other_key: str,
+        wdg: QDoubleSpinBox,
+        other_wdg: QDoubleSpinBox,
+        extent: float,
+    ) -> None:
+        """Record *raw* for *key* and push both ends of this axis outward.
+
+        useq.GridFromEdges expects each bound to be the *outer* edge of the
+        image at that position (i.e. including the field of view), not the
+        camera-center stage position marked here -- and it only ever reads a
+        pair of bounds via ``max(top, bottom)`` / ``min(left, right)``, never
+        by trusting which field is "top" and which is "bottom" (see its
+        ``_offset_x``/``_offset_y``). So rather than assuming stage position
+        increases toward "top" or "right" -- an axis-orientation convention
+        that not every XY stage shares -- the outward direction is derived by
+        comparing the two raw marked centers directly: whichever is
+        numerically larger gets pushed further out that way, whichever is
+        smaller gets pushed the other way. This self-corrects even if the
+        first of the pair had nothing to compare against yet (see below).
+        """
+        self._raw_marks[key] = raw
+        exact_other_raw = self._raw_marks.get(other_key)
+        if exact_other_raw is None:
+            # Nothing marked yet this session to compare against. Falling
+            # back to the other field's *current* displayed value still
+            # gives the right direction whenever it holds a real bound (e.g.
+            # restored from a saved plan) -- it's off by half an extent from
+            # that bound's own raw center, which only matters if the two
+            # ends are implausibly close together. If it's still at its
+            # untouched default, this is a best-effort guess for a single,
+            # brand-new mark with no reference at all; marking the opposite
+            # end afterward re-derives both from their exact raw values below.
+            reference = other_wdg.value()
+        else:
+            reference = exact_other_raw
+        outward = extent / 2 if raw >= reference else -extent / 2
+        wdg.setValue(raw + outward)
+        if exact_other_raw is not None:
+            # Both raw centers are known exactly -- recompute the opposite
+            # bound too, in case its own earlier mark had only the fallback
+            # reference above to go on.
+            other_wdg.setValue(exact_other_raw - outward)
 
     def _visit(self, top: bool | None = None, left: bool | None = None) -> None:
         device = self._device or self._mmc.getXYStageDevice()

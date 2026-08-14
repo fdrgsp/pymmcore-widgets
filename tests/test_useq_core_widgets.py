@@ -1237,7 +1237,8 @@ def test_xy_bounds_mark_uses_outer_edge(
 ) -> None:
     # GridFromEdges expects each bound to be the *outer* edge of the image at
     # that position (including the field of view), not the camera-center
-    # stage position -- marking a bound must shift by half a FOV outward.
+    # stage position -- marking a bound must expand the span by one full FOV
+    # (half on each end) once both ends of an axis are known.
     mmc = global_mmcore
     mmc.setROI(0, 0, 100, 200)  # fov_width=100um, fov_height=200um @ px=1.0
 
@@ -1249,15 +1250,113 @@ def test_xy_bounds_mark_uses_outer_edge(
     mmc.waitForDevice(device)
     wdg.btn_top.click()
     wdg.btn_left.click()
-    assert wdg.top.value() == pytest.approx(20.0 + 100.0, abs=0.01)
-    assert wdg.left.value() == pytest.approx(10.0 - 50.0, abs=0.01)
 
     mmc.setXYPosition(device, 30.0, 40.0)
     mmc.waitForDevice(device)
     wdg.btn_bottom.click()
     wdg.btn_right.click()
-    assert wdg.bottom.value() == pytest.approx(40.0 - 100.0, abs=0.01)
-    assert wdg.right.value() == pytest.approx(30.0 + 50.0, abs=0.01)
+
+    # top/bottom marked at Y=20 and Y=40 respectively: span expands from the
+    # raw 20um to 20 + fov_height(200) = 220um, however that 220 splits
+    # between the two fields.
+    assert abs(wdg.top.value() - wdg.bottom.value()) == pytest.approx(220.0, abs=0.01)
+    assert max(wdg.top.value(), wdg.bottom.value()) == pytest.approx(
+        40.0 + 100.0, abs=0.01
+    )
+    assert min(wdg.top.value(), wdg.bottom.value()) == pytest.approx(
+        20.0 - 100.0, abs=0.01
+    )
+    # left/right marked at X=10 and X=30 respectively: span expands from the
+    # raw 20um to 20 + fov_width(100) = 120um.
+    assert abs(wdg.left.value() - wdg.right.value()) == pytest.approx(120.0, abs=0.01)
+    assert max(wdg.left.value(), wdg.right.value()) == pytest.approx(
+        30.0 + 50.0, abs=0.01
+    )
+    assert min(wdg.left.value(), wdg.right.value()) == pytest.approx(
+        10.0 - 50.0, abs=0.01
+    )
+
+
+def test_xy_bounds_mark_is_independent_of_stage_axis_orientation(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """The marked span expands correctly even if "top" ends up the smaller Y.
+
+    Regression test: not every XY stage reports Y increasing toward the
+    physical "top" -- some report the opposite (a Transpose/Mirror setting on
+    the stage device). Marking must expand the region outward either way,
+    rather than only working when "top" happens to be the numerically larger
+    value -- which previously produced a *smaller* region than requested
+    (each end shifted inward by half a FOV) when that assumption didn't hold.
+    """
+    mmc = global_mmcore
+    mmc.setROI(0, 0, 100, 200)  # fov_width=100um, fov_height=200um @ px=1.0
+
+    wdg = CoreXYBoundsControl(core=mmc)
+    qtbot.addWidget(wdg)
+
+    device = mmc.getXYStageDevice()
+    # "Top" marked at a *smaller* raw Y than "bottom" -- the opposite of the
+    # useq/Cartesian assumption that top = max(Y).
+    mmc.setXYPosition(device, 10.0, 5.0)
+    mmc.waitForDevice(device)
+    wdg.btn_top.click()
+
+    mmc.setXYPosition(device, 10.0, 105.0)
+    mmc.waitForDevice(device)
+    wdg.btn_bottom.click()
+
+    raw_span = 105.0 - 5.0
+    assert abs(wdg.top.value() - wdg.bottom.value()) == pytest.approx(
+        raw_span + 200.0, abs=0.01
+    )
+
+
+def test_xy_bounds_mark_corners_expand_region(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Marking two opposite corners in one click each still expands correctly."""
+    mmc = global_mmcore
+    mmc.setROI(0, 0, 100, 200)  # fov_width=100um, fov_height=200um @ px=1.0
+
+    wdg = CoreXYBoundsControl(core=mmc)
+    qtbot.addWidget(wdg)
+
+    device = mmc.getXYStageDevice()
+    mmc.setXYPosition(device, 10.0, 40.0)
+    mmc.waitForDevice(device)
+    wdg.btn_top_left.click()
+
+    mmc.setXYPosition(device, 30.0, 20.0)
+    mmc.waitForDevice(device)
+    wdg.btn_bottom_right.click()
+
+    assert abs(wdg.top.value() - wdg.bottom.value()) == pytest.approx(
+        20.0 + 200.0, abs=0.01
+    )
+    assert abs(wdg.left.value() - wdg.right.value()) == pytest.approx(
+        20.0 + 100.0, abs=0.01
+    )
+
+
+def test_xy_bounds_set_value_clears_raw_marks(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Loading a saved plan must not anchor a later mark to a stale region."""
+    mmc = global_mmcore
+    mmc.setROI(0, 0, 100, 200)
+
+    wdg = CoreXYBoundsControl(core=mmc)
+    qtbot.addWidget(wdg)
+
+    device = mmc.getXYStageDevice()
+    mmc.setXYPosition(device, 0.0, 0.0)
+    mmc.waitForDevice(device)
+    wdg.btn_top.click()
+    assert "top" in wdg._raw_marks
+
+    wdg.setValue(useq.GridFromEdges(top=500, bottom=100, left=100, right=500))
+    assert wdg._raw_marks == {}
 
 
 def test_grid_plan_subsequence_fov_update(
