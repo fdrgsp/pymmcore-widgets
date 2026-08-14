@@ -1359,6 +1359,47 @@ def test_xy_bounds_set_value_clears_raw_marks(
     assert wdg._raw_marks == {}
 
 
+def test_xy_bounds_visit_returns_to_marked_position(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Move-to-corner must return to the raw marked position, not its outer edge.
+
+    Regression test: _mark_axis pushes the *displayed* bound outward by half
+    a FOV so GridFromEdges gets the correct outer edge (see
+    test_xy_bounds_mark_uses_outer_edge) -- but _visit was feeding that
+    outward-pushed edge value straight to setXYPosition instead of undoing
+    the push, so "Move" to a marked corner overshot it by half a FOV.
+    """
+    mmc = global_mmcore
+    mmc.setROI(0, 0, 100, 200)  # fov_width=100um, fov_height=200um @ px=1.0
+
+    wdg = CoreXYBoundsControl(core=mmc)
+    qtbot.addWidget(wdg)
+
+    device = mmc.getXYStageDevice()
+    mmc.setXYPosition(device, 10.0, 40.0)
+    mmc.waitForDevice(device)
+    wdg.btn_top_left.click()
+
+    mmc.setXYPosition(device, 30.0, 20.0)
+    mmc.waitForDevice(device)
+    wdg.btn_bottom_right.click()
+
+    # sanity check: the displayed bound is NOT the raw marked position (it's
+    # pushed outward by half a FOV) -- otherwise "visit" landing there
+    # wouldn't be distinguishable from landing at the marked position.
+    assert wdg.top.value() != pytest.approx(40.0, abs=0.01)
+    assert wdg.left.value() != pytest.approx(10.0, abs=0.01)
+
+    wdg.go_middle.setChecked(True)
+    mmc.setXYPosition(device, 999.0, 999.0)
+    mmc.waitForDevice(device)
+    wdg.btn_top_left.click()
+
+    assert mmc.getXPosition(device) == pytest.approx(10.0, abs=0.01)
+    assert mmc.getYPosition(device) == pytest.approx(40.0, abs=0.01)
+
+
 def test_grid_plan_subsequence_fov_update(
     qtbot: QtBot, global_mmcore: CMMCorePlus
 ) -> None:

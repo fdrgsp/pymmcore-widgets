@@ -382,12 +382,16 @@ class CoreXYBoundsControl(XYBoundsControl):
         device = self._device or self._mmc.getXYStageDevice()
         if top is None:
             y = self._mmc.getYPosition(device)
+        elif top:
+            y = self._raw_marks.get("top", self.top.value())
         else:
-            y = self.top.value() if top else self.bottom.value()
+            y = self._raw_marks.get("bottom", self.bottom.value())
         if left is None:
             x = self._mmc.getXPosition(device)
+        elif left:
+            x = self._raw_marks.get("left", self.left.value())
         else:
-            x = self.left.value() if left else self.right.value()
+            x = self._raw_marks.get("right", self.right.value())
 
         self._mmc.setXYPosition(device, x, y)
         self._mmc.waitForDevice(device)
