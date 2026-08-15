@@ -62,7 +62,6 @@ def test_pixel_config_wdg(qtbot: QtBot, global_mmcore: CMMCorePlus):
 
     # the value table shows the properties of the selected resolutionID
     assert _displayed(wdg) == [("Objective", "Label", "Nikon 10X S Fluor")]
-    assert wdg._value_table.title() == "Property Values: Res10x"
 
     wdg.setValue(TEST_VALUE)
     assert _displayed(wdg) == [
@@ -377,7 +376,6 @@ def test_pixel_config_rename(qtbot: QtBot, global_mmcore: CMMCorePlus):
 
     wdg._px_table.table().item(0, 0).setText("Renamed")
     assert wdg.value()[0].name == "Renamed"
-    assert wdg._value_table.title() == "Property Values: Renamed"
 
 
 def test_delete_resID(qtbot: QtBot, global_mmcore: CMMCorePlus):

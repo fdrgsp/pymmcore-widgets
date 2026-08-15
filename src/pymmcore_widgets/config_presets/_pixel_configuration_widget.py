@@ -353,7 +353,6 @@ class PixelConfigurationWidget(QWidget):
         self._value_table.setSettings([])
         self._value_table.view.setEnabled(False)
         self._value_table.act_edit_props.setEnabled(False)
-        self._value_table.setTitle("Property Values:")
 
     def _settings_for_row(self, row: int) -> list[DevicePropertySetting]:
         """Return the settings of resolutionID `row` enriched with property metadata.
@@ -382,13 +381,11 @@ class PixelConfigurationWidget(QWidget):
             # "Edit Properties" acts on every resolutionID, so it stays usable
             # as long as there is one, even with nothing selected
             self._value_table.act_edit_props.setEnabled(bool(self._resID_map))
-            self._value_table.setTitle("Property Values:")
             return
 
         self._value_table.setSettings(self._settings_for_row(row))
         self._value_table.view.setEnabled(True)
         self._value_table.act_edit_props.setEnabled(True)
-        self._value_table.setTitle(f"Property Values: {self._resID_map[row].name}")
 
     @Slot()
     def _on_property_value_edited(self) -> None:
@@ -525,8 +522,6 @@ class PixelConfigurationWidget(QWidget):
             return
 
         self._resID_map[res_ID_row].name = res_ID_name
-        if self._selected_row() == res_ID_row:
-            self._value_table.setTitle(f"Property Values: {res_ID_name}")
 
     def _value_to_dict(
         self, value: list[PixelSizePreset]
@@ -939,13 +934,11 @@ class _PropertyValueTable(QWidget):
         )
         self.act_remove_props.setEnabled(False)
 
-        self._title = QLabel(self)
         self._toolbar = QToolBar(self)
         self._toolbar.setFloatable(False)
         # match the icon size of the resolutionID table's toolbar, so the two
         # panels line up
         self._toolbar.setIconSize(QSize(22, 22))
-        self._toolbar.addWidget(self._title)
         spacer = QWidget(self)
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._toolbar.addWidget(spacer)
@@ -962,14 +955,6 @@ class _PropertyValueTable(QWidget):
         if sm := self.view.selectionModel():
             sm.selectionChanged.connect(self._update_remove_action)
         self._model.modelReset.connect(self._update_remove_action)
-
-    def title(self) -> str:
-        """Return the text shown at the left of the toolbar."""
-        return str(self._title.text())
-
-    def setTitle(self, title: str) -> None:
-        """Set the text shown at the left of the toolbar."""
-        self._title.setText(title)
 
     def settings(self) -> list[DevicePropertySetting]:
         """Return the settings currently displayed (with any edited values)."""
