@@ -12,6 +12,7 @@ from qtpy.QtCore import QPoint, Qt, QTimer
 from qtpy.QtWidgets import QMessageBox
 
 import pymmcore_widgets
+from pymmcore_widgets import _icons
 from pymmcore_widgets.useq_widgets import (
     PYMMCW_METADATA_KEY,
     ChannelTable,
@@ -101,7 +102,12 @@ def test_data_table_resize_grip(qtbot: QtBot) -> None:
 
 
 def test_data_table(qtbot: QtBot) -> None:
-    wdg = DataTableWidget()
+    real_iconify_icon = _icons.QIconifyIcon
+    with patch.object(_icons, "QIconifyIcon", wraps=real_iconify_icon) as iconify_icon:
+        wdg = DataTableWidget()
+
+    iconify_icon.assert_any_call("fluent:delete-24-regular", color="#C33")
+    iconify_icon.assert_any_call("fluent:delete-dismiss-24-regular", color="#C33")
     qtbot.addWidget(wdg)
     table = wdg.table()
     table.setRowCount(2)

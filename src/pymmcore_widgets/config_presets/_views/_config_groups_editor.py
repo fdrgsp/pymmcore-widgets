@@ -724,9 +724,10 @@ class _ConfigEditorToolbar(QToolBar):
         view_action_group = QActionGroup(self)
 
         # Column View action
-        column_icon = QIconifyIcon("fluent:layout-column-two-24-regular")
         if column_act := self.addAction(
-            column_icon, "Column View", parent._group_preset_sel.showColumnView
+            StandardIcon.COLUMN_VIEW.icon(),
+            "Column View",
+            parent._group_preset_sel.showColumnView,
         ):
             column_act.setCheckable(True)
             column_act.setChecked(True)

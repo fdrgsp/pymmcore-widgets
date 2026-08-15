@@ -20,6 +20,8 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
+from pymmcore_widgets._icons import StandardIcon
+
 from ._column_info import ColumnInfo
 
 if TYPE_CHECKING:
@@ -318,10 +320,10 @@ class DataTableWidget(QWidget):
         # self.act_move_down = QAction(QIconifyIcon('mdi:arrow-down-thin', color=gray), "Move selected row down", self)  # noqa
         # self.act_move_down.triggered.connect(self._move_selected_rows_down)
 
-        self.act_remove_row = QAction(QIconifyIcon('mdi:close-box-outline', color=red), "Remove selected row", self)  # noqa
+        self.act_remove_row = QAction(StandardIcon.DELETE.icon(red), "Remove selected row", self)  # noqa
         self.act_remove_row.triggered.connect(self._remove_selected)
 
-        self.act_clear = QAction(QIconifyIcon('mdi:close-box-multiple-outline', color=red), "Remove all rows", self)  # noqa
+        self.act_clear = QAction(StandardIcon.DELETE_ALL.icon(red), "Remove all rows", self)  # noqa
         self.act_clear.triggered.connect(self._remove_all)
         # fmt: on
 
