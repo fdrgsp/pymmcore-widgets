@@ -688,6 +688,10 @@ class _PixelTable(DataTableWidget):
         self._toolbar.removeAction(self.act_check_none)
         self._toolbar.actions()[2].setVisible(False)  # separator
 
+        # the table already grows with the layout here, so the drag-to-resize
+        # grip would only add a stray handle above the affine table
+        self._resize_grip.hide()
+
         h_header = cast("QHeaderView", self._table.horizontalHeader())
         h_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         h_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
