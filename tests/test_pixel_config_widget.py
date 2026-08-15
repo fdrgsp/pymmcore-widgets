@@ -6,12 +6,15 @@ from unittest.mock import patch
 import pytest
 from pymmcore_plus.model import PixelSizePreset, Setting
 from qtpy.QtCore import Qt
-from qtpy.QtWidgets import QSplitter
+from qtpy.QtWidgets import QDialog, QSplitter
 
 from pymmcore_widgets.config_presets._pixel_configuration_widget import (
     ID,
     NEW,
     PixelConfigurationWidget,
+)
+from pymmcore_widgets.config_presets._views._device_property_selector import (
+    DevicePropertySelector,
 )
 
 if TYPE_CHECKING:
@@ -34,6 +37,13 @@ TEST_VALUE = [
 ]
 
 
+def _displayed(wdg: PixelConfigurationWidget) -> list[tuple[str, str, str]]:
+    """(device, property, value) currently shown in the value table."""
+    return [
+        (s.device_label, s.property_name, s.value) for s in wdg._value_table.settings()
+    ]
+
+
 def test_pixel_config_wdg(qtbot: QtBot, global_mmcore: CMMCorePlus):
     wdg = PixelConfigurationWidget()
     qtbot.addWidget(wdg)
@@ -50,12 +60,12 @@ def test_pixel_config_wdg(qtbot: QtBot, global_mmcore: CMMCorePlus):
         ),
     ]
 
-    assert wdg._props_selector._prop_table.getCheckedProperties() == [
-        ("Objective", "Label", "Nikon 10X S Fluor")
-    ]
+    # the value table shows the properties of the selected resolutionID
+    assert _displayed(wdg) == [("Objective", "Label", "Nikon 10X S Fluor")]
+    assert wdg._value_table.title() == "Property Values: Res10x"
 
     wdg.setValue(TEST_VALUE)
-    assert wdg._props_selector._prop_table.getCheckedProperties() == [
+    assert _displayed(wdg) == [
         ("Camera", "Binning", "1"),
         ("Camera", "BitDepth", "16"),
     ]
@@ -64,32 +74,24 @@ def test_pixel_config_wdg(qtbot: QtBot, global_mmcore: CMMCorePlus):
     assert wdg.value()[1].affine == (2, 0.0, 0.0, 0.0, 2, 0.0)
 
 
-def test_selected_properties_are_below_property_selector(
-    qtbot: QtBot, global_mmcore: CMMCorePlus
-) -> None:
-    """The selected-property table is below the complete property picker."""
+def test_pixel_config_layout(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
+    """resolutionIDs on the left, values of the selected one on the right."""
     wdg = PixelConfigurationWidget()
     qtbot.addWidget(wdg)
-    selector = wdg._props_selector
+
     splitter = next(
-        child
-        for child in selector.findChildren(QSplitter)
-        if child.parent() is selector
+        child for child in wdg.findChildren(QSplitter) if child.parent() is wdg
     )
+    assert splitter.orientation() == Qt.Orientation.Horizontal
+    assert splitter.widget(0).isAncestorOf(wdg._px_table)
+    assert splitter.widget(0).isAncestorOf(wdg._affine_table)
+    assert splitter.widget(1).isAncestorOf(wdg._value_table)
 
-    assert splitter.orientation() == Qt.Orientation.Vertical
-    assert splitter.widget(0).isAncestorOf(selector._device_toolbar)
-    assert splitter.widget(0).isAncestorOf(selector._filter_text)
-    assert splitter.widget(0).isAncestorOf(selector._prop_table)
-    assert splitter.widget(1) is selector._prop_viewer
-    assert splitter.widget(0).sizePolicy().verticalStretch() == 3
-    assert splitter.widget(1).sizePolicy().verticalStretch() == 1
-
-    wdg.resize(1200, 800)
-    wdg.show()
-    qtbot.waitExposed(wdg)
-    picker_height, selected_height = splitter.sizes()
-    assert picker_height / selected_height == pytest.approx(3, rel=0.1)
+    # properties are managed entirely from the value table's own toolbar
+    value_tb_actions = wdg._value_table._toolbar.actions()
+    assert wdg._value_table.act_edit_props in value_tb_actions
+    assert wdg._value_table.act_remove_props in value_tb_actions
+    assert wdg._value_table.act_edit_props not in wdg._px_table.toolBar().actions()
 
 
 def test_pixel_config_wdg_sys_cfg_load(qtbot: QtBot):
@@ -121,12 +123,24 @@ def test_pixel_config_wdg_define_configs(qtbot: QtBot, global_mmcore: CMMCorePlu
 
     wdg.setValue(TEST_VALUE)
 
-    row_checkbox = wdg._props_selector._prop_table.item(0, 0)
-    row_checkbox.setCheckState(Qt.CheckState.Checked)
+    # adding a property applies it to *every* resolutionID
+    wdg._set_properties(
+        [
+            wdg._prop_meta[("Camera", "AllowMultiROI")],
+            wdg._prop_meta[("Camera", "Binning")],
+            wdg._prop_meta[("Camera", "BitDepth")],
+        ]
+    )
     assert wdg._resID_map[0].settings == [
         ("Camera", "AllowMultiROI", "0"),
         ("Camera", "Binning", "1"),
         ("Camera", "BitDepth", "16"),
+    ]
+    # existing values are preserved per resolutionID
+    assert wdg._resID_map[1].settings == [
+        ("Camera", "AllowMultiROI", "0"),
+        ("Camera", "Binning", "2"),
+        ("Camera", "BitDepth", "12"),
     ]
     assert wdg._resID_map[0].affine == (0.5, 0.0, 0.0, 0.0, 0.5, 0.0)
 
@@ -157,10 +171,77 @@ def test_pixel_config_wdg_enabled(qtbot: QtBot, global_mmcore: CMMCorePlus):
 
     items = wdg._px_table._table.selectedItems()
     assert len(items) == 1
-    assert wdg._props_selector.isEnabled()
+    assert wdg._value_table.view.isEnabled()
 
     wdg._px_table._table.clearSelection()
-    qtbot.waitUntil(lambda: not wdg._props_selector.isEnabled())
+    qtbot.waitUntil(lambda: not wdg._value_table.view.isEnabled())
+    assert wdg._value_table.settings() == []
+
+
+def test_pixel_config_edit_properties_dialog(qtbot: QtBot, global_mmcore: CMMCorePlus):
+    """The toolbar action opens the picker and applies its selection to all IDs."""
+    wdg = PixelConfigurationWidget()
+    qtbot.addWidget(wdg)
+
+    chosen = (wdg._prop_meta[("Camera", "Binning")],)
+
+    # cancelling leaves everything untouched
+    before = [list(p.settings) for p in wdg.value()]
+    with patch.object(QDialog, "exec", lambda self: QDialog.DialogCode.Rejected):
+        wdg._value_table.act_edit_props.trigger()
+    assert [list(p.settings) for p in wdg.value()] == before
+
+    with (
+        patch.object(QDialog, "exec", lambda self: QDialog.DialogCode.Accepted),
+        patch.object(DevicePropertySelector, "checkedProperties", lambda self: chosen),
+    ):
+        wdg._value_table.act_edit_props.trigger()
+
+    assert all(
+        [(s.device_name, s.property_name) for s in p.settings]
+        == [("Camera", "Binning")]
+        for p in wdg.value()
+    )
+    assert _displayed(wdg) == [("Camera", "Binning", "1")]
+    assert not wdg.isClean()
+
+
+def test_pixel_config_remove_properties(qtbot: QtBot, global_mmcore: CMMCorePlus):
+    """The value table's Remove action drops properties from every resolutionID."""
+    wdg = PixelConfigurationWidget()
+    qtbot.addWidget(wdg)
+    value_table = wdg._value_table
+
+    wdg._set_properties(
+        [
+            wdg._prop_meta[("Camera", "Binning")],
+            wdg._prop_meta[("Objective", "Label")],
+        ]
+    )
+    wdg.setClean()
+
+    # nothing selected -> the action is off and triggering it is a no-op
+    assert not value_table.act_remove_props.isEnabled()
+    value_table.act_remove_props.trigger()
+    assert len(wdg.value()[0].settings) == 2
+    assert wdg.isClean()
+
+    # selecting a row enables it...
+    value_table.view.selectRow(0)
+    assert value_table.selectedKeys() == [("Camera", "Binning")]
+    assert value_table.act_remove_props.isEnabled()
+
+    # ...and removing takes it out of *all* resolutionIDs
+    value_table.act_remove_props.trigger()
+    assert all(
+        [(s.device_name, s.property_name) for s in p.settings]
+        == [("Objective", "Label")]
+        for p in wdg.value()
+    )
+    assert _displayed(wdg) == [("Objective", "Label", "Nikon 10X S Fluor")]
+    assert not wdg.isClean()
+    # the reset cleared the selection, so the action is off again
+    assert not value_table.act_remove_props.isEnabled()
 
 
 def test_pixel_config_wdg_prop_selection(qtbot: QtBot, global_mmcore: CMMCorePlus):
@@ -169,58 +250,62 @@ def test_pixel_config_wdg_prop_selection(qtbot: QtBot, global_mmcore: CMMCorePlu
 
     wdg._px_table._table.selectRow(1)
     qtbot.waitUntil(
-        lambda: wdg._props_selector.value()
-        == [("Objective", "Label", "Nikon 20X Plan Fluor ELWD")]
+        lambda: _displayed(wdg) == [("Objective", "Label", "Nikon 20X Plan Fluor ELWD")]
     )
 
-    # set checked ("Camera", "AllowMultiROI", "0")
-    row_checkbox = wdg._props_selector._prop_table.item(0, 0)
-
-    row_checkbox.setCheckState(Qt.CheckState.Checked)
-    # ("Camera", "AllowMultiROI", "0") should be in all configs
-    assert any(
+    # add ("Camera", "AllowMultiROI") -> it must land in *all* configs
+    wdg._set_properties(
+        [
+            wdg._prop_meta[("Camera", "AllowMultiROI")],
+            wdg._prop_meta[("Objective", "Label")],
+        ]
+    )
+    assert all(
         ("Camera", "AllowMultiROI", "0") in wdg._resID_map[i].settings
         for i in wdg._resID_map
     )
 
-    row_checkbox.setCheckState(Qt.CheckState.Unchecked)
-    # ("Camera", "AllowMultiROI", "0") should be removed in all configs
+    # ...and removing it must remove it from all of them
+    wdg._set_properties([wdg._prop_meta[("Objective", "Label")]])
     assert all(
         ("Camera", "AllowMultiROI", "0") not in wdg._resID_map[i].settings
         for i in wdg._resID_map
     )
 
+    # a new resolutionID inherits the properties of the first one
     wdg._px_table._add_row()
     assert wdg._px_table.value()[-1][ID] == NEW
-    wdg._resID_map[3].settings = [("Objective", "Label", "Nikon 20X Plan Fluor ELWD")]
+    assert wdg._resID_map[3].settings == [
+        ("Objective", "Label", "Nikon 10X S Fluor"),
+    ]
 
 
 def test_pixel_config_wdg_prop_change(qtbot: QtBot, global_mmcore: CMMCorePlus):
+    """Editing a value in the table updates only the selected resolutionID."""
     wdg = PixelConfigurationWidget()
     qtbot.addWidget(wdg)
 
     assert wdg._px_table._table.selectedItems()[0].text() == "Res10x"
+    assert _displayed(wdg) == [("Objective", "Label", "Nikon 10X S Fluor")]
 
-    viewer_wdg = wdg._props_selector._prop_viewer.cellWidget(0, 1)
-    assert viewer_wdg.value() == "Nikon 10X S Fluor"
-    assert wdg._props_selector.value() == [("Objective", "Label", "Nikon 10X S Fluor")]
+    model = wdg._value_table._model
+    idx = model.index(0, 1)
+    assert model.data(idx) == "Nikon 10X S Fluor"
+    assert model.flags(idx) & Qt.ItemFlag.ItemIsEditable
+    # the name column is not editable
+    assert not model.flags(model.index(0, 0)) & Qt.ItemFlag.ItemIsEditable
+    assert model.data(model.index(0, 0)) == "Objective-Label"
 
-    # find the row for ("Objective", "Label") dynamically
-    prop_table = wdg._props_selector._prop_table
-    obj_row = next(
-        r
-        for r in range(prop_table.rowCount())
-        if (p := prop_table.item(r, 0).data(prop_table.PROP_ROLE))
-        and (p.device, p.name) == ("Objective", "Label")
-    )
-    prop_wdg = prop_table.cellWidget(obj_row, 1)
-    assert prop_wdg.value() == "Nikon 10X S Fluor"
-
-    viewer_wdg.setValue("Nikon 40X Plan Fluor ELWD")
-    assert wdg._props_selector.value() == [
+    assert model.setData(idx, "Nikon 40X Plan Fluor ELWD")
+    assert wdg.value()[0].settings == [
         ("Objective", "Label", "Nikon 40X Plan Fluor ELWD")
     ]
-    assert prop_wdg.value() == "Nikon 40X Plan Fluor ELWD"
+    # the other resolutionIDs keep their own values
+    assert wdg.value()[1].settings == [
+        ("Objective", "Label", "Nikon 20X Plan Fluor ELWD")
+    ]
+    # setting the same value again is a no-op
+    assert not model.setData(idx, "Nikon 40X Plan Fluor ELWD")
 
 
 def test_pixel_config_wdg_px_table(qtbot: QtBot, global_mmcore: CMMCorePlus):
@@ -228,7 +313,7 @@ def test_pixel_config_wdg_px_table(qtbot: QtBot, global_mmcore: CMMCorePlus):
     qtbot.addWidget(wdg)
 
     assert wdg._px_table._table.selectedItems()[0].text() == "Res10x"
-    assert wdg._props_selector.value() == [("Objective", "Label", "Nikon 10X S Fluor")]
+    assert _displayed(wdg) == [("Objective", "Label", "Nikon 10X S Fluor")]
 
     wdg._px_table._table.selectRow(1)
     qtbot.waitUntil(
@@ -236,8 +321,7 @@ def test_pixel_config_wdg_px_table(qtbot: QtBot, global_mmcore: CMMCorePlus):
         and wdg._px_table._table.selectedItems()[0].text() == "Res20x"
     )
     qtbot.waitUntil(
-        lambda: wdg._props_selector.value()
-        == [("Objective", "Label", "Nikon 20X Plan Fluor ELWD")]
+        lambda: _displayed(wdg) == [("Objective", "Label", "Nikon 20X Plan Fluor ELWD")]
     )
 
     assert wdg._resID_map[1].pixel_size_um == 0.5
@@ -287,7 +371,16 @@ def test_pixel_config_wdg_warning(qtbot: QtBot, global_mmcore: CMMCorePlus):
         wdg._px_table._table.item(0, 0).setText("Res40x")
 
 
-def p_delete_resID(qtbot: QtBot, global_mmcore: CMMCorePlus):
+def test_pixel_config_rename(qtbot: QtBot, global_mmcore: CMMCorePlus):
+    wdg = PixelConfigurationWidget()
+    qtbot.addWidget(wdg)
+
+    wdg._px_table.table().item(0, 0).setText("Renamed")
+    assert wdg.value()[0].name == "Renamed"
+    assert wdg._value_table.title() == "Property Values: Renamed"
+
+
+def test_delete_resID(qtbot: QtBot, global_mmcore: CMMCorePlus):
     wdg = PixelConfigurationWidget()
     qtbot.addWidget(wdg)
 
@@ -357,7 +450,7 @@ def test_pixel_config_clean_state(qtbot: QtBot, global_mmcore: CMMCorePlus):
 
 
 @pytest.mark.parametrize(
-    "edit", ["name", "affine", "add_row", "remove_row", "property"]
+    "edit", ["name", "affine", "add_row", "remove_row", "properties", "value"]
 )
 def test_pixel_config_edits_mark_dirty(
     qtbot: QtBot, global_mmcore: CMMCorePlus, edit: str
@@ -376,13 +469,16 @@ def test_pixel_config_edits_mark_dirty(
     elif edit == "remove_row":
         wdg._px_table._table.selectRow(0)
         wdg._px_table._remove_selected()
-    elif edit == "property":
-        table = wdg._props_selector._prop_table
-        for row in range(table.rowCount()):
-            item = table.item(row, 0)
-            if item is not None and item.checkState() == Qt.CheckState.Unchecked:
-                item.setCheckState(Qt.CheckState.Checked)
-                break
+    elif edit == "properties":
+        wdg._set_properties(
+            [
+                wdg._prop_meta[("Objective", "Label")],
+                wdg._prop_meta[("Camera", "Binning")],
+            ]
+        )
+    elif edit == "value":
+        model = wdg._value_table._model
+        model.setData(model.index(0, 1), "Nikon 40X Plan Fluor ELWD")
 
     assert not wdg.isClean()
 
