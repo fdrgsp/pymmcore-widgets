@@ -97,6 +97,25 @@ def test_offered_releases_match_the_installer_used(qtbot: QtBot):
             assert _install_widget._available_releases() == ["20250303", "20240404"]
 
 
+def test_progress_bar_output_is_rendered_not_dumped():
+    """`mmcore install` draws a rich progress bar; a QTextEdit is not a terminal.
+
+    Without this the feedback box fills with screenfuls of raw escapes like
+    "[38;2;153;48;86m" instead of the line the user was meant to see.
+    """
+    clean = _install_widget.clean_output
+    bar = (
+        "\x1b[2K\x1b[38;2;153;48;86m━━━\x1b[0m "
+        "\x1b[35m57.4%\x1b[0m • \x1b[32m294 kB\x1b[0m"
+    )
+    assert clean(bar) == "━━━ 57.4% • 294 kB"
+    # cursor control on its own carries nothing to show
+    assert clean("\x1b[?25h") == ""
+    # a bar redrawing in place: only the final state was ever visible
+    assert clean("Downloading...\r 50%\r100%") == "100%"
+    assert clean("Installation successful.\n") == "Installation successful."
+
+
 def test_release_listing_survives_being_offline(qtbot: QtBot):
     """A dead network costs the dated releases, not the whole widget."""
     offline = OSError("no network")

@@ -65,7 +65,7 @@ def clean_output(line: str) -> str:
     r"""Render one line of subprocess output the way a terminal would.
 
     Strips ANSI escapes, and keeps only what follows the last carriage
-    return -- a progress bar redraws itself in place with ``\\r``, so every
+    return -- a progress bar redraws itself in place with ``\r``, so every
     earlier state on that line is text the user was never meant to see.
     """
     return _ANSI.sub("", line).rsplit("\r", 1)[-1].strip()
@@ -97,6 +97,15 @@ class InstallWidget(QWidget):
     This widget will let you download and install a specific version of MicroManager
     from <https://micro-manager.org/downloads>. It will also manage the currently
     installed versions.
+    """
+
+    installStarted = Signal(str)
+    """Emitted with the release when an install begins."""
+
+    installFinished = Signal(int)
+    """Emitted with the subprocess return code when an install ends.
+
+    Also emitted after :meth:`cancel_install`, once the process has stopped.
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -191,14 +200,33 @@ class InstallWidget(QWidget):
         self._act_reveal.setEnabled(has_selection)
         self._act_uninstall.setEnabled(has_selection)
 
-    def _on_install_clicked(self) -> None:
-        if self._cmd_thread:
-            self._cmd_thread.send_interrupt()
-            self.install_btn.setText("Install")
-            return
+    # ── installing ────────────────────────────────────────────────
 
-        selected_version = self.version_combo.currentText()
-        cmd = ["mmcore", "install", "--release", selected_version, "--plain-output"]
+    @property
+    def is_installing(self) -> bool:
+        """Whether a download/install is currently running."""
+        return self._cmd_thread is not None
+
+    def install(self, release: str | None = None) -> None:
+        """Download and install *release*, or whichever one is selected.
+
+        Runs ``mmcore install`` in a background thread, streaming its output
+        into the feedback box and refreshing the table when it ends. Does
+        nothing while an install is already running -- :attr:`is_installing`
+        says whether that's the case, and :meth:`cancel_install` stops it.
+
+        Exposed so a host application can drive the install from its own UI
+        (a menu item, a dialog) instead of this widget's install row.
+        """
+        if self._cmd_thread is not None:
+            return
+        if release is None:
+            release = self.version_combo.currentText()
+        elif (index := self.version_combo.findText(release)) >= 0:
+            # keep the row in step when the caller picked a listed release
+            self.version_combo.setCurrentIndex(index)
+
+        cmd = ["mmcore", "install", "--release", release, "--plain-output"]
         if dest := getattr(self, "_install_dest", None):  # for pytest, could expose
             cmd = [*cmd, "--dest", dest]
 
@@ -210,6 +238,23 @@ class InstallWidget(QWidget):
         self.feedback_textbox.show()
         self.install_btn.setText("Cancel")
         self._cmd_thread.start()
+        self.installStarted.emit(release)
+
+    def cancel_install(self) -> None:
+        """Interrupt a running install; does nothing if none is running.
+
+        ``installFinished`` still arrives once the subprocess has actually
+        stopped, so callers need not special-case cancellation.
+        """
+        if self._cmd_thread is not None:
+            self._cmd_thread.send_interrupt()
+            self.install_btn.setText("Install")
+
+    def _on_install_clicked(self) -> None:
+        if self._cmd_thread:
+            self.cancel_install()
+        else:
+            self.install()
 
     def _on_finished(self, returncode: int) -> None:
         status = "successful" if returncode == 0 else "failed"
@@ -217,6 +262,7 @@ class InstallWidget(QWidget):
         self.install_btn.setText("Install")
         self.table.refresh()
         self._cmd_thread = None
+        self.installFinished.emit(returncode)
 
 
 class _InstallTable(QTableWidget):
