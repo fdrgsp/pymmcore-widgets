@@ -56,3 +56,61 @@ def test_install_widget(qtbot: QtBot, tmp_path: Path):
         wdg.table.uninstall()
 
     assert not dest.exists()
+
+
+def test_install_row_is_offered_wherever_mmcore_can_install(qtbot: QtBot):
+    """Every platform mmcore install supports must be able to install.
+
+    Where no full nightly build is published (Apple Silicon, Linux), it falls
+    back to the mm-test-adapters bundle -- which is exactly how those users get
+    a working demo configuration, so hiding the row left them with a page that
+    could only uninstall.
+    """
+    assert _install_widget.CAN_INSTALL == (
+        platform.system() in ("Darwin", "Linux", "Windows")
+    )
+
+    with patch.object(_install_widget, "_available_releases", return_value=[]):
+        wdg = InstallWidget()
+    qtbot.addWidget(wdg)
+    wdg.show()
+
+    assert wdg.install_row.isVisible()
+    assert wdg.install_btn.isVisible()
+
+
+def test_offered_releases_match_the_installer_used(qtbot: QtBot):
+    """The release list has to come from the source that will resolve it."""
+    nightly = {"20250101": "url", "20240202": "url"}
+    adapters = {"20250303": "75.20250303", "20240404": "74.20240404"}
+
+    with (
+        patch.object(_install_widget, "available_versions", return_value=nightly),
+        patch(
+            "pymmcore_plus.install._available_test_adapter_releases",
+            return_value=adapters,
+        ),
+    ):
+        with patch.object(_install_widget, "FULL_RELEASES", True):
+            assert _install_widget._available_releases() == list(nightly)
+        with patch.object(_install_widget, "FULL_RELEASES", False):
+            assert _install_widget._available_releases() == ["20250303", "20240404"]
+
+
+def test_release_listing_survives_being_offline(qtbot: QtBot):
+    """A dead network costs the dated releases, not the whole widget."""
+    offline = OSError("no network")
+    with (
+        patch.object(_install_widget, "available_versions", side_effect=offline),
+        patch(
+            "pymmcore_plus.install._available_test_adapter_releases",
+            side_effect=offline,
+        ),
+    ):
+        assert _install_widget._available_releases() == []
+
+        wdg = InstallWidget()
+        qtbot.addWidget(wdg)
+        assert [
+            wdg.version_combo.itemText(i) for i in range(wdg.version_combo.count())
+        ] == ["latest-compatible", "latest"]

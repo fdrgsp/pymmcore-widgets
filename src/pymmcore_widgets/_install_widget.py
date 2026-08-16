@@ -32,10 +32,43 @@ from qtpy.QtWidgets import (
 if TYPE_CHECKING:
     from qtpy.QtGui import QKeyEvent
 
-CAN_INSTALL = platform.system() == "Windows" or (
+FULL_RELEASES = platform.system() == "Windows" or (
     platform.system() == "Darwin" and platform.machine() == "x86_64"
 )
+"""Whether complete Micro-Manager nightly builds are published for this platform."""
+
+CAN_INSTALL = FULL_RELEASES or platform.system() in ("Darwin", "Linux", "Windows")
+"""Whether ``mmcore install`` can install anything at all here.
+
+Where no nightly build is published -- Apple Silicon and Linux --
+``pymmcore_plus.install.install()`` falls back to the mm-test-adapters bundle
+(Demo, Utilities, SequenceTester, NotificationTester), which *is* built for
+macOS-ARM64, macOS-X64, Linux-X64 and Windows-X64. Installing there is how
+those users get a working demo configuration, so the install row belongs on
+screen; only the choice of releases differs (see :func:`_available_releases`).
+"""
+
 LOC_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
+def _available_releases() -> list[str]:
+    """Release dates that ``mmcore install --release`` accepts on this platform.
+
+    The two sources are not interchangeable: a nightly download-page date is
+    meaningless to the test-adapter installer and vice versa, so offering the
+    wrong list makes most of the combo fail with "Release ... not found".
+
+    Returns an empty list rather than raising when the listing can't be
+    fetched -- being offline should cost you the dated releases, not the whole
+    widget.
+    """
+    with suppress(Exception):
+        if FULL_RELEASES:
+            return list(available_versions())
+        from pymmcore_plus.install import _available_test_adapter_releases
+
+        return sorted(_available_test_adapter_releases(), reverse=True)
+    return []
 
 
 class InstallWidget(QWidget):
@@ -74,7 +107,7 @@ class InstallWidget(QWidget):
 
         self.version_combo = QComboBox()
         self.version_combo.addItems(["latest-compatible", "latest"])
-        self.version_combo.addItems(available_versions())
+        self.version_combo.addItems(_available_releases())
 
         self.install_btn = QPushButton("Install")
         self.install_btn.clicked.connect(self._on_install_clicked)
@@ -100,16 +133,31 @@ class InstallWidget(QWidget):
                 label.setFont(font)
                 layout.addWidget(label)
 
-        install_row = QWidget()
+        self.install_row = install_row = QWidget()
         row = QHBoxLayout(install_row)
         row.setContentsMargins(0, 0, 0, 0)
         row.addWidget(QLabel("Install release:"), 0)
         row.addWidget(self.version_combo, 1)
         row.addWidget(self.install_btn, 1)
         layout.addWidget(install_row)
+
+        if not FULL_RELEASES:
+            # say what will actually arrive, so "Install" on a machine with no
+            # nightly build doesn't look like it fetched a broken Micro-Manager
+            note = QLabel(
+                "No full Micro-Manager build is published for this platform: "
+                "installing fetches the test device adapters (Demo, Utilities, "
+                "SequenceTester) and a demo configuration."
+            )
+            note.setWordWrap(True)
+            font = note.font()
+            font.setItalic(True)
+            note.setFont(font)
+            layout.addWidget(note)
+
         layout.addWidget(self.feedback_textbox)
 
-        if not CAN_INSTALL:  # if we're not on windows or macos-x86_64...
+        if not CAN_INSTALL:  # a platform mmcore install knows nothing about
             install_row.hide()
 
     def _on_selection_changed(self) -> None:
@@ -168,9 +216,12 @@ class _InstallTable(QTableWidget):
         self.setHorizontalHeaderLabels(headers)
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        if vh := self.verticalHeader():
+        # NOTE: `is not None`, not truthiness -- a QHeaderView with no sections
+        # is falsy, and this table is built with zero rows, so `if vh := ...`
+        # silently skipped and left the row-number gutter on screen.
+        if (vh := self.verticalHeader()) is not None:
             vh.hide()
-        if hh := self.horizontalHeader():
+        if (hh := self.horizontalHeader()) is not None:
             hh.setSectionResizeMode(self.USE_COL, hh.ResizeMode.ResizeToContents)
             hh.setSectionResizeMode(self.VER_COL, hh.ResizeMode.ResizeToContents)
             hh.setStretchLastSection(True)

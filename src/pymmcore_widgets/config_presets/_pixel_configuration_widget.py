@@ -865,7 +865,9 @@ class _PropertyValueTableView(QTableView):
         self.setItemDelegateForColumn(1, PropertySettingDelegate(self))
         self.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
-        if vh := self.verticalHeader():
+        # `is not None`: a QHeaderView with no sections (no model yet) is
+        # falsy, so truthiness here would skip and leave the gutter visible
+        if (vh := self.verticalHeader()) is not None:
             vh.setVisible(False)
 
     def setModel(self, model: QAbstractItemModel | None) -> None:
@@ -875,7 +877,7 @@ class _PropertyValueTableView(QTableView):
         model is in place.
         """
         super().setModel(model)
-        if model is not None and (hh := self.horizontalHeader()):
+        if model is not None and (hh := self.horizontalHeader()) is not None:
             hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
             hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
 

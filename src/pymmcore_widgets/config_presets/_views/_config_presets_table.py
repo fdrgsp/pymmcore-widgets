@@ -84,11 +84,13 @@ class ConfigPresetsTableView(QTableView):
 
         # In normal mode, presets are columns — only allow column selection
         self.setSelectionBehavior(QTableView.SelectionBehavior.SelectColumns)
-        if vh := self.verticalHeader():
+        # `is not None`: a QHeaderView with no sections (no model yet) is falsy,
+        # so truthiness here would skip these calls entirely
+        if (vh := self.verticalHeader()) is not None:
             vh.setSectionsClickable(False)
 
         # Right-click on column headers for per-preset property management
-        if hh := self.horizontalHeader():
+        if (hh := self.horizontalHeader()) is not None:
             hh.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             hh.customContextMenuRequested.connect(self._on_header_context_menu)
 
@@ -220,9 +222,9 @@ class ConfigPresetsTableView(QTableView):
             self.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         else:
             self.setSelectionBehavior(QTableView.SelectionBehavior.SelectColumns)
-        if hh := self.horizontalHeader():
+        if (hh := self.horizontalHeader()) is not None:
             hh.setSectionsClickable(not transposed)
-        if vh := self.verticalHeader():
+        if (vh := self.verticalHeader()) is not None:
             vh.setSectionsClickable(transposed)
 
     def _pivot_coords(self, idx: QModelIndex) -> tuple[int, int]:
