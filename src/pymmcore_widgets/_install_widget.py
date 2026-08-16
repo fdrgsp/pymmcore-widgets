@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import os
 import platform
+import re
 import shutil
 import signal
 import subprocess
@@ -49,6 +50,25 @@ screen; only the choice of releases differs (see :func:`_available_releases`).
 """
 
 LOC_ROLE = Qt.ItemDataRole.UserRole + 1
+
+TEST_ADAPTERS_NOTE = (
+    "No full Micro-Manager build is published for this platform: installing "
+    "fetches the test device adapters (Demo, Utilities, SequenceTester) and a "
+    "demo configuration."
+)
+
+# CSI/ESC sequences: colors, cursor moves, erase-line, show/hide cursor...
+_ANSI = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+
+def clean_output(line: str) -> str:
+    r"""Render one line of subprocess output the way a terminal would.
+
+    Strips ANSI escapes, and keeps only what follows the last carriage
+    return -- a progress bar redraws itself in place with ``\\r``, so every
+    earlier state on that line is text the user was never meant to see.
+    """
+    return _ANSI.sub("", line).rsplit("\r", 1)[-1].strip()
 
 
 def _available_releases() -> list[str]:
@@ -141,14 +161,11 @@ class InstallWidget(QWidget):
         row.addWidget(self.install_btn, 1)
         layout.addWidget(install_row)
 
+        self.install_note: QLabel | None = None
         if not FULL_RELEASES:
             # say what will actually arrive, so "Install" on a machine with no
             # nightly build doesn't look like it fetched a broken Micro-Manager
-            note = QLabel(
-                "No full Micro-Manager build is published for this platform: "
-                "installing fetches the test device adapters (Demo, Utilities, "
-                "SequenceTester) and a demo configuration."
-            )
+            self.install_note = note = QLabel(TEST_ADAPTERS_NOTE)
             note.setWordWrap(True)
             font = note.font()
             font.setItalic(True)
@@ -337,17 +354,24 @@ class SubprocessThread(QThread):
 
     def run(self) -> None:  # pragma: no cover
         """Run the command and emit stdout and returncode."""
+        # `mmcore install` draws a rich progress bar while downloading, which
+        # emits color and cursor-control escapes. A QTextEdit renders those
+        # literally (screenfuls of "[38;2;153;48;86m"), so ask for no color
+        # and strip whatever still arrives -- see `clean_output`.
+        env = {**os.environ, "NO_COLOR": "1", "TERM": "dumb", "COLUMNS": "80"}
         self.process = process = subprocess.Popen(
             self.cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             universal_newlines=True,
             bufsize=1,
+            env=env,
         )
 
         # Emit the read line for every line from stdout
         for line in iter(process.stdout.readline, ""):  # type: ignore
-            self.stdout_ready.emit(line.strip())
+            if text := clean_output(line):
+                self.stdout_ready.emit(text)
         process.communicate()  # Ensure process completes
         self.process_finished.emit(process.returncode)
 
