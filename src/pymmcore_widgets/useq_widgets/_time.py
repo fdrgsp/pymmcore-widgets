@@ -125,19 +125,23 @@ class TimePlanWidget(DataTableWidget):
         except KeyError:
             return
 
-        if _current_col == loop_col:
-            self.DURATION.set_cell_data(
-                table, _current_row, duration_col, plan.duration
-            )
-        elif _current_col == duration_col:
-            self.LOOPS.set_cell_data(table, _current_row, loop_col, plan.loops)
-        elif _current_col == table.indexOf(self.INTERVAL):
-            if self._mode_column == duration_col:
-                self.LOOPS.set_cell_data(table, _current_row, loop_col, plan.loops)
-            else:
+        try:
+            if _current_col == loop_col:
                 self.DURATION.set_cell_data(
                     table, _current_row, duration_col, plan.duration
                 )
+            elif _current_col == duration_col:
+                self.LOOPS.set_cell_data(table, _current_row, loop_col, plan.loops)
+            elif _current_col == table.indexOf(self.INTERVAL):
+                if self._mode_column == duration_col:
+                    self.LOOPS.set_cell_data(table, _current_row, loop_col, plan.loops)
+                else:
+                    self.DURATION.set_cell_data(
+                        table, _current_row, duration_col, plan.duration
+                    )
+        except ZeroDivisionError:
+            # interval is 0 (e.g. user is mid-edit); nothing sensible to resolve yet
+            return
 
     def _set_mode_column(self, col_idx: int) -> None:
         table = self.table()

@@ -826,8 +826,12 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
 
         if widget is self.time_plan:
             time_plan = self.time_plan.value()
-            loops = getattr(time_plan, "loops", None)
             interval = getattr(time_plan, "interval", None)
+            try:
+                loops = getattr(time_plan, "loops", None)
+            except ZeroDivisionError:
+                # interval is 0 (e.g. user is mid-edit); nothing sensible to show
+                loops = None
             if loops is not None and interval is not None:
                 seconds = (
                     interval.total_seconds()

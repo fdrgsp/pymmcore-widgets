@@ -453,6 +453,21 @@ def test_time_table(qtbot: QtBot) -> None:
     assert wdg.table().rowCount() == 0
 
 
+def test_time_table_zero_interval_does_not_raise(qtbot: QtBot) -> None:
+    # https://github.com/pymmcore-plus/useq-schema TIntervalDuration.loops divides
+    # duration by interval, which raises ZeroDivisionError for a 0 interval.
+    wdg = TimePlanWidget()
+    qtbot.addWidget(wdg)
+    wdg.show()
+
+    wdg.setValue(useq.TIntervalDuration(interval=0, duration=5))
+
+    interval = wdg.table().cellWidget(0, wdg.table().indexOf(wdg.INTERVAL))
+    wdg.table().setCurrentCell(0, wdg.table().indexOf(wdg.INTERVAL))
+    interval.setText("0 s")
+    interval.textModified.emit("", "")
+
+
 def test_z_plan_widget(qtbot: QtBot) -> None:
     wdg = ZPlanWidget()
     qtbot.addWidget(wdg)
