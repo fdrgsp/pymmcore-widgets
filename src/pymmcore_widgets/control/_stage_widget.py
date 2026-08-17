@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from pyconify import svg_path
 from pymmcore_plus import CMMCorePlus, DeviceType, Keyword
 from qtpy.QtCore import QEvent, QObject, QSize, Qt, QTimerEvent, Signal, Slot
 from qtpy.QtGui import QContextMenuEvent
@@ -10,7 +9,6 @@ from qtpy.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
     QGridLayout,
-    QHBoxLayout,
     QLabel,
     QMenu,
     QPushButton,
@@ -32,19 +30,15 @@ XY_STAGE = Keyword.CoreXYStage
 FOCUS = Keyword.CoreFocus
 
 MOVE_BUTTONS: dict[str, tuple[int, int, int, int]] = {
-    # btn glyph                (r, c, xmag, ymag)
-    "mdi:chevron-triple-up": (0, 3, 0, 3),
-    "mdi:chevron-double-up": (1, 3, 0, 2),
-    "mdi:chevron-up": (2, 3, 0, 1),
-    "mdi:chevron-down": (4, 3, 0, -1),
-    "mdi:chevron-double-down": (5, 3, 0, -2),
-    "mdi:chevron-triple-down": (6, 3, 0, -3),
-    "mdi:chevron-triple-left": (3, 0, -3, 0),
-    "mdi:chevron-double-left": (3, 1, -2, 0),
-    "mdi:chevron-left": (3, 2, -1, 0),
-    "mdi:chevron-right": (3, 4, 1, 0),
-    "mdi:chevron-double-right": (3, 5, 2, 0),
-    "mdi:chevron-triple-right": (3, 6, 3, 0),
+    # btn glyph (r, c, xmag, ymag)
+    "mdi:arrow-top-left-thick": (0, 0, -1, 1),
+    "mdi:arrow-up-thick": (0, 1, 0, 1),
+    "mdi:arrow-top-right-thick": (0, 2, 1, 1),
+    "mdi:arrow-left-thick": (1, 0, -1, 0),
+    "mdi:arrow-right-thick": (1, 2, 1, 0),
+    "mdi:arrow-bottom-left-thick": (2, 0, -1, -1),
+    "mdi:arrow-down-thick": (2, 1, 0, -1),
+    "mdi:arrow-bottom-right-thick": (2, 2, 1, -1),
 }
 
 
@@ -54,25 +48,11 @@ class MoveStageButton(QPushButton):
         self.xmag = xmag
         self.ymag = ymag
         self.setAutoRepeat(True)
-        self.setFlat(True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet(
-            f"""
-            MoveStageButton {{
-                border: none;
-                width: 38px;
-                image: url({svg_path(glyph, color="rgb(0, 180, 0)").as_posix()});
-                font-size: 38px;
-            }}
-            MoveStageButton:hover:!pressed {{
-                image: url({svg_path(glyph, color="lime").as_posix()});
-            }}
-            MoveStageButton:pressed {{
-                image: url({svg_path(glyph, color="green").as_posix()});
-            }}
-            """
-        )
+        self.setFixedSize(38, 38)
+        self.setIcon(QIconifyIcon(glyph, color="green"))
+        self.setIconSize(QSize(28, 28))
 
 
 class MoveStageSpinBox(QDoubleSpinBox):
@@ -106,9 +86,10 @@ class HaltButton(QPushButton):
         self._device = device
         self._core = core
         self.setIcon(QIconifyIcon("bi:sign-stop-fill", color="red"))
-        self.setIconSize(QSize(24, 24))
+        self.setIconSize(QSize(28, 28))
         self.setToolTip("Halt stage movement")
-        self.setText("STOP!")
+        self.setFixedSize(38, 38)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.clicked.connect(self._on_clicked)
 
     @Slot()
@@ -119,57 +100,35 @@ class HaltButton(QPushButton):
 class StageMovementButtons(QWidget):
     """Grid of buttons to move a stage in 2D.
 
-            ^
-    << < [dstep] > >>
-            v
+    NW  N  NE
+     W     E
+    SW  S  SE
     """
 
     moveRequested = Signal(float, float)
 
-    def __init__(
-        self, levels: int = 2, show_x: bool = True, parent: QWidget | None = None
-    ) -> None:
+    def __init__(self, show_x: bool = True, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        if not (1 <= levels <= 3):
-            raise ValueError("levels must be between 1-3")
 
-        self._levels = levels
         self._x_visible = show_x
 
         btn_grid = QGridLayout(self)
         btn_grid.setContentsMargins(0, 0, 0, 0)
-        btn_grid.setSpacing(0)
+        btn_grid.setSpacing(2)
 
-        # Create buttons based on levels and show_x settings
-        self._create_buttons_for_levels(btn_grid)
+        for glyph, (row, col, xmag, ymag) in MOVE_BUTTONS.items():
+            if xmag != 0 and not show_x:
+                continue
+            btn = MoveStageButton(glyph, xmag, ymag)
+            btn.clicked.connect(self._on_move_btn_clicked)
+            btn_grid.addWidget(btn, row, col)
 
-        # step size spinbox in the middle of the move buttons
+        # step size spinbox, exposed for the parent StageWidget to place
         self.step_size = MoveStageSpinBox(label="step size", minimum=0)
         self.step_size.setValue(10)
         self.step_size.valueChanged.connect(self._update_tooltips)
 
-        btn_grid.addWidget(self.step_size, 3, 3, Qt.AlignmentFlag.AlignCenter)
         self._update_tooltips()
-
-    def _create_buttons_for_levels(self, btn_grid: QGridLayout) -> None:
-        """Create only the buttons needed based on levels and x visibility."""
-        for glyph, (row, col, xmag, ymag) in MOVE_BUTTONS.items():
-            # Determine if this button should be created based on levels
-
-            # Level 1: only center arrows (magnitude 1)
-            # Level 2: center + double arrows (magnitude 1, 2)
-            # Level 3: all arrows (magnitude 1, 2, 3)
-            if xmag != 0 or ymag != 0:
-                max_magnitude = abs(max(xmag, ymag, key=abs))
-            else:
-                max_magnitude = 0
-
-            if max_magnitude > self._levels or (xmag != 0 and not self._x_visible):
-                continue
-
-            btn = MoveStageButton(glyph, xmag, ymag)
-            btn.clicked.connect(self._on_move_btn_clicked)
-            btn_grid.addWidget(btn, row, col)
 
     @Slot()
     def _on_move_btn_clicked(self) -> None:
@@ -200,14 +159,9 @@ class StageWidget(QWidget):
     ----------
     device: str:
         Stage device.
-    levels: int | None:
-        Number of "arrow" buttons per widget per direction, by default, 2.
     absolute_positioning: bool | None
         If True, the position displays can be edited to set absolute positions.
         If False, the position displays cannot be edited.
-    position_label_below: bool | None
-        If True, the position displays will appear below the move buttons.
-        If False, the position displays will appear to the right of the move buttons.
     parent : QWidget | None
         Optional parent widget.
     mmcore : CMMCorePlus | None
@@ -222,17 +176,14 @@ class StageWidget(QWidget):
     def __init__(
         self,
         device: str,
-        levels: int = 2,
         *,
         absolute_positioning: bool = False,
-        position_label_below: bool = True,
         parent: QWidget | None = None,
         mmcore: CMMCorePlus | None = None,
     ):
         super().__init__(parent=parent)
 
         self._mmc = mmcore or CMMCorePlus.instance()
-        self._levels = levels
         self._device = device
         self._poll_timer_id: int | None = None
 
@@ -250,10 +201,17 @@ class StageWidget(QWidget):
 
         # WIDGETS ------------------------------------------------
 
-        self._move_btns = StageMovementButtons(self._levels, self._is_2axis)
+        self._move_btns = StageMovementButtons(self._is_2axis)
         self._step = self._move_btns.step_size
 
-        self._pos = QHBoxLayout()
+        self._step_row = QGridLayout()
+        self._step_row.setSpacing(2)
+        self._step_row.addWidget(QLabel("Step: "), 0, 0, Qt.AlignmentFlag.AlignRight)
+        self._step_row.addWidget(self._step, 0, 1)
+        self._step_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self._pos = QGridLayout()
+        self._pos.setSpacing(2)
         self._pos_boxes: list[MoveStageSpinBox] = []
         self._pos_menu = QMenu(self)
         self._pos_toggle_action = self._pos_menu.addAction("Enable Editing")
@@ -261,18 +219,22 @@ class StageWidget(QWidget):
         self._pos_toggle_action.setChecked(absolute_positioning)
         self._pos_toggle_action.triggered.connect(self.enable_absolute_positioning)
 
+        pos_row = 0
         if self._is_2axis:
-            self._pos.addWidget(QLabel("X: "))
+            self._pos.addWidget(QLabel("X: "), pos_row, 0, Qt.AlignmentFlag.AlignRight)
             self._x_pos = MoveStageSpinBox(label="X")
             self._pos_boxes.append(self._x_pos)
-            self._pos.addWidget(self._x_pos)
+            self._pos.addWidget(self._x_pos, pos_row, 1)
             self._x_pos.editingFinished.connect(self._move_absolute)
+            pos_row += 1
 
-        self._pos.addWidget(QLabel(f"{self._Ylabel}: "))
+        self._pos.addWidget(
+            QLabel(f"{self._Ylabel}: "), pos_row, 0, Qt.AlignmentFlag.AlignRight
+        )
         self._y_pos = MoveStageSpinBox(label="Y")
         self._pos_boxes.append(self._y_pos)
         self._y_pos.editingFinished.connect(self._move_absolute)
-        self._pos.addWidget(self._y_pos)
+        self._pos.addWidget(self._y_pos, pos_row, 1)
 
         for box in self._pos_boxes:
             box.installEventFilter(self)
@@ -280,7 +242,7 @@ class StageWidget(QWidget):
 
         self._halt = HaltButton(device, self._mmc, self)
         self._poll_cb = QCheckBox("Poll")
-        self.snap_checkbox = QCheckBox(text="Snap on Click")
+        self.snap_checkbox = QCheckBox(text="Snap")
         self._invert_x = QCheckBox(text="Invert X")
         self._invert_y = QCheckBox(text=f"Invert {self._Ylabel}")
         self._set_as_default_btn = QRadioButton(text="Set as Default")
@@ -300,21 +262,20 @@ class StageWidget(QWidget):
         chxbox_grid.addWidget(self._invert_x, 1, 0)
         chxbox_grid.addWidget(self._invert_y, 1, 1)
 
+        # halt button sits in the empty center cell of the move-buttons grid
+        move_btns_layout = cast("QGridLayout", self._move_btns.layout())
+        move_btns_layout.addWidget(self._halt, 1, 1, Qt.AlignmentFlag.AlignCenter)
+
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(5, 5, 5, 5)
-        main_layout.addWidget(self._set_as_default_btn, 0, Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(self._move_btns, Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(self._halt)
+        main_layout.addWidget(
+            self._set_as_default_btn, alignment=Qt.AlignmentFlag.AlignCenter
+        )
+        main_layout.addLayout(self._step_row)
+        main_layout.addWidget(self._move_btns, alignment=Qt.AlignmentFlag.AlignCenter)
+        main_layout.addLayout(self._pos)
         main_layout.addLayout(chxbox_grid)
-
-        # pos label can appear either below or to the right of the move buttons
-        if position_label_below:
-            main_layout.insertLayout(2, self._pos)
-        else:
-            move_btns_layout = cast("QGridLayout", self._move_btns.layout())
-            move_btns_layout.addLayout(
-                self._pos, 4, 4, 2, 2, Qt.AlignmentFlag.AlignBottom
-            )
+        main_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         if not self._is_2axis:
             self._invert_x.hide()
@@ -354,13 +315,15 @@ class StageWidget(QWidget):
         """
         self._pos_toggle_action.setChecked(enabled)
         for box in self._pos_boxes:
-            box.setEnabled(enabled)
+            # use read-only (rather than disabled) so the boxes keep receiving
+            # mouse events and the "Enable Editing" context menu stays reachable
+            box.setReadOnly(not enabled)
 
     def _enable_wdg(self, enabled: bool) -> None:
         self._step.setEnabled(enabled)
         self._move_btns.setEnabled(enabled)
         for box in self._pos_boxes:
-            box.setEnabled(enabled and self._pos_toggle_action.isChecked())
+            box.setEnabled(enabled)
         self.snap_checkbox.setEnabled(enabled)
         self._set_as_default_btn.setEnabled(enabled)
         self._poll_cb.setEnabled(enabled)
