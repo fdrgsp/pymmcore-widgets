@@ -17,7 +17,9 @@ from pymmcore_widgets import StageWidget
 app = QApplication([])
 
 mmc = CMMCorePlus().instance()
-mmc.loadSystemConfiguration()
+mmc.loadSystemConfiguration(
+    "/Users/fdrgsp/Documents/git/pymmcore-gui/tests/test_config.cfg"
+)
 
 wdg = QWidget()
 wdg_layout = QHBoxLayout(wdg)

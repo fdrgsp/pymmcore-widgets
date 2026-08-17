@@ -21,19 +21,6 @@ def test_xy_stage_initialization(qtbot: QtBot, global_mmcore: CMMCorePlus) -> No
     qtbot.addWidget(stage_xy)
 
     assert global_mmcore.getXYStageDevice() == "XY"
-    assert stage_xy._set_as_default_btn.isChecked()
-
-
-def test_xy_stage_set_as_default(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
-    stage_xy = StageWidget("XY", absolute_positioning=True)
-    qtbot.addWidget(stage_xy)
-
-    global_mmcore.setProperty("Core", "XYStage", "")
-    assert not global_mmcore.getXYStageDevice()
-    assert not stage_xy._set_as_default_btn.isChecked()
-    stage_xy._set_as_default_btn.setChecked(True)
-    assert global_mmcore.getXYStageDevice() == "XY"
-    assert stage_xy._set_as_default_btn.isChecked()
 
 
 def test_xy_stage_step_size(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
@@ -128,24 +115,6 @@ def test_z_stage_initialization(qtbot: QtBot, global_mmcore: CMMCorePlus) -> Non
     qtbot.addWidget(stage_z1)
 
     assert global_mmcore.getFocusDevice() == "Z"
-    assert stage_z._set_as_default_btn.isChecked()
-    assert not stage_z1._set_as_default_btn.isChecked()
-
-
-def test_z_stage_set_as_default(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
-    stage_z = StageWidget("Z")
-    stage_z1 = StageWidget("Z1")
-    qtbot.addWidget(stage_z)
-    qtbot.addWidget(stage_z1)
-
-    global_mmcore.setProperty("Core", "Focus", "Z1")
-    assert global_mmcore.getFocusDevice() == "Z1"
-    assert not stage_z._set_as_default_btn.isChecked()
-    assert stage_z1._set_as_default_btn.isChecked()
-    stage_z._set_as_default_btn.setChecked(True)
-    assert global_mmcore.getFocusDevice() == "Z"
-    assert stage_z._set_as_default_btn.isChecked()
-    assert not stage_z1._set_as_default_btn.isChecked()
 
 
 def test_z_stage_movement_buttons(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
@@ -201,9 +170,7 @@ def test_z_stage_snap_on_click(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None
             z_up.widget().click()
     global_mmcore.stopSequenceAcquisition()
 
-    # disconnect
     assert global_mmcore.getFocusDevice() == "Z"
-    assert stage_z._set_as_default_btn.isChecked()
 
 
 def test_enable_position_buttons(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:

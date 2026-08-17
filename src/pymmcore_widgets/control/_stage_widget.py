@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from pymmcore_plus import CMMCorePlus, DeviceType, Keyword
+from pymmcore_plus import CMMCorePlus, DeviceType
 from qtpy.QtCore import QEvent, QObject, QSize, Qt, QTimerEvent, Signal, Slot
-from qtpy.QtGui import QContextMenuEvent
+from qtpy.QtGui import QContextMenuEvent, QWheelEvent
 from qtpy.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
@@ -12,22 +12,16 @@ from qtpy.QtWidgets import (
     QLabel,
     QMenu,
     QPushButton,
-    QRadioButton,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 from superqt.iconify import QIconifyIcon
-from superqt.utils import signals_blocked
 
 from ._q_stage_controller import QStageMoveAccumulator
 
 if TYPE_CHECKING:
     from typing import Any
-
-CORE = Keyword.CoreDevice
-XY_STAGE = Keyword.CoreXYStage
-FOCUS = Keyword.CoreFocus
 
 MOVE_BUTTONS: dict[str, tuple[int, int, int, int]] = {
     # btn glyph (r, c, xmag, ymag)
@@ -236,8 +230,6 @@ class StageWidget(QWidget):
         self._y_pos.editingFinished.connect(self._move_absolute)
         self._pos.addWidget(self._y_pos, pos_row, 1)
 
-        for box in self._pos_boxes:
-            box.installEventFilter(self)
         self._pos.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self._halt = HaltButton(device, self._mmc, self)
@@ -245,10 +237,6 @@ class StageWidget(QWidget):
         self.snap_checkbox = QCheckBox(text="Snap")
         self._invert_x = QCheckBox(text="Invert X")
         self._invert_y = QCheckBox(text=f"Invert {self._Ylabel}")
-        self._set_as_default_btn = QRadioButton(text="Set as Default")
-        # no need to show the "set as default" button if there is only one device
-        if len(self._mmc.getLoadedDevicesOfType(self._dtype)) < 2:
-            self._set_as_default_btn.hide()
 
         # LAYOUT ------------------------------------------------
 
@@ -268,9 +256,6 @@ class StageWidget(QWidget):
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(5, 5, 5, 5)
-        main_layout.addWidget(
-            self._set_as_default_btn, alignment=Qt.AlignmentFlag.AlignCenter
-        )
         main_layout.addLayout(self._step_row)
         main_layout.addWidget(self._move_btns, alignment=Qt.AlignmentFlag.AlignCenter)
         main_layout.addLayout(self._pos)
@@ -280,12 +265,15 @@ class StageWidget(QWidget):
         if not self._is_2axis:
             self._invert_x.hide()
 
+        # catch events (context-menu, wheel-scroll) on every descendant widget,
+        # so e.g. mouse-wheel scrolling works no matter where the cursor is
+        for child in self.findChildren(QWidget):
+            child.installEventFilter(self)
+
         # SIGNALS -----------------------------------------------
 
-        self._set_as_default_btn.toggled.connect(self._on_radiobutton_toggled)
         self._move_btns.moveRequested.connect(self._on_move_requested)
         self._poll_cb.toggled.connect(self._toggle_poll_timer)
-        self._mmc.events.propertyChanged.connect(self._on_prop_changed)
         self._mmc.events.systemConfigurationLoaded.connect(self._on_system_cfg)
         self._stage_controller.moveFinished.connect(self._update_position_from_core)
 
@@ -293,7 +281,6 @@ class StageWidget(QWidget):
 
         self._update_position_from_core()
         self.enable_absolute_positioning(absolute_positioning)
-        self._set_as_default()
 
     def step(self) -> float:
         """Return the current step size."""
@@ -325,7 +312,6 @@ class StageWidget(QWidget):
         for box in self._pos_boxes:
             box.setEnabled(enabled)
         self.snap_checkbox.setEnabled(enabled)
-        self._set_as_default_btn.setEnabled(enabled)
         self._poll_cb.setEnabled(enabled)
 
     @Slot()
@@ -335,38 +321,6 @@ class StageWidget(QWidget):
             self._update_position_from_core()
         else:
             self._enable_wdg(False)
-        self._set_as_default()
-
-    def _set_as_default(self) -> None:
-        with signals_blocked(self._set_as_default_btn):
-            if self._dtype is DeviceType.XYStage:
-                if self._mmc.getXYStageDevice() == self._device:
-                    self._set_as_default_btn.setChecked(True)
-            elif self._dtype is DeviceType.Stage:
-                if self._mmc.getFocusDevice() == self._device:
-                    self._set_as_default_btn.setChecked(True)
-
-    @Slot(bool)
-    def _on_radiobutton_toggled(self, state: bool) -> None:
-        prop = XY_STAGE if self._is_2axis else FOCUS
-        if state:
-            self._mmc.setProperty(CORE, prop, self._device)
-        elif len(self._mmc.getLoadedDevicesOfType(self._dtype)) == 1:
-            with signals_blocked(self._set_as_default_btn):
-                self._set_as_default_btn.setChecked(True)
-        else:
-            self._mmc.setProperty(CORE, prop, "")
-
-    @Slot(str, str, object)
-    def _on_prop_changed(self, dev: str, prop: str, val: str) -> None:
-        if (
-            (dev != CORE)
-            or (self._is_2axis and prop != XY_STAGE)
-            or (not self._is_2axis and prop != FOCUS)
-        ):
-            return
-        with signals_blocked(self._set_as_default_btn):
-            self._set_as_default_btn.setChecked(val == self._device)
 
     @Slot(bool)
     def _toggle_poll_timer(self, on: bool) -> None:
@@ -390,7 +344,35 @@ class StageWidget(QWidget):
         if obj in self._pos_boxes and isinstance(event, QContextMenuEvent):
             self._pos_menu.exec(event.globalPos())
             return True
+        if (
+            isinstance(event, QWheelEvent)
+            and not self._is_step_box(obj)
+            and self._move_by_wheel(event)
+        ):
+            return True
         return super().eventFilter(obj, event)  # type: ignore [no-any-return]
+
+    def wheelEvent(self, event: QWheelEvent | None) -> None:
+        if event is None or not self._move_by_wheel(event):
+            super().wheelEvent(event)
+
+    def _is_step_box(self, obj: QObject | None) -> bool:
+        # scrolling over the step spinbox should change the step value itself,
+        # not move the stage
+        return obj is self._step or (
+            isinstance(obj, QWidget) and self._step.isAncestorOf(obj)
+        )
+
+    def _move_by_wheel(self, event: QWheelEvent) -> bool:
+        """Move a single-axis (Z) stage via mouse-wheel scrolling."""
+        if self._is_2axis or not self._move_btns.isEnabled():
+            return False
+        delta = event.angleDelta().y()
+        if delta == 0:
+            return False
+        direction = 1 if delta > 0 else -1
+        self._on_move_requested(0, direction * self.step())
+        return True
 
     @Slot()
     def _update_position_from_core(self) -> None:
@@ -427,7 +409,6 @@ class StageWidget(QWidget):
         self._stage_controller.snap_on_finish = self.snap_checkbox.isChecked()
 
     def _disconnect(self) -> None:
-        self._mmc.events.propertyChanged.disconnect(self._on_prop_changed)
         self._mmc.events.systemConfigurationLoaded.disconnect(self._on_system_cfg)
         if self._is_2axis:
             event = self._mmc.events.XYStagePositionChanged
