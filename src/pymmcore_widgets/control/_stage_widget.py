@@ -79,7 +79,7 @@ class HaltButton(QPushButton):
         super().__init__(parent=parent)
         self._device = device
         self._core = core
-        self.setIcon(QIconifyIcon("bi:sign-stop-fill", color="red"))
+        self.setIcon(QIconifyIcon("bi:sign-stop", color="red"))
         self.setIconSize(QSize(28, 28))
         self.setToolTip("Halt stage movement")
         self.setFixedSize(38, 38)
