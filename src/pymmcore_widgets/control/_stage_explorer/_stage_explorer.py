@@ -987,7 +987,12 @@ class AffineState:
         sin_ = np.sin(rotation_rad)
         R[:2, :2] = np.array([[cos_, -sin_], [sin_, cos_]])
         # scaling matrix
-        S = np.diag([self.pixel_size_um, self.pixel_size_um, 1, 1])
+        # a pixel size of 0 (e.g. no calibration for the current objective/
+        # resolution preset) would otherwise produce a singular matrix, which
+        # crashes when applied as a vispy transform. Fall back to 1.0 (no
+        # scaling) in that case.
+        pixel_size_um = self.pixel_size_um or 1.0
+        S = np.diag([pixel_size_um, pixel_size_um, 1, 1])
         # flip the image if required
         if flip_x:
             S[0, 0] *= -1
