@@ -100,11 +100,10 @@ class XYZStageWidget(QWidget):
         for lbl in (self._xy_no_device_lbl, self._z_no_device_lbl):
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl.setWordWrap(True)
-        # constrain the placeholder labels to the button grids' natural size so
-        # a QStackedWidget page (sized to fit the largest page) doesn't force
-        # the grid to be wider/taller than its compact, natural size
-        self._xy_no_device_lbl.setFixedSize(self._xy_move_btns.sizeHint())
-        self._z_no_device_lbl.setFixedSize(self._z_move_btns.sizeHint())
+            # wide enough that the wrapped text is fully readable (the button
+            # grids alone -- especially the single-column Z one -- are too
+            # narrow for "No core Focus Device" etc. not to be clipped)
+            lbl.setFixedWidth(110)
 
         self._xy_stack = QStackedWidget()
         self._xy_stack.addWidget(self._xy_move_btns)
@@ -179,17 +178,17 @@ class XYZStageWidget(QWidget):
         # pos_col is deliberately left unaligned so it stretches to match
         # *just* the arrows' height (not the invert row below), letting its
         # row stretch spread its fields evenly across that same vertical span
-        top_row = QHBoxLayout()
-        top_row.setSpacing(6)
-        top_row.addWidget(self._xy_stack, 0, grid_fixed)
-        top_row.addWidget(self._z_stack, 0, grid_fixed)
-        top_row.addLayout(pos_col)
-        top_row.addStretch()
+        self._top_row = QHBoxLayout()
+        self._top_row.setSpacing(6)
+        self._top_row.addWidget(self._xy_stack, 0, grid_fixed)
+        self._top_row.addWidget(self._z_stack, 0, grid_fixed)
+        self._top_row.addLayout(pos_col)
+        self._top_row.addStretch()
 
         move_box = QGroupBox()
         move_box_layout = QVBoxLayout(move_box)
         move_box_layout.setContentsMargins(4, 4, 4, 4)
-        move_box_layout.addLayout(top_row)
+        move_box_layout.addLayout(self._top_row)
         move_box_layout.addLayout(invert_row)
 
         # a plain nested QLayout only grows if its *contents* ask for more
@@ -281,9 +280,16 @@ class XYZStageWidget(QWidget):
 
         self._xy_device = device
         self._xy_halt.setDevice(device)
-        self._xy_stack.setCurrentWidget(
-            self._xy_move_btns if device else self._xy_no_device_lbl
-        )
+        xy_page = self._xy_move_btns if device else self._xy_no_device_lbl
+        self._xy_stack.setCurrentWidget(xy_page)
+        # a QStackedWidget normally sizes itself to fit its *largest* page; size
+        # it to just the current page instead, so the compact button grid isn't
+        # stretched to accommodate the (much wider) "no device" placeholder text
+        self._xy_stack.setFixedSize(xy_page.sizeHint())
+        # the grid must stay top-aligned so its rows match X/Y/Z in pos_col,
+        # but the (shorter) placeholder should be centered in that same span
+        v_align = Qt.AlignmentFlag.AlignTop if device else Qt.AlignmentFlag.AlignVCenter
+        self._top_row.setAlignment(self._xy_stack, Qt.AlignmentFlag.AlignLeft | v_align)
         self._x_step.setEnabled(bool(device))
         self._y_step.setEnabled(bool(device))
         self._x_pos.setEnabled(bool(device))
@@ -306,9 +312,12 @@ class XYZStageWidget(QWidget):
 
         self._z_device = device
         self._z_halt.setDevice(device)
-        self._z_stack.setCurrentWidget(
-            self._z_move_btns if device else self._z_no_device_lbl
-        )
+        z_page = self._z_move_btns if device else self._z_no_device_lbl
+        self._z_stack.setCurrentWidget(z_page)
+        # see matching comments in _bind_xy_device
+        self._z_stack.setFixedSize(z_page.sizeHint())
+        v_align = Qt.AlignmentFlag.AlignTop if device else Qt.AlignmentFlag.AlignVCenter
+        self._top_row.setAlignment(self._z_stack, Qt.AlignmentFlag.AlignLeft | v_align)
         self._z_step.setEnabled(bool(device))
         self._z_pos.setEnabled(bool(device))
         self._invert_z.setEnabled(bool(device))
