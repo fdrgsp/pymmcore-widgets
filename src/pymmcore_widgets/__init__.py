@@ -49,6 +49,7 @@ __all__ = [
     "StageWidget",
     "StateDeviceWidget",
     "TimePlanWidget",
+    "XYZStageWidget",
     "ZPlanWidget",
 ]
 
@@ -76,6 +77,7 @@ from .control import (
     SnapButton,
     StageExplorer,
     StageWidget,
+    XYZStageWidget,
 )
 from .device_properties import PropertiesWidget, PropertyBrowser, PropertyWidget
 from .hcs import HCSWizard

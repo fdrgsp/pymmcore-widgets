@@ -12,6 +12,7 @@ from ._shutter_widget import ShuttersWidget
 from ._snap_button_widget import SnapButton
 from ._stage_explorer import StageExplorer
 from ._stage_widget import StageWidget
+from ._xyz_stage_widget import XYZStageWidget
 
 __all__ = [
     "CameraRoiValue",
@@ -28,4 +29,5 @@ __all__ = [
     "SnapButton",
     "StageExplorer",
     "StageWidget",
+    "XYZStageWidget",
 ]

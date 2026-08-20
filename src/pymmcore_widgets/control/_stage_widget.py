@@ -75,7 +75,9 @@ class MoveStageSpinBox(QDoubleSpinBox):
 
 
 class HaltButton(QPushButton):
-    def __init__(self, device: str, core: CMMCorePlus, parent: QWidget | None = None):
+    def __init__(
+        self, device: str, core: CMMCorePlus, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent=parent)
         self._device = device
         self._core = core
@@ -86,9 +88,14 @@ class HaltButton(QPushButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.clicked.connect(self._on_clicked)
 
+    def setDevice(self, device: str) -> None:
+        """Change the device that this button halts."""
+        self._device = device
+
     @Slot()
     def _on_clicked(self) -> None:
-        self._core.stop(self._device)
+        if self._device:
+            self._core.stop(self._device)
 
 
 class StageMovementButtons(QWidget):
