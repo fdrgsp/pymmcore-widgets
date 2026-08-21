@@ -238,7 +238,7 @@ class GridPlanWidget(QScrollArea):
             self._align_label_columns()
 
     def _align_label_columns(self) -> None:
-        """Give every form common, bounded label and field widths.
+        """Give every form common label and field widths.
 
         Each mode widget and the common controls use their own ``QFormLayout``,
         so without this the field column would start at a different x in each
@@ -280,7 +280,7 @@ class GridPlanWidget(QScrollArea):
         for label in labels:
             label.setMinimumWidth(width)
 
-        field_width = max(175, *(field.sizeHint().width() for field in fields))
+        field_width = max(field.sizeHint().width() for field in fields)
         for field in fields:
             field.setFixedWidth(field_width)
 

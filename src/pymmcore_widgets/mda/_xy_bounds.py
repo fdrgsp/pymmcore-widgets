@@ -196,6 +196,10 @@ class XYBoundsControl(QWidget):
         layout.addWidget(mode_widget, 0, 0, 1, 2)
 
         self._compact_action_stacks: list[QStackedWidget] = []
+        # Each entry is (label, edge_text, corner_text) so _set_corner_mode
+        # can swap the label to match whichever bound is currently
+        # mark-able in that row (e.g. "Top" <-> "Top Left").
+        self._compact_field_labels: list[tuple[QLabel, str, str]] = []
         specs = (
             ("Top", self._bounds_wdg.top, self.btn_top, self.btn_top_left, 0, 0),
             (
@@ -228,9 +232,11 @@ class XYBoundsControl(QWidget):
             control_layout = QHBoxLayout(control)
             control_layout.setContentsMargins(0, 0, 0, 0)
             control_layout.setSpacing(2)
-            label = QLabel(f"{text}:")
-            label.setFixedWidth(46)
+            edge_text = f"{text}:"
+            corner_text = f"{corner_button.label.title()}:"
+            label = QLabel(edge_text)
             control_layout.addWidget(label)
+            self._compact_field_labels.append((label, edge_text, corner_text))
             control_layout.addWidget(field)
 
             action_stack = QStackedWidget()
@@ -245,6 +251,23 @@ class XYBoundsControl(QWidget):
         # unused block underneath the compact controls.
         for row in range(3):
             layout.setRowStretch(row, 1)
+        # Labels are only as wide as whichever text set (edge or corner
+        # names) is active, so switching Mode reclaims the unused space
+        # instead of every label permanently reserving room for the longer
+        # of the two (e.g. "Bottom Right:").
+        self._compact_label_widths = (
+            max(
+                self.fontMetrics().horizontalAdvance(edge_text)
+                for _, edge_text, _ in self._compact_field_labels
+            )
+            + 4,
+            max(
+                self.fontMetrics().horizontalAdvance(corner_text)
+                for _, _, corner_text in self._compact_field_labels
+            )
+            + 4,
+        )
+        self._set_corner_mode(False)
 
         self._corner_mode.toggled.connect(self._set_corner_mode)
         self._move_action.toggled.connect(self.go_middle.setChecked)
@@ -256,6 +279,10 @@ class XYBoundsControl(QWidget):
     def _set_corner_mode(self, corners: bool) -> None:
         for stack in self._compact_action_stacks:
             stack.setCurrentIndex(int(corners))
+        width = self._compact_label_widths[int(corners)]
+        for label, edge_text, corner_text in self._compact_field_labels:
+            label.setText(corner_text if corners else edge_text)
+            label.setFixedWidth(width)
 
     def _sync_action_mode(self, move: bool) -> None:
         (self._move_action if move else self._mark_action).setChecked(True)
@@ -424,17 +451,27 @@ class _MarkVisitButton(QPushButton):
         self.setIcon(self._mark_icon)
         self.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setToolTip(f"Mark the {self._name} bound.")
+        self.setToolTip(f"Mark the {self.label} bound.")
+
+    @property
+    def name(self) -> str:
+        """The bound this button marks/visits, e.g. 'top_left'."""
+        return self._name
+
+    @property
+    def label(self) -> str:
+        """Human-readable version of `name`, e.g. 'top left'."""
+        return self._name.replace("_", " ")
 
     def setMark(self) -> None:
         """Set the icon to the mark icon."""
         self.setIcon(self._mark_icon)
-        self.setToolTip(f"Mark the {self._name} bound.")
+        self.setToolTip(f"Mark the {self.label} bound.")
 
     def setVisit(self) -> None:
         """Set the icon to the visit icon."""
         self.setIcon(self._visit_icon)
-        self.setToolTip(f"Move to the {self._name} bound.")
+        self.setToolTip(f"Move to the {self.label} bound.")
 
 
 class _LeftAlignedPushButton(QPushButton):

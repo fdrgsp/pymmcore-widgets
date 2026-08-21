@@ -13,6 +13,7 @@ from qtpy.QtWidgets import (
     QLabel,
     QMenu,
     QSizePolicy,
+    QSpinBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -83,14 +84,17 @@ class XYZStageWidget(QWidget):
         xy_grid.addWidget(self._xy_halt, 1, 1, Qt.AlignmentFlag.AlignCenter)
 
         self._x_step = MoveStageSpinBox(label="X step", minimum=0)
+        self._x_step.setButtonSymbols(QSpinBox.ButtonSymbols.UpDownArrows)
         self._x_step.setValue(10)
         self._y_step = MoveStageSpinBox(label="Y step", minimum=0)
+        self._y_step.setButtonSymbols(QSpinBox.ButtonSymbols.UpDownArrows)
         self._y_step.setValue(10)
         self._x_step.valueChanged.connect(self._update_xy_tooltips)
         self._y_step.valueChanged.connect(self._update_xy_tooltips)
 
         self._z_move_btns = StageMovementButtons(show_x=False)
         self._z_step = self._z_move_btns.step_size
+        self._z_step.setButtonSymbols(QSpinBox.ButtonSymbols.UpDownArrows)
         self._z_halt = HaltButton("", self._mmc, self)
         z_grid = cast("QGridLayout", self._z_move_btns.layout())
         z_grid.addWidget(self._z_halt, 1, 1, Qt.AlignmentFlag.AlignCenter)
