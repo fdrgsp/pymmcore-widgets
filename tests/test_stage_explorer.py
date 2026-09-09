@@ -464,6 +464,39 @@ def test_contrast_slider_auto_off_on_user_interaction(qtbot: QtBot) -> None:
     assert not widget.auto
 
 
+def test_contrast_slider_uses_ndv_style(qtbot: QtBot) -> None:
+    """The Stage Explorer contrast control uses ndv's slider rendering."""
+    widget = ContrastSlider()
+    qtbot.addWidget(widget)
+
+    style = widget._slider.styleSheet()
+    assert "QSlider::groove:horizontal" in style
+    assert "QSlider::handle:horizontal" in style
+    assert "SliderLabel { font-size: 10px; color: white;}" in style
+
+
+def test_contrast_slider_range_limits_are_editable(qtbot: QtBot) -> None:
+    """Both ends of the contrast slider's domain have editable controls."""
+    widget = ContrastSlider()
+    qtbot.addWidget(widget)
+
+    assert widget._min_spin.value() == widget._slider.minimum() == 0
+    assert widget._max_spin.value() == widget._slider.maximum() == 2**16 - 1
+    assert not widget._min_spin.isReadOnly()
+    assert not widget._max_spin.isReadOnly()
+
+    assert widget._min_spin.sizeHint().width() == widget._max_spin.sizeHint().width()
+
+    widget._min_spin.setValue(100)
+    widget._max_spin.setValue(1000)
+
+    assert widget._min_spin.sizeHint().width() == widget._max_spin.sizeHint().width()
+    assert widget._slider.minimum() == 100
+    assert widget._slider.maximum() == 1000
+    assert widget._min_spin.maximum() == 999
+    assert widget._max_spin.minimum() == 101
+
+
 def test_contrast_slider_auto_stays_on_during_programmatic_update(
     qtbot: QtBot,
 ) -> None:
