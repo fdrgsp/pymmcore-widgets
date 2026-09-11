@@ -20,7 +20,6 @@ from qtpy.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSizePolicy,
-    QSpinBox,
     QToolBar,
     QToolButton,
     QVBoxLayout,
@@ -331,7 +330,7 @@ class StageExplorer(QWidget):
 
         if not self._contrast_slider.isVisible():
             self._contrast_slider.setVisible(True)
-            self._contrast_slider._max_spin._set_from_camera()
+            self._contrast_slider.set_maximum(2 ** self._mmc.getImageBitDepth() - 1)
         min_ = np.min(image)
         max_ = np.max(image)
         self._contrast_slider.update_data_range(min_, max_)
@@ -683,66 +682,6 @@ class StageExplorer(QWidget):
         return all(view_rect.contains(*vertex) for vertex in vertices)
 
 
-class _MaxSpinBox(QSpinBox):
-    """Frameless spinbox for the contrast slider maximum, with a context menu."""
-
-    _DEFAULT_MAX = 2**16 - 1
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setRange(1, self._DEFAULT_MAX)
-        self.setValue(self._DEFAULT_MAX)
-        self.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setKeyboardTracking(False)
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.customContextMenuRequested.connect(self._show_context_menu)
-        self.setMinimumWidth(self.fontMetrics().horizontalAdvance("888888"))
-
-    def _core(self) -> CMMCorePlus | None:
-        """Walk up the widget tree to find the CMMCorePlus instance."""
-        widget = self.parent()
-        while widget is not None:
-            if hasattr(widget, "_mmc"):
-                return widget._mmc  # type: ignore [no-any-return]
-            widget = widget.parent()
-        return None
-
-    def _show_context_menu(self, pos: QWidget) -> None:
-        menu = QMenu(self)
-        if action := menu.addAction("Set to camera bit depth"):
-            action.setEnabled(self._core() is not None)
-            action.triggered.connect(self._set_from_camera)
-            menu.exec(self.mapToGlobal(pos))
-
-    def _set_from_camera(self) -> None:
-        if (mmc := self._core()) is not None:
-            self.setValue(2 ** mmc.getImageBitDepth() - 1)
-
-
-class _MinSpinBox(QSpinBox):
-    """Frameless spinbox for the contrast slider minimum."""
-
-    _DEFAULT_MIN = 0
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setRange(self._DEFAULT_MIN, _MaxSpinBox._DEFAULT_MAX - 1)
-        self.setValue(self._DEFAULT_MIN)
-        self.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setKeyboardTracking(False)
-        self.setMinimumWidth(self.fontMetrics().horizontalAdvance("888888"))
-
-    def sizeHint(self) -> QSize:
-        """Match the maximum editor as its displayed range changes."""
-        hint = super().sizeHint()
-        max_spin = getattr(self.parent(), "_max_spin", None)
-        if isinstance(max_spin, QSpinBox):
-            hint.setWidth(max_spin.sizeHint().width())
-        return hint
-
-
 _CLIM_SLIDER_STYLE = (
     """
 QSlider::groove:horizontal {
@@ -798,20 +737,15 @@ class ContrastSlider(QWidget):
         self._slider = QLabeledRangeSlider(Qt.Orientation.Horizontal, self)
         # Keep the contrast control visually identical to ndv's Qt LUT slider.
         self._slider.setStyleSheet(_CLIM_SLIDER_STYLE)
-        self._slider.setRange(0, _MaxSpinBox._DEFAULT_MAX)
+        self._slider.setRange(0, 2**16 - 1)
         self._slider.setHandleLabelPosition(
             QLabeledRangeSlider.LabelPosition.LabelsOnHandle
         )
         self._slider.setEdgeLabelMode(QLabeledRangeSlider.EdgeLabelMode.NoLabel)
         self._slider.valueChanged.connect(self._on_slider_changed)
 
-        self._min_spin = _MinSpinBox(self)
-        self._min_spin.valueChanged.connect(self._on_min_spin_changed)
-
-        self._max_spin = _MaxSpinBox(self)
-        self._max_spin.valueChanged.connect(self._on_max_spin_changed)
-
         self._auto_btn = QPushButton("Auto", self)
+        self._auto_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._auto_btn.setCheckable(True)
         self._auto_btn.setChecked(True)
         self._auto_btn.toggled.connect(self._on_auto_toggled)
@@ -819,9 +753,7 @@ class ContrastSlider(QWidget):
         layout = QHBoxLayout(self)
         layout.setSpacing(5)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._min_spin, 0)
         layout.addWidget(self._slider, 1)
-        layout.addWidget(self._max_spin, 0)
         layout.addWidget(self._auto_btn, 0)
 
     @property
@@ -830,12 +762,8 @@ class ContrastSlider(QWidget):
         return self._auto
 
     def set_maximum(self, value: int) -> None:
-        """Set the slider and spinbox maximum."""
-        self._max_spin.setValue(value)
-
-    def set_minimum(self, value: int) -> None:
-        """Set the slider and spinbox minimum."""
-        self._min_spin.setValue(value)
+        """Set the slider domain maximum."""
+        self._slider.setMaximum(max(1, value))
 
     def update_data_range(self, img_min: float, img_max: float) -> None:
         """Expand the running data range and, if auto, update the handles."""
@@ -858,14 +786,6 @@ class ContrastSlider(QWidget):
         if self._auto_btn.isChecked():
             self._auto_btn.setChecked(False)
         self.valueChanged.emit((float(value[0]), float(value[1])))
-
-    def _on_min_spin_changed(self, value: int) -> None:
-        self._max_spin.setMinimum(value + 1)
-        self._slider.setRange(value, self._max_spin.value())
-
-    def _on_max_spin_changed(self, value: int) -> None:
-        self._min_spin.setMaximum(value - 1)
-        self._slider.setRange(self._min_spin.value(), value)
 
     def _on_auto_toggled(self, checked: bool) -> None:
         self._auto = checked

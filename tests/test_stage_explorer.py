@@ -411,6 +411,9 @@ def test_stage_explorer_contrast_slider_values_set_on_first_image(
     lo, hi = explorer._contrast_slider._slider.value()
     assert lo == 10
     assert hi == 200
+    assert explorer._contrast_slider._slider.maximum() == (
+        2 ** explorer._mmc.getImageBitDepth() - 1
+    )
 
 
 def test_stage_explorer_contrast_slider_not_reset_by_second_image(
@@ -475,26 +478,27 @@ def test_contrast_slider_uses_ndv_style(qtbot: QtBot) -> None:
     assert "SliderLabel { font-size: 10px; color: white;}" in style
 
 
-def test_contrast_slider_range_limits_are_editable(qtbot: QtBot) -> None:
-    """Both ends of the contrast slider's domain have editable controls."""
+def test_contrast_slider_matches_ndv_controls(qtbot: QtBot) -> None:
+    """Only the editable handle labels and Auto button are shown, as in ndv."""
     widget = ContrastSlider()
     qtbot.addWidget(widget)
 
-    assert widget._min_spin.value() == widget._slider.minimum() == 0
-    assert widget._max_spin.value() == widget._slider.maximum() == 2**16 - 1
-    assert not widget._min_spin.isReadOnly()
-    assert not widget._max_spin.isReadOnly()
+    layout = widget.layout()
+    assert layout is not None
+    assert layout.count() == 2
+    assert layout.itemAt(0).widget() is widget._slider
+    assert layout.itemAt(1).widget() is widget._auto_btn
+    assert widget._slider.minimum() == 0
+    assert widget._slider.maximum() == 2**16 - 1
 
-    assert widget._min_spin.sizeHint().width() == widget._max_spin.sizeHint().width()
+    widget.set_maximum(4095)
+    assert widget._slider.maximum() == 4095
 
-    widget._min_spin.setValue(100)
-    widget._max_spin.setValue(1000)
-
-    assert widget._min_spin.sizeHint().width() == widget._max_spin.sizeHint().width()
-    assert widget._slider.minimum() == 100
-    assert widget._slider.maximum() == 1000
-    assert widget._min_spin.maximum() == 999
-    assert widget._max_spin.minimum() == 101
+    widget._slider.setValue((100, 1000))
+    assert tuple(label.value() for label in widget._slider._handle_labels) == (
+        100,
+        1000,
+    )
 
 
 def test_contrast_slider_auto_stays_on_during_programmatic_update(
