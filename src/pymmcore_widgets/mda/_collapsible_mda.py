@@ -30,7 +30,6 @@ from qtpy.QtWidgets import (
     QLabel,
     QLayout,
     QScrollArea,
-    QSizePolicy,
     QTabBar,
     QTableWidget,
     QTabWidget,
@@ -180,7 +179,19 @@ class CollapsibleAcquisitionSection(QWidget):
             checkbox.setChecked(checked)
             checkbox.setAccessibleName(f"Use {title} in the acquisition")
             checkbox.toggled.connect(self.checkedChanged)
-            self._header_layout.addWidget(checkbox)
+            # A QCheckBox left-packs its own text, so this was never visibly
+            # wrong on its own -- but its *box* still grows to fill spare
+            # width once the summary hides on expand (same underlying cause
+            # as the QToolButton case above), which shows up as soon as
+            # anything is added after it in the header (e.g. a "Same as
+            # main" checkbox via `add_header_widget`, which would otherwise
+            # start wherever this oversized, invisible box happens to end).
+            # Pin it to its size hint on the left for the same reason.
+            self._header_layout.addWidget(
+                checkbox,
+                0,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            )
 
         self._summary_text = summary
         self._summary = QLabel(summary)
@@ -188,10 +199,24 @@ class CollapsibleAcquisitionSection(QWidget):
         self._summary.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
-        self._summary.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
-        )
-        self._header_layout.addWidget(self._summary, 1)
+        # Wrap the summary (and anything `add_header_widget` inserts, e.g. a
+        # "Same as main" checkbox) in its own trailing container rather than
+        # adding it to `_header_layout` directly. The container's own
+        # internal stretch pushes both to the row's right edge, so an
+        # inserted widget lands right before the summary -- not next to the
+        # title. This also sidesteps a PyQt/PySide layout quirk: giving the
+        # summary itself an Expanding size policy (rather than a plain
+        # stretch spacer) and then hiding it incorrectly sizes a *later* sibling
+        # inserted next to it -- reproducible with nothing more than two
+        # plain QCheckBoxes and a QLabel(stretch=1) hidden via
+        # setVisible(False), where the newly inserted sibling gets pushed
+        # out to where the hidden item's cell *would* end.
+        self._summary_wrapper = QWidget()
+        self._summary_wrapper_layout = QHBoxLayout(self._summary_wrapper)
+        self._summary_wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        self._summary_wrapper_layout.addStretch(1)
+        self._summary_wrapper_layout.addWidget(self._summary)
+        self._header_layout.addWidget(self._summary_wrapper, 1)
 
         self._body = QFrame()
         self._body.setObjectName("mdaSectionBody")
@@ -265,6 +290,24 @@ class CollapsibleAcquisitionSection(QWidget):
     def add_widget(self, widget: QWidget, stretch: int = 0) -> None:
         """Append a supporting widget to a non-axis section."""
         self._body_layout.addWidget(widget, stretch)
+
+    def add_header_widget(self, widget: QWidget) -> None:
+        """Insert a small widget into the header, right before the summary.
+
+        Lets a caller add a compact, always-visible control (e.g. a "Same as
+        main" checkbox) next to the section's status summary (e.g. "Off"),
+        so it's usable without expanding the section body.
+        """
+        idx = self._summary_wrapper_layout.indexOf(self._summary)
+        self._summary_wrapper_layout.insertWidget(
+            idx, widget, 0, Qt.AlignmentFlag.AlignVCenter
+        )
+        # extra breathing room beyond the layout's normal (tight) item
+        # spacing, so this reads as a distinct control rather than crowding
+        # the summary text right after it.
+        self._summary_wrapper_layout.insertSpacing(
+            idx + 1, self._metrics.header_spacing * 3
+        )
 
     def set_expanded(self, expanded: bool) -> None:
         """Expand or collapse the body without changing acquisition state."""

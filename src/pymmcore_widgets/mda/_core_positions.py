@@ -18,7 +18,7 @@ from qtpy.QtWidgets import (
     QWizard,
 )
 from superqt.utils import signals_blocked
-from useq import MDASequence, WellPlatePlan
+from useq import WellPlatePlan
 
 from pymmcore_widgets import HCSWizard
 from pymmcore_widgets.useq_widgets import PositionTable
@@ -184,8 +184,8 @@ class CoreConnectedPositionTable(PositionTable):
     @Slot()
     def _on_hcs_accepted(self) -> None:
         """Add the positions from the HCS wizard to the stage positions."""
-        self._plate_plan = self._hcs.value()
-        if self._plate_plan is not None:
+        plan = self._hcs.value()
+        if plan is not None:
             # show a ovwerwrite warning dialog if the table is not empty
             if self.table().rowCount() > 0:
                 dialog = QMessageBox(
@@ -199,12 +199,15 @@ class CoreConnectedPositionTable(PositionTable):
                 dialog.setDefaultButton(QMessageBox.StandardButton.Yes)
                 if dialog.exec() != QMessageBox.StandardButton.Yes:
                     return
-            self._update_table_positions(self._plate_plan)
+            self._update_table_positions(plan)
 
     def _update_table_positions(self, plan: WellPlatePlan) -> None:
         """Update the table with the positions from the HCS wizard."""
-        self.setValue(list(plan))
-        self._set_position_table_editable(False)
+        with signals_blocked(self):
+            self.setValue(list(plan))
+            self._plate_plan = plan
+            self._set_position_table_editable(False)
+        self.valueChanged.emit()
 
     def _rename_hcs_position_button(self, text: str) -> None:
         if wiz := self._hcs_wizard:
@@ -529,9 +532,11 @@ class CoreConnectedPositionTable(PositionTable):
             if (gp := pos.sequence.grid_plan) is None:
                 new_pos_list.append(pos)
                 continue
-            # update the FOV size
+            # update the FOV size, preserving any other subsequence settings
+            # (channels, z_plan, axis_order, autofocus_plan, etc.)
             new_gp = gp.model_copy(update={"fov_width": fov_w, "fov_height": fov_h})
-            new_pos = pos.model_copy(update={"sequence": MDASequence(grid_plan=new_gp)})
+            new_seq = pos.sequence.model_copy(update={"grid_plan": new_gp})
+            new_pos = pos.model_copy(update={"sequence": new_seq})
             new_pos_list.append(new_pos)
         # update the table
         self.setValue(new_pos_list)

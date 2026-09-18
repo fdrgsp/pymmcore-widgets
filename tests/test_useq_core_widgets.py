@@ -1415,7 +1415,9 @@ def test_grid_plan_subsequence_fov_update(
         sequence=useq.MDASequence(
             grid_plan=useq.GridRowsColumns(
                 fov_width=512.0, fov_height=512.0, rows=3, columns=1
-            )
+            ),
+            channels=["FITC"],
+            axis_order="tpcgz",
         ),
     )
     wdg.tab_wdg.setChecked(wdg.stage_positions, True)
@@ -1430,11 +1432,16 @@ def test_grid_plan_subsequence_fov_update(
 
     assert sp.value()[0].sequence.grid_plan.fov_width == 100
     assert sp.value()[0].sequence.grid_plan.fov_height == 150
+    # other subsequence fields must survive the FOV refresh (regression test)
+    assert sp.value()[0].sequence.channels[0].config == "FITC"
+    assert "".join(sp.value()[0].sequence.axis_order) == "tpcgz"
 
     with qtbot.waitSignal(mmc.events.pixelSizeChanged):
         mmc.setPixelSizeConfig("Res20x")
     assert sp.value()[0].sequence.grid_plan.fov_width == 50
     assert sp.value()[0].sequence.grid_plan.fov_height == 75
+    assert sp.value()[0].sequence.channels[0].config == "FITC"
+    assert "".join(sp.value()[0].sequence.axis_order) == "tpcgz"
 
 
 def test_sub_wdg_channel_tab(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
