@@ -37,7 +37,7 @@ from ._stage_viewer import StageViewer, get_vispy_scene_bounds
 
 if TYPE_CHECKING:
     from PyQt6.QtGui import QAction, QActionGroup, QKeyEvent
-    from qtpy.QtGui import QCloseEvent
+    from qtpy.QtGui import QCloseEvent, QHideEvent, QShowEvent
     from vispy.app.canvas import MouseEvent
 else:
     from qtpy.QtWidgets import QAction, QActionGroup
@@ -181,6 +181,9 @@ class StageExplorer(QWidget):
         self._poll_stage_position: bool = self._has_devices()
         self._our_mda_running: bool = False
         self._position_indicator: PositionIndicator = PositionIndicator.RECTANGLE
+        # Whether the poller was running when hideEvent last paused it, so
+        # showEvent knows whether to restart it (see hideEvent/showEvent).
+        self._was_polling_before_hide: bool = False
 
         # background thread for polling stage position
         self._stage_poller = _StagePoller(self._mmc)
@@ -259,6 +262,26 @@ class StageExplorer(QWidget):
     def closeEvent(self, a0: QCloseEvent | None) -> None:
         self._stop_poller()
         super().closeEvent(a0)
+
+    def hideEvent(self, a0: QHideEvent | None) -> None:
+        """Pause hardware polling while nothing can see this widget.
+
+        Covers a closed dock as well as a background tab in a tabbed dock
+        area -- either way, the stage poller would otherwise keep querying
+        hardware (and _on_image_snapped/_on_frame_ready keep redrawing the
+        scene, guarded separately below) for a view nobody is looking at.
+        """
+        super().hideEvent(a0)
+        self._was_polling_before_hide = self._stage_poller.isRunning()
+        self._stop_poller()
+
+    def showEvent(self, a0: QShowEvent | None) -> None:
+        """Resume polling paused by hideEvent and refresh the stale marker."""
+        super().showEvent(a0)
+        if self._was_polling_before_hide and self._mmc.getXYStageDevice():
+            self._stage_poller.start()
+            self._sync_stage_pos_marker()
+        self._was_polling_before_hide = False
 
     def __del__(self) -> None:
         self._stop_poller()
@@ -594,7 +617,10 @@ class StageExplorer(QWidget):
     @Slot()
     def _on_image_snapped(self) -> None:
         """Add the snapped image to the scene."""
-        if self._mmc.mda.is_running():
+        # mmc.events.imageSnapped fires for *any* snap in the app, not just
+        # ones from this widget -- skip the scene redraw while hidden (closed
+        # dock, or a background tab) since nothing can see it anyway.
+        if not self.isVisible() or self._mmc.mda.is_running():
             return
         # get the snapped image
         img = self._mmc.getImage()
@@ -611,6 +637,11 @@ class StageExplorer(QWidget):
     @Slot(object, object)
     def _on_frame_ready(self, image: np.ndarray, event: useq.MDAEvent) -> None:
         """Add the image to the scene when frameReady event is emitted."""
+        # frameReady fires for *any* running MDA, not just one started from
+        # this widget -- skip the scene redraw while hidden, same as
+        # _on_image_snapped above.
+        if not self.isVisible():
+            return
         # TODO: better handle c and z (e.g. multi-channels?, max projection?)
         x = event.x_pos if event.x_pos is not None else self._mmc.getXPosition()
         y = event.y_pos if event.y_pos is not None else self._mmc.getYPosition()
