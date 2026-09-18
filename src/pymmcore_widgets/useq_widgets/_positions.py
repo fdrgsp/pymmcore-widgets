@@ -133,7 +133,13 @@ class MDAButton(QWidget):
 
         self.clear_btn = QPushButton()
         self.clear_btn.setIcon(QIconifyIcon("mdi:close-circle", color="red"))
-        self.clear_btn.setFixedWidth(20)
+        # Fixed width keeps it narrower than seq_btn (a secondary action next to
+        # the primary one), but match its vertical policy so it grows to the
+        # same height instead of shrinking to the button's small default size.
+        self.clear_btn.setFixedWidth(24)
+        self.clear_btn.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred
+        )
         self.clear_btn.hide()
         self.clear_btn.clicked.connect(lambda: self.setValue(None))
 
