@@ -69,6 +69,11 @@ class CoreConnectedPositionTable(PositionTable):
 
         # add event filter for the af_per_position checkbox
         self.af_per_position.installEventFilter(self)
+        # Tracks af_per_position's own explicit (ancestor-independent) disabled
+        # state -- see eventFilter for why this is needed.
+        self._af_per_position_force_disabled = self.af_per_position.testAttribute(
+            Qt.WidgetAttribute.WA_ForceDisabled
+        )
 
         # -------------- HCS Wizard ----------------
         self._hcs_wizard: HCSWizard | None = None
@@ -147,8 +152,21 @@ class CoreConnectedPositionTable(PositionTable):
     # ----------------------- private methods -----------------------
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        # An ancestor (e.g. this whole table, disabled while an MDA runs) being
+        # enabled/disabled also delivers EnabledChange events to af_per_position,
+        # even though its *own* enabled state was never touched -- reacting to
+        # those was hiding the AF column (and emitting valueChanged) as a side
+        # effect of disabling the table, not of anything the user did to the
+        # checkbox itself. WA_ForceDisabled is Qt's own bookkeeping for "this
+        # widget was explicitly setEnabled(False)'d, independent of its
+        # ancestors" (as opposed to merely inheriting a disabled ancestor), so
+        # comparing it against the last-seen value isolates exactly the
+        # explicit toggles this handler is meant for.
         if obj is self.af_per_position and event.type() == QEvent.Type.EnabledChange:
-            self._on_af_per_position_enabled_change()
+            force_disabled = obj.testAttribute(Qt.WidgetAttribute.WA_ForceDisabled)
+            if force_disabled != self._af_per_position_force_disabled:
+                self._af_per_position_force_disabled = force_disabled
+                self._on_af_per_position_enabled_change()
         return super().eventFilter(obj, event)  # type: ignore [no-any-return]
 
     def _on_af_per_position_enabled_change(self) -> None:

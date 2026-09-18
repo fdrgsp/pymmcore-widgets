@@ -413,6 +413,32 @@ def test_core_position_table_checkboxes_toggled(qtbot: QtBot):
     assert not pos_table.table().isColumnHidden(af_btn_col)
 
 
+def test_core_position_table_disable_does_not_toggle_af(qtbot: QtBot):
+    """Disabling the whole table (e.g. while an MDA runs) must not be mistaken
+    for the "Set AF Offset per Position" checkbox itself losing its own
+    enabled state -- that used to hide the AF column and emit valueChanged as
+    a side effect, purely because the checkbox's *effective* isEnabled()
+    follows its disabled ancestor.
+    """
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    wdg.show()
+    pos_table = wdg.stage_positions
+    assert isinstance(pos_table, CoreConnectedPositionTable)
+
+    wdg.setValue(MDA)
+    af_btn_col = pos_table.table().indexOf(pos_table._af_btn_col)
+    pos_table.af_per_position.setChecked(True)
+    assert not pos_table.table().isColumnHidden(af_btn_col)
+
+    with qtbot.assertNotEmitted(pos_table.valueChanged, wait=200):
+        pos_table.setEnabled(False)
+        pos_table.setEnabled(True)
+
+    assert pos_table.af_per_position.isChecked()
+    assert not pos_table.table().isColumnHidden(af_btn_col)
+
+
 def test_core_mda_autofocus(qtbot: QtBot):
     wdg = MDAWidget()
     qtbot.addWidget(wdg)

@@ -825,6 +825,31 @@ def test_mda_popup_with_polygon(qtbot: QtBot) -> None:
     assert gp.polygon_wdg.scene.items()
 
 
+def test_populate_axis_order_combo_preserves_current_selection(qtbot: QtBot) -> None:
+    """Repopulating the combo with the same set of axes must not reset the
+    current selection to whatever ends up first in the new permutation list.
+    """
+    from qtpy.QtWidgets import QComboBox
+
+    from pymmcore_widgets.useq_widgets._mda_sequence import populate_axis_order_combo
+
+    combo = QComboBox()
+    qtbot.addWidget(combo)
+
+    populate_axis_order_combo(combo, ("p", "t", "c"))
+    combo.setCurrentText("ptc")
+    assert combo.currentText() == "ptc"
+
+    # Repopulating with the same axes keeps the non-default selection.
+    populate_axis_order_combo(combo, ("p", "t", "c"))
+    assert combo.currentText() == "ptc"
+
+    # Repopulating with a different axis set (that no longer contains "ptc")
+    # falls back to whatever ends up first, same as before.
+    populate_axis_order_combo(combo, ("p", "c"))
+    assert combo.currentText() != "ptc"
+
+
 def test_main_axis_order_includes_position_subsequence_axes(qtbot: QtBot) -> None:
     """The root order controls axes split across the root and a position."""
     wdg = MDASequenceWidget()

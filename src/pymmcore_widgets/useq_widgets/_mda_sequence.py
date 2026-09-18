@@ -56,14 +56,20 @@ for x in list(ALLOWED_ORDERS):
 def populate_axis_order_combo(combo: QComboBox, used_axes: Sequence[str]) -> None:
     """Populate `combo` with the valid axis-order permutations of `used_axes`.
 
+    Preserves the current selection if it's still a valid ordering, instead of
+    resetting to whatever ends up first in the repopulated list.
+
     Disables the combo when there is at most one valid ordering (i.e. nothing
     meaningful to choose between).
     """
+    current = combo.currentText()
     with signals_blocked(combo):
         combo.clear()
         for p in permutations(used_axes):
             if (strp := "".join(p)) in ALLOWED_ORDERS:
                 combo.addItem(strp)
+        if (idx := combo.findText(current)) >= 0:
+            combo.setCurrentIndex(idx)
         combo.setEnabled(combo.count() > 1)
 
 

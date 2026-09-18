@@ -407,6 +407,31 @@ def test_collapsible_applies_roi_once_during_preflight(qtbot: QtBot) -> None:
     assert tuple(wdg._mmc.getROI("Camera")) == (10, 20, 200, 180)
 
 
+def test_collapsible_run_preserves_axis_order(qtbot: QtBot) -> None:
+    """Running an acquisition must not silently change the axis order combo.
+
+    Disabling the editors at sequenceStarted (set_editor_enabled) disables the
+    whole Positions widget, which used to be misread by
+    CoreConnectedPositionTable.eventFilter as its "Set AF Offset per Position"
+    checkbox itself losing its enabled state -- toggling that checkbox off and
+    repopulating (and thus resetting) the axis-order combo as a side effect.
+    """
+    wdg = MDAWidgetCollapsible()
+    qtbot.addWidget(wdg)
+    wdg.setValue(MDA)
+
+    combo = wdg.axis_order
+    before = combo.currentText()
+    assert before == "tpgzc"
+
+    with qtbot.waitSignal(wdg._mmc.mda.events.sequenceFinished):
+        wdg.control_btns.run_btn.click()
+
+    assert combo.currentText() == before
+    wdg.control_btns._disconnect()
+    wdg._disconnect()
+
+
 def test_collapsible_runs_acquisition(qtbot: QtBot) -> None:
     wdg = MDAWidgetCollapsible()
     qtbot.addWidget(wdg)
