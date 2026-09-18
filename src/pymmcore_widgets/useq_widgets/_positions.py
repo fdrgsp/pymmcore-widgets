@@ -10,12 +10,10 @@ import useq
 from qtpy.QtCore import Signal
 from qtpy.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
@@ -37,15 +35,6 @@ AF_PER_POS_TOOLTIP = (
     "If checked, the user can set a different Hardware Autofocus Offset for each "
     "Position in the table."
 )
-# axis key -> (MDATabs attribute name, human label), for the "Same as main"
-# checkboxes in `_MDAPopup`. Only axes actually used by the *main* sequence are
-# offered, since mirroring an axis the main sequence doesn't use is meaningless.
-_MIRRORABLE_AXES: tuple[tuple[str, str, str], ...] = (
-    ("c", "channels", "Channels"),
-    ("g", "grid_plan", "Grid / Tile Scan"),
-    ("z", "z_plan", "Z Stack"),
-    ("t", "time_plan", "Time Series"),
-)
 
 
 class _MDAPopup(QDialog):
@@ -58,10 +47,8 @@ class _MDAPopup(QDialog):
 
         super().__init__(parent)
 
-        # find the enclosing "main" MDA tab widget, if any (e.g. when this popup
-        # is opened from a position row in a PositionTable that is itself a tab
-        # of some MDATabs). Used both to match its type/channel-groups below,
-        # and for the "Same as main" mirroring checkboxes further down.
+        # Find the enclosing main MDA tab widget, if any, so the sub-sequence
+        # editor can match its type and channel groups.
         main_tabs: MDATabs | None = None
         wdg = self.parent()
         while wdg is not None:
@@ -69,8 +56,6 @@ class _MDAPopup(QDialog):
                 main_tabs = wdg
                 break
             wdg = wdg.parent()
-        self._main_tabs = main_tabs
-
         # create a new MDA tab widget of the same type as the main one (if any)
         tab_type = type(main_tabs) if main_tabs is not None else MDATabs
         self.mda_tabs = tab_type(self)
@@ -96,87 +81,6 @@ class _MDAPopup(QDialog):
         # hiding and disabling the corresponding section.
         self.mda_tabs.removeTab(self.mda_tabs.indexOf(self.mda_tabs.stage_positions))
 
-        # "Same as main" mirroring: on every one of the four axes (Channels,
-        # Grid, Z Stack, Time Series), let this position always track the
-        # main sequence's *current* settings (re-resolved live in
-        # `MDATabs.value()`, not copied once here) rather than requiring the
-        # user to manually duplicate them just to get a meaningful axis order
-        # below. Shown regardless of whether main currently has that axis
-        # toggled on -- checking it before main does just means it starts
-        # mirroring once main turns that axis on.
-        # On collapsible tabs (`CollapsibleCoreMDATabs`), each checkbox lives
-        # in that axis's own section *header*, next to its checkbox/title --
-        # usable without expanding the section. Plain (tab-strip) `MDATabs`
-        # has no per-tab slot for this, so it falls back to a single row
-        # above the tabs instead.
-        self._mirror_checks: dict[str, QCheckBox] = {}
-        mirror_row = None
-        if main_tabs is not None:
-            from ._mda_sequence import MIRROR_AXES_KEY, PYMMCW_METADATA_KEY
-
-            existing_mirror: set[str] = set()
-            if value is not None:
-                existing_mirror = set(
-                    value.metadata.get(PYMMCW_METADATA_KEY, {}).get(MIRROR_AXES_KEY, ())
-                )
-            mirrorable = [(axis, label) for axis, _attr, label in _MIRRORABLE_AXES]
-            uses_sections = hasattr(self.mda_tabs, "section")
-            if mirrorable and not uses_sections:
-                mirror_row = QHBoxLayout()
-                mirror_row.addWidget(QLabel("Same as main:"))
-
-            for axis, label in mirrorable:
-                cb = QCheckBox("Same as main" if uses_sections else label)
-                cb.setToolTip(
-                    f"Always use the main sequence's current {label} settings "
-                    "for this position (kept in sync, not a one-time copy)."
-                )
-                cb.toggled.connect(
-                    lambda checked, axis=axis: self._on_mirror_toggled(axis, checked)
-                )
-                self._mirror_checks[axis] = cb
-                if uses_sections:
-                    section = self.mda_tabs.section(axis)
-                    # prefer the header (usable without expanding the
-                    # section); fall back to the body if unavailable.
-                    if hasattr(section, "add_header_widget"):
-                        section.add_header_widget(cb)
-                    else:
-                        section.add_widget(cb)
-                else:
-                    assert mirror_row is not None
-                    mirror_row.addWidget(cb)
-
-            if mirror_row is not None:
-                mirror_row.addStretch()
-
-            # apply restored state (also syncs/checks/disables the tab)
-            for axis, cb in self._mirror_checks.items():
-                if axis in existing_mirror:
-                    cb.setChecked(True)
-
-        # axis order for THIS position's sub-sequence (e.g. whether the grid or
-        # the channels/z-stack is the outer loop for this specific position).
-        # Reuses the exact same permutation/enable-disable rules as the
-        # top-level axis-order combo (see `populate_axis_order_combo`).
-        self.axis_order = QComboBox()
-        self.axis_order.setToolTip(
-            "Slowest to fastest axis order for this position's sub-sequence."
-        )
-        self.axis_order.setMinimumWidth(80)
-        self.mda_tabs.tabChecked.connect(self._update_available_axis_orders)
-        self._update_available_axis_orders()
-        if value is not None:
-            axis_text = "".join(
-                x for x in value.axis_order if x in self.mda_tabs.usedAxes()
-            )
-            self.axis_order.setCurrentText(axis_text)
-
-        axis_order_row = QHBoxLayout()
-        axis_order_row.addWidget(QLabel("Axis Order:"))
-        axis_order_row.addWidget(self.axis_order)
-        axis_order_row.addStretch()
-
         # create ok and cancel buttons
         self._btns = QDialogButtonBox(OK_CANCEL)
         self._btns.accepted.connect(self.accept)
@@ -184,54 +88,8 @@ class _MDAPopup(QDialog):
 
         # create layout
         layout = QVBoxLayout(self)
-        if mirror_row is not None:
-            layout.addLayout(mirror_row)
-        layout.addLayout(axis_order_row)
         layout.addWidget(self.mda_tabs)
         layout.addWidget(self._btns)
-
-    def _on_mirror_toggled(self, axis: str, checked: bool) -> None:
-        attr = next(a for ax, a, _ in _MIRRORABLE_AXES if ax == axis)
-        sub_widget = getattr(self.mda_tabs, attr)
-        if checked and self._main_tabs is not None:
-            main_widget = getattr(self._main_tabs, attr)
-            # one-time preview of the main sequence's current value; the
-            # authoritative, always-fresh value is resolved on every
-            # `MDATabs.value()` call via the MIRROR_AXES_KEY metadata flag.
-            sub_widget.setValue(main_widget.value())
-            self.mda_tabs.setChecked(sub_widget, True)
-        sub_widget.setEnabled(not checked)
-
-    def _update_available_axis_orders(self, *_: object) -> None:
-        from ._mda_sequence import populate_axis_order_combo
-
-        populate_axis_order_combo(self.axis_order, self.mda_tabs.usedAxes())
-
-        # mirroring an axis that's no longer used by this position doesn't
-        # make sense (e.g. the user manually unchecked the Channels tab).
-        for axis, cb in self._mirror_checks.items():
-            if cb.isChecked() and not self.mda_tabs.isAxisUsed(axis):
-                cb.setChecked(False)
-
-    def value(self) -> useq.MDASequence:
-        """Return this position's sub-sequence, including its axis order."""
-        from ._mda_sequence import MIRROR_AXES_KEY, PYMMCW_METADATA_KEY
-
-        seq = self.mda_tabs.value()
-        if text := self.axis_order.currentText():
-            seq = seq.replace(axis_order=text)
-
-        mirrored = sorted(
-            ax for ax, cb in self._mirror_checks.items() if cb.isChecked()
-        )
-        if mirrored:
-            meta = dict(seq.metadata)
-            pymm_meta = dict(meta.get(PYMMCW_METADATA_KEY, {}))
-            pymm_meta[MIRROR_AXES_KEY] = mirrored
-            meta[PYMMCW_METADATA_KEY] = pymm_meta
-            seq = seq.replace(metadata=meta)
-
-        return seq
 
 
 class MDAButton(QWidget):
@@ -264,7 +122,7 @@ class MDAButton(QWidget):
     def _on_click(self) -> None:
         dialog = _MDAPopup(self._value, self)
         if dialog.exec():
-            self.setValue(dialog.value())
+            self.setValue(dialog.mda_tabs.value())
 
     def value(self) -> useq.MDASequence | None:
         return self._value
@@ -459,6 +317,7 @@ class PositionTable(DataTableWidget):
         with signals_blocked(self):
             self.include_z.setChecked(_include_z)
             self.af_per_position.setChecked(_use_af)
+        self.valueChanged.emit()
 
     def save(self, file: str | Path | None = None) -> None:
         """Save the current positions to a JSON file."""

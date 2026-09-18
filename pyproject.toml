@@ -102,6 +102,7 @@ docs = [
 
 [tool.uv.sources]
 pymmcore-widgets = { workspace = true }
+useq-schema = { git = "https://github.com/fdrgsp/useq-schema", rev = "cite" }
 
 [tool.ruff]
 line-length = 88

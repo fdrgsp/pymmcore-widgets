@@ -246,52 +246,6 @@ def test_collapsible_position_subsequence_popup_omits_positions(
     assert popup.mda_tabs.value().stage_positions == ()
 
 
-def test_collapsible_position_subsequence_mirror_checkboxes(qtbot: QtBot) -> None:
-    """ "Same as main" checkboxes live in each axis's own section header
-    (usable without expanding the section, not a single row bolted onto the
-    dialog) when using the collapsible presentation, and are offered on all
-    four axes regardless of whether the main sequence currently uses them.
-    """
-    wdg = MDAWidgetCollapsible()
-    qtbot.addWidget(wdg)
-    # main only currently uses channels -- Grid/Z/Time are off
-    wdg.setValue(useq.MDASequence(channels=["DAPI", "FITC"]))
-
-    table = wdg.stage_positions.table()
-    button = table.cellWidget(0, table.indexOf(wdg.stage_positions.SEQ))
-    assert isinstance(button, MDAButton)
-
-    popup = _MDAPopup(
-        useq.MDASequence(grid_plan=useq.GridRowsColumns(rows=1, columns=2)),
-        button,
-    )
-    qtbot.addWidget(popup)
-
-    # offered on all four axes, even the three main doesn't currently use
-    assert set(popup._mirror_checks) == {"c", "g", "z", "t"}
-    cb = popup._mirror_checks["c"]
-
-    # it lives in the Channels section's *header* (usable collapsed, without
-    # expanding the section), not the body and not a separate top row.
-    channels_section = popup.mda_tabs.section("c")
-    assert channels_section.isAncestorOf(cb)
-    assert not channels_section._body.isAncestorOf(cb)
-    assert not popup.mda_tabs.section("g").isAncestorOf(cb)
-
-    # each of the other axes' checkboxes lives in its OWN section header too
-    for axis in ("g", "z", "t"):
-        other_cb = popup._mirror_checks[axis]
-        other_section = popup.mda_tabs.section(axis)
-        assert other_section.isAncestorOf(other_cb)
-        assert not other_section._body.isAncestorOf(other_cb)
-
-    cb.setChecked(True)
-    assert popup.mda_tabs.isChecked("c")
-    built = popup.value()
-    assert built.metadata[PYMMCW_METADATA_KEY]["mirror_axes_from_main"] == ["c"]
-    assert [c.config for c in built.channels] == ["DAPI", "FITC"]
-
-
 def test_collapsible_disables_editors_during_run(qtbot: QtBot) -> None:
     wdg = MDAWidgetCollapsible()
     qtbot.addWidget(wdg)

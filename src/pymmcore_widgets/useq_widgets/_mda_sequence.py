@@ -31,7 +31,7 @@ from pymmcore_widgets.useq_widgets._time import TimePlanWidget
 from pymmcore_widgets.useq_widgets._z import Mode, ZPlanWidget
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Sequence
 
 
 def _check_order(x: str, first: str, second: str) -> bool:
@@ -39,12 +39,6 @@ def _check_order(x: str, first: str, second: str) -> bool:
 
 
 PYMMCW_METADATA_KEY = "pymmcore_widgets"
-# metadata[PYMMCW_METADATA_KEY][MIRROR_AXES_KEY] on a position's sub-sequence:
-# a list of axes ("c", "z", "t") whose settings should always be resolved from
-# the *current* value of the main sequence's corresponding tab (re-resolved on
-# every `.value()` call, not copied once) -- see `MDATabs._resolve_mirrored_axes`
-# and `_positions._MDAPopup`'s "Same as main" checkboxes.
-MIRROR_AXES_KEY = "mirror_axes_from_main"
 NULL_SEQUENCE = useq.MDASequence()
 AXES = "tpgcz"
 ALLOWED_ORDERS = {"".join(p) for x in range(1, 6) for p in permutations(AXES, x)}
@@ -62,9 +56,7 @@ def populate_axis_order_combo(combo: QComboBox, used_axes: Sequence[str]) -> Non
     """Populate `combo` with the valid axis-order permutations of `used_axes`.
 
     Disables the combo when there is at most one valid ordering (i.e. nothing
-    meaningful to choose between), matching the top-level axis-order behavior.
-    Shared between `MDASequenceWidget` and the per-position sub-sequence popup
-    (`_positions._MDAPopup`) so both use identical ordering rules.
+    meaningful to choose between).
     """
     with signals_blocked(combo):
         combo.clear()
@@ -144,8 +136,21 @@ class MDATabs(CheckableTabWidget):
         return bool(self.isChecked(key))
 
     def usedAxes(self) -> tuple[str, ...]:
-        """Return a tuple of the axes currently used in the sequence."""
-        return tuple(k for k in ("tpgzc") if self.isAxisUsed(k))
+        """Return all axes used by the sequence or any position sub-sequence."""
+        axes = {key for key in "tpgzc" if self.isAxisUsed(key)}
+        positions = list(self.stage_positions.value()) if "p" in axes else []
+
+        # Position sub-sequences are branches of this acquisition, so their
+        # axes also belong in the one, global axis order.  This is recursive to
+        # support sequences created programmatically even though the position
+        # editor itself prevents nesting positions in positions.
+        while positions:
+            position = positions.pop()
+            if sequence := position.sequence:
+                axes.update(sequence.used_axes)
+                positions.extend(sequence.stage_positions)
+
+        return tuple(key for key in "tpgzc" if key in axes)
 
     def value(self) -> useq.MDASequence:
         """Return the current sequence as a [`useq.MDASequence`][]."""
@@ -163,12 +168,6 @@ class MDATabs(CheckableTabWidget):
                 for pos in positions
             )
 
-        # (positions may be a `useq.WellPlatePlan` rather than a plain tuple of
-        # `Position` in HCS mode -- nothing to mirror-resolve in that case, and
-        # it must be passed through unchanged to preserve its special type.)
-        if isinstance(positions, tuple) and positions:
-            positions = self._resolve_mirrored_axes(positions)
-
         return useq.MDASequence(
             z_plan=self.z_plan.value() if self.isAxisUsed("z") else None,
             time_plan=self.time_plan.value() if self.isAxisUsed("t") else None,
@@ -177,48 +176,6 @@ class MDATabs(CheckableTabWidget):
             grid_plan=grid_plan,
             metadata={PYMMCW_METADATA_KEY: {"version": pymmcore_widgets.__version__}},
         )
-
-    def _resolve_mirrored_axes(
-        self, positions: tuple[useq.Position, ...]
-    ) -> tuple[useq.Position, ...]:
-        """Refresh position sub-sequence axes flagged "same as main".
-
-        A position's sub-sequence may flag one or more axes (via
-        `metadata[PYMMCW_METADATA_KEY][MIRROR_AXES_KEY]`, set by the
-        "Same as main" checkboxes in `_positions._MDAPopup`) to always track
-        *this* (main) sequence's current channels/grid_plan/z_plan/time_plan,
-        rather than a value copied once when the checkbox was toggled.
-        Resolving it here -- on every `.value()` call -- means it's always up
-        to date with whatever the main tabs currently hold.
-        """
-        getters: dict[str, Callable[[], object | None]] = {
-            "c": lambda: self.channels.value() if self.isAxisUsed("c") else None,
-            "g": lambda: self.grid_plan.value() if self.isAxisUsed("g") else None,
-            "z": lambda: self.z_plan.value() if self.isAxisUsed("z") else None,
-            "t": lambda: self.time_plan.value() if self.isAxisUsed("t") else None,
-        }
-        fields = {"c": "channels", "g": "grid_plan", "z": "z_plan", "t": "time_plan"}
-
-        resolved = []
-        for pos in positions:
-            seq = pos.sequence
-            pymm_meta = seq.metadata.get(PYMMCW_METADATA_KEY, {}) if seq else {}
-            mirror_axes = pymm_meta.get(MIRROR_AXES_KEY)
-            if not seq or not mirror_axes:
-                resolved.append(pos)
-                continue
-
-            updates = {
-                fields[ax]: value
-                for ax in mirror_axes
-                if ax in getters and (value := getters[ax]()) is not None
-            }
-            if updates:
-                pos = pos.model_copy(
-                    update={"sequence": seq.model_copy(update=updates)}
-                )
-            resolved.append(pos)
-        return tuple(resolved)
 
     def setValue(self, value: useq.MDASequence) -> None:
         """Set widget value from a [`useq.MDASequence`][]."""
@@ -417,7 +374,7 @@ class MDASequenceWidget(QWidget):
 
         self.channels.valueChanged.connect(self.valueChanged)
         self.time_plan.valueChanged.connect(self.valueChanged)
-        self.stage_positions.valueChanged.connect(self.valueChanged)
+        self.stage_positions.valueChanged.connect(self._update_available_axis_orders)
         self.z_plan.valueChanged.connect(self._validate_af_with_z_plan)
         self.grid_plan.valueChanged.connect(self._on_grid_plan_value_changed)
         self.tab_wdg.tabChecked.connect(self._on_tab_checked)

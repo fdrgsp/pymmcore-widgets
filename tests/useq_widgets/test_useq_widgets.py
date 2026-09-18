@@ -815,104 +815,93 @@ def test_mda_popup_with_polygon(qtbot: QtBot) -> None:
     assert gp.polygon_wdg.scene.items()
 
 
-def test_mda_popup_axis_order(qtbot: QtBot) -> None:
-    """Per-position axis order should be selectable, persisted, and only
-    enabled when there's more than one axis to reorder.
-
-    https://github.com/pymmcore-plus/pymmcore-widgets (per-position axis order)
-    """
-    from pymmcore_widgets.useq_widgets._positions import _MDAPopup
-
-    # a single used axis (grid only) -> nothing to reorder, combo disabled
-    seq_single_axis = useq.MDASequence(
-        grid_plan=useq.GridRowsColumns(rows=1, columns=2)
-    )
-    pop_single = _MDAPopup(seq_single_axis)
-    qtbot.addWidget(pop_single)
-    assert pop_single.axis_order.count() <= 1
-    assert not pop_single.axis_order.isEnabled()
-
-    # two used axes (grid + channels) -> both orders available and selectable
-    seq = useq.MDASequence(
-        channels=["DAPI", "FITC"],
-        grid_plan=useq.GridRowsColumns(rows=1, columns=2),
-        axis_order="tpcgz",
-    )
-    pop = _MDAPopup(seq)
-    qtbot.addWidget(pop)
-
-    assert pop.axis_order.isEnabled()
-    assert {pop.axis_order.itemText(i) for i in range(pop.axis_order.count())} == {
-        "cg",
-        "gc",
-    }
-    # the incoming sequence's axis order should be preselected
-    assert pop.axis_order.currentText() == "cg"
-    assert "".join(pop.value().axis_order) == "cg"
-
-    # changing the combo changes the resulting sequence's axis_order
-    pop.axis_order.setCurrentText("gc")
-    assert "".join(pop.value().axis_order) == "gc"
-
-
-def test_mda_popup_mirror_from_main(qtbot: QtBot) -> None:
-    """ "Same as main" should be offered on all four axes regardless of
-    whether the main sequence currently uses them, make a mirrored axis real
-    (so axis_order can act on it), and stay LIVE -- i.e. resolved from the
-    main tabs' *current* value every time `.value()` is called, not copied
-    once when the checkbox was toggled.
-    """
-    from pymmcore_widgets.useq_widgets._mda_sequence import MDASequenceWidget
-    from pymmcore_widgets.useq_widgets._positions import _MDAPopup
-
-    main_wdg = MDASequenceWidget()
-    qtbot.addWidget(main_wdg)
-    main_wdg.show()
-    main_wdg.setValue(useq.MDASequence(channels=["DAPI", "FITC"]))
-    main = main_wdg.tab_wdg
-
-    # offered on all four axes, even though main only currently uses channels
-    seq = useq.MDASequence(grid_plan=useq.GridRowsColumns(rows=1, columns=2))
-    pop = _MDAPopup(seq, main)
-    qtbot.addWidget(pop)
-
-    assert set(pop._mirror_checks) == {"c", "g", "z", "t"}
-    # only grid used so far in this position -> nothing to reorder yet
-    assert not pop.axis_order.isEnabled()
-
-    pop._mirror_checks["c"].setChecked(True)
-    assert pop.mda_tabs.isChecked(pop.mda_tabs.channels)
-    assert not pop.mda_tabs.channels.isEnabled()
-    assert [c.config for c in pop.mda_tabs.channels.value()] == ["DAPI", "FITC"]
-
-    # now g+c are both used for this position -> axis order becomes selectable
-    assert {pop.axis_order.itemText(i) for i in range(pop.axis_order.count())} == {
-        "cg",
-        "gc",
-    }
-    pop.axis_order.setCurrentText("gc")
-
-    built = pop.value()
-    assert built.metadata["pymmcore_widgets"]["mirror_axes_from_main"] == ["c"]
-    assert "".join(built.axis_order) == "gc"
-    assert [c.config for c in built.channels] == ["DAPI", "FITC"]
-
-    # accept into a position on the main tabs, then change main's channels
-    # *after* the fact -- a live mirror should reflect the update automatically.
-    # (patching stage_positions.value() rather than calling setValue() avoids
-    # creating a real Sub-Sequence cell widget, which leaks a QMenu on close
-    # for unrelated, pre-existing reasons -- reproducible on main/unmodified
-    # PositionTable.setValue() with any sequence-bearing position.)
-    main.setChecked(main.stage_positions, True)
-    accepted_position = useq.Position(x=0, y=0, sequence=built)
-    with patch.object(main.stage_positions, "value", return_value=(accepted_position,)):
-        main.channels.setValue(
-            useq.MDASequence(channels=["DAPI", "FITC", "Cy5"]).channels
+def test_main_axis_order_includes_position_subsequence_axes(qtbot: QtBot) -> None:
+    """The root order controls axes split across the root and a position."""
+    wdg = MDASequenceWidget()
+    qtbot.addWidget(wdg)
+    wdg.setValue(
+        useq.MDASequence(
+            channels=["DAPI", "FITC"],
+            stage_positions=[
+                useq.Position(
+                    x=0,
+                    y=0,
+                    sequence=useq.MDASequence(
+                        grid_plan=useq.GridRowsColumns(rows=1, columns=2)
+                    ),
+                )
+            ],
         )
-        resolved_pos = main.value().stage_positions[0]
+    )
 
-    assert [c.config for c in resolved_pos.sequence.channels] == [
-        "DAPI",
-        "FITC",
-        "Cy5",
+    available_orders = {
+        wdg.axis_order.itemText(i) for i in range(wdg.axis_order.count())
+    }
+    assert {"pgc", "pcg"} <= available_orders
+
+    wdg.axis_order.setCurrentText("pgc")
+    grid_major = wdg.value()
+    assert not grid_major.stage_positions[0].sequence.channels
+    assert [(e.index["g"], e.index["c"]) for e in grid_major] == [
+        (0, 0),
+        (0, 1),
+        (1, 0),
+        (1, 1),
     ]
+
+    wdg.axis_order.setCurrentText("pcg")
+    channel_major = wdg.value()
+    assert [(e.index["g"], e.index["c"]) for e in channel_major] == [
+        (0, 0),
+        (1, 0),
+        (0, 1),
+        (1, 1),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("child_axis", "root_axis", "expected_orders"),
+    [
+        ("g", "c", {"pgc", "pcg"}),
+        ("z", "c", {"pzc", "pcz"}),
+        ("t", "c", {"tpc", "ptc", "pct"}),
+        ("c", "t", {"cpt", "ptc", "pct"}),
+    ],
+)
+def test_position_subsequence_axes_refresh_main_axis_order(
+    qtbot: QtBot,
+    child_axis: str,
+    root_axis: str,
+    expected_orders: set[str],
+) -> None:
+    """Every axis added only inside a position updates the root selector."""
+    axis_fields: dict[str, dict[str, object]] = {
+        "c": {"channels": ["DAPI", "FITC"]},
+        "g": {"grid_plan": useq.GridRowsColumns(rows=1, columns=2)},
+        "t": {"time_plan": useq.TIntervalLoops(interval=0, loops=2)},
+        "z": {"z_plan": useq.ZRangeAround(range=1, step=1)},
+    }
+    wdg = MDASequenceWidget()
+    qtbot.addWidget(wdg)
+    wdg.setValue(
+        useq.MDASequence(
+            stage_positions=[useq.Position()],
+            **axis_fields[root_axis],
+        )
+    )
+    assert child_axis not in wdg.tab_wdg.usedAxes()
+
+    child = useq.MDASequence(**axis_fields[child_axis])
+    wdg.stage_positions.setValue([useq.Position(sequence=child)])
+
+    assert child_axis in wdg.tab_wdg.usedAxes()
+    available_orders = {
+        wdg.axis_order.itemText(i) for i in range(wdg.axis_order.count())
+    }
+    assert expected_orders <= available_orders
+    built_child = wdg.value().stage_positions[0].sequence
+    assert built_child is not None
+    assert built_child.used_axes == child_axis
+
+    wdg.stage_positions.setValue([useq.Position()])
+    assert child_axis not in wdg.tab_wdg.usedAxes()
