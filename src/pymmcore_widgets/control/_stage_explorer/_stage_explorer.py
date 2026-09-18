@@ -180,6 +180,7 @@ class StageExplorer(QWidget):
         self._snap_on_double_click: bool = True
         self._poll_stage_position: bool = self._has_devices()
         self._our_mda_running: bool = False
+        self._position_indicator: PositionIndicator = PositionIndicator.RECTANGLE
 
         # background thread for polling stage position
         self._stage_poller = _StagePoller(self._mmc)
@@ -252,6 +253,7 @@ class StageExplorer(QWidget):
         self._update_actions_enabled()
         if self._poll_stage_position:
             self._toolbar.poll_stage_action.trigger()
+        self._sync_stage_pos_marker()
         self.zoom_to_fit()
 
     def closeEvent(self, a0: QCloseEvent | None) -> None:
@@ -422,6 +424,7 @@ class StageExplorer(QWidget):
             return
         if isinstance(sender, QActionGroup) and (action := sender.checkedAction()):
             pi = PositionIndicator(action.text())
+            self._position_indicator = pi
             self._stage_pos_marker.set_rect_visible(pi.show_rect)
             self._stage_pos_marker.set_marker_visible(pi.show_marker)
 
@@ -533,6 +536,7 @@ class StageExplorer(QWidget):
         if has_xy and not self._stage_poller.isRunning():
             self._toolbar.poll_stage_action.setChecked(True)
             self._on_poll_stage_action(True)
+            self._sync_stage_pos_marker()
             self.zoom_to_fit()
         elif not has_xy and self._stage_poller.isRunning():
             self._toolbar.poll_stage_action.setChecked(False)
@@ -550,6 +554,8 @@ class StageExplorer(QWidget):
             rect_width=w,
             rect_height=h,
             marker_symbol_size=min(w, h) / 10,
+            show_rect=self._position_indicator.show_rect,
+            show_marker_symbol=self._position_indicator.show_marker,
         )
         self._stage_pos_marker.visible = False
 
@@ -628,15 +634,38 @@ class StageExplorer(QWidget):
         """Set the show grid property based on the state of the action."""
         self._stage_viewer.set_grid_visible(checked)
 
-    @Slot(float, float)
-    def _on_stage_position_polled(self, stage_x: float, stage_y: float) -> None:
-        """Update the marker and label with the polled stage position."""
+    def _update_stage_pos_marker(self, stage_x: float, stage_y: float) -> None:
+        """Update the marker position and the stage-position label."""
         self._stage_pos_label.setText(f"X: {stage_x:.2f} µm  Y: {stage_y:.2f} µm")
 
         # fast path: copy cached rotation/scale part and just update translation
         if self._stage_pos_marker is not None:
             matrix = self._affine_state.system_affine_translated(stage_x, stage_y)
             self._stage_pos_marker.apply_transform(matrix.T)
+
+    def _sync_stage_pos_marker(self) -> None:
+        """Synchronously move the marker to the current stage position.
+
+        The background `_StagePoller` reports position changes via a queued,
+        cross-thread signal, so its first update can't be delivered until the
+        Qt event loop runs again -- e.g. only *after* __init__ returns. Any
+        `zoom_to_fit()` called before that would fit around the marker's
+        stale/default position rather than the real one, so this is used to
+        get an up-to-date position immediately beforehand.
+        """
+        if self._stage_pos_marker is None or not self._mmc.getXYStageDevice():
+            return
+        try:
+            x, y = self._mmc.getXYPosition()
+        except Exception:
+            logger.exception("Failed to read initial XY stage position")
+            return
+        self._update_stage_pos_marker(x, y)
+
+    @Slot(float, float)
+    def _on_stage_position_polled(self, stage_x: float, stage_y: float) -> None:
+        """Update the marker and label with the polled stage position."""
+        self._update_stage_pos_marker(stage_x, stage_y)
 
         # zoom_to_fit only if auto _auto_zoom_to_fit property is set to True.
         if self._auto_zoom_to_fit:
@@ -811,6 +840,8 @@ class PositionIndicatorMenu(QMenu):
             action = cast("QAction", group.addAction(icon, mode.value))
             action.setCheckable(True)
             action.setIconVisibleInMenu(True)
+            if mode is PositionIndicator.RECTANGLE:
+                action.setChecked(True)
         self.addActions(group.actions())
 
 
