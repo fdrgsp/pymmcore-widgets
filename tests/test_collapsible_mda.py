@@ -222,7 +222,7 @@ def test_unchecked_axis_summaries_only_show_off(qtbot: QtBot) -> None:
         assert section.summary.startswith("On · ")
 
 
-def test_collapsible_position_subsequence_popup_omits_positions(
+def test_collapsible_position_subsequence_popup_only_exposes_grid(
     qtbot: QtBot,
 ) -> None:
     wdg = MDAWidgetCollapsible()
@@ -238,12 +238,24 @@ def test_collapsible_position_subsequence_popup_omits_positions(
     )
     qtbot.addWidget(popup)
 
-    assert isinstance(popup.mda_tabs, CollapsibleCoreMDATabs)
-    assert not any(popup.mda_tabs.section(axis).expanded for axis in "cpgzt")
-    positions_section = popup.mda_tabs.section("p")
-    assert positions_section.isHidden()
-    assert not popup.mda_tabs.isChecked("p")
+    # The collapsible sections presentation has nothing left to collapse once
+    # every axis but the grid is removed, so the popup falls back to the
+    # plain, still core-connected tab widget instead -- no disclosure/expand
+    # affordance for a single remaining tab.
+    assert not isinstance(popup.mda_tabs, CollapsibleCoreMDATabs)
+    # a position sub-sequence can only carry a grid plan; every other axis is
+    # removed entirely and cannot be checked/used.
+    for axis_widget in (
+        popup.mda_tabs.stage_positions,
+        popup.mda_tabs.channels,
+        popup.mda_tabs.z_plan,
+        popup.mda_tabs.time_plan,
+    ):
+        assert popup.mda_tabs.indexOf(axis_widget) == -1
+    # no grid plan was supplied, so the grid checkbox starts unchecked
+    assert not popup.mda_tabs.isChecked(popup.mda_tabs.grid_plan)
     assert popup.mda_tabs.value().stage_positions == ()
+    assert not popup.mda_tabs.value().channels
 
 
 def test_collapsible_disables_editors_during_run(qtbot: QtBot) -> None:

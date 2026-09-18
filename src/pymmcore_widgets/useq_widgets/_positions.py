@@ -46,9 +46,10 @@ class _MDAPopup(QDialog):
         from ._mda_sequence import MDATabs
 
         super().__init__(parent)
+        self.setWindowTitle("Grid Plan")
 
-        # Find the enclosing main MDA tab widget, if any, so the sub-sequence
-        # editor can match its type and channel groups.
+        # Find the enclosing main MDA tab widget, if any, so the grid editor
+        # matches its type (e.g. a core-connected grid with live stage bounds).
         main_tabs: MDATabs | None = None
         wdg = self.parent()
         while wdg is not None:
@@ -56,30 +57,52 @@ class _MDAPopup(QDialog):
                 main_tabs = wdg
                 break
             wdg = wdg.parent()
-        # create a new MDA tab widget of the same type as the main one (if any)
-        tab_type = type(main_tabs) if main_tabs is not None else MDATabs
+
+        # Create a new MDA tab widget of the same type as the main one (if
+        # any), except the collapsible sections presentation
+        # (CollapsibleCoreMDATabs, used by MDAWidgetCollapsible): every axis
+        # but the grid is removed below, so its disclosure/expand affordance
+        # has nothing left to collapse against. Fall back to its
+        # non-collapsible, still core-connected base class instead.
+        try:
+            from pymmcore_widgets.mda._core_mda import CoreMDATabs
+        except ImportError:  # pragma: no cover
+            CoreMDATabs = None  # type: ignore[assignment,misc]
+
+        if (
+            main_tabs is not None
+            and CoreMDATabs is not None
+            and isinstance(main_tabs, CoreMDATabs)
+        ):
+            tab_type: type[MDATabs] = CoreMDATabs
+        elif main_tabs is not None:
+            tab_type = type(main_tabs)
+        else:
+            tab_type = MDATabs
         self.mda_tabs = tab_type(self)
-
-        # The main collapsible MDA widget opens Channels by default, but the
-        # more compact position sub-sequence editor should start with every
-        # section collapsed.
-        if hasattr(self.mda_tabs, "section"):
-            self.mda_tabs.section("c").set_expanded(False)
-
-        # use the parent's channel groups if possible, but only for non-core-connected
-        # channel tables. Core-connected tables manage their own channel groups.
-        if main_tabs is not None and not hasattr(self.mda_tabs.channels, "_mmc"):
-            self.mda_tabs.channels.setChannelGroups(main_tabs.channels.channelGroups())
 
         # set the value if provided
         if value:
             self.mda_tabs.setValue(value)
 
-        # A position sub-sequence cannot itself contain another position list.
-        # Do this after restoring the value so an incoming sequence cannot
-        # re-enable Positions. Collapsible MDATabs maps this logical remove to
-        # hiding and disabling the corresponding section.
-        self.mda_tabs.removeTab(self.mda_tabs.indexOf(self.mda_tabs.stage_positions))
+        # A position sub-sequence cannot itself contain another position list,
+        # and a grid plan is the only axis a position sub-sequence currently
+        # supports (e.g. required for OME file writers), so remove every other
+        # axis and leave only the grid editor. Do this after restoring the
+        # value so an incoming sequence cannot re-enable them.
+        for axis_widget in (
+            self.mda_tabs.stage_positions,
+            self.mda_tabs.channels,
+            self.mda_tabs.z_plan,
+            self.mda_tabs.time_plan,
+        ):
+            self.mda_tabs.removeTab(self.mda_tabs.indexOf(axis_widget))
+        # Leave the grid checkbox as restored by setValue above: unchecked
+        # (and the editor disabled) unless the incoming value already had a
+        # grid plan, matching how every other axis checkbox behaves.
+
+        # Bring the grid editor into view -- it's the only thing left to edit.
+        self.mda_tabs.setCurrentIndex(self.mda_tabs.indexOf(self.mda_tabs.grid_plan))
 
         # create ok and cancel buttons
         self._btns = QDialogButtonBox(OK_CANCEL)
@@ -90,6 +113,8 @@ class _MDAPopup(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(self.mda_tabs)
         layout.addWidget(self._btns)
+
+        self.resize(600, 350)
 
 
 class MDAButton(QWidget):
@@ -103,7 +128,8 @@ class MDAButton(QWidget):
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred
         )
         self.seq_btn.clicked.connect(self._on_click)
-        self.seq_btn.setIcon(QIconifyIcon("mdi:axis"))
+        self.seq_btn.setIcon(QIconifyIcon("mdi:grid"))
+        self.seq_btn.setToolTip("Set a Grid Plan for this position")
 
         self.clear_btn = QPushButton()
         self.clear_btn.setIcon(QIconifyIcon("mdi:close-circle", color="red"))
@@ -137,10 +163,10 @@ class MDAButton(QWidget):
             # if sub-sequence is equal to the null sequence (useq.MDASequence())
             # treat it as None
             if value and value != NULL_SEQUENCE:
-                self.seq_btn.setIcon(QIconifyIcon("mdi:axis-arrow", color="green"))
+                self.seq_btn.setIcon(QIconifyIcon("mdi:grid", color="green"))
                 self.clear_btn.show()
             else:
-                self.seq_btn.setIcon(QIconifyIcon("mdi:axis"))
+                self.seq_btn.setIcon(QIconifyIcon("mdi:grid"))
                 self.clear_btn.hide()
             self.valueChanged.emit()
 
@@ -155,7 +181,7 @@ _MDAButton = WdgGetSet(
 
 @dataclass(frozen=True)
 class SubSeqColumn(WidgetColumn):
-    """Column for editing a `useq.MDASequence`."""
+    """Column for editing a position's grid-plan sub-sequence."""
 
     data_type: WdgGetSet = _MDAButton
 
@@ -168,7 +194,7 @@ class PositionTable(DataTableWidget):
     Y = FloatColumn(key="y", header="Y [µm]", default=0.0, maximum=MAX, minimum=-MAX)
     Z = FloatColumn(key="z", header="Z [µm]", default=0.0, maximum=MAX, minimum=-MAX)
     AF = FloatColumn(key="af", header="AF", default=0.0, maximum=MAX, minimum=-MAX)
-    SEQ = SubSeqColumn(key="sequence", header="Sub-Sequence", default=None)
+    SEQ = SubSeqColumn(key="sequence", header="Grid", default=None)
 
     def __init__(self, rows: int = 0, parent: QWidget | None = None):
         super().__init__(rows, parent)

@@ -318,8 +318,15 @@ def test_position_table(qtbot: QtBot):
     def handle_dialog():
         popup = btn.findChild(_MDAPopup)
         mda = popup.mda_tabs
-        mda.setChecked(mda.indexOf(mda.z_plan), True)
-        mda.setChecked(mda.indexOf(mda.channels), True)
+        # the position sub-sequence editor only exposes the grid plan; the
+        # other axes are removed entirely and cannot be checked/used.
+        assert mda.indexOf(mda.z_plan) == -1
+        assert mda.indexOf(mda.channels) == -1
+        assert mda.indexOf(mda.stage_positions) == -1
+        # no grid plan was supplied, so the grid checkbox starts unchecked
+        assert not mda.isChecked(mda.grid_plan)
+        mda.grid_plan.setValue(useq.GridRowsColumns(rows=2, columns=2))
+        mda.setChecked(mda.grid_plan, True)
         popup.accept()
 
     QTimer.singleShot(100, handle_dialog)
@@ -329,8 +336,9 @@ def test_position_table(qtbot: QtBot):
 
     positions = wdg.value()
     assert positions[0].sequence is not None
-    assert positions[0].sequence.z_plan is not None
-    assert len(positions[0].sequence.channels) == 1
+    assert positions[0].sequence.grid_plan == useq.GridRowsColumns(rows=2, columns=2)
+    assert positions[0].sequence.z_plan is None
+    assert not positions[0].sequence.channels
 
 
 def test_position_table_set_value(qtbot: QtBot) -> None:
@@ -806,7 +814,9 @@ def test_mda_popup_with_polygon(qtbot: QtBot) -> None:
     pop = _MDAPopup(seq)
     qtbot.addWidget(pop)
 
-    assert pop.mda_tabs.isChecked(pop.mda_tabs.channels)
+    # channels are not editable in the position sub-sequence editor -- only
+    # the grid plan is.
+    assert pop.mda_tabs.indexOf(pop.mda_tabs.channels) == -1
 
     gp = pop.mda_tabs.grid_plan
     assert pop.mda_tabs.isChecked(gp)
