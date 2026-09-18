@@ -227,6 +227,7 @@ def test_collapsible_position_subsequence_popup_omits_positions(
 ) -> None:
     wdg = MDAWidgetCollapsible()
     qtbot.addWidget(wdg)
+    assert wdg.tabs.section("c").expanded
     table = wdg.stage_positions.table()
     button = table.cellWidget(0, table.indexOf(wdg.stage_positions.SEQ))
     assert isinstance(button, MDAButton)
@@ -238,6 +239,7 @@ def test_collapsible_position_subsequence_popup_omits_positions(
     qtbot.addWidget(popup)
 
     assert isinstance(popup.mda_tabs, CollapsibleCoreMDATabs)
+    assert not any(popup.mda_tabs.section(axis).expanded for axis in "cpgzt")
     positions_section = popup.mda_tabs.section("p")
     assert positions_section.isHidden()
     assert not popup.mda_tabs.isChecked("p")

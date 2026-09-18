@@ -75,6 +75,12 @@ class _MDAPopup(QDialog):
         tab_type = type(main_tabs) if main_tabs is not None else MDATabs
         self.mda_tabs = tab_type(self)
 
+        # The main collapsible MDA widget opens Channels by default, but the
+        # more compact position sub-sequence editor should start with every
+        # section collapsed.
+        if hasattr(self.mda_tabs, "section"):
+            self.mda_tabs.section("c").set_expanded(False)
+
         # use the parent's channel groups if possible, but only for non-core-connected
         # channel tables. Core-connected tables manage their own channel groups.
         if main_tabs is not None and not hasattr(self.mda_tabs.channels, "_mmc"):
