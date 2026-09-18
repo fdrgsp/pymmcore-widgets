@@ -23,6 +23,7 @@ from superqt.utils import signals_blocked
 
 import pymmcore_widgets
 from pymmcore_widgets._humanize import humanize_time
+from pymmcore_widgets._util import disable_wheel_scroll
 from pymmcore_widgets.useq_widgets._channels import ChannelTable
 from pymmcore_widgets.useq_widgets._checkable_tabwidget_widget import CheckableTabWidget
 from pymmcore_widgets.useq_widgets._grid import GridPlanWidget
@@ -316,6 +317,7 @@ class MDASequenceWidget(QWidget):
         self.axis_order = QComboBox()
         self.axis_order.setToolTip("Slowest to fastest axis order.")
         self.axis_order.setMinimumWidth(80)
+        disable_wheel_scroll(self.axis_order)
 
         # -------------- Other Widgets --------------
 

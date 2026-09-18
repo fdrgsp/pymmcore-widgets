@@ -37,7 +37,7 @@ from qtpy.QtWidgets import (
 from superqt import QEnumComboBox
 from superqt.utils import signals_blocked
 
-from pymmcore_widgets._util import SeparatorWidget
+from pymmcore_widgets._util import SeparatorWidget, disable_wheel_scroll_recursive
 
 if TYPE_CHECKING:
     from typing import Literal, TypeAlias
@@ -195,6 +195,11 @@ class GridPlanWidget(QScrollArea):
         self.setWidgetResizable(True)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        # this widget scrolls (and commonly sits inside an outer collapsible
+        # section too), so disable mouse-wheel scrolling on its combo/spin boxes
+        # to avoid accidentally changing a value while scrolling past it
+        disable_wheel_scroll_recursive(inner_widget)
 
         self._mode_number_radio.setChecked(True)
 

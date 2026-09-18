@@ -23,7 +23,7 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
-from pymmcore_widgets._util import SeparatorWidget
+from pymmcore_widgets._util import SeparatorWidget, disable_wheel_scroll
 
 
 class Mode(enum.Enum):
@@ -223,6 +223,7 @@ class ZPlanWidget(QWidget):
         self.steps.setRange(0, 1000)
         self.steps.setSpecialValueText("N/A")
         self.steps.setValue(0)
+        disable_wheel_scroll(self.steps)
 
         self.range = self._new_double_spinbox(0, 10_000, 0.5)
         self._range_div2_lbl = QLabel()
@@ -235,6 +236,7 @@ class ZPlanWidget(QWidget):
         self._direction = QComboBox()
         self._direction.addItem("Bottom \u2192 Top", True)
         self._direction.addItem("Top \u2192 Bottom", False)
+        disable_wheel_scroll(self._direction)
 
         self._use_suggested_btn = QPushButton()
         self._use_suggested_btn.setIcon(QIconifyIcon("mdi:arrow-left-thick"))
@@ -358,6 +360,7 @@ class ZPlanWidget(QWidget):
         spinbox.setSingleStep(step)
         spinbox.setDecimals(3)
         spinbox.setSuffix(f" {UM}")
+        disable_wheel_scroll(spinbox)
         return spinbox
 
     def _form_label(self, text: str) -> QLabel:

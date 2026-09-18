@@ -24,6 +24,8 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
+from pymmcore_widgets._util import disable_wheel_scroll_recursive
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -245,6 +247,11 @@ class CameraRoiWidget(QWidget):
         self.select_roi_btn.toggled.connect(self.roiSelectionRequested.emit)
 
         self.destroyed.connect(self._disconnect)
+
+        # this widget commonly sits inside a scrollable/collapsible container, so
+        # disable mouse-wheel scrolling on its combo/spin boxes to avoid
+        # accidentally changing the ROI while scrolling past it
+        disable_wheel_scroll_recursive(self)
 
         # initialize the widget --------------------------------------------------
         self._on_sys_cfg_loaded()

@@ -486,7 +486,10 @@ class CheckableCombo(QWidget):
         self._checkbox = QCheckBox()
         self._checkbox.setChecked(True)
         self._checkbox.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self._combo = QComboBox()
+        # TableComboBox (defined below) disables mouse-wheel scrolling, which
+        # matters here too: this combo sits in a table cell just like the
+        # cell widgets built from ComboColumn.
+        self._combo = TableComboBox()
         # This wrapper is installed as the table's cell widget, so it is stretched
         # to the full cell height.  Let the nested combo stretch with it as well;
         # QComboBox's default vertical policy is Fixed, which otherwise leaves the

@@ -6,9 +6,10 @@ from typing import TYPE_CHECKING
 
 from psygnal import SignalGroup, SignalInstance
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtCore import QMarginsF, QObject, Qt
+from qtpy.QtCore import QEvent, QMarginsF, QObject, Qt
 from qtpy.QtGui import QPainter, QPaintEvent, QPen, QResizeEvent
 from qtpy.QtWidgets import (
+    QAbstractSpinBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -189,6 +190,40 @@ def get_next_available_path(requested_path: Path | str, min_digits: int = 3) -> 
     if requested_num is not None:
         current_max = max(requested_num, current_max)
     return directory / f"{stem}_{current_max:0{min_digits}d}{extension}"
+
+
+class _WheelBlocker(QObject):
+    """Event filter that swallows mouse-wheel events."""
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        return a1 is not None and a1.type() == QEvent.Type.Wheel
+
+
+def disable_wheel_scroll(widget: QWidget) -> None:
+    """Prevent `widget`'s value from being changed by mouse-wheel scrolling.
+
+    A combo/spin box sitting inside a scrollable or collapsible form can have its
+    value changed by accident when the user scrolls the page with the mouse wheel
+    instead of the intended target. This installs an event filter that ignores
+    wheel events on `widget` unconditionally (regardless of focus).
+    """
+    widget._wheel_blocker = blocker = _WheelBlocker(widget)
+    widget.installEventFilter(blocker)
+
+
+def disable_wheel_scroll_recursive(widget: QWidget) -> None:
+    """Apply [`disable_wheel_scroll`][] to `widget` and all its descendants.
+
+    Targets `QComboBox` and `QAbstractSpinBox` instances (and subclasses, e.g.
+    `QSpinBox`, `QDoubleSpinBox`, `superqt.QEnumComboBox`).
+    """
+    targets: list[QWidget] = []
+    if isinstance(widget, (QComboBox, QAbstractSpinBox)):
+        targets.append(widget)
+    targets.extend(widget.findChildren(QComboBox))
+    targets.extend(widget.findChildren(QAbstractSpinBox))
+    for target in targets:
+        disable_wheel_scroll(target)
 
 
 class SeparatorWidget(QWidget):
