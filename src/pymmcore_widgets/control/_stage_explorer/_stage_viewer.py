@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
+from weakref import WeakKeyDictionary
 
 import cmap
 import numpy as np
@@ -33,11 +34,29 @@ class StageViewer(QWidget):
         self._clims: tuple[float, float] | None = None
         self._cmap: cmap.Colormap = cmap.Colormap("gray")
 
+        # Monotonic draw-order counter. Each new image must sit on top of the
+        # previous ones; deriving that from min(child.order) is an O(N) scan of
+        # the whole scene on every single added frame, so keep a running value.
+        self._next_order: int = 0
+        # World-space bounding box per image, used by culling below.
+        # A WeakKeyDictionary rather than an attribute on the node: Image
+        # is a vispy Frozen class and rejects new attributes after
+        # construction, and this way an entry disappears on its own once
+        # the node it describes is garbage collected.
+        _WorldRect = tuple[float, float, float, float]
+        self._world_rects: WeakKeyDictionary[Image, _WorldRect] = WeakKeyDictionary()
+        # Whether off-screen images are hidden. vispy issues a draw call for
+        # every Image node regardless of whether it intersects the viewport, so
+        # a large map costs the same zoomed in as zoomed out (measured: 400
+        # tiles = 33ms either way, vs 3.5ms with only the 9 visible ones).
+        self._cull_offscreen: bool = True
+
         self.canvas = vispy.scene.SceneCanvas(show=True)
 
         self.view = cast("ViewBox", self.canvas.central_widget.add_view())
         self.view.camera = scene.PanZoomCamera(aspect=1)
         self.view.camera.flip = (True, True)
+        self.view.scene.transform.changed.connect(self._on_scene_transform_changed)
 
         self._grid_lines = vispy.scene.GridLines(
             parent=self.view.scene,
@@ -73,7 +92,7 @@ class StageViewer(QWidget):
     def set_grid_visible(self, visible: bool) -> None:
         self._grid_lines.visible = visible
 
-    def add_image(self, img: np.ndarray, transform: np.ndarray | None = None) -> None:
+    def add_image(self, img: np.ndarray, transform: np.ndarray | None = None) -> Image:
         """Add an image to the scene with the given transform.
 
         Parameters
@@ -110,14 +129,50 @@ class StageViewer(QWidget):
             texture_format="auto",
         )
         # keep the added image on top of the others
-        frame.order = min(child.order for child in self._get_images()) - 1
+        self._next_order -= 1
+        frame.order = self._next_order
         frame.transform = scene.MatrixTransform(matrix=transform)
+        self._set_world_rect(frame, img.shape, transform)
+        self._apply_cull(frame)
+        return frame
+
+    def update_image(
+        self, frame: Image, img: np.ndarray, transform: np.ndarray | None = None
+    ) -> None:
+        """Replace the contents (and placement) of an image already in the scene.
+
+        This is the counterpart to `add_image` for a location that is imaged
+        more than once -- a timelapse at a fixed stage position, or a snap
+        repeated at the same spot. Re-using the node uploads into the existing
+        texture instead of building a whole new scene-graph node, which keeps
+        both the node count and the memory footprint bounded by the number of
+        *distinct* locations on the map rather than by the number of frames
+        acquired.
+        """
+        frame.set_data(img)
+        if transform is not None:
+            transform = np.asarray(transform)
+            if transform.shape != (4, 4):
+                raise ValueError("Transform must be a 4x4 matrix.")
+            if np.allclose(transform[-1], (0, 0, 0, 1)):
+                transform = transform.T
+            frame.transform = scene.MatrixTransform(matrix=transform)
+            self._set_world_rect(frame, img.shape, transform)
+        else:
+            self._set_world_rect(frame, img.shape, np.array(frame.transform.matrix))
+        # Bring the refreshed tile back to the front, so a location re-imaged
+        # after an overlapping neighbour isn't hidden underneath it.
+        self._next_order -= 1
+        frame.order = self._next_order
+        self._apply_cull(frame)
+        frame.update()
 
     def clear(self) -> None:
         """Clear the scene."""
         for child in reversed(self.view.scene.children):
             if isinstance(child, Image):
                 child.parent = None
+        self._next_order = 0
 
     def zoom_to_fit(self, *, margin: float = 0.05) -> None:
         """Recenter the view to the center of all images.
@@ -170,6 +225,94 @@ class StageViewer(QWidget):
             x if x is not None else cur_x,
             y if y is not None else cur_y,
             cur_z,
+        )
+
+    # --------------------CULLING--------------------
+
+    def set_cull_offscreen(self, enabled: bool) -> None:
+        """Hide (or stop hiding) images that don't intersect the viewport."""
+        self._cull_offscreen = enabled
+        self.cull_to_view()
+
+    def _on_scene_transform_changed(self, event: Any = None) -> None:
+        del event
+        self.cull_to_view()
+
+    def cull_to_view(self) -> None:
+        """Show only the images intersecting the current camera rect.
+
+        vispy performs no viewport culling of its own, so every Image node in
+        the scene is drawn on every frame even when it is far outside the
+        view. Toggling `visible` is enough to skip the draw call, and it does
+        not affect `bounds()`, so `zoom_to_fit` still sees the whole map.
+        """
+        if not self._cull_offscreen:
+            for child in self._get_images():
+                child.visible = True
+            return
+        rect = self._culling_rect()
+        for child in self._get_images():
+            child.visible = self._rect_intersects(child, rect)
+
+    def _apply_cull(self, frame: Image) -> None:
+        """Set the initial visibility of a newly added/updated image."""
+        if self._cull_offscreen:
+            frame.visible = self._rect_intersects(frame, self._culling_rect())
+
+    def _culling_rect(self) -> Any:
+        """The world-space extent actually rendered on screen.
+
+        `camera.rect` is only the range the camera was explicitly asked to
+        show. This widget's camera enforces ``aspect=1`` (square pixels), so
+        whenever the viewbox itself isn't square -- which is virtually always
+        true for a real dock or window -- PanZoomCamera pads that range on
+        one axis to preserve 1:1 pixel aspect (letterboxing/pillarboxing).
+        What's actually drawn on screen is `camera._real_rect`, computed by
+        `PanZoomCamera._update_transform` and confirmed (empirically) to be
+        updated synchronously whenever `rect` changes, i.e. always fresh here
+        -- using the unpadded `camera.rect` instead would hide tiles that are
+        still genuinely on screen. `_real_rect` isn't public API, so this
+        falls back to the unpadded rect (the old, more-aggressive behavior)
+        if a future vispy version removes or renames it, rather than raising.
+        """
+        cam = self.view.camera
+        return getattr(cam, "_real_rect", None) or cam.rect
+
+    def _set_world_rect(
+        self, frame: Image, shape: tuple[int, ...], matrix: np.ndarray
+    ) -> None:
+        """Cache an image's world-space bounding box.
+
+        Culling runs on every pan/zoom, so recomputing each node's bounds
+        from its transform every time would put an O(N) matrix loop in the
+        middle of interaction. The box only changes when the image is added
+        or moved, so it is computed there and cached instead. (Cached in a
+        WeakKeyDictionary rather than as a node attribute -- vispy's Image is
+        a Frozen class and rejects new attributes post-construction.)
+        """
+        h, w = shape[0], shape[1]
+        corners = np.array(
+            [[0, 0, 0, 1], [w, 0, 0, 1], [0, h, 0, 1], [w, h, 0, 1]], dtype=float
+        )
+        world = corners @ matrix
+        world = world[:, :3] / world[:, 3, np.newaxis]
+        self._world_rects[frame] = (
+            float(world[:, 0].min()),
+            float(world[:, 0].max()),
+            float(world[:, 1].min()),
+            float(world[:, 1].max()),
+        )
+
+    def _rect_intersects(self, frame: Image, rect: Any) -> bool:
+        """Whether a cached world rect overlaps the camera rect."""
+        cached = self._world_rects.get(frame)
+        if cached is None:  # pragma: no cover - defensive
+            return True
+        x0, x1, y0, y1 = cached
+        # camera rect is normalized (left < right, bottom < top) even when
+        # the camera is flipped, which this widget's camera is on both axes.
+        return not (
+            x1 < rect.left or x0 > rect.right or y1 < rect.bottom or y0 > rect.top
         )
 
     def _get_images(self) -> Iterator[Image]:

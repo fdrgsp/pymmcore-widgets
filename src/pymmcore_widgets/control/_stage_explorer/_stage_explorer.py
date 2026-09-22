@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
+import psutil
 import useq
 from pymmcore_plus import CMMCorePlus, Keyword
-from qtpy.QtCore import QSignalBlocker, QSize, Qt, QThread, Signal, Slot
+from qtpy.QtCore import QSignalBlocker, QSize, Qt, QThread, QTimer, Signal, Slot
 from qtpy.QtGui import QIcon
 from qtpy.QtWidgets import (
     QDoubleSpinBox,
@@ -36,9 +38,12 @@ from ._stage_position_marker import StagePositionMarker
 from ._stage_viewer import StageViewer, get_vispy_scene_bounds
 
 if TYPE_CHECKING:
+    from collections.abc import Hashable
+
     from PyQt6.QtGui import QAction, QActionGroup, QKeyEvent
     from qtpy.QtGui import QCloseEvent, QHideEvent, QShowEvent
     from vispy.app.canvas import MouseEvent
+    from vispy.scene.visuals import Image
 else:
     from qtpy.QtWidgets import QAction, QActionGroup
 
@@ -49,6 +54,62 @@ logger = logging.getLogger(__name__)
 
 STAGE_POLL_INTERVAL_MS = 100
 STAGE_POS_TOLERANCE_UM_SQ = 0.01  # 0.1 µm squared
+
+# Minimum gap between scene repaints while frames are streaming in. Frames
+# arriving faster than this are still stored (newest wins) -- only the repaint
+# is coalesced, since anything drawn in between would be overwritten before a
+# single screen refresh could show it.
+REDRAW_INTERVAL_MS = 33  # ~30 fps
+
+# Two images are treated as "the same place on the map" -- and therefore share
+# one scene node -- when their centers are closer than this fraction of the
+# FOV. Only used for snaps: MDA frames are keyed by their position/grid index
+# instead, which is exact. Small enough that deliberately stepping the stage
+# always makes a new tile, large enough to absorb stage repeatability error
+# when returning to a position.
+SNAP_DEDUP_FOV_FRACTION = 0.01
+
+# An Image node costs roughly twice its array size in RSS: the array itself
+# (vispy holds a reference, it does not copy) plus the GL-side copy.
+TILE_MEMORY_FACTOR = 2
+
+# Ceiling on the memory held by the map. On reaching it the explorer stops
+# adding *new* locations -- already-drawn ones are never discarded, and
+# locations already on the map keep updating. Also doubles as a floor for the
+# scaled default below, so a low-memory machine still gets a usable budget.
+DEFAULT_MAX_MAP_MEMORY_MB = 2048.0
+
+# Independent of the map's own limit above (a static number set once, from
+# whatever the machine's *available* RAM happened to be at the time): a
+# floor on *live* system memory, re-checked on every new location. Something
+# else on the machine can claim RAM after that number was set -- the map's
+# own bookkeeping alone would stay well under its limit and keep growing
+# regardless, right up to a real allocation failure. Raising the map's limit
+# can't fix that case (the machine, not the map, is what's out of room), so
+# this blocks new locations even when the static limit above says there's
+# room left.
+LOW_SYSTEM_MEMORY_FLOOR_MB = 512.0
+
+
+def _map_memory_defaults() -> tuple[float, float, float]:
+    """(min, max, default) for the map-memory-limit spinbox, in GB.
+
+    The range is bounded by total physical RAM -- there is no point letting
+    the limit exceed what the machine could ever hold. The default scales
+    with *available* RAM too, rather than a flat number that's needlessly
+    stingy on a large workstation and reckless on a small one: 10% of what's
+    free right now, floored at DEFAULT_MAX_MAP_MEMORY_MB. Deliberately
+    smaller than the acquisition's own memory-budget default (80% of
+    available RAM, see pymmcore-gui's Settings) -- this is a secondary cache
+    running alongside that budget, not competing with it for the same
+    headroom.
+    """
+    vm = psutil.virtual_memory()
+    total_gb = round(vm.total / 1024**3, 1)
+    available_gb = vm.available / 1024**3
+    floor_gb = DEFAULT_MAX_MAP_MEMORY_MB / 1000
+    default_gb = min(max(floor_gb, round(available_gb * 0.1, 1)), total_gb)
+    return (0.1, total_gb, default_gb)
 
 
 class _StagePoller(QThread):
@@ -181,6 +242,30 @@ class StageExplorer(QWidget):
         self._poll_stage_position: bool = self._has_devices()
         self._our_mda_running: bool = False
         self._position_indicator: PositionIndicator = PositionIndicator.RECTANGLE
+
+        # --- map tiles -----------------------------------------------------
+        # One scene node per *location*, not per frame. Keyed by
+        # (sequence uid, position index, grid index) for MDA frames, and by a
+        # synthetic id for snaps (matched spatially, see _snap_tile_key).
+        self._tiles: dict[Hashable, Image] = {}
+        self._tile_centers: dict[Hashable, tuple[float, float]] = {}
+        self._tile_bytes: dict[Hashable, int] = {}
+        self._next_snap_id: int = 0
+        # Frames waiting to be pushed to the GPU, newest-per-location wins.
+        self._pending_tiles: dict[Hashable, tuple[np.ndarray, float, float]] = {}
+        # monotonic() of each location's last actual GPU upload, so throttling
+        # is per-location rather than a single gate shared by the whole map --
+        # a location untouched in the last REDRAW_INTERVAL_MS always applies
+        # immediately (no added latency for a snap, a slow acquisition, or a
+        # multi-position scan visiting a fresh location every time), and only
+        # a location being re-hit faster than the redraw interval gets its
+        # updates coalesced.
+        self._tile_last_applied: dict[Hashable, float] = {}
+        self._redraw_timer = QTimer(self)
+        self._redraw_timer.setInterval(REDRAW_INTERVAL_MS)
+        self._redraw_timer.timeout.connect(self._flush_pending_tiles)
+        self._max_map_memory_mb: float = _map_memory_defaults()[2] * 1000.0
+        self._map_memory_exceeded: bool = False
         # Whether the poller was running when hideEvent last paused it, so
         # showEvent knows whether to restart it (see hideEvent/showEvent).
         self._was_polling_before_hide: bool = False
@@ -222,16 +307,23 @@ class StageExplorer(QWidget):
         tb.send_to_mda_action.triggered.connect(self._on_send_to_mda)
         tb.marker_mode_action_group.triggered.connect(self._update_marker_mode)
         tb.scan_menu.valueChanged.connect(self._on_scan_options_changed)
+        tb.map_memory_menu.valueChanged.connect(self._on_map_memory_limit_changed)
+        tb.map_memory_menu.set_value(self._max_map_memory_mb / 1000)
 
         self._contrast_slider = ContrastSlider(self)
         self._contrast_slider.setVisible(False)
         self._contrast_slider.valueChanged.connect(self._on_contrast_slider_changed)
+
+        self._memory_banner = _MapMemoryBanner(self)
+        self._memory_banner.clearRequested.connect(self._on_clear_action)
+        self._memory_banner.setVisible(False)
 
         # main layout
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(self._toolbar, 0)
+        main_layout.addWidget(self._memory_banner, 0)
         main_layout.addWidget(self._stage_viewer, 1)
         main_layout.addWidget(self._contrast_slider, 0)
 
@@ -345,20 +437,17 @@ class StageExplorer(QWidget):
     def add_image(
         self, image: np.ndarray, stage_x_um: float, stage_y_um: float
     ) -> None:
-        """Add an image to the scene at a give (x, y) stage position in microns."""
-        stage_shift = np.eye(4)
-        stage_shift[0:2, 3] = (stage_x_um, stage_y_um)
-        # TODO: it's a little odd we apply half_img_shift here, but not in the
-        # stage position marker... figure that out.
-        matrix = stage_shift @ self._affine_state.system_affine @ self._half_img_shift
-        self._stage_viewer.add_image(image, transform=matrix.T)
+        """Add an image to the scene at a give (x, y) stage position in microns.
 
-        if not self._contrast_slider.isVisible():
-            self._contrast_slider.setVisible(True)
-            self._contrast_slider.set_maximum(2 ** self._mmc.getImageBitDepth() - 1)
-        min_ = np.min(image)
-        max_ = np.max(image)
-        self._contrast_slider.update_data_range(min_, max_)
+        Routed through the same location-keyed tile registry as snaps and MDA
+        frames: a call that lands close to an existing tile (see
+        `_snap_tile_key`) refreshes it in place instead of stacking another
+        node on top, so external callers get the same bounded-growth
+        guarantee as the built-in snap/MDA paths.
+        """
+        self._queue_tile(
+            self._snap_tile_key(stage_x_um, stage_y_um), image, stage_x_um, stage_y_um
+        )
 
     def zoom_to_fit(self, *, margin: float = 0.05) -> None:
         """Zoom to fit the current view to the images in the scene.
@@ -394,6 +483,14 @@ class StageExplorer(QWidget):
     def _on_clear_action(self) -> None:
         """Clear the scene and hide the contrast slider."""
         self._stage_viewer.clear()
+        self._tiles.clear()
+        self._tile_centers.clear()
+        self._tile_bytes.clear()
+        self._pending_tiles.clear()
+        self._tile_last_applied.clear()
+        self._redraw_timer.stop()
+        self._map_memory_exceeded = False
+        self._memory_banner.setVisible(False)
         self._contrast_slider.reset_data_range()
         self._contrast_slider.setVisible(False)
 
@@ -482,12 +579,22 @@ class StageExplorer(QWidget):
     def _on_sequence_finished(self) -> None:
         """Reset scan state when the MDA sequence finishes."""
         self._our_mda_running = False
+        # The throttle may be holding the final frame of the run; without this
+        # the map would be missing the last image until something else
+        # happened to trigger a flush.
+        self._flush_pending_tiles()
+        self._redraw_timer.stop()
 
     @Slot(object)
     def _on_scan_options_changed(self, value: tuple[float, OrderMode]) -> None:
         """Update scan settings on the ROI manager so visuals refresh."""
         overlap, mode = value
         self.roi_manager.set_scan_options(overlap, mode)
+
+    @Slot(float)
+    def _on_map_memory_limit_changed(self, gigabytes: float) -> None:
+        """Apply a new limit chosen from the toolbar's `MapMemoryMenu`."""
+        self.max_map_memory_mb = gigabytes * 1000.0
 
     @Slot()
     def _on_send_to_mda(self) -> None:
@@ -642,10 +749,14 @@ class StageExplorer(QWidget):
         # _on_image_snapped above.
         if not self.isVisible():
             return
-        # TODO: better handle c and z (e.g. multi-channels?, max projection?)
+        # Only the spatial axes take part in the key: a z-stack or a
+        # multi-channel event images the same place on the map, so the last
+        # one to arrive is what the map shows. That matches what was already
+        # displayed before (they were drawn stacked opaquely on top of each
+        # other) without keeping the hidden ones alive.
         x = event.x_pos if event.x_pos is not None else self._mmc.getXPosition()
         y = event.y_pos if event.y_pos is not None else self._mmc.getYPosition()
-        self._add_image_and_update_widget(image, x, y)
+        self._add_image_and_update_widget(image, x, y, key=self._mda_tile_key(event))
 
     # STAGE POSITION MARKER -----------------------------------------------------
 
@@ -705,13 +816,19 @@ class StageExplorer(QWidget):
     # IMAGES -----------------------------------------------------------------------
 
     def _add_image_and_update_widget(
-        self, image: np.ndarray, stage_x_um: float, stage_y_um: float
+        self,
+        image: np.ndarray,
+        stage_x_um: float,
+        stage_y_um: float,
+        key: Hashable | None = None,
     ) -> None:
         """Add the image to the scene and update position label and view.
 
         (called by _on_image_snapped and _on_frame_ready).
         """
-        self.add_image(image, stage_x_um, stage_y_um)
+        if key is None:
+            key = self._snap_tile_key(stage_x_um, stage_y_um)
+        self._queue_tile(key, image, stage_x_um, stage_y_um)
 
         # update the stage position label if the stage position is not being polled
         if not self._poll_stage_position:
@@ -725,6 +842,177 @@ class StageExplorer(QWidget):
             and self._auto_zoom_to_fit
         ):
             self._stage_viewer.zoom_to_fit()
+
+    # MAP TILES ---------------------------------------------------------------
+
+    def _mda_tile_key(self, event: useq.MDAEvent) -> Hashable:
+        """Identify the map location an MDA frame belongs to.
+
+        The position (and grid) index is exact, so returning to a position for
+        the next timepoint needs no float comparison at all. Events with no
+        parent sequence (a bare `MDAEvent`) fall back to spatial matching.
+        """
+        if (seq := event.sequence) is not None:
+            return (seq.uid, event.index.get("p"), event.index.get("g"))
+        return self._snap_tile_key(
+            event.x_pos if event.x_pos is not None else self._mmc.getXPosition(),
+            event.y_pos if event.y_pos is not None else self._mmc.getYPosition(),
+        )
+
+    def _snap_tile_key(self, x: float, y: float) -> Hashable:
+        """Find the existing tile at (x, y), or mint a key for a new one.
+
+        Used where no position index is available (snaps). Nearest-match
+        within a tolerance rather than quantizing coordinates into buckets:
+        two images a fraction of a micron apart must never land in different
+        buckets just because they straddle a cell boundary.
+        """
+        fov_w, fov_h = self._fov_w_h()
+        tol = min(fov_w, fov_h) * SNAP_DEDUP_FOV_FRACTION
+        if tol > 0:
+            tol_sq = tol * tol
+            best: Hashable | None = None
+            best_sq = tol_sq
+            for key, (cx, cy) in self._tile_centers.items():
+                dist_sq = (x - cx) ** 2 + (y - cy) ** 2
+                if dist_sq <= best_sq:
+                    best, best_sq = key, dist_sq
+            if best is not None:
+                return best
+        self._next_snap_id += 1
+        return ("snap", self._next_snap_id)
+
+    def _queue_tile(self, key: Hashable, image: np.ndarray, x: float, y: float) -> None:
+        """Apply a frame for `key`, or buffer it if `key` was just updated.
+
+        Per-location leading-edge throttle: a location that hasn't been
+        touched in the last REDRAW_INTERVAL_MS is updated right away; one
+        being hit faster than that (a fast timelapse revisiting the same
+        stage position) has its updates coalesced into the next tick instead.
+        """
+        now = time.monotonic()
+        last = self._tile_last_applied.get(key)
+        if last is None or (now - last) * 1000 >= REDRAW_INTERVAL_MS:
+            self._pending_tiles.pop(key, None)
+            self._apply_tile(key, image, x, y)
+            self._tile_last_applied[key] = now
+        else:
+            self._pending_tiles[key] = (image, x, y)
+            if not self._redraw_timer.isActive():
+                self._redraw_timer.start()
+
+    def _flush_pending_tiles(self) -> None:
+        """Push every buffered frame into the scene."""
+        if not self._pending_tiles:
+            self._redraw_timer.stop()
+            return
+        pending, self._pending_tiles = self._pending_tiles, {}
+        now = time.monotonic()
+        for key, (image, x, y) in pending.items():
+            self._apply_tile(key, image, x, y)
+            self._tile_last_applied[key] = now
+
+    def _apply_tile(self, key: Hashable, image: np.ndarray, x: float, y: float) -> None:
+        """Create or refresh the scene node for one map location."""
+        matrix = self._tile_transform(x, y)
+        if (node := self._tiles.get(key)) is not None:
+            self._stage_viewer.update_image(node, image, transform=matrix.T)
+            self._tile_bytes[key] = image.nbytes * TILE_MEMORY_FACTOR
+        else:
+            cost = image.nbytes * TILE_MEMORY_FACTOR
+            system_low = self._system_memory_low(cost)
+            if system_low or self._would_exceed_memory(cost):
+                # Refuse the *new* location only. Nothing already on the map
+                # is discarded, and existing locations keep updating, so this
+                # is fully recoverable by clearing the map.
+                self._set_memory_exceeded(True, system_low=system_low)
+                return
+            try:
+                node = self._stage_viewer.add_image(image, transform=matrix.T)
+            except Exception:
+                # The checks above only see *system* RAM; GPU texture memory
+                # is a separate pool on most non-unified-memory hardware, so
+                # a genuine allocation failure here is a distinct resource
+                # this widget has no other way to anticipate. Degrade the
+                # same way as running low on system memory (refuse further
+                # new locations, nothing already drawn is touched) rather
+                # than letting it crash the whole app over one tile.
+                logger.exception("Failed to add stage-map tile at (%.1f, %.1f)", x, y)
+                self._set_memory_exceeded(True, system_low=True)
+                return
+            self._tiles[key] = node
+            self._tile_bytes[key] = cost
+            # A location just went through -- whatever condition previously
+            # blocked one (the map's own limit, or the machine running low)
+            # must no longer hold, so the "paused" banner would otherwise be
+            # left showing stale even as new locations keep being added.
+            self._set_memory_exceeded(False)
+        self._tile_centers[key] = (x, y)
+        self._update_contrast_range(image)
+
+    def _tile_transform(self, x: float, y: float) -> np.ndarray:
+        stage_shift = np.eye(4)
+        stage_shift[0:2, 3] = (x, y)
+        matrix: np.ndarray = (
+            stage_shift @ self._affine_state.system_affine @ self._half_img_shift
+        )
+        return matrix
+
+    def _update_contrast_range(self, image: np.ndarray) -> None:
+        if not self._contrast_slider.isVisible():
+            self._contrast_slider.setVisible(True)
+            self._contrast_slider.set_maximum(2 ** self._mmc.getImageBitDepth() - 1)
+        self._contrast_slider.update_data_range(np.min(image), np.max(image))
+
+    # MAP MEMORY ---------------------------------------------------------------
+
+    @property
+    def max_map_memory_mb(self) -> float:
+        """Ceiling on the memory held by the map, in MB."""
+        return self._max_map_memory_mb
+
+    @max_map_memory_mb.setter
+    def max_map_memory_mb(self, value: float) -> None:
+        self._max_map_memory_mb = float(value)
+        # Keep the toolbar's editor in sync when the limit is set
+        # programmatically (e.g. a host app computing it from system RAM)
+        # rather than through the menu itself.
+        self._toolbar.map_memory_menu.set_value(self._max_map_memory_mb / 1000)
+        if self._map_memory_exceeded and not (
+            self._would_exceed_memory(0) or self._system_memory_low(0)
+        ):
+            self._set_memory_exceeded(False)
+
+    def map_memory_bytes(self) -> int:
+        """Approximate memory currently held by the map's images."""
+        return sum(self._tile_bytes.values())
+
+    def _would_exceed_memory(self, additional: int) -> bool:
+        """Whether `additional` bytes would push the map past its own limit."""
+        limit = self._max_map_memory_mb * 1e6
+        return limit > 0 and (self.map_memory_bytes() + additional) > limit
+
+    def _system_memory_low(self, additional: int) -> bool:
+        """Whether `additional` bytes would leave the machine dangerously low.
+
+        Live-checked (unlike `_would_exceed_memory`'s static per-map limit)
+        so it still catches memory pressure caused by something other than
+        this widget -- see LOW_SYSTEM_MEMORY_FLOOR_MB.
+        """
+        available = psutil.virtual_memory().available
+        return (available - additional) < LOW_SYSTEM_MEMORY_FLOOR_MB * 1e6
+
+    def _set_memory_exceeded(self, exceeded: bool, *, system_low: bool = False) -> None:
+        if exceeded == self._map_memory_exceeded:
+            return
+        self._map_memory_exceeded = exceeded
+        if exceeded:
+            self._memory_banner.set_state(
+                len(self._tiles),
+                self.map_memory_bytes() / 1e9,
+                system_low=system_low,
+            )
+        self._memory_banner.setVisible(exceeded)
 
     def _is_visual_within_view(self, x: float, y: float) -> bool:
         """Return True if the visual is within the view, otherwise False."""
@@ -778,6 +1066,53 @@ QRangeSlider { qproperty-barColor: qlineargradient(
 """
     + "SliderLabel { font-size: 10px; color: white;}"
 )
+
+
+class _MapMemoryBanner(QWidget):
+    """Shown when the map's memory budget is hit; offers Clear to recover.
+
+    Nothing already drawn is ever discarded by the budget itself (see
+    `StageExplorer._apply_tile`) -- this is the recovery path for a user who
+    wants to keep going anyway, by explicitly discarding the map so far.
+    """
+
+    clearRequested = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setAutoFillBackground(True)
+        pal = self.palette()
+        pal.setColor(self.backgroundRole(), pal.color(pal.ColorRole.Highlight))
+        self.setPalette(pal)
+
+        self._label = QLabel()
+        self._label.setWordWrap(True)
+        clear_btn = QPushButton("Clear Map")
+        clear_btn.clicked.connect(self.clearRequested)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.addWidget(self._label, 1)
+        layout.addWidget(clear_btn, 0)
+
+    def set_state(
+        self, n_tiles: int, gigabytes: float, *, system_low: bool = False
+    ) -> None:
+        if system_low:
+            # Raising the map's own limit wouldn't help here -- the machine
+            # itself, not the map's bookkeeping, is what's out of room.
+            self._label.setText(
+                f"Stage map paused at {n_tiles} tiles (~{gigabytes:.1f} GB) -- "
+                "this machine is low on free memory, so no further locations "
+                "will be added regardless of the map's own limit. Already "
+                "drawn tiles keep updating; free up memory or clear the map."
+            )
+        else:
+            self._label.setText(
+                f"Stage map paused at {n_tiles} tiles (~{gigabytes:.1f} GB) -- "
+                "further locations won't be added until it's cleared. Already "
+                "drawn tiles keep updating."
+            )
 
 
 class ContrastSlider(QWidget):
@@ -924,6 +1259,22 @@ class StageExplorerToolbar(QToolBar):
         poll_btn.setMenu(menu)
         poll_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
 
+        self.map_memory_action = self.addAction(
+            QIconifyIcon("mdi:memory", color=GRAY),
+            "Map Memory Limit",
+        )
+        memory_btn = cast("QToolButton", self.widgetForAction(self.map_memory_action))
+        self.map_memory_menu = MapMemoryMenu(self)
+        memory_btn.setMenu(self.map_memory_menu)
+        # InstantPopup, unlike poll_stage_action/scan_action above: those
+        # have a primary action distinct from their menu (toggle polling,
+        # start a scan), which is what the split MenuButtonPopup look
+        # communicates -- click the icon for that action, click the arrow for
+        # options. This button's only job is showing the limit editor, so
+        # the whole button should do that, not imply a separate primary
+        # action that doesn't exist.
+        memory_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+
         self.show_grid_action = self.addAction(
             QIconifyIcon("mdi:grid", color=GRAY),
             "Show Grid",
@@ -987,6 +1338,55 @@ class ScanMenu(QMenu):
     @Slot()
     def _emit(self) -> None:
         self.valueChanged.emit(self.value())
+
+
+class MapMemoryMenu(QMenu):
+    """Menu widget that exposes the map's memory budget (see `max_map_memory_mb`).
+
+    Both the spinbox's range and its initial value scale with this machine's
+    real RAM (see `_map_memory_defaults`) rather than a flat, one-size-fits-
+    none number.
+    """
+
+    valueChanged = Signal(float)  # GB
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        opts_widget = QWidget(self)
+        form = QFormLayout(opts_widget)
+        form.setContentsMargins(8, 8, 8, 8)
+
+        minimum, maximum, default = _map_memory_defaults()
+        self._limit_spin = QDoubleSpinBox(opts_widget)
+        self._limit_spin.setRange(minimum, maximum)
+        self._limit_spin.setDecimals(1)
+        self._limit_spin.setSingleStep(0.5)
+        self._limit_spin.setSuffix(" GB")
+        self._limit_spin.setValue(default)
+        form.addRow("Map memory limit:", self._limit_spin)
+
+        action = QWidgetAction(self)
+        action.setDefaultWidget(opts_widget)
+        self.addAction(action)
+
+        self._limit_spin.valueChanged.connect(self._emit)
+
+    def value(self) -> float:
+        """Return the current limit, in GB."""
+        return float(self._limit_spin.value())
+
+    def set_value(self, gigabytes: float) -> None:
+        """Set the displayed limit, in GB, without emitting `valueChanged`."""
+        with QSignalBlocker(self._limit_spin):
+            self._limit_spin.setValue(gigabytes)
+
+    def set_range(self, minimum: float, maximum: float) -> None:
+        """Set the spinbox's allowed range, in GB."""
+        self._limit_spin.setRange(minimum, maximum)
+
+    @Slot(float)
+    def _emit(self, value: float) -> None:
+        self.valueChanged.emit(value)
 
 
 @dataclass(slots=True)

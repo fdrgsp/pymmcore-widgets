@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import useq
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtWidgets import QMessageBox
+from qtpy.QtWidgets import QMessageBox, QToolButton
 from vispy.app.canvas import MouseEvent
 from vispy.scene.visuals import Image
 
 from pymmcore_widgets.control._rois.roi_model import RectangleROI
+from pymmcore_widgets.control._stage_explorer import (
+    _stage_explorer as stage_explorer_mod,
+)
 from pymmcore_widgets.control._stage_explorer._stage_explorer import (
     ContrastSlider,
     ScanMenu,
@@ -737,3 +740,335 @@ def test_send_to_mda_emits_roi_positions(qtbot: QtBot) -> None:
     assert len(positions) == 1
     assert isinstance(positions[0], useq.AbsolutePosition)
     assert replace is True
+
+
+# ---------------------------------------------------------------------------
+# Map tiles: dedup, node reuse, redraw throttling
+# ---------------------------------------------------------------------------
+
+TILE_IMG = np.random.randint(0, 4096, (64, 64), dtype=np.uint16)
+
+
+def test_frame_ready_dedup_by_position_index(qtbot: QtBot) -> None:
+    """Revisiting the same (p, g) index reuses one node instead of stacking.
+
+    Regression test: the explorer used to build a brand-new scene node for
+    *every* frame, so a long timelapse at a fixed position accumulated one
+    GPU-backed node per frame -- unbounded memory growth and an ever slower
+    canvas. Frames belonging to the same MDA position/grid index must now
+    share a single node, refreshed in place.
+    """
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+
+    seq = useq.MDASequence(
+        stage_positions=[(0, 0)],
+        time_plan={"interval": 0, "loops": 5},
+    )
+    for event in seq:
+        explorer._on_frame_ready(TILE_IMG, event)
+
+    assert len(explorer._tiles) == 1
+    assert len(list(explorer._stage_viewer._get_images())) == 1
+
+
+def test_frame_ready_distinct_positions_create_distinct_tiles(qtbot: QtBot) -> None:
+    """Distinct (p, g) indices each get their own node."""
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+
+    seq = useq.MDASequence(stage_positions=[(0, 0), (500, 0), (1000, 0)])
+    for event in seq:
+        explorer._on_frame_ready(TILE_IMG, event)
+
+    assert len(explorer._tiles) == 3
+    assert len(list(explorer._stage_viewer._get_images())) == 3
+
+
+def test_snap_dedup_within_tolerance(qtbot: QtBot) -> None:
+    """Two snaps close enough together (stage repeatability error) share a tile."""
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
+    explorer._add_image_and_update_widget(TILE_IMG, 0.05, -0.05)  # well within tol
+    assert len(explorer._tiles) == 1
+
+
+def test_snap_no_dedup_beyond_tolerance(qtbot: QtBot) -> None:
+    """Two snaps far enough apart become separate tiles, not merged."""
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
+    explorer._add_image_and_update_widget(TILE_IMG, 500.0, 0.0)
+    assert len(explorer._tiles) == 2
+
+
+def test_redraw_throttle_coalesces_same_location_bursts(qtbot: QtBot) -> None:
+    """Frames hitting the same location faster than the redraw interval coalesce.
+
+    The first frame applies immediately (no added latency for a snap or a
+    slow acquisition); a rapid follow-up for the *same* location is buffered
+    and only reaches the GPU on the next tick, with the newest data winning.
+    """
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+
+    first = np.full((64, 64), 100, dtype=np.uint16)
+    second = np.full((64, 64), 200, dtype=np.uint16)
+    explorer._add_image_and_update_widget(first, 0.0, 0.0)
+    node = next(iter(explorer._tiles.values()))
+    assert node._data[0, 0] == 100
+
+    explorer._add_image_and_update_widget(second, 0.0, 0.0)
+    # Still buffered -- no second node, and the node's data hasn't jumped yet.
+    assert len(explorer._tiles) == 1
+    assert explorer._pending_tiles
+    assert node._data[0, 0] == 100
+
+    qtbot.waitUntil(lambda: not explorer._pending_tiles, timeout=1000)
+    assert node._data[0, 0] == 200
+
+
+def test_sequence_finished_flushes_pending_tile(qtbot: QtBot) -> None:
+    """A throttled frame isn't stranded -- sequenceFinished force-flushes it."""
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+
+    first = np.full((64, 64), 1, dtype=np.uint16)
+    last = np.full((64, 64), 9, dtype=np.uint16)
+    explorer._add_image_and_update_widget(first, 0.0, 0.0)
+    explorer._add_image_and_update_widget(last, 0.0, 0.0)
+    node = next(iter(explorer._tiles.values()))
+    assert explorer._pending_tiles
+
+    explorer._on_sequence_finished()
+    assert not explorer._pending_tiles
+    assert node._data[0, 0] == 9
+
+
+# ---------------------------------------------------------------------------
+# Viewport culling
+# ---------------------------------------------------------------------------
+
+
+def test_culling_hides_offscreen_shows_onscreen(qtbot: QtBot) -> None:
+    viewer = StageViewer()
+    qtbot.addWidget(viewer)
+    viewer.resize(700, 700)
+    viewer.show()
+
+    near = viewer.add_image(TILE_IMG, _build_transform_matrix(0, 0).T)
+    far = viewer.add_image(TILE_IMG, _build_transform_matrix(100_000, 100_000).T)
+    viewer.view.camera.set_range(x=(-50, 100), y=(-50, 100), margin=0)
+    viewer.cull_to_view()
+
+    assert near.visible is True
+    assert far.visible is False
+
+
+def test_culling_accounts_for_non_square_viewport_padding(qtbot: QtBot) -> None:
+    """A tile between camera.rect and the aspect-padded render extent stays visible.
+
+    Regression test: this widget's camera uses aspect=1 (square pixels), so on
+    any non-square viewport (virtually every real dock or window) vispy pads
+    the requested range on one axis to preserve that aspect ratio -- what's
+    actually rendered is wider/taller than `camera.rect` alone reports.
+    Culling used to read only `camera.rect`, hiding tiles that were still
+    genuinely on screen inside that padded region.
+    """
+    viewer = StageViewer()
+    qtbot.addWidget(viewer)
+    viewer.resize(1000, 500)  # deliberately non-square
+    viewer.show()
+    qtbot.wait(50)  # let the native widget actually resize before zooming
+
+    viewer.add_image(TILE_IMG, _build_transform_matrix(0, 0).T)
+    viewer.zoom_to_fit(margin=0.05)
+
+    cam = viewer.view.camera
+    real_rect = getattr(cam, "_real_rect", None)
+    assert real_rect is not None, "test assumes vispy still exposes _real_rect"
+    assert real_rect.right > cam.rect.right, "viewport must actually be padded"
+
+    # place a probe strictly between the unpadded and padded right edges
+    probe_x = (cam.rect.right + real_rect.right) / 2
+    probe = viewer.add_image(
+        np.full((30, 30), 65535, dtype=np.uint16),
+        _build_transform_matrix(probe_x - 15, -15).T,
+    )
+    assert probe.visible is True
+
+
+# ---------------------------------------------------------------------------
+# Map memory budget
+# ---------------------------------------------------------------------------
+
+
+def test_map_memory_limit_refuses_new_location_over_budget(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+    explorer.max_map_memory_mb = TILE_IMG.nbytes * 2 / 1e6  # room for exactly 1 tile
+
+    explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
+    assert len(explorer._tiles) == 1
+    assert not explorer._memory_banner.isVisible()
+
+    explorer._add_image_and_update_widget(TILE_IMG, 5000.0, 0.0)
+    assert len(explorer._tiles) == 1, "second, new location must be refused"
+    assert explorer._memory_banner.isVisible()
+    assert "low on free memory" not in explorer._memory_banner._label.text()
+
+    # nothing already on the map was touched, and it keeps updating
+    explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
+    assert len(explorer._tiles) == 1
+
+
+def test_clear_action_resets_memory_budget_state(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+    explorer.max_map_memory_mb = TILE_IMG.nbytes * 2 / 1e6
+    explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
+    explorer._add_image_and_update_widget(TILE_IMG, 5000.0, 0.0)
+    assert explorer._memory_banner.isVisible()
+
+    explorer._toolbar.clear_action.trigger()
+    assert not explorer._memory_banner.isVisible()
+    assert not explorer._tiles
+
+    explorer._add_image_and_update_widget(TILE_IMG, 5000.0, 0.0)
+    assert len(explorer._tiles) == 1
+
+
+def test_low_system_memory_blocks_new_location_regardless_of_own_limit(
+    qtbot: QtBot,
+) -> None:
+    """A live system-RAM shortage blocks new tiles even under a generous limit.
+
+    Regression scenario: the map's own limit is a static number, possibly set
+    (or defaulted) from whatever RAM was free when the explorer opened.
+    Something else on the machine can claim RAM afterwards -- the map's own
+    bookkeeping alone would stay well under its limit and keep growing
+    regardless. This must be caught independently of the per-map limit.
+    """
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+    explorer.max_map_memory_mb = 10_000.0  # nowhere near being hit
+
+    low_vm = MagicMock(available=100 * 1024**2)  # 100 MB free
+    with patch.object(stage_explorer_mod.psutil, "virtual_memory", return_value=low_vm):
+        explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
+
+    assert not explorer._tiles
+    assert explorer._memory_banner.isVisible()
+    assert "low on free memory" in explorer._memory_banner._label.text()
+
+
+def test_memory_banner_clears_once_a_location_actually_succeeds(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+    explorer.max_map_memory_mb = 10_000.0
+
+    low_vm = MagicMock(available=100 * 1024**2)
+    with patch.object(stage_explorer_mod.psutil, "virtual_memory", return_value=low_vm):
+        explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
+    assert explorer._memory_banner.isVisible()
+
+    healthy_vm = MagicMock(available=8 * 1024**3)  # 8 GB free
+    with patch.object(
+        stage_explorer_mod.psutil, "virtual_memory", return_value=healthy_vm
+    ):
+        explorer._add_image_and_update_widget(TILE_IMG, 5000.0, 0.0)
+    assert len(explorer._tiles) == 1
+    assert not explorer._memory_banner.isVisible()
+
+
+def test_tile_allocation_failure_degrades_gracefully(qtbot: QtBot) -> None:
+    """A resource failure while adding a tile must not crash the app.
+
+    The map-memory checks only see *system* RAM; GPU texture memory is a
+    separate pool on most non-unified-memory hardware, so a genuine
+    allocation failure there is a distinct, uncatchable-in-advance failure
+    mode. It must degrade the same way as running low on system memory
+    (refuse further locations, nothing already drawn is touched) instead of
+    propagating and taking the whole app down over one tile.
+    """
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+
+    with patch.object(
+        StageViewer, "add_image", side_effect=RuntimeError("simulated GL failure")
+    ):
+        explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)  # must not raise
+
+    assert not explorer._tiles
+    assert explorer._memory_banner.isVisible()
+
+    # and the widget is fully usable again once the failure clears
+    explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
+    assert len(explorer._tiles) == 1
+    assert not explorer._memory_banner.isVisible()
+
+
+# ---------------------------------------------------------------------------
+# MapMemoryMenu
+# ---------------------------------------------------------------------------
+
+
+def test_map_memory_defaults_floored_on_a_low_availability_machine() -> None:
+    vm = MagicMock(total=16 * 1024**3, available=4 * 1024**3)  # 10% would be 0.4 GB
+    with patch.object(stage_explorer_mod.psutil, "virtual_memory", return_value=vm):
+        lo, hi, default = stage_explorer_mod._map_memory_defaults()
+    assert lo == 0.1
+    assert hi == 16.0
+    assert default == stage_explorer_mod.DEFAULT_MAX_MAP_MEMORY_MB / 1000
+
+
+def test_map_memory_defaults_scale_with_available_ram_on_a_beefy_machine() -> None:
+    vm = MagicMock(total=64 * 1024**3, available=40 * 1024**3)
+    with patch.object(stage_explorer_mod.psutil, "virtual_memory", return_value=vm):
+        lo, hi, default = stage_explorer_mod._map_memory_defaults()
+    assert (lo, hi) == (0.1, 64.0)
+    assert default == 4.0  # 10% of 40 GB available
+
+
+def test_map_memory_menu_property_sync_both_directions(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    menu = explorer._toolbar.map_memory_menu
+
+    # UI -> property
+    with qtbot.waitSignal(menu.valueChanged):
+        menu._limit_spin.setValue(5.0)
+    assert explorer.max_map_memory_mb == 5000.0
+
+    # property -> UI
+    explorer.max_map_memory_mb = 7500.0
+    assert menu.value() == 7.5
+
+
+def test_map_memory_action_is_instant_popup(qtbot: QtBot) -> None:
+    """The whole button opens the menu -- unlike poll/scan, it has no other job.
+
+    poll_stage_action/scan_action use MenuButtonPopup because each has a
+    primary action distinct from its menu (toggle polling, start a scan);
+    the split-button look communicates that. This button's only job is
+    showing the limit editor, so InstantPopup is correct here even though it
+    looks different from those two -- a real click isn't simulated (that
+    enters a native event loop that only returns once the popup is
+    dismissed, which would hang a headless test), just the wiring that
+    produces that behavior.
+    """
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    tb = explorer._toolbar
+    memory_btn = tb.widgetForAction(tb.map_memory_action)
+
+    assert memory_btn.popupMode() == QToolButton.ToolButtonPopupMode.InstantPopup
+    assert memory_btn.menu() is tb.map_memory_menu
