@@ -73,21 +73,35 @@ SNAP_DEDUP_FOV_FRACTION = 0.01
 # (vispy holds a reference, it does not copy) plus the GL-side copy.
 TILE_MEMORY_FACTOR = 2
 
-# Ceiling on the memory held by the map. On reaching it the explorer stops
-# adding *new* locations -- already-drawn ones are never discarded, and
-# locations already on the map keep updating. Also doubles as a floor for the
-# scaled default below, so a low-memory machine still gets a usable budget.
-DEFAULT_MAX_MAP_MEMORY_MB = 2048.0
+# Fraction of *available* RAM the default map-memory limit is set to, by
+# explicit choice -- note that a host app may have its own, separate memory
+# budget for the acquisition itself (e.g. how much to hold in RAM before
+# spilling to disk), and a high fraction here means the two *can* each
+# target up to that same fraction of whatever RAM is free at the time, so on
+# a memory-constrained machine running both near their defaults
+# simultaneously is possible. This doesn't compete for a *reservation*
+# though (nothing is pre-allocated, this is only a ceiling), and
+# LOW_SYSTEM_MEMORY_FLOOR_MB below still independently blocks the map before
+# genuine exhaustion.
+MAP_MEMORY_DEFAULT_FRACTION = 0.8
 
-# Independent of the map's own limit above (a static number set once, from
-# whatever the machine's *available* RAM happened to be at the time): a
-# floor on *live* system memory, re-checked on every new location. Something
-# else on the machine can claim RAM after that number was set -- the map's
-# own bookkeeping alone would stay well under its limit and keep growing
-# regardless, right up to a real allocation failure. Raising the map's limit
-# can't fix that case (the machine, not the map, is what's out of room), so
-# this blocks new locations even when the static limit above says there's
-# room left.
+# Floor for the default above: under everyday, moderate memory pressure
+# (a browser, an IDE, ... -- not a genuine shortage, just normal load) the
+# fraction alone can round to an impractically small default. This keeps
+# the *default* usable; it never overrides the user's own choice, and it's
+# separate from LOW_SYSTEM_MEMORY_FLOOR_MB below, which is about genuine
+# live shortage, not about picking a reasonable starting value.
+MAP_MEMORY_DEFAULT_FLOOR_GB = 2.0
+
+# Independent of the map's own limit above (a static number, whether set by
+# the user or defaulted from available RAM at construction): a floor on
+# *live* system memory, re-checked on every new location. Something else on
+# the machine can claim RAM at any time after that default was computed --
+# the map's own bookkeeping alone would stay well under its limit and keep
+# growing regardless, right up to a real allocation failure. Raising the
+# map's limit can't fix that case (the machine, not the map, is what's out
+# of room), so this blocks new locations even when the static limit above
+# says there's room left.
 LOW_SYSTEM_MEMORY_FLOOR_MB = 512.0
 
 
@@ -95,20 +109,21 @@ def _map_memory_defaults() -> tuple[float, float, float]:
     """(min, max, default) for the map-memory-limit spinbox, in GB.
 
     The range is bounded by total physical RAM -- there is no point letting
-    the limit exceed what the machine could ever hold. The default scales
-    with *available* RAM too, rather than a flat number that's needlessly
-    stingy on a large workstation and reckless on a small one: 10% of what's
-    free right now, floored at DEFAULT_MAX_MAP_MEMORY_MB. Deliberately
-    smaller than the acquisition's own memory-budget default (80% of
-    available RAM, see pymmcore-gui's Settings) -- this is a secondary cache
-    running alongside that budget, not competing with it for the same
-    headroom.
+    the limit exceed what the machine could ever hold. The default is
+    MAP_MEMORY_DEFAULT_FRACTION of RAM available right now, floored at
+    MAP_MEMORY_DEFAULT_FLOOR_GB so everyday memory pressure doesn't round it
+    down to something impractically small.
     """
     vm = psutil.virtual_memory()
     total_gb = round(vm.total / 1024**3, 1)
     available_gb = vm.available / 1024**3
-    floor_gb = DEFAULT_MAX_MAP_MEMORY_MB / 1000
-    default_gb = min(max(floor_gb, round(available_gb * 0.1, 1)), total_gb)
+    default_gb = min(
+        max(
+            MAP_MEMORY_DEFAULT_FLOOR_GB,
+            round(available_gb * MAP_MEMORY_DEFAULT_FRACTION, 1),
+        ),
+        total_gb,
+    )
     return (0.1, total_gb, default_gb)
 
 

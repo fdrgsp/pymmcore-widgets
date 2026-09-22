@@ -1021,21 +1021,45 @@ def test_tile_allocation_failure_degrades_gracefully(qtbot: QtBot) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_map_memory_defaults_floored_on_a_low_availability_machine() -> None:
-    vm = MagicMock(total=16 * 1024**3, available=4 * 1024**3)  # 10% would be 0.4 GB
+def test_map_memory_defaults_range_bounded_by_total_ram() -> None:
+    vm = MagicMock(total=16 * 1024**3, available=4 * 1024**3)
     with patch.object(stage_explorer_mod.psutil, "virtual_memory", return_value=vm):
         lo, hi, default = stage_explorer_mod._map_memory_defaults()
     assert lo == 0.1
     assert hi == 16.0
-    assert default == stage_explorer_mod.DEFAULT_MAX_MAP_MEMORY_MB / 1000
+    assert default == 3.2  # 80% of 4 GB available
 
 
-def test_map_memory_defaults_scale_with_available_ram_on_a_beefy_machine() -> None:
-    vm = MagicMock(total=64 * 1024**3, available=40 * 1024**3)
+def test_map_memory_defaults_floored_under_severe_memory_pressure() -> None:
+    """Genuine scarcity shouldn't round the default to nothing.
+
+    MAP_MEMORY_DEFAULT_FRACTION is generous (80%, matching the acquisition's
+    own default exactly) so the floor only engages when available RAM is
+    already quite low -- but it still must not let the default collapse to
+    something impractically small. The floor keeps the *default* usable
+    without touching the live per-add check (LOW_SYSTEM_MEMORY_FLOOR_MB),
+    which still runs independently of whatever this default gets set to.
+    """
+    vm = MagicMock(total=16 * 1024**3, available=2 * 1024**3)  # 80% would be 1.6 GB
+    with patch.object(stage_explorer_mod.psutil, "virtual_memory", return_value=vm):
+        _, _, default = stage_explorer_mod._map_memory_defaults()
+    assert default == stage_explorer_mod.MAP_MEMORY_DEFAULT_FLOOR_GB
+
+
+def test_map_memory_defaults_scale_with_available_ram() -> None:
+    """The default follows *available* RAM, not just total.
+
+    Total RAM is only used for the spinbox's upper bound, not the default
+    itself, so a machine with a lot of *total* RAM but little currently
+    *free* still gets a modest default -- raising it is the user's call, not
+    something assumed on the app's behalf just because the hardware could
+    technically support it.
+    """
+    vm = MagicMock(total=64 * 1024**3, available=20 * 1024**3)
     with patch.object(stage_explorer_mod.psutil, "virtual_memory", return_value=vm):
         lo, hi, default = stage_explorer_mod._map_memory_defaults()
     assert (lo, hi) == (0.1, 64.0)
-    assert default == 4.0  # 10% of 40 GB available
+    assert default == 16.0  # 80% of 20 GB available, not of the 64 GB total
 
 
 def test_map_memory_menu_property_sync_both_directions(qtbot: QtBot) -> None:
