@@ -119,7 +119,7 @@ class GridPlanWidget(QWidget):
         # stretched to fill its container. Expanding restores that, so it
         # still fills whatever it's placed in (a card, a scroll area's
         # viewport, ...) instead of leaving a gap of bare container behind it.
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._mode: Mode = Mode.AREA  # will change to NUMBER below in init
         self._fov_width: float | None = None
         self._fov_height: float | None = None

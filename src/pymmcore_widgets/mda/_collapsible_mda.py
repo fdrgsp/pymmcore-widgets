@@ -465,9 +465,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
                         axis_widget
                     )
                 )
-        # the grid editor's natural height changes with its mode (Absolute
-        # Bounds is tallest); re-pin it whenever the mode/value changes.
-        self.grid_plan.valueChanged.connect(self._schedule_editor_min_heights)
         self.refresh_summaries()
 
     def showEvent(self, a0: QShowEvent | None) -> None:
@@ -781,17 +778,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
                 table.setMinimumHeight(
                     header_h + row_h * self._MIN_TABLE_ROWS + 2 * table.frameWidth()
                 )
-            elif widget is self.grid_plan:
-                # Its mode pages have an Expanding size policy, so any extra
-                # height becomes a gap in the middle, while too little clips
-                # the fields. Pin it to its content's natural height for the
-                # current mode (it changes with the mode -- Absolute Bounds is
-                # tallest). Activate the layout first, and note this is re-run
-                # deferred on show / mode change so the hint is measured once
-                # settled.
-                if (widget_layout := widget.layout()) is not None:
-                    widget_layout.activate()
-                widget.setFixedHeight(widget.sizeHint().height())
 
     def set_editor_enabled(self, enabled: bool) -> None:
         """Enable or disable MDA editing while retaining disclosure access."""
