@@ -427,7 +427,10 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
                 parent=self._content,
             )
             section.setObjectName(f"mda{attr.title().replace('_', '')}Section")
-            section.set_content_widget(widget)
+            if attr in ("grid_plan", "z_plan"):
+                section.set_content_widget(self._wrap_in_card(widget))
+            else:
+                section.set_content_widget(widget)
             widget.setEnabled(initial_states[widget])
             self._section_by_axis[axis] = section
             self._section_by_widget[widget] = section
@@ -479,6 +482,27 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         # mode has settled its layout before we measure the content height.
         self._apply_editor_min_heights()
         QTimer.singleShot(0, self._apply_editor_min_heights)
+
+    @staticmethod
+    def _wrap_in_card(widget: QWidget, margin: int = 5) -> _CardFrame:
+        """Wrap ``widget`` in the same bordered card style as a section itself.
+
+        A ``QGroupBox`` won't do here: on macOS's native style it draws only a
+        title and a thin separator line, never a surrounding rectangle -- even
+        with no title it draws nothing at all. ``_CardFrame`` is painted rather
+        than relying on native/stylesheet chrome, so it renders the same
+        rectangle across styles and themes.
+        """
+        card = _CardFrame()
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(margin, margin, margin, margin)
+        layout.addWidget(widget)
+        # set_content_widget() will show() the card, but widget itself may
+        # still carry QTabWidget's "explicitly hidden" state from before it
+        # was moved out of its original tab page (see set_content_widget) --
+        # reparenting into this card doesn't clear that on its own.
+        widget.show()
+        return card
 
     @property
     def sections(self) -> tuple[CollapsibleAcquisitionSection, ...]:
@@ -592,7 +616,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             parent=self._content,
         )
         self.saving_section.setObjectName("mdaSavingSection")
-        self.saving_section.set_content_widget(save_info)
+        self.saving_section.set_content_widget(self._wrap_in_card(save_info))
         self.saving_section.checkedChanged.connect(save_info.setChecked)
         save_info.toggled.connect(self.saving_section.set_checked)
         save_info.valueChanged.connect(self._update_save_summary)
@@ -621,9 +645,14 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         axis_layout.addWidget(QLabel("Axis order:"))
         axis_layout.addWidget(axis_order)
         axis_layout.addStretch()
-        self.settings_section.add_widget(axis_row)
-        self.settings_section.add_widget(keep_shutter_open)
-        self.settings_section.add_widget(autofocus_axis)
+        settings_content = QWidget()
+        settings_layout = QVBoxLayout(settings_content)
+        settings_layout.setContentsMargins(10, 10, 10, 10)
+        settings_layout.setSpacing(5)
+        settings_layout.addWidget(axis_row)
+        settings_layout.addWidget(keep_shutter_open)
+        settings_layout.addWidget(autofocus_axis)
+        self.settings_section.set_content_widget(self._wrap_in_card(settings_content))
         self._content_layout.addWidget(self.settings_section)
         self._content_layout.addStretch()
 
@@ -752,19 +781,17 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
                 table.setMinimumHeight(
                     header_h + row_h * self._MIN_TABLE_ROWS + 2 * table.frameWidth()
                 )
-            elif isinstance(widget, QScrollArea) and (inner := widget.widget()):
-                # The grid editor is itself a scroll area whose mode pages have
-                # an Expanding size policy, so any extra height becomes a gap in
-                # the middle, while too little clips the fields. Pin it to its
-                # content's natural height for the current mode (it changes with
-                # the mode -- Absolute Bounds is tallest). Activate the layout
-                # first, and note this is re-run deferred on show / mode change
-                # so the hint is measured once settled.
-                if (inner_layout := inner.layout()) is not None:
-                    inner_layout.activate()
-                widget.setFixedHeight(
-                    inner.sizeHint().height() + 2 * widget.frameWidth()
-                )
+            elif widget is self.grid_plan:
+                # Its mode pages have an Expanding size policy, so any extra
+                # height becomes a gap in the middle, while too little clips
+                # the fields. Pin it to its content's natural height for the
+                # current mode (it changes with the mode -- Absolute Bounds is
+                # tallest). Activate the layout first, and note this is re-run
+                # deferred on show / mode change so the hint is measured once
+                # settled.
+                if (widget_layout := widget.layout()) is not None:
+                    widget_layout.activate()
+                widget.setFixedHeight(widget.sizeHint().height())
 
     def set_editor_enabled(self, enabled: bool) -> None:
         """Enable or disable MDA editing while retaining disclosure access."""

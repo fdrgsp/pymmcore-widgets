@@ -1203,7 +1203,7 @@ def test_grid_plan_fov_update(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
     for mode in ("number", "area", "bounds"):
         wdg.grid_plan.setMode(mode)
         stack_heights.append(wdg.grid_plan._stack.sizeHint().height())
-        widget_heights.append(wdg.grid_plan.widget().sizeHint().height())
+        widget_heights.append(wdg.grid_plan.sizeHint().height())
     assert len(set(stack_heights)) == 1
     assert len(set(widget_heights)) == 1
     assert wdg.grid_plan._core_xy_bounds.left.width() == (

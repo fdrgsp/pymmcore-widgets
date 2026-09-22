@@ -2,16 +2,18 @@ from __future__ import annotations
 
 from contextlib import suppress
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from pymmcore_plus import CMMCorePlus
 from pymmcore_plus._logger import logger
 from qtpy.QtCore import QSize, Qt, Slot
 from qtpy.QtWidgets import (
     QBoxLayout,
+    QFrame,
     QHBoxLayout,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QWidget,
 )
 from superqt.iconify import QIconifyIcon
@@ -123,6 +125,67 @@ class CoreMDATabs(MDATabs):
         self.channels.setEnabled(enable)
 
 
+class _ScrollableGridCoreMDATabs(CoreMDATabs):
+    """``CoreMDATabs`` whose Grid tab page is wrapped in a ``QScrollArea``.
+
+    Used only by the standard (non-collapsible) ``MDAWidget``: GridPlanWidget
+    does not scroll on its own (see its docstring), and a plain tab page is
+    the one presentation here where its height isn't otherwise constrained.
+    ``CollapsibleCoreMDATabs`` deliberately avoids this -- it wraps grid_plan
+    in its own bordered card instead, sized to its content.
+    """
+
+    _grid_scroll: QScrollArea | None = None
+
+    def addTab(self, widget: QWidget | None, *args: Any, **kwargs: Any) -> int:
+        # Intercept MDATabs.__init__'s `self.addTab(self.grid_plan, "Grid",
+        # checked=False)` and give grid_plan a scroll area right away.
+        # Wrapping it *after* the fact (removeTab + insertTab) would create a
+        # second tab checkbox while leaving the first one's now-deleted C++
+        # object dangling in CheckableTabWidget._cboxes -- a crash waiting to
+        # happen the next time something iterates that list.
+        if widget is not None and widget is getattr(self, "grid_plan", None):
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setWidget(widget)
+            self._grid_scroll = scroll
+            idx = super().addTab(scroll, *args, **kwargs)
+            # addTab() just disabled scroll (the tab page) rather than
+            # grid_plan (its actual content) -- undo that and disable the
+            # content instead, matching every other tab where content and
+            # page are the same widget. _on_tab_checkbox_toggled (below)
+            # keeps doing the right thing on every later checkbox toggle too.
+            scroll.setEnabled(True)
+            widget.setEnabled(False)
+            return idx
+        return super().addTab(widget, *args, **kwargs)
+
+    def indexOf(self, widget: QWidget | None) -> int:
+        """Return the tab index for ``widget``, or the tab page containing it.
+
+        grid_plan is the Grid tab's *content* here, not the page itself (see
+        __init__), so callers that key off ``grid_plan`` directly -- e.g.
+        ``isChecked``/``setChecked`` -- still resolve to the right tab.
+        """
+        idx = int(super().indexOf(widget))
+        parent = widget.parent() if idx == -1 and widget is not None else None
+        while idx == -1 and isinstance(parent, QWidget):
+            idx = int(super().indexOf(parent))
+            parent = parent.parent()
+        return idx
+
+    def _on_tab_checkbox_toggled(self, checked: bool, wdg: QWidget) -> None:
+        # CheckableTabWidget enables/disables whatever was passed to addTab --
+        # for Grid that's _grid_scroll (the tab page), not grid_plan (its
+        # content). Redirect so the actual editor is what gets enabled.
+        if wdg is self._grid_scroll:
+            wdg = self.grid_plan
+        super()._on_tab_checkbox_toggled(checked, wdg)
+
+
 class MDAWidget(MDASequenceWidget):
     """Main MDA Widget connected to a [`pymmcore_plus.CMMCorePlus`][] instance.
 
@@ -188,7 +251,7 @@ class MDAWidget(MDASequenceWidget):
         MDA axes (for example a collapsible-sections container) without
         otherwise changing the widget's behavior.
         """
-        return CoreMDATabs(None, self._mmc)
+        return _ScrollableGridCoreMDATabs(None, self._mmc)
 
     # ----------- Override type hints in superclass -----------
 

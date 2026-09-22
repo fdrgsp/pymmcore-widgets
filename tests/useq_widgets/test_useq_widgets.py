@@ -646,7 +646,7 @@ def test_grid_plan_widget(qtbot: QtBot) -> None:
     for mode in (_grid.Mode.NUMBER, _grid.Mode.AREA, _grid.Mode.BOUNDS):
         wdg.setMode(mode)
         stack_heights.append(wdg._stack.sizeHint().height())
-        widget_heights.append(wdg.widget().sizeHint().height())
+        widget_heights.append(wdg.sizeHint().height())
     assert len(set(stack_heights)) == 1
     assert len(set(widget_heights)) == 1
 
