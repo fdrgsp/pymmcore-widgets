@@ -20,9 +20,6 @@ from qtpy.QtWidgets import (
     QRadioButton,
     QSizePolicy,
     QStackedWidget,
-    QStyle,
-    QStyleOptionButton,
-    QStylePainter,
     QVBoxLayout,
     QWidget,
 )
@@ -52,14 +49,14 @@ def _rotate(deg: int, size_x: int, size_y: int) -> QTransform:
 
 
 ICONS_GO: dict[str, str] = {
-    "top": "mdi:arrow-up-thick",
-    "left": "mdi:arrow-left-thick",
-    "right": "mdi:arrow-right-thick",
-    "bottom": "mdi:arrow-down-thick",
-    "top_left": "mdi:arrow-top-left-thick",
-    "top_right": "mdi:arrow-top-right-thick",
-    "bottom_left": "mdi:arrow-bottom-left-thick",
-    "bottom_right": "mdi:arrow-bottom-right-thick",
+    "top": "mingcute:arrow-up-fill",
+    "left": "mingcute:arrow-down-fill",
+    "right": "mingcute:arrow-right-fill",
+    "bottom": "mingcute:arrow-down-fill",
+    "top_left": "mingcute:arrow-left-up-fill",
+    "top_right": "mingcute:arrow-right-up-fill",
+    "bottom_left": "mingcute:arrow-left-down-fill",
+    "bottom_right": "mingcute:arrow-right-down-fill",
 }
 ICONS_MARK: dict[str, tuple[str, Flip | None]] = {
     "top": ("mdi:border-top-variant", None),
@@ -118,6 +115,15 @@ class XYBoundsControl(QWidget):
         if compact_layout:
             self._buttons_widget = self._make_compact_widget()
             top_layout.addWidget(self._buttons_widget, 1)
+            # In compact mode, go_middle only mirrors the Move/Mark radio state
+            # and _bounds_wdg only donates its field widgets to the compact
+            # grid (see _make_compact_widget) -- neither is placed in a
+            # layout. Give them a parent so they don't end up as permanent,
+            # invisible top-level widgets.
+            self.go_middle.setParent(self)
+            self.go_middle.hide()
+            self._bounds_wdg.setParent(self)
+            self._bounds_wdg.hide()
         else:
             self._buttons_widget = self._make_direction_pad()
             top_layout.setSpacing(15)
@@ -472,57 +478,6 @@ class _MarkVisitButton(QPushButton):
         """Set the icon to the visit icon."""
         self.setIcon(self._visit_icon)
         self.setToolTip(f"Move to the {self.label} bound.")
-
-
-class _LeftAlignedPushButton(QPushButton):
-    """A native push button whose icon/text group starts at the left edge."""
-
-    def paintEvent(self, event: object) -> None:
-        option = QStyleOptionButton()
-        self.initStyleOption(option)
-        painter = QStylePainter(self)
-        painter.drawControl(QStyle.ControlElement.CE_PushButtonBevel, option)
-
-        contents = self.style().subElementRect(
-            QStyle.SubElement.SE_PushButtonContents, option, self
-        )
-        icon_width = 0 if option.icon.isNull() else option.iconSize.width()
-        spacing = 4 if icon_width and option.text else 0
-        label_width = (
-            icon_width + spacing + painter.fontMetrics().horizontalAdvance(option.text)
-        )
-        option.rect = contents
-        option.rect.setWidth(min(contents.width(), label_width + 4))
-        painter.drawControl(QStyle.ControlElement.CE_PushButtonLabel, option)
-
-
-class MarkVisit(QWidget):
-    def __init__(
-        self,
-        mark_glyph: str,
-        mark_text: str = "",
-        icon_size: int = ICON_SIZE,
-        radius: int = RADIUS,
-        parent: QWidget | None = None,
-    ):
-        super().__init__(parent)
-
-        mode = "top" if "top" in mark_text.lower() else "bottom"
-
-        self.mark = _LeftAlignedPushButton(QIconifyIcon(mark_glyph), mark_text)
-        self.mark.setIconSize(QSize(icon_size, icon_size))
-        self.mark.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-
-        self.visit = QPushButton(QIconifyIcon(ICONS_GO[mode]), "")
-        self.visit.setIconSize(QSize(icon_size, icon_size))
-        self.visit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.visit.setToolTip(f"Move to {mode}.")
-
-        layout = QHBoxLayout(self)
-        layout.setSpacing(0)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.mark)
-        layout.addWidget(self.visit)
 
 
 if __name__ == "__main__":

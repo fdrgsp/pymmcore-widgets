@@ -282,8 +282,15 @@ class GridPlanWidget(QScrollArea):
             QFontMetrics(label.font()).horizontalAdvance(label.text())
             for label in labels
         )
+        # QLabel.sizeHint() can exceed that font-metrics estimate by a pixel or
+        # two for some strings (its internal text layout rounds differently),
+        # so fold in any already-known sizeHint too -- otherwise setMinimumWidth
+        # would let that one label win out and its form's field column would
+        # drift a pixel off from the others. sizeHint() can legitimately be 0
+        # before the label is shown/polished, but that never raises our max.
+        width = max(width, max(label.sizeHint().width() for label in labels))
         for label in labels:
-            label.setMinimumWidth(width)
+            label.setFixedWidth(width)
 
         field_width = max(field.sizeHint().width() for field in fields)
         for field in fields:
