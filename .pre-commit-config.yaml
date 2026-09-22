@@ -27,7 +27,12 @@ repos:
       - id: mypy
         files: "^src/"
         additional_dependencies:
-          - pymmcore-plus >=0.15.0
+          # matches this project's own pin (see [tool.uv.sources]): the MDA
+          # widgets' output annotations use pymmcore_plus.mda.SingleOutput,
+          # which the released package does not export yet. NOTE: pre-commit
+          # caches this env by the dependency string, so run `pre-commit clean`
+          # after pushing a pymmcore-plus change this hook needs to see.
+          - pymmcore-plus @ git+https://github.com/fdrgsp/pymmcore-plus@cite
           - useq-schema >=0.8.0
           - psutil >=5.9
           - types-psutil >=5.9

@@ -49,6 +49,7 @@ CAMERA_ROI_METADATA_KEY = "camera_roi"
 if TYPE_CHECKING:
     import useq
     from pymmcore_plus import CMMCorePlus
+    from pymmcore_plus.mda import SingleOutput
     from qtpy.QtWidgets import QComboBox
 
     from pymmcore_widgets.useq_widgets._mda_sequence import (
@@ -935,7 +936,7 @@ class MDAWidgetCollapsible(MDAWidget):
             self.tabs._restoring_roi_section = False
         self.tabs.refresh_summaries()
 
-    def prepare_mda(self) -> bool | str | Path | None:
+    def prepare_mda(self) -> bool | SingleOutput | None:
         """Validate the MDA and apply its camera ROI once before acquisition."""
         output = super().prepare_mda()
         if isinstance(output, bool):
