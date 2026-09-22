@@ -1274,6 +1274,12 @@ class StageExplorerToolbar(QToolBar):
         poll_btn.setMenu(menu)
         poll_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
 
+        self.show_grid_action = self.addAction(
+            QIconifyIcon("mdi:grid", color=GRAY),
+            "Show Grid",
+        )
+        self.show_grid_action.setCheckable(True)
+
         self.map_memory_action = self.addAction(
             QIconifyIcon("mdi:memory", color=GRAY),
             "Map Memory Limit",
@@ -1290,11 +1296,6 @@ class StageExplorerToolbar(QToolBar):
         # action that doesn't exist.
         memory_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
-        self.show_grid_action = self.addAction(
-            QIconifyIcon("mdi:grid", color=GRAY),
-            "Show Grid",
-        )
-        self.show_grid_action.setCheckable(True)
         self.addSeparator()
         self.delete_rois_action = self.addAction(
             QIconifyIcon("mdi:vector-square-remove", color=GRAY),
@@ -1309,13 +1310,13 @@ class StageExplorerToolbar(QToolBar):
         self.scan_menu = ScanMenu(self)
         scan_btn.setMenu(self.scan_menu)
         scan_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        self.stop_scan_action = self.addAction(
-            QIconifyIcon("bi:sign-stop", color=GRAY),
-            "Stop Scan",
-        )
         self.send_to_mda_action = self.addAction(
             QIconifyIcon("mdi:send", color=GRAY),
             "Send to MDA",
+        )
+        self.stop_scan_action = self.addAction(
+            QIconifyIcon("bi:sign-stop", color=GRAY),
+            "Stop Scan",
         )
 
 
