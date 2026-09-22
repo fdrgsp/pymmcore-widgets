@@ -5,13 +5,23 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import psutil
 import useq
 from pymmcore_plus import CMMCorePlus, Keyword
-from qtpy.QtCore import QSignalBlocker, QSize, Qt, QThread, QTimer, Signal, Slot
+from qtpy.QtCore import (
+    QObject,
+    QSignalBlocker,
+    QSize,
+    Qt,
+    QThread,
+    QTimer,
+    Signal,
+    Slot,
+)
 from qtpy.QtGui import QIcon
 from qtpy.QtWidgets import (
     QDoubleSpinBox,
@@ -39,6 +49,7 @@ from ._stage_viewer import StageViewer, get_vispy_scene_bounds
 
 if TYPE_CHECKING:
     from collections.abc import Hashable
+    from typing import Any
 
     from PyQt6.QtGui import QAction, QActionGroup, QKeyEvent
     from qtpy.QtGui import QCloseEvent, QHideEvent, QShowEvent
@@ -125,6 +136,94 @@ def _map_memory_defaults() -> tuple[float, float, float]:
         total_gb,
     )
     return (0.1, total_gb, default_gb)
+
+
+class _LatestFrameRelay(QObject):
+    """Keep only the newest MDA frame per map location before GUI dispatch.
+
+    ``frameReady`` is emitted from the acquisition thread. A normal Qt queued
+    connection would therefore put one event containing a full image array onto
+    the GUI queue for every acquired frame. If acquisition outruns rendering,
+    those events and arrays accumulate before Stage Explorer's existing redraw
+    throttle gets a chance to see them.
+
+    ``submit`` is connected directly and only mutates data protected by ``_lock``.
+    The first pending frame emits one lightweight wake-up; subsequent frames
+    replace the pending value for their location until the GUI drains the batch.
+    ``_notification_pending`` stays armed for one redraw interval after a drain,
+    which caps GUI wake-ups as well as GPU uploads.
+    """
+
+    framesPending = Signal()
+
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._lock = Lock()
+        self._pending: dict[Hashable, tuple[np.ndarray, useq.MDAEvent]] = {}
+        self._notification_pending = False
+        self._enabled = False
+
+    @Slot(object, object, dict)
+    def submit(
+        self,
+        image: np.ndarray,
+        event: useq.MDAEvent,
+        metadata: dict[str, Any],
+    ) -> None:
+        """Store ``image`` and request one GUI drain when none is outstanding."""
+        del metadata
+        notify = False
+        key = self._event_key(event)
+        with self._lock:
+            if not self._enabled:
+                return
+            # Reinsert an existing key so batch order reflects most-recent
+            # arrival. This preserves the expected topmost ordering for
+            # overlapping tiles when several locations are drained together.
+            self._pending.pop(key, None)
+            self._pending[key] = (image, event)
+            if not self._notification_pending:
+                self._notification_pending = True
+                notify = True
+        if notify:
+            self.framesPending.emit()
+
+    def set_enabled(self, enabled: bool) -> None:
+        """Enable collection, discarding retained frames when disabled."""
+        with self._lock:
+            self._enabled = enabled
+            if not enabled:
+                self._pending.clear()
+                self._notification_pending = False
+
+    def take_or_disarm(self) -> tuple[tuple[np.ndarray, useq.MDAEvent], ...]:
+        """Take a batch, or atomically allow the next frame to notify the GUI."""
+        with self._lock:
+            if self._pending:
+                batch = tuple(self._pending.values())
+                self._pending.clear()
+                return batch
+            self._notification_pending = False
+            return ()
+
+    def take_and_disarm(self) -> tuple[tuple[np.ndarray, useq.MDAEvent], ...]:
+        """Take all pending frames and allow a future frame to notify again."""
+        with self._lock:
+            batch = tuple(self._pending.values())
+            self._pending.clear()
+            self._notification_pending = False
+            return batch
+
+    @staticmethod
+    def _event_key(event: useq.MDAEvent) -> Hashable:
+        """Return a cheap, hardware-free key suitable for worker-thread use."""
+        p_idx = event.index.get("p")
+        g_idx = event.index.get("g")
+        if (seq := event.sequence) is not None and (
+            p_idx is not None or g_idx is not None
+        ):
+            return (seq.uid, p_idx, g_idx)
+        return ("xy", event.x_pos, event.y_pos)
 
 
 class _StagePoller(QThread):
@@ -279,6 +378,16 @@ class StageExplorer(QWidget):
         self._redraw_timer = QTimer(self)
         self._redraw_timer.setInterval(REDRAW_INTERVAL_MS)
         self._redraw_timer.timeout.connect(self._flush_pending_tiles)
+        # MDA frames first pass through a worker-thread relay so full image
+        # arrays cannot accumulate as queued Qt events when acquisition is
+        # faster than the GUI. This timer keeps that relay armed between
+        # drains, limiting GUI wake-ups to the same cadence as redraws.
+        self._frame_relay = _LatestFrameRelay(self)
+        self._frame_relay.framesPending.connect(self._on_frames_pending)
+        self._frame_relay_timer = QTimer(self)
+        self._frame_relay_timer.setSingleShot(True)
+        self._frame_relay_timer.setInterval(REDRAW_INTERVAL_MS)
+        self._frame_relay_timer.timeout.connect(self._on_frame_relay_timer)
         self._max_map_memory_mb: float = _map_memory_defaults()[2] * 1000.0
         self._map_memory_exceeded: bool = False
         # Whether the poller was running when hideEvent last paused it, so
@@ -345,8 +454,20 @@ class StageExplorer(QWidget):
         # connections core events
         self._mmc.events.systemConfigurationLoaded.connect(self._on_sys_config_loaded)
         self._mmc.events.imageSnapped.connect(self._on_image_snapped)
-        self._mmc.mda.events.frameReady.connect(self._on_frame_ready)
-        self._mmc.mda.events.sequenceFinished.connect(self._on_sequence_finished)
+        mda_events = self._mmc.mda.events
+        if isinstance(mda_events, QObject):
+            # The callback executes in the acquisition thread and only swaps
+            # protected Python references. Its lightweight framesPending signal
+            # is the sole event queued back to the GUI thread.
+            cast("Any", mda_events.frameReady).connect(
+                self._frame_relay.submit, Qt.ConnectionType.DirectConnection
+            )
+        else:
+            # Psygnal callbacks are synchronous in the emitting thread, which
+            # provides the same pre-GUI-queue behavior without a Qt connection
+            # type argument.
+            mda_events.frameReady.connect(self._frame_relay.submit)
+        mda_events.sequenceFinished.connect(self._on_sequence_finished)
         self._mmc.events.pixelSizeChanged.connect(self._on_pixel_size_changed)
         self._mmc.events.pixelSizeAffineChanged.connect(
             self._on_pixel_size_affine_changed
@@ -367,6 +488,8 @@ class StageExplorer(QWidget):
         self.zoom_to_fit()
 
     def closeEvent(self, a0: QCloseEvent | None) -> None:
+        self._frame_relay.set_enabled(False)
+        self._frame_relay_timer.stop()
         self._stop_poller()
         super().closeEvent(a0)
 
@@ -379,12 +502,15 @@ class StageExplorer(QWidget):
         scene, guarded separately below) for a view nobody is looking at.
         """
         super().hideEvent(a0)
+        self._frame_relay.set_enabled(False)
+        self._frame_relay_timer.stop()
         self._was_polling_before_hide = self._stage_poller.isRunning()
         self._stop_poller()
 
     def showEvent(self, a0: QShowEvent | None) -> None:
         """Resume polling paused by hideEvent and refresh the stale marker."""
         super().showEvent(a0)
+        self._frame_relay.set_enabled(True)
         if self._was_polling_before_hide and self._mmc.getXYStageDevice():
             self._stage_poller.start()
             self._sync_stage_pos_marker()
@@ -497,6 +623,8 @@ class StageExplorer(QWidget):
     @Slot()
     def _on_clear_action(self) -> None:
         """Clear the scene and hide the contrast slider."""
+        self._frame_relay.take_and_disarm()
+        self._frame_relay_timer.stop()
         self._stage_viewer.clear()
         self._tiles.clear()
         self._tile_centers.clear()
@@ -594,6 +722,11 @@ class StageExplorer(QWidget):
     def _on_sequence_finished(self) -> None:
         """Reset scan state when the MDA sequence finishes."""
         self._our_mda_running = False
+        # sequenceFinished may reach the GUI while the relay's redraw timer is
+        # still holding the newest frame. Drain it before flushing the lower
+        # level tile throttle so the final acquired image is always displayed.
+        self._frame_relay_timer.stop()
+        self._deliver_frame_batch(self._frame_relay.take_and_disarm())
         # The throttle may be holding the final frame of the run; without this
         # the map would be missing the last image until something else
         # happened to trigger a flush.
@@ -758,7 +891,23 @@ class StageExplorer(QWidget):
 
     @Slot(object, object)
     def _on_frame_ready(self, image: np.ndarray, event: useq.MDAEvent) -> None:
-        """Add the image to the scene when frameReady event is emitted."""
+        """Process one frame already delivered on the GUI thread.
+
+        The core's ``frameReady`` signal is connected to ``_frame_relay`` rather
+        than this slot directly. Keeping this method as the unthrottled entry
+        point is useful to callers that already run on the GUI thread and
+        preserves the existing private API used by downstream subclasses.
+        """
+        self._handle_frame_ready(image, event, already_coalesced=False)
+
+    def _handle_frame_ready(
+        self,
+        image: np.ndarray,
+        event: useq.MDAEvent,
+        *,
+        already_coalesced: bool,
+    ) -> None:
+        """Place one MDA frame, optionally bypassing the tile redraw throttle."""
         # frameReady fires for *any* running MDA, not just one started from
         # this widget -- skip the scene redraw while hidden, same as
         # _on_image_snapped above.
@@ -771,7 +920,38 @@ class StageExplorer(QWidget):
         # other) without keeping the hidden ones alive.
         x = event.x_pos if event.x_pos is not None else self._mmc.getXPosition()
         y = event.y_pos if event.y_pos is not None else self._mmc.getYPosition()
-        self._add_image_and_update_widget(image, x, y, key=self._mda_tile_key(event))
+        self._add_image_and_update_widget(
+            image,
+            x,
+            y,
+            key=self._mda_tile_key(event),
+            throttle=not already_coalesced,
+        )
+
+    @Slot()
+    def _on_frames_pending(self) -> None:
+        """Drain the relay immediately, then keep it armed for one redraw period."""
+        batch = self._frame_relay.take_or_disarm()
+        if not batch:
+            return
+        self._deliver_frame_batch(batch)
+        self._frame_relay_timer.start()
+
+    @Slot()
+    def _on_frame_relay_timer(self) -> None:
+        """Drain frames accumulated during the previous redraw interval."""
+        batch = self._frame_relay.take_or_disarm()
+        if not batch:
+            return
+        self._deliver_frame_batch(batch)
+        self._frame_relay_timer.start()
+
+    def _deliver_frame_batch(
+        self, batch: tuple[tuple[np.ndarray, useq.MDAEvent], ...]
+    ) -> None:
+        """Apply the newest frame for every location in one GUI-thread batch."""
+        for image, event in batch:
+            self._handle_frame_ready(image, event, already_coalesced=True)
 
     # STAGE POSITION MARKER -----------------------------------------------------
 
@@ -836,6 +1016,8 @@ class StageExplorer(QWidget):
         stage_x_um: float,
         stage_y_um: float,
         key: Hashable | None = None,
+        *,
+        throttle: bool = True,
     ) -> None:
         """Add the image to the scene and update position label and view.
 
@@ -843,7 +1025,15 @@ class StageExplorer(QWidget):
         """
         if key is None:
             key = self._snap_tile_key(stage_x_um, stage_y_um)
-        self._queue_tile(key, image, stage_x_um, stage_y_um)
+        if throttle:
+            self._queue_tile(key, image, stage_x_um, stage_y_um)
+        else:
+            # The frame relay has already limited this path to one GUI update
+            # per redraw interval. Applying it directly avoids two independent
+            # 33 ms throttles combining into an unintended ~15 fps display.
+            self._pending_tiles.pop(key, None)
+            self._apply_tile(key, image, stage_x_um, stage_y_um)
+            self._tile_last_applied[key] = time.monotonic()
 
         # update the stage position label if the stage position is not being polled
         if not self._poll_stage_position:

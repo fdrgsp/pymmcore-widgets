@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from threading import Thread
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -747,6 +748,85 @@ def test_send_to_mda_emits_roi_positions(qtbot: QtBot) -> None:
 # ---------------------------------------------------------------------------
 
 TILE_IMG = np.random.randint(0, 4096, (64, 64), dtype=np.uint16)
+
+
+def test_frame_relay_coalesces_before_gui_dispatch() -> None:
+    """A burst retains one image and emits one lightweight GUI notification."""
+    relay = stage_explorer_mod._LatestFrameRelay()
+    relay.set_enabled(True)
+    notifications: list[None] = []
+    relay.framesPending.connect(lambda: notifications.append(None))
+    event = next(iter(useq.MDASequence(stage_positions=[(0, 0)])))
+
+    for value in range(100):
+        relay.submit(np.full((8, 8), value, dtype=np.uint16), event, {})
+
+    assert len(notifications) == 1
+    batch = relay.take_or_disarm()
+    assert len(batch) == 1
+    assert batch[0][0][0, 0] == 99
+
+    # An empty timer tick disarms the relay, allowing the next burst to send
+    # exactly one new wake-up.
+    assert relay.take_or_disarm() == ()
+    relay.submit(TILE_IMG, event, {})
+    assert len(notifications) == 2
+
+
+def test_frame_relay_keeps_latest_frame_for_each_location() -> None:
+    """Coalescing drops intermediate timepoints, never distinct map locations."""
+    relay = stage_explorer_mod._LatestFrameRelay()
+    relay.set_enabled(True)
+    seq = useq.MDASequence(stage_positions=[(0, 0), (500, 0), (1000, 0)])
+
+    for value, event in enumerate(seq):
+        relay.submit(np.full((8, 8), value, dtype=np.uint16), event, {})
+
+    batch = relay.take_or_disarm()
+    assert len(batch) == 3
+    assert [int(image[0, 0]) for image, _event in batch] == [0, 1, 2]
+
+
+def test_frame_ready_burst_is_coalesced_before_qt_event_queue(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Cross-thread frameReady emissions queue one wake-up, not every image."""
+    explorer = StageExplorer(mmcore=global_mmcore)
+    qtbot.addWidget(explorer)
+    explorer.show()
+    event = next(iter(useq.MDASequence(stage_positions=[(0, 0)])))
+
+    def emit_burst() -> None:
+        for value in range(100):
+            image = np.full((16, 16), value, dtype=np.uint16)
+            global_mmcore.mda.events.frameReady.emit(image, event, {})
+
+    worker = Thread(target=emit_burst)
+    worker.start()
+    worker.join()
+
+    # The main thread has not processed the relay's lightweight wake-up yet;
+    # no image-bearing Qt events were queued for the 100 individual frames.
+    assert not explorer._tiles
+    qtbot.waitUntil(lambda: bool(explorer._tiles), timeout=1000)
+    node = next(iter(explorer._tiles.values()))
+    assert node._data[0, 0] == 99
+
+
+def test_sequence_finished_drains_pre_gui_frame_relay(qtbot: QtBot) -> None:
+    """The newest relayed frame is displayed even if its timer has not fired."""
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+    event = next(iter(useq.MDASequence(stage_positions=[(0, 0)])))
+    explorer._frame_relay.submit(np.full((16, 16), 1, dtype=np.uint16), event, {})
+    explorer._frame_relay.submit(np.full((16, 16), 9, dtype=np.uint16), event, {})
+
+    explorer._on_sequence_finished()
+
+    assert len(explorer._tiles) == 1
+    node = next(iter(explorer._tiles.values()))
+    assert node._data[0, 0] == 9
 
 
 def test_frame_ready_dedup_by_position_index(qtbot: QtBot) -> None:
