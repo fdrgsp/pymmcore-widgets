@@ -101,8 +101,7 @@ def block_core(obj: Any) -> AbstractContextManager:
     if isinstance(obj, QObject):
         return signals_blocked(obj)  # type: ignore [no-any-return]
     if isinstance(obj, (SignalInstance, SignalGroup)):
-        # (error in psygnal stubs)
-        return obj.blocked()  # type: ignore [return-value]
+        return obj.blocked()
     raise TypeError(f"Cannot block signals for {obj}")
 
 

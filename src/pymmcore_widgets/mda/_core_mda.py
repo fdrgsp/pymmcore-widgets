@@ -42,7 +42,10 @@ from ._save_widget import SaveGroupBox
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from pymmcore_plus.mda import SupportsFrameReady
+    # Everything CMMCorePlus.run_mda accepts as one MDA output: a path, a frame
+    # handler, or ome-writers settings. Used for both prepare_mda and
+    # execute_mda below, so the two describe the same value.
+    from pymmcore_plus.mda import SingleOutput
 
 
 # shown when the autofocus device is engaged but the sequence does not use it.
@@ -306,7 +309,7 @@ class MDAWidget(MDASequenceWidget):
         """
         return get_next_available_path(requested_path=requested_path)
 
-    def prepare_mda(self) -> bool | str | Path | None:
+    def prepare_mda(self) -> bool | SingleOutput | None:
         """Prepare the MDA sequence experiment.
 
         Returns
@@ -315,6 +318,11 @@ class MDAWidget(MDASequenceWidget):
             False if MDA to be cancelled due to autofocus issue.
         str | Path
             Preparation successful, save path to be used for saving and saving active
+        SupportsFrameReady | AcquisitionSettings (see `SingleOutput`)
+            Preparation successful, with an output object (a frame handler, or
+            ome-writers settings) to acquire into. Not returned by this
+            implementation, but permitted so a subclass may substitute one --
+            whatever is returned here is passed straight to `execute_mda`.
         None
             Preparation successful, saving deactivated
         """
@@ -350,16 +358,7 @@ class MDAWidget(MDASequenceWidget):
         else:
             return None
 
-    def execute_mda(
-        self,
-        output: (
-            Path
-            | str
-            | SupportsFrameReady
-            | Sequence[Path | str | SupportsFrameReady]
-            | None
-        ),
-    ) -> None:
+    def execute_mda(self, output: SingleOutput | Sequence[SingleOutput] | None) -> None:
         """Execute the MDA experiment corresponding to the current value."""
         sequence = self.value()
         if self._disable_af_on_run:

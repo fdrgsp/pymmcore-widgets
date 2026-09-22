@@ -102,6 +102,7 @@ docs = [
 
 [tool.uv.sources]
 pymmcore-widgets = { workspace = true }
+pymmcore-plus = { git = "https://github.com/fdrgsp/pymmcore-plus", rev = "cite" }
 useq-schema = { git = "https://github.com/fdrgsp/useq-schema", rev = "cite" }
 
 [tool.ruff]
