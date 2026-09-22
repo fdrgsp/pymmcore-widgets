@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import logging
 import time
 from dataclasses import dataclass, field
@@ -109,6 +110,7 @@ MAP_MEMORY_DEFAULT_FLOOR_GB = 0.5
 # of room), so this blocks new locations even when the static limit above
 # says there's room left.
 LOW_SYSTEM_MEMORY_FLOOR_MB = 512.0
+_GL_OUT_OF_MEMORY = 0x0505
 
 
 def _map_memory_defaults() -> tuple[float, float, float]:
@@ -131,6 +133,21 @@ def _map_memory_defaults() -> tuple[float, float, float]:
         total_gb,
     )
     return (0.1, total_gb, default_gb)
+
+
+def _is_allocation_error(exc: BaseException) -> bool:
+    """Return whether ``exc`` specifically reports exhausted memory."""
+    if isinstance(exc, MemoryError):
+        return True
+    if isinstance(exc, OSError) and exc.errno == errno.ENOMEM:
+        return True
+    if isinstance(exc, RuntimeError):
+        # VisPy's OpenGL debug wrapper exposes the final GL error as ``err``.
+        # Some backends only preserve its name in the exception text.
+        return getattr(exc, "err", None) == _GL_OUT_OF_MEMORY or (
+            "out of memory" in str(exc).lower()
+        )
+    return False
 
 
 class _LatestFrameRelay(QObject):
@@ -359,6 +376,7 @@ class StageExplorer(QWidget):
         self._tiles: dict[Hashable, Image] = {}
         self._tile_centers: dict[Hashable, tuple[float, float]] = {}
         self._tile_bytes: dict[Hashable, int] = {}
+        self._map_memory_bytes: int = 0
         self._next_snap_id: int = 0
         self._mda_tile_keys: dict[Hashable, Hashable] = {}
         # Frames waiting to be pushed to the GPU, newest-per-location wins.
@@ -625,6 +643,7 @@ class StageExplorer(QWidget):
         self._tiles.clear()
         self._tile_centers.clear()
         self._tile_bytes.clear()
+        self._map_memory_bytes = 0
         self._mda_tile_keys.clear()
         self._pending_tiles.clear()
         self._tile_last_applied.clear()
@@ -1040,9 +1059,8 @@ class StageExplorer(QWidget):
             )
 
         # reset the view if the image is not within the view
-        if (
-            not self._is_visual_within_view(stage_x_um, stage_y_um)
-            and self._auto_zoom_to_fit
+        if self._auto_zoom_to_fit and not self._is_visual_within_view(
+            stage_x_um, stage_y_um
         ):
             self._stage_viewer.zoom_to_fit()
 
@@ -1124,7 +1142,10 @@ class StageExplorer(QWidget):
         matrix = self._tile_transform(x, y)
         if (node := self._tiles.get(key)) is not None:
             self._stage_viewer.update_image(node, image, transform=matrix.T)
-            self._tile_bytes[key] = image.nbytes * TILE_MEMORY_FACTOR
+            cost = image.nbytes * TILE_MEMORY_FACTOR
+            previous_cost = self._tile_bytes[key]
+            self._tile_bytes[key] = cost
+            self._map_memory_bytes += cost - previous_cost
         else:
             cost = image.nbytes * TILE_MEMORY_FACTOR
             system_low = self._system_memory_low(cost)
@@ -1136,7 +1157,9 @@ class StageExplorer(QWidget):
                 return
             try:
                 node = self._stage_viewer.add_image(image, transform=matrix.T)
-            except Exception:
+            except Exception as exc:
+                if not _is_allocation_error(exc):
+                    raise
                 # The checks above only see *system* RAM; GPU texture memory
                 # is a separate pool on most non-unified-memory hardware, so
                 # a genuine allocation failure here is a distinct resource
@@ -1149,6 +1172,7 @@ class StageExplorer(QWidget):
                 return
             self._tiles[key] = node
             self._tile_bytes[key] = cost
+            self._map_memory_bytes += cost
             # A location just went through -- whatever condition previously
             # blocked one (the map's own limit, or the machine running low)
             # must no longer hold, so the "paused" banner would otherwise be
@@ -1192,7 +1216,7 @@ class StageExplorer(QWidget):
 
     def map_memory_bytes(self) -> int:
         """Approximate memory currently held by the map's images."""
-        return sum(self._tile_bytes.values())
+        return self._map_memory_bytes
 
     def _would_exceed_memory(self, additional: int) -> bool:
         """Whether `additional` bytes would push the map past its own limit."""

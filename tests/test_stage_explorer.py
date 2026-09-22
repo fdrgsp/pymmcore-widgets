@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 import useq
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtWidgets import QMessageBox, QToolButton
@@ -1051,6 +1052,7 @@ def test_clear_action_resets_memory_budget_state(qtbot: QtBot) -> None:
     explorer._toolbar.clear_action.trigger()
     assert not explorer._memory_banner.isVisible()
     assert not explorer._tiles
+    assert explorer.map_memory_bytes() == 0
 
     explorer._add_image_and_update_widget(TILE_IMG, 5000.0, 0.0)
     assert len(explorer._tiles) == 1
@@ -1077,6 +1079,7 @@ def test_low_system_memory_blocks_new_location_regardless_of_own_limit(
         explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
 
     assert not explorer._tiles
+    assert explorer.map_memory_bytes() == 0
     assert explorer._memory_banner.isVisible()
     assert "low on free memory" in explorer._memory_banner._label.text()
 
@@ -1101,6 +1104,24 @@ def test_memory_banner_clears_once_a_location_actually_succeeds(qtbot: QtBot) ->
     assert not explorer._memory_banner.isVisible()
 
 
+def test_map_memory_total_updates_incrementally(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+    small = np.zeros((8, 8), dtype=np.uint8)
+    large = np.zeros((16, 16), dtype=np.uint16)
+
+    explorer._add_image_and_update_widget(small, 0.0, 0.0, throttle=False)
+    assert explorer.map_memory_bytes() == small.nbytes * 2
+
+    # Replacing a location accounts only for the size difference.
+    explorer._add_image_and_update_widget(large, 0.0, 0.0, throttle=False)
+    assert explorer.map_memory_bytes() == large.nbytes * 2
+
+    explorer._add_image_and_update_widget(small, 5000.0, 0.0, throttle=False)
+    assert explorer.map_memory_bytes() == (large.nbytes + small.nbytes) * 2
+
+
 def test_tile_allocation_failure_degrades_gracefully(qtbot: QtBot) -> None:
     """A resource failure while adding a tile must not crash the app.
 
@@ -1116,17 +1137,42 @@ def test_tile_allocation_failure_degrades_gracefully(qtbot: QtBot) -> None:
     explorer.show()
 
     with patch.object(
-        StageViewer, "add_image", side_effect=RuntimeError("simulated GL failure")
+        StageViewer, "add_image", side_effect=MemoryError("simulated GL failure")
     ):
         explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)  # must not raise
 
     assert not explorer._tiles
+    assert explorer.map_memory_bytes() == 0
     assert explorer._memory_banner.isVisible()
 
     # and the widget is fully usable again once the failure clears
     explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
     assert len(explorer._tiles) == 1
     assert not explorer._memory_banner.isVisible()
+
+
+def test_tile_programming_error_is_not_hidden(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+
+    with (
+        patch.object(StageViewer, "add_image", side_effect=ValueError("bad transform")),
+        pytest.raises(ValueError, match="bad transform"),
+    ):
+        explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
+
+
+def test_autozoom_check_is_skipped_when_disabled(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+    explorer.auto_zoom_to_fit = False
+
+    with patch.object(explorer, "_is_visual_within_view") as within_view:
+        explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
+
+    within_view.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
