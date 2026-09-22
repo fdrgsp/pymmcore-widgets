@@ -84,17 +84,12 @@ SNAP_DEDUP_FOV_FRACTION = 0.01
 # (vispy holds a reference, it does not copy) plus the GL-side copy.
 TILE_MEMORY_FACTOR = 2
 
-# Fraction of *available* RAM the default map-memory limit is set to, by
-# explicit choice -- note that a host app may have its own, separate memory
-# budget for the acquisition itself (e.g. how much to hold in RAM before
-# spilling to disk), and a high fraction here means the two *can* each
-# target up to that same fraction of whatever RAM is free at the time, so on
-# a memory-constrained machine running both near their defaults
-# simultaneously is possible. This doesn't compete for a *reservation*
-# though (nothing is pre-allocated, this is only a ceiling), and
-# LOW_SYSTEM_MEMORY_FLOOR_MB below still independently blocks the map before
-# genuine exhaustion.
-MAP_MEMORY_DEFAULT_FRACTION = 0.8
+# Fraction of *available* RAM reserved for the map by default. The pymmcore-gui
+# acquisition scratch store uses 60%, leaving 20% for the application, Qt, and
+# the operating system. These are ceilings rather than eager reservations, but
+# keeping their defaults complementary prevents both consumers independently
+# targeting most of the same memory.
+MAP_MEMORY_DEFAULT_FRACTION = 0.2
 
 # Floor for the default above: under everyday, moderate memory pressure
 # (a browser, an IDE, ... -- not a genuine shortage, just normal load) the
@@ -102,7 +97,7 @@ MAP_MEMORY_DEFAULT_FRACTION = 0.8
 # the *default* usable; it never overrides the user's own choice, and it's
 # separate from LOW_SYSTEM_MEMORY_FLOOR_MB below, which is about genuine
 # live shortage, not about picking a reasonable starting value.
-MAP_MEMORY_DEFAULT_FLOOR_GB = 2.0
+MAP_MEMORY_DEFAULT_FLOOR_GB = 0.5
 
 # Independent of the map's own limit above (a static number, whether set by
 # the user or defaulted from available RAM at construction): a floor on
@@ -358,13 +353,14 @@ class StageExplorer(QWidget):
         self._position_indicator: PositionIndicator = PositionIndicator.RECTANGLE
 
         # --- map tiles -----------------------------------------------------
-        # One scene node per *location*, not per frame. Keyed by
-        # (sequence uid, position index, grid index) for MDA frames, and by a
-        # synthetic id for snaps (matched spatially, see _snap_tile_key).
+        # One scene node per *location*, not per frame. MDA position indices
+        # are cached to spatially matched tile keys for the active sequence;
+        # snaps use the same spatial matching directly.
         self._tiles: dict[Hashable, Image] = {}
         self._tile_centers: dict[Hashable, tuple[float, float]] = {}
         self._tile_bytes: dict[Hashable, int] = {}
         self._next_snap_id: int = 0
+        self._mda_tile_keys: dict[Hashable, Hashable] = {}
         # Frames waiting to be pushed to the GPU, newest-per-location wins.
         self._pending_tiles: dict[Hashable, tuple[np.ndarray, float, float]] = {}
         # monotonic() of each location's last actual GPU upload, so throttling
@@ -629,6 +625,7 @@ class StageExplorer(QWidget):
         self._tiles.clear()
         self._tile_centers.clear()
         self._tile_bytes.clear()
+        self._mda_tile_keys.clear()
         self._pending_tiles.clear()
         self._tile_last_applied.clear()
         self._redraw_timer.stop()
@@ -732,6 +729,7 @@ class StageExplorer(QWidget):
         # happened to trigger a flush.
         self._flush_pending_tiles()
         self._redraw_timer.stop()
+        self._mda_tile_keys.clear()
 
     @Slot(object)
     def _on_scan_options_changed(self, value: tuple[float, OrderMode]) -> None:
@@ -924,7 +922,7 @@ class StageExplorer(QWidget):
             image,
             x,
             y,
-            key=self._mda_tile_key(event),
+            key=self._mda_tile_key(event, x, y),
             throttle=not already_coalesced,
         )
 
@@ -1050,19 +1048,23 @@ class StageExplorer(QWidget):
 
     # MAP TILES ---------------------------------------------------------------
 
-    def _mda_tile_key(self, event: useq.MDAEvent) -> Hashable:
+    def _mda_tile_key(self, event: useq.MDAEvent, x: float, y: float) -> Hashable:
         """Identify the map location an MDA frame belongs to.
 
-        The position (and grid) index is exact, so returning to a position for
-        the next timepoint needs no float comparison at all. Events with no
-        parent sequence (a bare `MDAEvent`) fall back to spatial matching.
+        A sequence's position/grid index is cached after its first spatial
+        match, keeping repeated timepoints O(1). The first frame at a location
+        is matched against the existing map, so a new acquisition at the same
+        physical position refreshes the existing tile instead of creating one
+        merely because its sequence UUID changed.
         """
         if (seq := event.sequence) is not None:
-            return (seq.uid, event.index.get("p"), event.index.get("g"))
-        return self._snap_tile_key(
-            event.x_pos if event.x_pos is not None else self._mmc.getXPosition(),
-            event.y_pos if event.y_pos is not None else self._mmc.getYPosition(),
-        )
+            event_key = (seq.uid, event.index.get("p"), event.index.get("g"))
+            if (tile_key := self._mda_tile_keys.get(event_key)) is not None:
+                return tile_key
+            tile_key = self._snap_tile_key(x, y)
+            self._mda_tile_keys[event_key] = tile_key
+            return tile_key
+        return self._snap_tile_key(x, y)
 
     def _snap_tile_key(self, x: float, y: float) -> Hashable:
         """Find the existing tile at (x, y), or mint a key for a new one.

@@ -867,6 +867,39 @@ def test_frame_ready_distinct_positions_create_distinct_tiles(qtbot: QtBot) -> N
     assert len(list(explorer._stage_viewer._get_images())) == 3
 
 
+def test_frame_ready_same_position_across_sequences_reuses_tile(qtbot: QtBot) -> None:
+    """Sequence UUIDs must not duplicate the same physical map location."""
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+
+    first = next(iter(useq.MDASequence(stage_positions=[(100, 200)])))
+    second = next(iter(useq.MDASequence(stage_positions=[(100, 200)])))
+    assert first.sequence.uid != second.sequence.uid
+
+    explorer._on_frame_ready(TILE_IMG, first)
+    explorer._on_sequence_finished()
+    explorer._on_frame_ready(TILE_IMG, second)
+
+    assert len(explorer._tiles) == 1
+    assert len(list(explorer._stage_viewer._get_images())) == 1
+
+
+def test_frame_ready_same_index_at_new_position_creates_tile(qtbot: QtBot) -> None:
+    """Equal position indices in separate sequences are not physical identity."""
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+
+    first = next(iter(useq.MDASequence(stage_positions=[(0, 0)])))
+    second = next(iter(useq.MDASequence(stage_positions=[(500, 0)])))
+    explorer._on_frame_ready(TILE_IMG, first)
+    explorer._on_sequence_finished()
+    explorer._on_frame_ready(TILE_IMG, second)
+
+    assert len(explorer._tiles) == 2
+
+
 def test_snap_dedup_within_tolerance(qtbot: QtBot) -> None:
     """Two snaps close enough together (stage repeatability error) share a tile."""
     explorer = StageExplorer()
@@ -1107,20 +1140,17 @@ def test_map_memory_defaults_range_bounded_by_total_ram() -> None:
         lo, hi, default = stage_explorer_mod._map_memory_defaults()
     assert lo == 0.1
     assert hi == 16.0
-    assert default == 3.2  # 80% of 4 GB available
+    assert default == 0.8  # 20% of 4 GB available
 
 
 def test_map_memory_defaults_floored_under_severe_memory_pressure() -> None:
     """Genuine scarcity shouldn't round the default to nothing.
 
-    MAP_MEMORY_DEFAULT_FRACTION is generous (80%, matching the acquisition's
-    own default exactly) so the floor only engages when available RAM is
-    already quite low -- but it still must not let the default collapse to
-    something impractically small. The floor keeps the *default* usable
+    The floor keeps the *default* usable under genuine scarcity
     without touching the live per-add check (LOW_SYSTEM_MEMORY_FLOOR_MB),
     which still runs independently of whatever this default gets set to.
     """
-    vm = MagicMock(total=16 * 1024**3, available=2 * 1024**3)  # 80% would be 1.6 GB
+    vm = MagicMock(total=16 * 1024**3, available=2 * 1024**3)  # 20% would be 0.4 GB
     with patch.object(stage_explorer_mod.psutil, "virtual_memory", return_value=vm):
         _, _, default = stage_explorer_mod._map_memory_defaults()
     assert default == stage_explorer_mod.MAP_MEMORY_DEFAULT_FLOOR_GB
@@ -1139,7 +1169,7 @@ def test_map_memory_defaults_scale_with_available_ram() -> None:
     with patch.object(stage_explorer_mod.psutil, "virtual_memory", return_value=vm):
         lo, hi, default = stage_explorer_mod._map_memory_defaults()
     assert (lo, hi) == (0.1, 64.0)
-    assert default == 16.0  # 80% of 20 GB available, not of the 64 GB total
+    assert default == 4.0  # 20% of 20 GB available, not of the 64 GB total
 
 
 def test_map_memory_menu_property_sync_both_directions(qtbot: QtBot) -> None:
