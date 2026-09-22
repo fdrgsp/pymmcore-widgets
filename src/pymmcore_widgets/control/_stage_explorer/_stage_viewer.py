@@ -55,7 +55,7 @@ class StageViewer(QWidget):
 
         self.view = cast("ViewBox", self.canvas.central_widget.add_view())
         self.view.camera = scene.PanZoomCamera(aspect=1)
-        self.view.camera.flip = (True, True)
+        self.view.camera.flip = (False, False)
         self.view.scene.transform.changed.connect(self._on_scene_transform_changed)
 
         self._grid_lines = vispy.scene.GridLines(
