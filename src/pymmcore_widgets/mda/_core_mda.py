@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pymmcore_plus import CMMCorePlus
 from pymmcore_plus._logger import logger
+from pymmcore_plus.core import SequencedEvent
 from qtpy.QtCore import QSize, Qt, Slot
 from qtpy.QtWidgets import (
     QBoxLayout,
@@ -17,7 +18,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 from superqt.iconify import QIconifyIcon
-from useq import MDASequence, Position
+from useq import MDAEvent, MDASequence, Position
 
 from pymmcore_widgets._util import get_next_available_path
 from pymmcore_widgets.useq_widgets import MDASequenceWidget
@@ -64,6 +65,10 @@ AF_ENGAGED_ABSOLUTE_Z = (
     "The {af} autofocus device is currently engaged, but it cannot be used with a "
     "Z Plan with Absolute Z Positions (TOP_BOTTOM mode).\n\nIt will be switched off "
     "before the acquisition starts.\n\nRun anyway?"
+)
+PAUSE_UNAVAILABLE_HW_SEQUENCED = (
+    "This part of the acquisition uses hardware-triggered sequencing.\n\nIt cannot "
+    "be paused, only canceled."
 )
 
 
@@ -662,9 +667,11 @@ class _MDAControlButtons(QWidget):
         super().__init__(parent)
 
         self._mmc = mmcore
+        self._hardware_sequenced = False
         self._mmc.mda.events.sequencePauseToggled.connect(self._on_mda_paused)
         self._mmc.mda.events.sequenceStarted.connect(self._on_mda_started)
         self._mmc.mda.events.sequenceFinished.connect(self._on_mda_finished)
+        self._mmc.mda.events.eventStarted.connect(self._on_event_started)
 
         icon_size = QSize(24, 24)
         self.run_btn = QPushButton("Run")
@@ -696,8 +703,23 @@ class _MDAControlButtons(QWidget):
     @Slot()
     def _on_mda_started(self) -> None:
         self.run_btn.hide()
+        # reset until the first eventStarted tells us otherwise
+        self._set_hardware_sequenced(False)
         self.pause_btn.show()
         self.cancel_btn.show()
+
+    @Slot(object)
+    def _on_event_started(self, event: MDAEvent) -> None:
+        self._set_hardware_sequenced(isinstance(event, SequencedEvent))
+
+    def _set_hardware_sequenced(self, hardware_sequenced: bool) -> None:
+        if hardware_sequenced == self._hardware_sequenced:
+            return
+        self._hardware_sequenced = hardware_sequenced
+        self.pause_btn.setEnabled(not hardware_sequenced)
+        self.pause_btn.setToolTip(
+            PAUSE_UNAVAILABLE_HW_SEQUENCED if hardware_sequenced else ""
+        )
 
     @Slot()
     def _on_mda_finished(self) -> None:
@@ -705,6 +727,7 @@ class _MDAControlButtons(QWidget):
         self.pause_btn.hide()
         self.cancel_btn.hide()
         self._on_mda_paused(False)
+        self._set_hardware_sequenced(False)
 
     @Slot(bool)
     def _on_mda_paused(self, paused: bool) -> None:
@@ -724,3 +747,4 @@ class _MDAControlButtons(QWidget):
             self._mmc.mda.events.sequencePauseToggled.disconnect(self._on_mda_paused)
             self._mmc.mda.events.sequenceStarted.disconnect(self._on_mda_started)
             self._mmc.mda.events.sequenceFinished.disconnect(self._on_mda_finished)
+            self._mmc.mda.events.eventStarted.disconnect(self._on_event_started)
