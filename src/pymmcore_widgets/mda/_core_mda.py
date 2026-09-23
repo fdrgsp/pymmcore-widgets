@@ -67,7 +67,7 @@ AF_ENGAGED_ABSOLUTE_Z = (
     "before the acquisition starts.\n\nRun anyway?"
 )
 PAUSE_UNAVAILABLE_HW_SEQUENCED = (
-    "This part of the acquisition uses hardware-triggered sequencing.\n\nIt cannot "
+    "This part of the acquisition uses hardware-triggered sequencing.\nIt cannot "
     "be paused, only canceled."
 )
 
