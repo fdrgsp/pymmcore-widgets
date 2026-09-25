@@ -9,7 +9,7 @@ import pint
 import pytest
 import useq
 from qtpy.QtCore import QPoint, Qt, QTimer
-from qtpy.QtWidgets import QMessageBox
+from qtpy.QtWidgets import QMessageBox, QTableWidgetSelectionRange
 
 import pymmcore_widgets
 from pymmcore_widgets import _icons
@@ -133,6 +133,48 @@ def test_data_table(qtbot: QtBot) -> None:
     assert len(wdg.value()) == 0  # requires a is_row_selector=True column
     wdg.act_clear.trigger()
     assert table.rowCount() == 0
+
+
+def test_data_table_move_rows(qtbot: QtBot) -> None:
+    wdg = DataTableWidget()
+    qtbot.addWidget(wdg)
+    table = wdg.table()
+    table.addColumn(TextColumn(key="baz", default=""), position=-1)
+    table.setValue([{"baz": "A"}, {"baz": "B"}, {"baz": "C"}])
+
+    def baz_values() -> list[str]:
+        return [row["baz"] for row in table.iterRecords()]
+
+    # moving the top row up is a no-op
+    table.selectRow(0)
+    wdg.act_move_up.trigger()
+    assert baz_values() == ["A", "B", "C"]
+
+    # move a single row down
+    table.selectRow(0)
+    wdg.act_move_down.trigger()
+    assert baz_values() == ["B", "A", "C"]
+    assert {i.row() for i in table.selectedIndexes()} == {1}
+
+    # move it back up
+    table.selectRow(1)
+    wdg.act_move_up.trigger()
+    assert baz_values() == ["A", "B", "C"]
+    assert {i.row() for i in table.selectedIndexes()} == {0}
+
+    # moving the bottom row down is a no-op
+    table.selectRow(2)
+    wdg.act_move_down.trigger()
+    assert baz_values() == ["A", "B", "C"]
+
+    # move a contiguous multi-row selection down
+    table.setValue([{"baz": "A"}, {"baz": "B"}, {"baz": "C"}, {"baz": "D"}])
+    table.setRangeSelected(
+        QTableWidgetSelectionRange(0, 0, 1, table.columnCount() - 1), True
+    )
+    wdg.act_move_down.trigger()
+    assert baz_values() == ["C", "A", "B", "D"]
+    assert {i.row() for i in table.selectedIndexes()} == {1, 2}
 
 
 SUB_SEQ = useq.MDASequence(
