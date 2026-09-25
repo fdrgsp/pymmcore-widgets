@@ -50,7 +50,7 @@ def _rotate(deg: int, size_x: int, size_y: int) -> QTransform:
 
 ICONS_GO: dict[str, str] = {
     "top": "mingcute:arrow-up-fill",
-    "left": "mingcute:arrow-down-fill",
+    "left": "mingcute:arrow-left-fill",
     "right": "mingcute:arrow-right-fill",
     "bottom": "mingcute:arrow-down-fill",
     "top_left": "mingcute:arrow-left-up-fill",
