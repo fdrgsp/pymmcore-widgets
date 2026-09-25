@@ -143,11 +143,22 @@ class ROI:
         grid_plan = self.create_grid_plan(
             fov_w=fov_w, fov_h=fov_h, overlap=overlap, mode=mode
         )
-        pos = useq.AbsolutePosition(z=z_pos, name=f"{self.text}_{self._uuid.hex[-4:]}")
+        name = f"{self.text}_{self._uuid.hex[-4:]}"
 
         if grid_plan is None:
-            return pos
+            # Single FOV: this position *is* the acquisition, so x/y should be
+            # the real center of the ROI rather than left at 0.
+            x, y = self.center()
+            return useq.AbsolutePosition(x=x, y=y, z=z_pos, name=name)
 
+        # Multiple FOVs: x/y on the position itself are meaningless (the grid
+        # plan defines every real point), but stamp them with the first point
+        # the grid will actually visit -- in `mode`'s scan order -- rather
+        # than leaving them at 0, so anything that displays this position
+        # before the grid is resolved (e.g. a table row) shows where the scan
+        # will start instead of an unrelated coordinate.
+        first = next(iter(grid_plan))
+        pos = useq.AbsolutePosition(x=first.x, y=first.y, z=z_pos, name=name)
         return pos.model_copy(
             update={"sequence": useq.MDASequence(grid_plan=grid_plan)}
         )

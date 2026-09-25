@@ -110,3 +110,33 @@ def test_position_forwards_overlap_and_scan_order() -> None:
     assert grid is not None
     assert grid.overlap == (0.2, 0.2)
     assert grid.mode == useq.OrderMode.spiral
+
+
+def test_position_xy_is_roi_center_when_small(small_rect: RectangleROI) -> None:
+    """A single-FOV position's x/y must be the ROI's own center.
+
+    There's no grid to supply x/y here -- this position *is* the whole
+    acquisition for this ROI, so a stray (0, 0) would be a real, wrong
+    coordinate rather than a placeholder hidden behind a grid plan.
+    """
+    pos = small_rect.create_useq_position()
+    assert (pos.x, pos.y) == small_rect.center()
+
+
+@pytest.mark.parametrize("mode", [useq.OrderMode.row_wise_snake, useq.OrderMode.spiral])
+def test_position_xy_is_first_grid_point_when_large(
+    large_rect: RectangleROI, mode: useq.OrderMode
+) -> None:
+    """A multi-FOV position's x/y should be the grid's first point.
+
+    The grid plan overrides x/y at acquisition time regardless, but the
+    position should still be stamped with the grid's first point (in the
+    requested scan order) rather than left at (0, 0), so any display of the
+    position before the grid resolves shows where the scan actually starts.
+    """
+    pos = large_rect.create_useq_position(mode=mode)
+    assert pos.sequence is not None
+    grid = pos.sequence.grid_plan
+    assert grid is not None
+    first = next(iter(grid))
+    assert (pos.x, pos.y) == (first.x, first.y)
