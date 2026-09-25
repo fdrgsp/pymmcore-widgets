@@ -28,6 +28,8 @@ from ._data_table import DataTableWidget
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from ._column_info import TableDoubleSpinBox
+
 OK_CANCEL = QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
 NULL_SEQUENCE = useq.MDASequence()
 MAX = 9999999
@@ -428,7 +430,8 @@ class PositionTable(DataTableWidget):
         seq_col = table.indexOf(self.SEQ)
         for row in range(table.rowCount()):
             if table.cellWidget(row, seq_col) is btn:
-                has_abs = _seq_has_absolute_grid(btn.value())
+                seq = btn.value()
+                has_abs = _seq_has_absolute_grid(seq)
                 # global disable takes precedence
                 if self._global_xy_disabled and not has_abs:
                     return
@@ -437,14 +440,32 @@ class PositionTable(DataTableWidget):
                     if has_abs
                     else ""
                 )
-                self._set_row_xy_enabled(row, not has_abs, tip)
+                xy = _grid_first_point(seq) if has_abs else None
+                self._set_row_xy_enabled(row, not has_abs, tip, xy)
                 break
 
-    def _set_row_xy_enabled(self, row: int, enabled: bool, tip: str = "") -> None:
-        """Enable/disable x/y widgets for a single row."""
+    def _set_row_xy_enabled(
+        self,
+        row: int,
+        enabled: bool,
+        tip: str = "",
+        xy: tuple[float, float] | None = None,
+    ) -> None:
+        """Enable/disable x/y widgets for a single row.
+
+        `xy`, when given, is shown as the (disabled) X/Y values -- typically
+        the first FOV an absolute grid plan will acquire -- purely for display.
+        useq.AbsolutePosition itself rejects x/y set alongside an absolute
+        grid plan (see ROI.create_useq_position), so this never reaches the
+        real Position: value()/iterRecords() strips x/y from any row whose
+        sub-sequence has an absolute grid before constructing it.
+        """
         table = self.table()
-        for col_info in (self.X, self.Y):
-            if wdg := table.cellWidget(row, table.indexOf(col_info)):
+        for i, col_info in enumerate((self.X, self.Y)):
+            if raw := table.cellWidget(row, table.indexOf(col_info)):
+                wdg = cast("TableDoubleSpinBox", raw)
+                if not enabled and xy is not None:
+                    wdg.setValue(xy[i])
                 wdg.setEnabled(enabled)
                 wdg.setToolTip(tip)
 
@@ -464,3 +485,25 @@ class PositionTable(DataTableWidget):
 def _seq_has_absolute_grid(seq: useq.MDASequence | None) -> bool:
     """Return True if the sequence has an absolute grid plan."""
     return bool(seq and seq.grid_plan and not seq.grid_plan.is_relative)
+
+
+def _grid_first_point(seq: useq.MDASequence | None) -> tuple[float, float] | None:
+    """Return the (x, y) of the first FOV an absolute grid plan will acquire.
+
+    Only the first point is pulled from the plan, so this stays O(1) no
+    matter how many tiles the grid has.  That matters: a plan built with a
+    zero FOV -- which StageExplorer produces whenever no pixel size is
+    configured, since CMMCorePlus.getPixelSizeUm() then returns 0.0 -- steps
+    one micron at a time and enumerates millions of points for an ordinary
+    ROI, far too many to walk synchronously in a Qt slot.
+
+    The first point is also always a real tile center, and it honours the
+    plan's scan `mode`, so it's exactly where the acquisition will start.
+    """
+    grid = seq.grid_plan if seq is not None else None
+    if grid is None or grid.is_relative:
+        return None
+    first = next(iter(grid), None)
+    if first is None or first.x is None or first.y is None:
+        return None
+    return first.x, first.y

@@ -160,8 +160,11 @@ class ROI:
         # with the grid's first point anyway, which worked only until the
         # position was next revalidated -- e.g. PositionTable.setValue()
         # round-trips every position through useq.Position.model_validate(),
-        # which silently wiped it back to 0/disabled. So leave x/y unset here
-        # too, matching what useq's own model requires.
+        # which silently wiped it back to 0/disabled. PositionTable now
+        # covers this at the display layer instead (its disabled X/Y cells
+        # show the grid's first FOV -- see _grid_first_point in
+        # useq_widgets/_positions.py), so leave x/y unset here too,
+        # matching what useq's own model requires.
         pos = useq.AbsolutePosition(z=z_pos, name=name)
         return pos.model_copy(
             update={"sequence": useq.MDASequence(grid_plan=grid_plan)}
