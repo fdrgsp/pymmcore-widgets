@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+import time
 from datetime import timedelta
 from typing import TYPE_CHECKING
 from unittest.mock import patch
@@ -409,6 +410,93 @@ def test_position_table_set_value(qtbot: QtBot) -> None:
     mda_btn = wdg.table().cellWidget(0, seq_btn_idx)
     assert isinstance(mda_btn, MDAButton)
     assert mda_btn.clear_btn.isVisible()
+
+
+def test_position_table_absolute_grid_shows_first_fov_disabled(qtbot: QtBot) -> None:
+    """A row with an absolute grid sub-sequence shows the grid's first FOV.
+
+    x/y can't be *stored* on the position itself here -- useq.AbsolutePosition
+    clears x/y whenever they're set alongside an absolute grid plan -- but the
+    (disabled) X/Y cells should still display a real location rather than an
+    unrelated 0.
+
+    The first point is used rather than, say, the middle of the covered area:
+    it's a real tile center (the middle of an even-sized grid falls *between*
+    tiles), it's where the acquisition actually starts, and it's O(1) to get.
+    """
+    wdg = PositionTable()
+    qtbot.addWidget(wdg)
+    wdg.show()
+
+    grid = useq.GridFromEdges(
+        top=0, bottom=237, left=0, right=513, fov_width=100, fov_height=100
+    )
+    pos = useq.Position(sequence=useq.MDASequence(grid_plan=grid))
+    wdg.setValue([pos])
+
+    first = next(iter(grid))
+    x_wdg = wdg.table().cellWidget(0, wdg.table().indexOf(wdg.X))
+    y_wdg = wdg.table().cellWidget(0, wdg.table().indexOf(wdg.Y))
+    assert (x_wdg.value(), y_wdg.value()) == (first.x, first.y) == (50.0, 187.0)
+    assert not x_wdg.isEnabled()
+    assert not y_wdg.isEnabled()
+
+    # the displayed point is purely cosmetic: the real Position keeps x/y
+    # unset, matching what useq.AbsolutePosition itself requires.
+    assert wdg.value()[0].x is None
+    assert wdg.value()[0].y is None
+
+
+def test_position_table_degenerate_grid_does_not_hang(qtbot: QtBot) -> None:
+    """A grid with a zero FOV must not be walked point by point.
+
+    CMMCorePlus.getPixelSizeUm() returns 0.0 when no pixel size is
+    configured, so StageExplorer hands ROI.create_grid_plan() a FOV of 0 and
+    the grid it builds steps one micron at a time -- millions of points for
+    an ordinary ROI. Taking only the first point keeps this O(1); walking the
+    whole plan to find, say, its center took ~19s for this grid.
+    """
+    wdg = PositionTable()
+    qtbot.addWidget(wdg)
+    wdg.show()
+
+    grid = useq.GridFromEdges(
+        top=0, bottom=2500, left=0, right=3000, fov_width=0, fov_height=0
+    )
+    assert grid.num_positions() > 1_000_000
+    pos = useq.Position(sequence=useq.MDASequence(grid_plan=grid))
+
+    start = time.perf_counter()
+    wdg.setValue([pos])
+    assert time.perf_counter() - start < 5
+
+    x_wdg = wdg.table().cellWidget(0, wdg.table().indexOf(wdg.X))
+    assert not x_wdg.isEnabled()
+    assert (
+        x_wdg.value(),
+        wdg.table().cellWidget(0, wdg.table().indexOf(wdg.Y)).value(),
+    ) == (0.0, 2500.0)
+
+
+def test_position_table_relative_grid_leaves_xy_enabled(qtbot: QtBot) -> None:
+    """A relative grid sub-sequence doesn't touch x/y at all."""
+    wdg = PositionTable()
+    qtbot.addWidget(wdg)
+    wdg.show()
+
+    pos = useq.Position(
+        x=5,
+        y=6,
+        sequence=useq.MDASequence(grid_plan=useq.GridRowsColumns(rows=2, columns=2)),
+    )
+    wdg.setValue([pos])
+
+    x_wdg = wdg.table().cellWidget(0, wdg.table().indexOf(wdg.X))
+    y_wdg = wdg.table().cellWidget(0, wdg.table().indexOf(wdg.Y))
+    assert x_wdg.value() == 5
+    assert y_wdg.value() == 6
+    assert x_wdg.isEnabled()
+    assert y_wdg.isEnabled()
 
 
 def test_position_load_save(

@@ -123,20 +123,39 @@ def test_position_xy_is_roi_center_when_small(small_rect: RectangleROI) -> None:
     assert (pos.x, pos.y) == small_rect.center()
 
 
-@pytest.mark.parametrize("mode", [useq.OrderMode.row_wise_snake, useq.OrderMode.spiral])
-def test_position_xy_is_first_grid_point_when_large(
-    large_rect: RectangleROI, mode: useq.OrderMode
-) -> None:
-    """A multi-FOV position's x/y should be the grid's first point.
+def test_position_xy_is_unset_when_large(large_rect: RectangleROI) -> None:
+    """A multi-FOV position must leave x/y unset, not stamped from the grid.
 
-    The grid plan overrides x/y at acquisition time regardless, but the
-    position should still be stamped with the grid's first point (in the
-    requested scan order) rather than left at (0, 0), so any display of the
-    position before the grid resolves shows where the scan actually starts.
+    useq.AbsolutePosition's own validator clears x/y back to None (warning
+    that a future useq version will make this a hard error) whenever they're
+    set alongside an absolute grid plan -- so stamping them with the grid's
+    first point doesn't survive: PositionTable.setValue() round-trips every
+    position through useq.Position.model_validate(), which would silently
+    wipe it back to 0 anyway. Leaving x/y unset here avoids relying on
+    values useq itself won't keep.
     """
-    pos = large_rect.create_useq_position(mode=mode)
+    pos = large_rect.create_useq_position()
     assert pos.sequence is not None
-    grid = pos.sequence.grid_plan
-    assert grid is not None
-    first = next(iter(grid))
-    assert (pos.x, pos.y) == (first.x, first.y)
+    assert pos.sequence.grid_plan is not None
+    assert pos.x is None
+    assert pos.y is None
+
+
+def test_position_survives_revalidation_when_large(
+    large_rect: RectangleROI, recwarn: pytest.WarningsRecorder
+) -> None:
+    """A multi-FOV position must round-trip cleanly through model_validate.
+
+    This is what caught the regression above in practice:
+    `PositionTable.setValue()` calls `useq.Position.model_validate(pos)` on
+    every incoming position, which re-runs useq's x/y-vs-grid-plan
+    validator. A position built with x/y already set (however well-meant)
+    passes through `create_useq_position()` unchanged -- `model_copy()`
+    doesn't re-validate -- but silently loses that x/y, with a warning, the
+    moment anything downstream revalidates it.
+    """
+    pos = large_rect.create_useq_position()
+    revalidated = useq.Position.model_validate(pos)
+    assert revalidated.x is None
+    assert revalidated.y is None
+    assert not recwarn.list
