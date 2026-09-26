@@ -46,6 +46,17 @@ from ._core_mda import CoreMDATabs, MDAWidget
 
 CAMERA_ROI_METADATA_KEY = "camera_roi"
 
+# AF_ENGAGED_NO_AXIS's collapsible-layout counterpart: here 'Use Hardware
+# Autofocus on Axis' lives inside the 'Settings' collapsible section rather
+# than being directly visible, so the message needs to point the user there.
+AF_ENGAGED_NO_AXIS_COLLAPSIBLE = (
+    "The {af} autofocus device is currently engaged, but no autofocus axis is "
+    "selected.\n\nSelect an axis in 'Use Hardware Autofocus on Axis', in the "
+    "'Settings' collapsible section, to use the hardware autofocus during this "
+    "run, otherwise it will be switched off before the acquisition starts."
+    "\n\nRun anyway?"
+)
+
 if TYPE_CHECKING:
     import useq
     from pymmcore_plus import CMMCorePlus
@@ -884,6 +895,9 @@ class MDAWidgetCollapsible(MDAWidget):
 
     def _create_tab_widget(self) -> CoreMDATabs:
         return CollapsibleCoreMDATabs(None, self._mmc)
+
+    def _af_engaged_no_axis_message(self) -> str:
+        return AF_ENGAGED_NO_AXIS_COLLAPSIBLE
 
     @property
     def tabs(self) -> CollapsibleCoreMDATabs:

@@ -511,13 +511,24 @@ class MDAWidget(MDASequenceWidget):
         )
         return bool(response == QMessageBox.StandardButton.Ok)
 
+    def _af_engaged_no_axis_message(self) -> str:
+        """Message offering to select an autofocus axis before disabling AF.
+
+        Overridden by ``MDAWidgetCollapsible``, where 'Use Hardware Autofocus
+        on Axis' lives inside the 'Settings' collapsible section rather than
+        being directly visible, so the message needs to point the user there.
+        """
+        return AF_ENGAGED_NO_AXIS
+
     def _confirm_af_disable(self) -> bool:
         """Warn that the engaged autofocus will be switched off for this run."""
         af = f"{self._mmc.getAutoFocusDevice()!r}"
         # if the axis widget is disabled there is no axis for the user to select,
         # so explain why the autofocus cannot be used instead.
         template = (
-            AF_ENGAGED_NO_AXIS if self.af_axis.isEnabled() else AF_ENGAGED_ABSOLUTE_Z
+            self._af_engaged_no_axis_message()
+            if self.af_axis.isEnabled()
+            else AF_ENGAGED_ABSOLUTE_Z
         )
         response = QMessageBox.warning(
             self,
