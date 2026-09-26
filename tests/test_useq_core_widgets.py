@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 import useq
+from pymmcore_plus.core import SequencedEvent
 from qtpy.QtCore import QPoint, Qt, QTimer
 from qtpy.QtWidgets import QMessageBox
 
@@ -19,6 +20,7 @@ from pymmcore_widgets.mda._channel_properties import (
 )
 from pymmcore_widgets.mda._core_channels import CoreConnectedChannelTable
 from pymmcore_widgets.mda._core_grid import CoreConnectedGridPlanWidget
+from pymmcore_widgets.mda._core_mda import PAUSE_UNAVAILABLE_HW_SEQUENCED
 from pymmcore_widgets.mda._core_positions import (
     AF_UNAVAILABLE,
     CoreConnectedPositionTable,
@@ -89,6 +91,52 @@ def test_core_connected_mda_wdg(qtbot: QtBot):
     core.mda.events.sequencePauseToggled.emit(False)
     assert wdg.control_btns.pause_btn.text() == "Pause"
     wdg.control_btns._disconnect()
+    wdg._disconnect()
+
+
+def test_pause_disabled_for_hardware_sequenced_event(qtbot: QtBot) -> None:
+    """Pause is only offered while the currently-executing event is not sequenced.
+
+    ``_MDAControlButtons`` tracks this live from ``eventStarted`` (see
+    ``_on_event_started``) rather than pre-scanning the sequence, so this test
+    drives it directly with synthetic events instead of running a real
+    (potentially huge) MDASequence through the engine.
+    """
+    wdg = MDAWidget()
+    core = wdg._mmc
+    qtbot.addWidget(wdg)
+    control_btns = wdg.control_btns
+
+    control_btns._on_mda_started()
+    assert control_btns.pause_btn.isEnabled()
+    assert not control_btns.pause_btn.toolTip()
+
+    plain_event = useq.MDAEvent(index={"p": 0})
+    core.mda.events.eventStarted.emit(plain_event)
+    assert control_btns.pause_btn.isEnabled()
+    assert not control_btns.pause_btn.toolTip()
+
+    sequenced_event = SequencedEvent(
+        events=(plain_event, plain_event),
+        x_sequence=(0.0, 1.0),
+        y_sequence=(0.0, 1.0),
+    )
+    core.mda.events.eventStarted.emit(sequenced_event)
+    assert not control_btns.pause_btn.isEnabled()
+    assert control_btns.pause_btn.toolTip() == PAUSE_UNAVAILABLE_HW_SEQUENCED
+
+    # a later plain event (mixed acquisition) re-enables pause
+    core.mda.events.eventStarted.emit(plain_event)
+    assert control_btns.pause_btn.isEnabled()
+    assert not control_btns.pause_btn.toolTip()
+
+    # the next run always starts back in the enabled state
+    control_btns._on_mda_finished()
+    control_btns._on_mda_started()
+    assert control_btns.pause_btn.isEnabled()
+    assert not control_btns.pause_btn.toolTip()
+
+    control_btns._disconnect()
     wdg._disconnect()
 
 
@@ -1203,7 +1251,7 @@ def test_grid_plan_fov_update(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
     for mode in ("number", "area", "bounds"):
         wdg.grid_plan.setMode(mode)
         stack_heights.append(wdg.grid_plan._stack.sizeHint().height())
-        widget_heights.append(wdg.grid_plan.widget().sizeHint().height())
+        widget_heights.append(wdg.grid_plan.sizeHint().height())
     assert len(set(stack_heights)) == 1
     assert len(set(widget_heights)) == 1
     assert wdg.grid_plan._core_xy_bounds.left.width() == (

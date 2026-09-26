@@ -22,7 +22,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from qtpy.QtCore import QEvent, QRectF, Qt, QTimer, Signal
-from qtpy.QtGui import QColor, QPainter, QPaintEvent, QPalette, QPen, QShowEvent
+from qtpy.QtGui import (
+    QColor,
+    QMouseEvent,
+    QPainter,
+    QPaintEvent,
+    QPalette,
+    QPen,
+    QShowEvent,
+)
 from qtpy.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -106,6 +114,29 @@ class SectionMetrics:
     footer_margin_bottom: int = 8
 
 
+class _ClickableLabel(QLabel):
+    """A plain-text label that emits ``clicked`` on left-click.
+
+    Used for a section title that has no enable checkbox (e.g. "Settings"):
+    a ``QToolButton`` would need it, but even with ``setAutoRaise(True)`` some
+    native styles (e.g. macOS) still paint a visible bezel around text (unlike
+    icon-only autoRaise buttons, which do flatten), so it would look like a
+    stray button next to the plain-text titles every other section gets from
+    its ``QCheckBox``.
+    """
+
+    clicked = Signal()
+
+    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, ev: QMouseEvent | None) -> None:
+        if ev is not None and ev.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(ev)
+
+
 class _CardFrame(QFrame):
     """A frame that paints a subtle rounded border around a section.
 
@@ -168,26 +199,22 @@ class CollapsibleAcquisitionSection(QWidget):
         self._header_layout.addWidget(self._disclosure)
 
         self._checkbox: QCheckBox | None
-        self._title_button: QToolButton | None
+        self._title_label: _ClickableLabel | None
         if checked is None:
             self._checkbox = None
-            title_button = self._title_button = QToolButton()
-            title_button.setText(title)
-            title_button.setAutoRaise(True)
-            title_button.setProperty("variant", "ghost")
-            title_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-            title_button.clicked.connect(self.toggle)
-            # A QToolButton grows to fill spare width and centers its text; a
-            # QCheckBox left-packs its content, so checkbox sections stay left
-            # while this one would drift right once the summary hides on expand.
-            # Pin it to its size hint on the left to match the checkbox sections.
+            title_label = self._title_label = _ClickableLabel(title)
+            title_label.clicked.connect(self.toggle)
+            # A QLabel left-packs its content like a QCheckBox does, but with no
+            # size policy pulling it to fill spare width, it would drift right
+            # once the summary hides on expand. Pin it to its size hint on the
+            # left to match the checkbox sections.
             self._header_layout.addWidget(
-                title_button,
+                title_label,
                 0,
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
             )
         else:
-            self._title_button = None
+            self._title_label = None
             checkbox = self._checkbox = QCheckBox(title)
             checkbox.setChecked(checked)
             checkbox.setAccessibleName(f"Use {title} in the acquisition")
@@ -411,7 +438,10 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
                 parent=self._content,
             )
             section.setObjectName(f"mda{attr.title().replace('_', '')}Section")
-            section.set_content_widget(widget)
+            if attr in ("grid_plan", "z_plan"):
+                section.set_content_widget(self._wrap_in_card(widget))
+            else:
+                section.set_content_widget(widget)
             widget.setEnabled(initial_states[widget])
             self._section_by_axis[axis] = section
             self._section_by_widget[widget] = section
@@ -446,9 +476,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
                         axis_widget
                     )
                 )
-        # the grid editor's natural height changes with its mode (Absolute
-        # Bounds is tallest); re-pin it whenever the mode/value changes.
-        self.grid_plan.valueChanged.connect(self._schedule_editor_min_heights)
         self.refresh_summaries()
 
     def showEvent(self, a0: QShowEvent | None) -> None:
@@ -463,6 +490,27 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         # mode has settled its layout before we measure the content height.
         self._apply_editor_min_heights()
         QTimer.singleShot(0, self._apply_editor_min_heights)
+
+    @staticmethod
+    def _wrap_in_card(widget: QWidget, margin: int = 5) -> _CardFrame:
+        """Wrap ``widget`` in the same bordered card style as a section itself.
+
+        A ``QGroupBox`` won't do here: on macOS's native style it draws only a
+        title and a thin separator line, never a surrounding rectangle -- even
+        with no title it draws nothing at all. ``_CardFrame`` is painted rather
+        than relying on native/stylesheet chrome, so it renders the same
+        rectangle across styles and themes.
+        """
+        card = _CardFrame()
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(margin, margin, margin, margin)
+        layout.addWidget(widget)
+        # set_content_widget() will show() the card, but widget itself may
+        # still carry QTabWidget's "explicitly hidden" state from before it
+        # was moved out of its original tab page (see set_content_widget) --
+        # reparenting into this card doesn't clear that on its own.
+        widget.show()
+        return card
 
     @property
     def sections(self) -> tuple[CollapsibleAcquisitionSection, ...]:
@@ -576,7 +624,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             parent=self._content,
         )
         self.saving_section.setObjectName("mdaSavingSection")
-        self.saving_section.set_content_widget(save_info)
+        self.saving_section.set_content_widget(self._wrap_in_card(save_info))
         self.saving_section.checkedChanged.connect(save_info.setChecked)
         save_info.toggled.connect(self.saving_section.set_checked)
         save_info.valueChanged.connect(self._update_save_summary)
@@ -605,9 +653,14 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         axis_layout.addWidget(QLabel("Axis order:"))
         axis_layout.addWidget(axis_order)
         axis_layout.addStretch()
-        self.settings_section.add_widget(axis_row)
-        self.settings_section.add_widget(keep_shutter_open)
-        self.settings_section.add_widget(autofocus_axis)
+        settings_content = QWidget()
+        settings_layout = QVBoxLayout(settings_content)
+        settings_layout.setContentsMargins(10, 10, 10, 10)
+        settings_layout.setSpacing(5)
+        settings_layout.addWidget(axis_row)
+        settings_layout.addWidget(keep_shutter_open)
+        settings_layout.addWidget(autofocus_axis)
+        self.settings_section.set_content_widget(self._wrap_in_card(settings_content))
         self._content_layout.addWidget(self.settings_section)
         self._content_layout.addStretch()
 
@@ -735,19 +788,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
                 header_h = max(h_header.height(), h_header.sizeHint().height())
                 table.setMinimumHeight(
                     header_h + row_h * self._MIN_TABLE_ROWS + 2 * table.frameWidth()
-                )
-            elif isinstance(widget, QScrollArea) and (inner := widget.widget()):
-                # The grid editor is itself a scroll area whose mode pages have
-                # an Expanding size policy, so any extra height becomes a gap in
-                # the middle, while too little clips the fields. Pin it to its
-                # content's natural height for the current mode (it changes with
-                # the mode -- Absolute Bounds is tallest). Activate the layout
-                # first, and note this is re-run deferred on show / mode change
-                # so the hint is measured once settled.
-                if (inner_layout := inner.layout()) is not None:
-                    inner_layout.activate()
-                widget.setFixedHeight(
-                    inner.sizeHint().height() + 2 * widget.frameWidth()
                 )
 
     def set_editor_enabled(self, enabled: bool) -> None:

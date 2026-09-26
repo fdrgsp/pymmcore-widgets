@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from threading import Thread
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 import useq
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtWidgets import QMessageBox, QToolButton
@@ -749,6 +751,85 @@ def test_send_to_mda_emits_roi_positions(qtbot: QtBot) -> None:
 TILE_IMG = np.random.randint(0, 4096, (64, 64), dtype=np.uint16)
 
 
+def test_frame_relay_coalesces_before_gui_dispatch() -> None:
+    """A burst retains one image and emits one lightweight GUI notification."""
+    relay = stage_explorer_mod._LatestFrameRelay()
+    relay.set_enabled(True)
+    notifications: list[None] = []
+    relay.framesPending.connect(lambda: notifications.append(None))
+    event = next(iter(useq.MDASequence(stage_positions=[(0, 0)])))
+
+    for value in range(100):
+        relay.submit(np.full((8, 8), value, dtype=np.uint16), event, {})
+
+    assert len(notifications) == 1
+    batch = relay.take_or_disarm()
+    assert len(batch) == 1
+    assert batch[0][0][0, 0] == 99
+
+    # An empty timer tick disarms the relay, allowing the next burst to send
+    # exactly one new wake-up.
+    assert relay.take_or_disarm() == ()
+    relay.submit(TILE_IMG, event, {})
+    assert len(notifications) == 2
+
+
+def test_frame_relay_keeps_latest_frame_for_each_location() -> None:
+    """Coalescing drops intermediate timepoints, never distinct map locations."""
+    relay = stage_explorer_mod._LatestFrameRelay()
+    relay.set_enabled(True)
+    seq = useq.MDASequence(stage_positions=[(0, 0), (500, 0), (1000, 0)])
+
+    for value, event in enumerate(seq):
+        relay.submit(np.full((8, 8), value, dtype=np.uint16), event, {})
+
+    batch = relay.take_or_disarm()
+    assert len(batch) == 3
+    assert [int(image[0, 0]) for image, _event in batch] == [0, 1, 2]
+
+
+def test_frame_ready_burst_is_coalesced_before_qt_event_queue(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Cross-thread frameReady emissions queue one wake-up, not every image."""
+    explorer = StageExplorer(mmcore=global_mmcore)
+    qtbot.addWidget(explorer)
+    explorer.show()
+    event = next(iter(useq.MDASequence(stage_positions=[(0, 0)])))
+
+    def emit_burst() -> None:
+        for value in range(100):
+            image = np.full((16, 16), value, dtype=np.uint16)
+            global_mmcore.mda.events.frameReady.emit(image, event, {})
+
+    worker = Thread(target=emit_burst)
+    worker.start()
+    worker.join()
+
+    # The main thread has not processed the relay's lightweight wake-up yet;
+    # no image-bearing Qt events were queued for the 100 individual frames.
+    assert not explorer._tiles
+    qtbot.waitUntil(lambda: bool(explorer._tiles), timeout=1000)
+    node = next(iter(explorer._tiles.values()))
+    assert node._data[0, 0] == 99
+
+
+def test_sequence_finished_drains_pre_gui_frame_relay(qtbot: QtBot) -> None:
+    """The newest relayed frame is displayed even if its timer has not fired."""
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+    event = next(iter(useq.MDASequence(stage_positions=[(0, 0)])))
+    explorer._frame_relay.submit(np.full((16, 16), 1, dtype=np.uint16), event, {})
+    explorer._frame_relay.submit(np.full((16, 16), 9, dtype=np.uint16), event, {})
+
+    explorer._on_sequence_finished()
+
+    assert len(explorer._tiles) == 1
+    node = next(iter(explorer._tiles.values()))
+    assert node._data[0, 0] == 9
+
+
 def test_frame_ready_dedup_by_position_index(qtbot: QtBot) -> None:
     """Revisiting the same (p, g) index reuses one node instead of stacking.
 
@@ -785,6 +866,39 @@ def test_frame_ready_distinct_positions_create_distinct_tiles(qtbot: QtBot) -> N
 
     assert len(explorer._tiles) == 3
     assert len(list(explorer._stage_viewer._get_images())) == 3
+
+
+def test_frame_ready_same_position_across_sequences_reuses_tile(qtbot: QtBot) -> None:
+    """Sequence UUIDs must not duplicate the same physical map location."""
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+
+    first = next(iter(useq.MDASequence(stage_positions=[(100, 200)])))
+    second = next(iter(useq.MDASequence(stage_positions=[(100, 200)])))
+    assert first.sequence.uid != second.sequence.uid
+
+    explorer._on_frame_ready(TILE_IMG, first)
+    explorer._on_sequence_finished()
+    explorer._on_frame_ready(TILE_IMG, second)
+
+    assert len(explorer._tiles) == 1
+    assert len(list(explorer._stage_viewer._get_images())) == 1
+
+
+def test_frame_ready_same_index_at_new_position_creates_tile(qtbot: QtBot) -> None:
+    """Equal position indices in separate sequences are not physical identity."""
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+
+    first = next(iter(useq.MDASequence(stage_positions=[(0, 0)])))
+    second = next(iter(useq.MDASequence(stage_positions=[(500, 0)])))
+    explorer._on_frame_ready(TILE_IMG, first)
+    explorer._on_sequence_finished()
+    explorer._on_frame_ready(TILE_IMG, second)
+
+    assert len(explorer._tiles) == 2
 
 
 def test_snap_dedup_within_tolerance(qtbot: QtBot) -> None:
@@ -938,6 +1052,7 @@ def test_clear_action_resets_memory_budget_state(qtbot: QtBot) -> None:
     explorer._toolbar.clear_action.trigger()
     assert not explorer._memory_banner.isVisible()
     assert not explorer._tiles
+    assert explorer.map_memory_bytes() == 0
 
     explorer._add_image_and_update_widget(TILE_IMG, 5000.0, 0.0)
     assert len(explorer._tiles) == 1
@@ -964,6 +1079,7 @@ def test_low_system_memory_blocks_new_location_regardless_of_own_limit(
         explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
 
     assert not explorer._tiles
+    assert explorer.map_memory_bytes() == 0
     assert explorer._memory_banner.isVisible()
     assert "low on free memory" in explorer._memory_banner._label.text()
 
@@ -988,6 +1104,24 @@ def test_memory_banner_clears_once_a_location_actually_succeeds(qtbot: QtBot) ->
     assert not explorer._memory_banner.isVisible()
 
 
+def test_map_memory_total_updates_incrementally(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+    small = np.zeros((8, 8), dtype=np.uint8)
+    large = np.zeros((16, 16), dtype=np.uint16)
+
+    explorer._add_image_and_update_widget(small, 0.0, 0.0, throttle=False)
+    assert explorer.map_memory_bytes() == small.nbytes * 2
+
+    # Replacing a location accounts only for the size difference.
+    explorer._add_image_and_update_widget(large, 0.0, 0.0, throttle=False)
+    assert explorer.map_memory_bytes() == large.nbytes * 2
+
+    explorer._add_image_and_update_widget(small, 5000.0, 0.0, throttle=False)
+    assert explorer.map_memory_bytes() == (large.nbytes + small.nbytes) * 2
+
+
 def test_tile_allocation_failure_degrades_gracefully(qtbot: QtBot) -> None:
     """A resource failure while adding a tile must not crash the app.
 
@@ -1003,17 +1137,42 @@ def test_tile_allocation_failure_degrades_gracefully(qtbot: QtBot) -> None:
     explorer.show()
 
     with patch.object(
-        StageViewer, "add_image", side_effect=RuntimeError("simulated GL failure")
+        StageViewer, "add_image", side_effect=MemoryError("simulated GL failure")
     ):
         explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)  # must not raise
 
     assert not explorer._tiles
+    assert explorer.map_memory_bytes() == 0
     assert explorer._memory_banner.isVisible()
 
     # and the widget is fully usable again once the failure clears
     explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
     assert len(explorer._tiles) == 1
     assert not explorer._memory_banner.isVisible()
+
+
+def test_tile_programming_error_is_not_hidden(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+
+    with (
+        patch.object(StageViewer, "add_image", side_effect=ValueError("bad transform")),
+        pytest.raises(ValueError, match="bad transform"),
+    ):
+        explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
+
+
+def test_autozoom_check_is_skipped_when_disabled(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+    explorer.auto_zoom_to_fit = False
+
+    with patch.object(explorer, "_is_visual_within_view") as within_view:
+        explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
+
+    within_view.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -1027,20 +1186,17 @@ def test_map_memory_defaults_range_bounded_by_total_ram() -> None:
         lo, hi, default = stage_explorer_mod._map_memory_defaults()
     assert lo == 0.1
     assert hi == 16.0
-    assert default == 3.2  # 80% of 4 GB available
+    assert default == 0.8  # 20% of 4 GB available
 
 
 def test_map_memory_defaults_floored_under_severe_memory_pressure() -> None:
     """Genuine scarcity shouldn't round the default to nothing.
 
-    MAP_MEMORY_DEFAULT_FRACTION is generous (80%, matching the acquisition's
-    own default exactly) so the floor only engages when available RAM is
-    already quite low -- but it still must not let the default collapse to
-    something impractically small. The floor keeps the *default* usable
+    The floor keeps the *default* usable under genuine scarcity
     without touching the live per-add check (LOW_SYSTEM_MEMORY_FLOOR_MB),
     which still runs independently of whatever this default gets set to.
     """
-    vm = MagicMock(total=16 * 1024**3, available=2 * 1024**3)  # 80% would be 1.6 GB
+    vm = MagicMock(total=16 * 1024**3, available=2 * 1024**3)  # 20% would be 0.4 GB
     with patch.object(stage_explorer_mod.psutil, "virtual_memory", return_value=vm):
         _, _, default = stage_explorer_mod._map_memory_defaults()
     assert default == stage_explorer_mod.MAP_MEMORY_DEFAULT_FLOOR_GB
@@ -1059,7 +1215,7 @@ def test_map_memory_defaults_scale_with_available_ram() -> None:
     with patch.object(stage_explorer_mod.psutil, "virtual_memory", return_value=vm):
         lo, hi, default = stage_explorer_mod._map_memory_defaults()
     assert (lo, hi) == (0.1, 64.0)
-    assert default == 16.0  # 80% of 20 GB available, not of the 64 GB total
+    assert default == 4.0  # 20% of 20 GB available, not of the 64 GB total
 
 
 def test_map_memory_menu_property_sync_both_directions(qtbot: QtBot) -> None:

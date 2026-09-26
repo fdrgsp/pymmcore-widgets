@@ -459,24 +459,33 @@ class MDASequenceWidget(QWidget):
         value : useq.MDASequence
             The [`useq.MDASequence`][] to set.
         """
-        self.tab_wdg.setValue(value)
+        # Restoring a whole sequence touches several axis widgets, each wired to
+        # `valueChanged` both directly and via `_update_available_axis_orders`
+        # (itself triggered a second time by the tab-checked cascade from
+        # `tab_wdg.setValue`'s `setChecked` calls) -- block the fan-out here and
+        # emit once at the end so setValue() looks atomic to observers.
+        with signals_blocked(self):
+            self.tab_wdg.setValue(value)
 
-        keep_shutter_open = value.keep_shutter_open_across
-        self.keep_shutter_open.setValue(keep_shutter_open)
+            keep_shutter_open = value.keep_shutter_open_across
+            self.keep_shutter_open.setValue(keep_shutter_open)
 
-        # update autofocus axes checkboxes
-        axis: set[str] = set()
-        # update from global autofocus plan
-        if value.autofocus_plan:
-            axis.update(value.autofocus_plan.axes)
-        # update from autofocus plans in each position sub-sequence
-        if value.stage_positions:
-            for pos in value.stage_positions:
-                if pos.sequence and pos.sequence.autofocus_plan:
-                    axis.update(pos.sequence.autofocus_plan.axes)
-        self.af_axis.setValue(tuple(axis))
-        axis_text = "".join(x for x in value.axis_order if x in self.tab_wdg.usedAxes())
-        self.axis_order.setCurrentText(axis_text)
+            # update autofocus axes checkboxes
+            axis: set[str] = set()
+            # update from global autofocus plan
+            if value.autofocus_plan:
+                axis.update(value.autofocus_plan.axes)
+            # update from autofocus plans in each position sub-sequence
+            if value.stage_positions:
+                for pos in value.stage_positions:
+                    if pos.sequence and pos.sequence.autofocus_plan:
+                        axis.update(pos.sequence.autofocus_plan.axes)
+            self.af_axis.setValue(tuple(axis))
+            axis_text = "".join(
+                x for x in value.axis_order if x in self.tab_wdg.usedAxes()
+            )
+            self.axis_order.setCurrentText(axis_text)
+        self.valueChanged.emit()
 
     def save(self, file: str | Path | None = None) -> None:
         """Save the current [`useq.MDASequence`][] to a file."""

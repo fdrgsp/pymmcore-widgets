@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import re
 from contextlib import suppress
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtCore import Qt, Slot
+from qtpy.QtCore import QSize, Qt, Slot
+from qtpy.QtWidgets import QHBoxLayout, QPushButton, QWidget
+from superqt.iconify import QIconifyIcon
 
 from pymmcore_widgets.useq_widgets._z import (
     ROW_FIRST_BOUND,
@@ -14,10 +16,41 @@ from pymmcore_widgets.useq_widgets._z import (
     ZPlanWidget,
 )
 
-from ._xy_bounds import MarkVisit
+from ._xy_bounds import ICONS_GO
 
-if TYPE_CHECKING:
-    from qtpy.QtWidgets import QWidget
+ICON_SIZE = 16
+ICONS_MARK_V2 = {
+    "top": "mingcute:arrow-to-up-fill",
+    "bottom": "mingcute:arrow-to-down-fill",
+}
+
+
+class MarkVisit(QWidget):
+    def __init__(
+        self,
+        mark_top: bool = True,
+        icon_size: int = ICON_SIZE,
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+
+        mode = "top" if mark_top else "bottom"
+
+        self.mark = QPushButton(QIconifyIcon(ICONS_MARK_V2[mode]), "")
+        self.mark.setIconSize(QSize(icon_size, icon_size))
+        self.mark.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.mark.setToolTip(f"Mark {mode}.")
+
+        self.visit = QPushButton(QIconifyIcon(ICONS_GO[mode]), "")
+        self.visit.setIconSize(QSize(icon_size, icon_size))
+        self.visit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.visit.setToolTip(f"Move to {mode}.")
+
+        layout = QHBoxLayout(self)
+        layout.setSpacing(5)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.mark)
+        layout.addWidget(self.visit)
 
 
 class CoreConnectedZPlanWidget(ZPlanWidget):
@@ -37,12 +70,8 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
     def __init__(
         self, mmcore: CMMCorePlus | None = None, parent: QWidget | None = None
     ) -> None:
-        self.bottom_btn = MarkVisit(
-            "mdi:arrow-collapse-down", mark_text="Mark Bottom", icon_size=16
-        )
-        self.top_btn = MarkVisit(
-            "mdi:arrow-collapse-up", mark_text="Mark Top", icon_size=16
-        )
+        self.bottom_btn = MarkVisit(mark_top=False)
+        self.top_btn = MarkVisit(mark_top=True)
 
         super().__init__(parent)
         self._mmc = mmcore or CMMCorePlus.instance()
@@ -51,18 +80,9 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         self.top_btn.mark.clicked.connect(self._mark_top)
         self.bottom_btn.visit.clicked.connect(self._visit_bottom)
         self.top_btn.visit.clicked.connect(self._visit_top)
-
-        mark_width = max(
-            self.bottom_btn.mark.sizeHint().width(),
-            self.top_btn.mark.sizeHint().width(),
-        )
-        visit_width = max(
-            self.bottom_btn.visit.sizeHint().width(),
-            self.top_btn.visit.sizeHint().width(),
-        )
         for buttons in (self.bottom_btn, self.top_btn):
-            buttons.mark.setFixedWidth(mark_width)
-            buttons.visit.setFixedWidth(visit_width)
+            buttons.mark.setFixedSize(30, 26)
+            buttons.visit.setFixedSize(30, 26)
 
         self._grid_layout.addWidget(
             self.top_btn, ROW_FIRST_BOUND, 2, Qt.AlignmentFlag.AlignLeft

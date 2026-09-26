@@ -504,9 +504,15 @@ class CoreConnectedPositionTable(PositionTable):
         if z_dev := self._mmc.getFocusDevice():
             self._mmc.waitForDevice(z_dev)
 
-    def _set_row_xy_enabled(self, row: int, enabled: bool, tip: str = "") -> None:
+    def _set_row_xy_enabled(
+        self,
+        row: int,
+        enabled: bool,
+        tip: str = "",
+        xy: tuple[float, float] | None = None,
+    ) -> None:
         """Enable/disable the XY columns and button for a specific row."""
-        super()._set_row_xy_enabled(row, enabled, tip)
+        super()._set_row_xy_enabled(row, enabled, tip, xy)
         table = self.table()
         xy_btn_col = table.indexOf(self._xy_btn_col)
         if xy_btn := table.cellWidget(row, xy_btn_col):

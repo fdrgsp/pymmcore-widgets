@@ -143,11 +143,29 @@ class ROI:
         grid_plan = self.create_grid_plan(
             fov_w=fov_w, fov_h=fov_h, overlap=overlap, mode=mode
         )
-        pos = useq.AbsolutePosition(z=z_pos, name=f"{self.text}_{self._uuid.hex[-4:]}")
+        name = f"{self.text}_{self._uuid.hex[-4:]}"
 
         if grid_plan is None:
-            return pos
+            # Single FOV: this position *is* the acquisition, so x/y should be
+            # the real center of the ROI rather than left at 0.
+            x, y = self.center()
+            return useq.AbsolutePosition(x=x, y=y, z=z_pos, name=name)
 
+        # Multiple FOVs: x/y on the position itself are meaningless (the grid
+        # plan defines every real point) -- and, unlike the single-FOV case,
+        # useq.AbsolutePosition enforces that itself: its validator clears
+        # x/y back to None (with a warning that this becomes a hard error in
+        # a future useq version) whenever they're set alongside an absolute
+        # grid plan. An earlier version of this method tried to stamp x/y
+        # with the grid's first point anyway, which worked only until the
+        # position was next revalidated -- e.g. PositionTable.setValue()
+        # round-trips every position through useq.Position.model_validate(),
+        # which silently wiped it back to 0/disabled. PositionTable now
+        # covers this at the display layer instead (its disabled X/Y cells
+        # show the grid's first FOV -- see _grid_first_point in
+        # useq_widgets/_positions.py), so leave x/y unset here too,
+        # matching what useq's own model requires.
+        pos = useq.AbsolutePosition(z=z_pos, name=name)
         return pos.model_copy(
             update={"sequence": useq.MDASequence(grid_plan=grid_plan)}
         )

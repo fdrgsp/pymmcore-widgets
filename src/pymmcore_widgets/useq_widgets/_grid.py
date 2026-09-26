@@ -27,7 +27,6 @@ from qtpy.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QRadioButton,
-    QScrollArea,
     QSizePolicy,
     QSpinBox,
     QStackedWidget,
@@ -103,13 +102,24 @@ _MODE_TO_USEQ: dict[Mode, type[GridPlan]] = {
 }
 
 
-class GridPlanWidget(QScrollArea):
-    """Widget to edit a [`useq-schema` GridPlan](https://pymmcore-plus.github.io/useq-schema/schema/axes/#grid-plans)."""
+class GridPlanWidget(QWidget):
+    """Widget to edit a [`useq-schema` GridPlan](https://pymmcore-plus.github.io/useq-schema/schema/axes/#grid-plans).
+
+    This widget does not scroll on its own; a caller that needs it to (e.g. a
+    tab page with limited height) should wrap it in its own ``QScrollArea``.
+    """
 
     valueChanged = Signal(object)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        # A plain QWidget defaults to Preferred/Preferred, so it would only
+        # take its natural content width -- unlike a QScrollArea (this
+        # widget's base class before it became a plain QWidget), which always
+        # stretched to fill its container. Expanding restores that, so it
+        # still fills whatever it's placed in (a card, a scroll area's
+        # viewport, ...) instead of leaving a gap of bare container behind it.
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._mode: Mode = Mode.AREA  # will change to NUMBER below in init
         self._fov_width: float | None = None
         self._fov_height: float | None = None
@@ -183,31 +193,26 @@ class GridPlanWidget(QScrollArea):
             self.bounds_wdg,
         )
 
-        # wrap the whole thing in an inner widget so we can put it in this ScrollArea
-        inner_widget = QWidget(self)
-        main_layout = QVBoxLayout(inner_widget)
+        main_layout = QVBoxLayout(self)
         main_layout.addLayout(btns_row)
         main_layout.addWidget(SeparatorWidget())
         main_layout.addWidget(self._stack, 1)
         main_layout.addWidget(self._bottom_stuff)
 
-        self.setWidget(inner_widget)
-        self.setWidgetResizable(True)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        # this widget scrolls (and commonly sits inside an outer collapsible
-        # section too), so disable mouse-wheel scrolling on its combo/spin boxes
-        # to avoid accidentally changing a value while scrolling past it
-        disable_wheel_scroll_recursive(inner_widget)
+        # this widget commonly sits inside an outer collapsible section or a
+        # caller-provided QScrollArea (see the standard MDAWidget's Grid tab),
+        # so disable mouse-wheel scrolling on its combo/spin boxes to avoid
+        # accidentally changing a value while scrolling past it
+        disable_wheel_scroll_recursive(self)
 
         self._mode_number_radio.setChecked(True)
 
-        # FIXME: On Windows 11, buttons within an inner widget of a ScrollArea
-        # are filled in with the accent color, making it very difficult to see
-        # which radio button is checked. This HACK solves the issue. It's
-        # likely future Qt versions will fix this.
-        inner_widget.setStyleSheet("QRadioButton {color: none}")
+        # FIXME: On Windows 11, buttons inside a QScrollArea's viewport are
+        # filled in with the accent color, making it very difficult to see
+        # which radio button is checked. This HACK solves the issue for a
+        # caller that wraps this widget in a QScrollArea. It's likely future
+        # Qt versions will fix this.
+        self.setStyleSheet("QRadioButton {color: none}")
 
         # CONNECTIONS ------------------------------------------
 
@@ -282,8 +287,15 @@ class GridPlanWidget(QScrollArea):
             QFontMetrics(label.font()).horizontalAdvance(label.text())
             for label in labels
         )
+        # QLabel.sizeHint() can exceed that font-metrics estimate by a pixel or
+        # two for some strings (its internal text layout rounds differently),
+        # so fold in any already-known sizeHint too -- otherwise setMinimumWidth
+        # would let that one label win out and its form's field column would
+        # drift a pixel off from the others. sizeHint() can legitimately be 0
+        # before the label is shown/polished, but that never raises our max.
+        width = max(width, max(label.sizeHint().width() for label in labels))
         for label in labels:
-            label.setMinimumWidth(width)
+            label.setFixedWidth(width)
 
         field_width = max(field.sizeHint().width() for field in fields)
         for field in fields:

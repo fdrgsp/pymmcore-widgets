@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+import time
 from datetime import timedelta
 from typing import TYPE_CHECKING
 from unittest.mock import patch
@@ -9,7 +10,7 @@ import pint
 import pytest
 import useq
 from qtpy.QtCore import QPoint, Qt, QTimer
-from qtpy.QtWidgets import QMessageBox
+from qtpy.QtWidgets import QMessageBox, QTableWidgetSelectionRange
 
 import pymmcore_widgets
 from pymmcore_widgets import _icons
@@ -133,6 +134,48 @@ def test_data_table(qtbot: QtBot) -> None:
     assert len(wdg.value()) == 0  # requires a is_row_selector=True column
     wdg.act_clear.trigger()
     assert table.rowCount() == 0
+
+
+def test_data_table_move_rows(qtbot: QtBot) -> None:
+    wdg = DataTableWidget()
+    qtbot.addWidget(wdg)
+    table = wdg.table()
+    table.addColumn(TextColumn(key="baz", default=""), position=-1)
+    table.setValue([{"baz": "A"}, {"baz": "B"}, {"baz": "C"}])
+
+    def baz_values() -> list[str]:
+        return [row["baz"] for row in table.iterRecords()]
+
+    # moving the top row up is a no-op
+    table.selectRow(0)
+    wdg.act_move_up.trigger()
+    assert baz_values() == ["A", "B", "C"]
+
+    # move a single row down
+    table.selectRow(0)
+    wdg.act_move_down.trigger()
+    assert baz_values() == ["B", "A", "C"]
+    assert {i.row() for i in table.selectedIndexes()} == {1}
+
+    # move it back up
+    table.selectRow(1)
+    wdg.act_move_up.trigger()
+    assert baz_values() == ["A", "B", "C"]
+    assert {i.row() for i in table.selectedIndexes()} == {0}
+
+    # moving the bottom row down is a no-op
+    table.selectRow(2)
+    wdg.act_move_down.trigger()
+    assert baz_values() == ["A", "B", "C"]
+
+    # move a contiguous multi-row selection down
+    table.setValue([{"baz": "A"}, {"baz": "B"}, {"baz": "C"}, {"baz": "D"}])
+    table.setRangeSelected(
+        QTableWidgetSelectionRange(0, 0, 1, table.columnCount() - 1), True
+    )
+    wdg.act_move_down.trigger()
+    assert baz_values() == ["C", "A", "B", "D"]
+    assert {i.row() for i in table.selectedIndexes()} == {1, 2}
 
 
 SUB_SEQ = useq.MDASequence(
@@ -369,6 +412,93 @@ def test_position_table_set_value(qtbot: QtBot) -> None:
     assert mda_btn.clear_btn.isVisible()
 
 
+def test_position_table_absolute_grid_shows_first_fov_disabled(qtbot: QtBot) -> None:
+    """A row with an absolute grid sub-sequence shows the grid's first FOV.
+
+    x/y can't be *stored* on the position itself here -- useq.AbsolutePosition
+    clears x/y whenever they're set alongside an absolute grid plan -- but the
+    (disabled) X/Y cells should still display a real location rather than an
+    unrelated 0.
+
+    The first point is used rather than, say, the middle of the covered area:
+    it's a real tile center (the middle of an even-sized grid falls *between*
+    tiles), it's where the acquisition actually starts, and it's O(1) to get.
+    """
+    wdg = PositionTable()
+    qtbot.addWidget(wdg)
+    wdg.show()
+
+    grid = useq.GridFromEdges(
+        top=0, bottom=237, left=0, right=513, fov_width=100, fov_height=100
+    )
+    pos = useq.Position(sequence=useq.MDASequence(grid_plan=grid))
+    wdg.setValue([pos])
+
+    first = next(iter(grid))
+    x_wdg = wdg.table().cellWidget(0, wdg.table().indexOf(wdg.X))
+    y_wdg = wdg.table().cellWidget(0, wdg.table().indexOf(wdg.Y))
+    assert (x_wdg.value(), y_wdg.value()) == (first.x, first.y) == (50.0, 187.0)
+    assert not x_wdg.isEnabled()
+    assert not y_wdg.isEnabled()
+
+    # the displayed point is purely cosmetic: the real Position keeps x/y
+    # unset, matching what useq.AbsolutePosition itself requires.
+    assert wdg.value()[0].x is None
+    assert wdg.value()[0].y is None
+
+
+def test_position_table_degenerate_grid_does_not_hang(qtbot: QtBot) -> None:
+    """A grid with a zero FOV must not be walked point by point.
+
+    CMMCorePlus.getPixelSizeUm() returns 0.0 when no pixel size is
+    configured, so StageExplorer hands ROI.create_grid_plan() a FOV of 0 and
+    the grid it builds steps one micron at a time -- millions of points for
+    an ordinary ROI. Taking only the first point keeps this O(1); walking the
+    whole plan to find, say, its center took ~19s for this grid.
+    """
+    wdg = PositionTable()
+    qtbot.addWidget(wdg)
+    wdg.show()
+
+    grid = useq.GridFromEdges(
+        top=0, bottom=2500, left=0, right=3000, fov_width=0, fov_height=0
+    )
+    assert grid.num_positions() > 1_000_000
+    pos = useq.Position(sequence=useq.MDASequence(grid_plan=grid))
+
+    start = time.perf_counter()
+    wdg.setValue([pos])
+    assert time.perf_counter() - start < 5
+
+    x_wdg = wdg.table().cellWidget(0, wdg.table().indexOf(wdg.X))
+    assert not x_wdg.isEnabled()
+    assert (
+        x_wdg.value(),
+        wdg.table().cellWidget(0, wdg.table().indexOf(wdg.Y)).value(),
+    ) == (0.0, 2500.0)
+
+
+def test_position_table_relative_grid_leaves_xy_enabled(qtbot: QtBot) -> None:
+    """A relative grid sub-sequence doesn't touch x/y at all."""
+    wdg = PositionTable()
+    qtbot.addWidget(wdg)
+    wdg.show()
+
+    pos = useq.Position(
+        x=5,
+        y=6,
+        sequence=useq.MDASequence(grid_plan=useq.GridRowsColumns(rows=2, columns=2)),
+    )
+    wdg.setValue([pos])
+
+    x_wdg = wdg.table().cellWidget(0, wdg.table().indexOf(wdg.X))
+    y_wdg = wdg.table().cellWidget(0, wdg.table().indexOf(wdg.Y))
+    assert x_wdg.value() == 5
+    assert y_wdg.value() == 6
+    assert x_wdg.isEnabled()
+    assert y_wdg.isEnabled()
+
+
 def test_position_load_save(
     qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -548,7 +678,14 @@ def test_z_plan_widget(qtbot: QtBot) -> None:
     direction_x = wdg._direction.mapTo(wdg, QPoint()).x()
     for field in (wdg.top, wdg.bottom, wdg.range, wdg.above, wdg.below):
         assert field.mapTo(wdg, QPoint()).x() == step_x
-    assert direction_x == step_x
+    # _direction is a QComboBox rather than a QDoubleSpinBox like the other
+    # fields: it's placed in the same grid column and column-filled the same
+    # way, but a native style can reserve a few pixels of extra chrome around
+    # a combo box that a spin box doesn't get (observed on macOS; Windows/other
+    # styles may differ by their own amount), nudging its left edge without it
+    # actually being misaligned. Allow generous slack for that -- a genuine
+    # column mixup would be off by tens of pixels, not this.
+    assert abs(direction_x - step_x) <= 12
     assert {label.width() for label in wdg._form_labels} == {
         wdg._step_label.sizeHint().width()
     }
@@ -558,7 +695,14 @@ def test_z_plan_widget(qtbot: QtBot) -> None:
 
     step_pos = wdg.step.mapTo(wdg, QPoint())
     slices_pos = wdg.steps.mapTo(wdg, QPoint())
-    assert slices_pos.y() == step_pos.y()
+    # steps (QSpinBox) sits in a nested QHBoxLayout next to step (QDoubleSpinBox,
+    # placed directly in the grid); a native style can give the two box types
+    # slightly different height metrics (observed on macOS; other platforms may
+    # differ by their own amount), nudging one a few pixels off the other's
+    # baseline even though both are vertically centered in the same row. Allow
+    # generous slack for that -- landing in the wrong row entirely would be off
+    # by a full row height, not this.
+    assert abs(slices_pos.y() - step_pos.y()) <= 12
     assert slices_pos.x() > step_pos.x() + wdg.step.width()
 
     assert wdg._viz.height() == wdg._controls_widget.sizeHint().height()
@@ -632,7 +776,7 @@ def test_grid_plan_widget(qtbot: QtBot) -> None:
     for mode in (_grid.Mode.NUMBER, _grid.Mode.AREA, _grid.Mode.BOUNDS):
         wdg.setMode(mode)
         stack_heights.append(wdg._stack.sizeHint().height())
-        widget_heights.append(wdg.widget().sizeHint().height())
+        widget_heights.append(wdg.sizeHint().height())
     assert len(set(stack_heights)) == 1
     assert len(set(widget_heights)) == 1
 

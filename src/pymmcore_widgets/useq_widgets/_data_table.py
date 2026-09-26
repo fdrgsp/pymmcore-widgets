@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar, cast
 
-from qtpy.QtCore import QSize, Qt, Signal
+from qtpy.QtCore import QItemSelectionModel, QSize, Qt, Signal
 from qtpy.QtGui import QPainter
 from qtpy.QtWidgets import (
     QCheckBox,
@@ -313,12 +313,11 @@ class DataTableWidget(QWidget):
         self.act_check_none = QAction(QIconifyIcon('mdi:checkbox-multiple-blank-outline', color=gray), "Clear selection", self)  # noqa
         self.act_check_none.triggered.connect(self._check_none)
 
-        # hard to implement so far
-        # self.act_move_up = QAction(QIconifyIcon('mdi:arrow-up-thin', color=gray), "Move selected row up", self)  # noqa
-        # self.act_move_up.triggered.connect(self._move_selected_rows_up)
+        self.act_move_up = QAction(QIconifyIcon('mingcute:arrow-up-fill', color=gray), "Move selected row up", self)  # noqa
+        self.act_move_up.triggered.connect(self._move_selected_rows_up)
 
-        # self.act_move_down = QAction(QIconifyIcon('mdi:arrow-down-thin', color=gray), "Move selected row down", self)  # noqa
-        # self.act_move_down.triggered.connect(self._move_selected_rows_down)
+        self.act_move_down = QAction(QIconifyIcon('mingcute:arrow-down-fill', color=gray), "Move selected row down", self)  # noqa
+        self.act_move_down.triggered.connect(self._move_selected_rows_down)
 
         self.act_remove_row = QAction(StandardIcon.DELETE.icon(red), "Remove selected row", self)  # noqa
         self.act_remove_row.triggered.connect(self._remove_selected)
@@ -339,12 +338,11 @@ class DataTableWidget(QWidget):
 
         # add actions (makes them QToolButtons)
         self._toolbar.addAction(self.act_add_row)
+        self._toolbar.addAction(self.act_move_up)
+        self._toolbar.addAction(self.act_move_down)
         self._toolbar.addSeparator()  # ------------
         self._toolbar.addAction(self.act_check_all)
         self._toolbar.addAction(self.act_check_none)
-        # self._toolbar.addSeparator()  # ------------
-        # self._toolbar.addAction(self.act_move_up)
-        # self._toolbar.addAction(self.act_move_down)
         self._toolbar.addSeparator()  # ------------
         self._toolbar.addAction(self.act_remove_row)
         self._toolbar.addAction(self.act_clear)
@@ -392,6 +390,44 @@ class DataTableWidget(QWidget):
     def _check_none(self) -> None:
         """Remove all rows."""
         self._table.clearChecks()
+
+    def _move_selected_rows_up(self) -> None:
+        """Move selected row(s) up by one position."""
+        self._move_selected_rows(-1)
+
+    def _move_selected_rows_down(self) -> None:
+        """Move selected row(s) down by one position."""
+        self._move_selected_rows(1)
+
+    def _move_selected_rows(self, offset: int) -> None:
+        """Move the currently selected row(s) up (-1) or down (1)."""
+        rows = self._selected_rows(reverse=offset > 0)
+        if not rows:
+            return
+        # bail out if the block can't move any further in that direction
+        if (min(rows) + offset < 0) or (
+            max(rows) + offset > self._table.rowCount() - 1
+        ):
+            return
+
+        with signals_blocked(self._table):
+            for row in rows:
+                new_row = row + offset
+                data, new_data = self._table.rowData(row), self._table.rowData(new_row)
+                self._table.setRowData(row, new_data)
+                self._table.setRowData(new_row, data)
+
+        selection_model = self._table.selectionModel()
+        selection_model.clearSelection()
+        select_flags = (
+            QItemSelectionModel.SelectionFlag.Select
+            | QItemSelectionModel.SelectionFlag.Rows
+        )
+        for row in rows:
+            selection_model.select(
+                self._table.model().index(row + offset, 0), select_flags
+            )
+        self.valueChanged.emit()
 
     def _remove_selected(self) -> None:
         """Remove selected row(s)."""

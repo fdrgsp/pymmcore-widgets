@@ -2,20 +2,23 @@ from __future__ import annotations
 
 from contextlib import suppress
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from pymmcore_plus import CMMCorePlus
 from pymmcore_plus._logger import logger
+from pymmcore_plus.core import SequencedEvent
 from qtpy.QtCore import QSize, Qt, Slot
 from qtpy.QtWidgets import (
     QBoxLayout,
+    QFrame,
     QHBoxLayout,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QWidget,
 )
 from superqt.iconify import QIconifyIcon
-from useq import MDASequence, Position
+from useq import MDAEvent, MDASequence, Position
 
 from pymmcore_widgets._util import get_next_available_path
 from pymmcore_widgets.useq_widgets import MDASequenceWidget
@@ -62,6 +65,10 @@ AF_ENGAGED_ABSOLUTE_Z = (
     "The {af} autofocus device is currently engaged, but it cannot be used with a "
     "Z Plan with Absolute Z Positions (TOP_BOTTOM mode).\n\nIt will be switched off "
     "before the acquisition starts.\n\nRun anyway?"
+)
+PAUSE_UNAVAILABLE_HW_SEQUENCED = (
+    "This part of the acquisition uses hardware-triggered sequencing.\nIt cannot "
+    "be paused, only canceled."
 )
 
 
@@ -121,6 +128,67 @@ class CoreMDATabs(MDATabs):
         self.z_plan.setEnabled(enable)
         self.grid_plan.setEnabled(enable)
         self.channels.setEnabled(enable)
+
+
+class _ScrollableGridCoreMDATabs(CoreMDATabs):
+    """``CoreMDATabs`` whose Grid tab page is wrapped in a ``QScrollArea``.
+
+    Used only by the standard (non-collapsible) ``MDAWidget``: GridPlanWidget
+    does not scroll on its own (see its docstring), and a plain tab page is
+    the one presentation here where its height isn't otherwise constrained.
+    ``CollapsibleCoreMDATabs`` deliberately avoids this -- it wraps grid_plan
+    in its own bordered card instead, sized to its content.
+    """
+
+    _grid_scroll: QScrollArea | None = None
+
+    def addTab(self, widget: QWidget | None, *args: Any, **kwargs: Any) -> int:
+        # Intercept MDATabs.__init__'s `self.addTab(self.grid_plan, "Grid",
+        # checked=False)` and give grid_plan a scroll area right away.
+        # Wrapping it *after* the fact (removeTab + insertTab) would create a
+        # second tab checkbox while leaving the first one's now-deleted C++
+        # object dangling in CheckableTabWidget._cboxes -- a crash waiting to
+        # happen the next time something iterates that list.
+        if widget is not None and widget is getattr(self, "grid_plan", None):
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setWidget(widget)
+            self._grid_scroll = scroll
+            idx = super().addTab(scroll, *args, **kwargs)
+            # addTab() just disabled scroll (the tab page) rather than
+            # grid_plan (its actual content) -- undo that and disable the
+            # content instead, matching every other tab where content and
+            # page are the same widget. _on_tab_checkbox_toggled (below)
+            # keeps doing the right thing on every later checkbox toggle too.
+            scroll.setEnabled(True)
+            widget.setEnabled(False)
+            return idx
+        return super().addTab(widget, *args, **kwargs)
+
+    def indexOf(self, widget: QWidget | None) -> int:
+        """Return the tab index for ``widget``, or the tab page containing it.
+
+        grid_plan is the Grid tab's *content* here, not the page itself (see
+        __init__), so callers that key off ``grid_plan`` directly -- e.g.
+        ``isChecked``/``setChecked`` -- still resolve to the right tab.
+        """
+        idx = int(super().indexOf(widget))
+        parent = widget.parent() if idx == -1 and widget is not None else None
+        while idx == -1 and isinstance(parent, QWidget):
+            idx = int(super().indexOf(parent))
+            parent = parent.parent()
+        return idx
+
+    def _on_tab_checkbox_toggled(self, checked: bool, wdg: QWidget) -> None:
+        # CheckableTabWidget enables/disables whatever was passed to addTab --
+        # for Grid that's _grid_scroll (the tab page), not grid_plan (its
+        # content). Redirect so the actual editor is what gets enabled.
+        if wdg is self._grid_scroll:
+            wdg = self.grid_plan
+        super()._on_tab_checkbox_toggled(checked, wdg)
 
 
 class MDAWidget(MDASequenceWidget):
@@ -188,7 +256,7 @@ class MDAWidget(MDASequenceWidget):
         MDA axes (for example a collapsible-sections container) without
         otherwise changing the widget's behavior.
         """
-        return CoreMDATabs(None, self._mmc)
+        return _ScrollableGridCoreMDATabs(None, self._mmc)
 
     # ----------- Override type hints in superclass -----------
 
@@ -610,9 +678,11 @@ class _MDAControlButtons(QWidget):
         super().__init__(parent)
 
         self._mmc = mmcore
+        self._hardware_sequenced = False
         self._mmc.mda.events.sequencePauseToggled.connect(self._on_mda_paused)
         self._mmc.mda.events.sequenceStarted.connect(self._on_mda_started)
         self._mmc.mda.events.sequenceFinished.connect(self._on_mda_finished)
+        self._mmc.mda.events.eventStarted.connect(self._on_event_started)
 
         icon_size = QSize(24, 24)
         self.run_btn = QPushButton("Run")
@@ -644,8 +714,23 @@ class _MDAControlButtons(QWidget):
     @Slot()
     def _on_mda_started(self) -> None:
         self.run_btn.hide()
+        # reset until the first eventStarted tells us otherwise
+        self._set_hardware_sequenced(False)
         self.pause_btn.show()
         self.cancel_btn.show()
+
+    @Slot(object)
+    def _on_event_started(self, event: MDAEvent) -> None:
+        self._set_hardware_sequenced(isinstance(event, SequencedEvent))
+
+    def _set_hardware_sequenced(self, hardware_sequenced: bool) -> None:
+        if hardware_sequenced == self._hardware_sequenced:
+            return
+        self._hardware_sequenced = hardware_sequenced
+        self.pause_btn.setEnabled(not hardware_sequenced)
+        self.pause_btn.setToolTip(
+            PAUSE_UNAVAILABLE_HW_SEQUENCED if hardware_sequenced else ""
+        )
 
     @Slot()
     def _on_mda_finished(self) -> None:
@@ -653,6 +738,7 @@ class _MDAControlButtons(QWidget):
         self.pause_btn.hide()
         self.cancel_btn.hide()
         self._on_mda_paused(False)
+        self._set_hardware_sequenced(False)
 
     @Slot(bool)
     def _on_mda_paused(self, paused: bool) -> None:
@@ -672,3 +758,4 @@ class _MDAControlButtons(QWidget):
             self._mmc.mda.events.sequencePauseToggled.disconnect(self._on_mda_paused)
             self._mmc.mda.events.sequenceStarted.disconnect(self._on_mda_started)
             self._mmc.mda.events.sequenceFinished.disconnect(self._on_mda_finished)
+            self._mmc.mda.events.eventStarted.disconnect(self._on_event_started)
