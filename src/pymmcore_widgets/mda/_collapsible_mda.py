@@ -46,6 +46,7 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from superqt.iconify import QIconifyIcon
 
 from pymmcore_widgets.control._camera_roi_widget import CameraRoiWidget
 from pymmcore_widgets.useq_widgets import PYMMCW_METADATA_KEY
@@ -53,6 +54,21 @@ from pymmcore_widgets.useq_widgets import PYMMCW_METADATA_KEY
 from ._core_mda import CoreMDATabs, MDAWidget
 
 CAMERA_ROI_METADATA_KEY = "camera_roi"
+
+# Icon (iconify string) shown before each section's title. Edit freely to
+# change a section's icon; keys match the CollapsibleAcquisitionSection
+# instances created below (the five axes plus "camera_roi"/"saving"/"settings").
+MDA_ICONS: dict[str, str] = {
+    "channels": "mdi:palette-outline",
+    "stage_positions": "mdi:map-marker-multiple-outline",
+    "grid_plan": "mdi:grid",
+    "z_plan": "mdi:arrow-up-down",
+    "time_plan": "mdi:clock-time-four-outline",
+    "camera_roi": "mdi:crop",
+    "saving": "mdi:content-save-outline",
+    "settings": "mdi:cog-outline",
+}
+_ICON_SIZE = 18
 
 # AF_ENGAGED_NO_AXIS's collapsible-layout counterpart: here 'Use Hardware
 # Autofocus on Axis' lives inside the 'Settings' collapsible section rather
@@ -115,26 +131,53 @@ class SectionMetrics:
 
 
 class _ClickableLabel(QLabel):
-    """A plain-text label that emits ``clicked`` on left-click.
+    """A label that emits ``clicked`` on left-click.
 
-    Used for a section title that has no enable checkbox (e.g. "Settings"):
-    a ``QToolButton`` would need it, but even with ``setAutoRaise(True)`` some
-    native styles (e.g. macOS) still paint a visible bezel around text (unlike
-    icon-only autoRaise buttons, which do flatten), so it would look like a
-    stray button next to the plain-text titles every other section gets from
-    its ``QCheckBox``.
+    Used for every part of a section's header text (icon, title, summary) so
+    the whole header -- not just the disclosure arrow -- expands/collapses the
+    section. A ``QToolButton`` would need it instead, but even with
+    ``setAutoRaise(True)`` some native styles (e.g. macOS) still paint a
+    visible bezel around text (unlike icon-only autoRaise buttons, which do
+    flatten), so it would look like a stray button next to plain text.
     """
 
     clicked = Signal()
 
-    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
         super().__init__(text, parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def mousePressEvent(self, ev: QMouseEvent | None) -> None:
         if ev is not None and ev.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
-        super().mousePressEvent(ev)
+            # Qt propagates an unaccepted mouse press up to the parent widget
+            # (here, the header) -- accept it so the header's own click handler
+            # doesn't ALSO fire and immediately undo this toggle.
+            ev.accept()
+        else:
+            super().mousePressEvent(ev)
+
+
+class _ClickableFrame(QFrame):
+    """A frame that emits ``clicked`` on left-click.
+
+    Used for the section header itself, so clicking anywhere in the header's
+    background (the space between/around its child widgets) still
+    expands/collapses the section, rather than only the disclosure arrow.
+    """
+
+    clicked = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, ev: QMouseEvent | None) -> None:
+        if ev is not None and ev.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+            ev.accept()
+        else:
+            super().mousePressEvent(ev)
 
 
 class _CardFrame(QFrame):
@@ -177,6 +220,7 @@ class CollapsibleAcquisitionSection(QWidget):
         summary: str = "",
         expanded: bool = False,
         metrics: SectionMetrics | None = None,
+        icon: str | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -185,8 +229,9 @@ class CollapsibleAcquisitionSection(QWidget):
         self._metrics = metrics or SectionMetrics()
         self._content_widget: QWidget | None = None
 
-        self._header = QFrame()
+        self._header = _ClickableFrame()
         self._header.setObjectName("mdaSectionHeader")
+        self._header.clicked.connect(self.toggle)
         self._header_layout = QHBoxLayout(self._header)
         self._header_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -198,32 +243,46 @@ class CollapsibleAcquisitionSection(QWidget):
         self._disclosure.clicked.connect(self.toggle)
         self._header_layout.addWidget(self._disclosure)
 
+        # The disclosure button is the only header widget with a Fixed size
+        # policy; every other widget here (checkbox, icon, title) must be
+        # pinned Fixed explicitly too, or once the summary hides on expand (the
+        # only Expanding widget), Qt's box layout splits the freed-up width
+        # among them instead of leaving it as trailing blank space -- pushing
+        # the icon and title away from the left edge instead of collapsing.
         self._checkbox: QCheckBox | None
-        self._title_label: _ClickableLabel | None
         if checked is None:
             self._checkbox = None
-            title_label = self._title_label = _ClickableLabel(title)
-            title_label.clicked.connect(self.toggle)
-            # A QLabel left-packs its content like a QCheckBox does, but with no
-            # size policy pulling it to fill spare width, it would drift right
-            # once the summary hides on expand. Pin it to its size hint on the
-            # left to match the checkbox sections.
-            self._header_layout.addWidget(
-                title_label,
-                0,
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            )
         else:
-            self._title_label = None
-            checkbox = self._checkbox = QCheckBox(title)
+            checkbox = self._checkbox = QCheckBox()
             checkbox.setChecked(checked)
             checkbox.setAccessibleName(f"Use {title} in the acquisition")
-            checkbox.toggled.connect(self.checkedChanged)
+            checkbox.toggled.connect(self._on_checkbox_toggled)
+            checkbox.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             self._header_layout.addWidget(checkbox)
+            # Some native styles (e.g. macOS) size a QCheckBox tightly around its
+            # indicator with no built-in right-hand padding, so the layout's
+            # regular inter-widget spacing alone reads as no gap at all next to
+            # the icon/title. Add an explicit spacer so there's always room.
+            self._header_layout.addSpacing(self._metrics.header_spacing)
+
+        if icon:
+            icon_label = _ClickableLabel()
+            icon_label.setPixmap(QIconifyIcon(icon).pixmap(_ICON_SIZE, _ICON_SIZE))
+            icon_label.clicked.connect(self.toggle)
+            icon_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            self._header_layout.addWidget(icon_label)
+
+        self._title_label = title_label = _ClickableLabel(title)
+        title_label.clicked.connect(self.toggle)
+        title_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self._header_layout.addWidget(
+            title_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
 
         self._summary_text = summary
-        self._summary = QLabel(summary)
+        self._summary = _ClickableLabel(summary)
         self._summary.setObjectName("mdaSectionSummary")
+        self._summary.clicked.connect(self.toggle)
         self._summary.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
@@ -322,6 +381,14 @@ class CollapsibleAcquisitionSection(QWidget):
         if self._checkbox is None:
             raise TypeError(f"{self._title!r} is not a checkable section")
         self._checkbox.setChecked(checked)
+
+    def _on_checkbox_toggled(self, checked: bool) -> None:
+        # Turning a dimension off also collapses it, since its body is no
+        # longer relevant; turning it on leaves the disclosure state alone
+        # (the user may just be re-enabling a dimension they left collapsed).
+        if not checked:
+            self.set_expanded(False)
+        self.checkedChanged.emit(checked)
 
     def set_summary(self, summary: str, *, status: bool | None = None) -> None:
         """Update the derived collapsed summary.
@@ -435,6 +502,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
                 checked=initial_states[widget],
                 expanded=expanded,
                 metrics=self._metrics,
+                icon=MDA_ICONS.get(attr),
                 parent=self._content,
             )
             section.setObjectName(f"mda{attr.title().replace('_', '')}Section")
@@ -605,6 +673,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             checked=False,
             expanded=False,
             metrics=self._metrics,
+            icon=MDA_ICONS.get("camera_roi"),
             parent=self._content,
         )
         self.roi_section.setObjectName("mdaRoiSection")
@@ -621,6 +690,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             checked=save_info.isChecked(),
             expanded=False,
             metrics=self._metrics,
+            icon=MDA_ICONS.get("saving"),
             parent=self._content,
         )
         self.saving_section.setObjectName("mdaSavingSection")
@@ -634,6 +704,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             "Settings",
             expanded=False,
             metrics=self._metrics,
+            icon=MDA_ICONS.get("settings"),
             parent=self._content,
         )
         self._axis_order = axis_order
