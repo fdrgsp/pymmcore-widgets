@@ -740,7 +740,7 @@ class MDAWidgetSidebar(MDAWidget):
         axis_row.addWidget(self.axis_order)
         axis_row.addStretch()
 
-        self._settings_group = settings_group = QGroupBox("Settings")
+        self._settings_group = settings_group = QGroupBox()
         settings_layout = QVBoxLayout(settings_group)
         settings_layout.addLayout(axis_row)
         settings_layout.addWidget(self.keep_shutter_open)
