@@ -34,6 +34,7 @@ from qtpy.QtGui import (
 from qtpy.QtWidgets import (
     QCheckBox,
     QFrame,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLayout,
@@ -70,27 +71,10 @@ MDA_ICONS: dict[str, str] = {
 }
 _ICON_SIZE = 18
 
-# AF_ENGAGED_NO_AXIS's collapsible-layout counterpart: here 'Use Hardware
-# Autofocus on Axis' lives inside the 'Settings' collapsible section rather
-# than being directly visible, so the message needs to point the user there.
-AF_ENGAGED_NO_AXIS_COLLAPSIBLE = (
-    "The {af} autofocus device is currently engaged, but no autofocus axis is "
-    "selected.\n\nSelect an axis in 'Use Hardware Autofocus on Axis', in the "
-    "'Settings' collapsible section, to use the hardware autofocus during this "
-    "run, otherwise it will be switched off before the acquisition starts."
-    "\n\nRun anyway?"
-)
-
 if TYPE_CHECKING:
     import useq
     from pymmcore_plus import CMMCorePlus
     from pymmcore_plus.mda import SingleOutput
-    from qtpy.QtWidgets import QComboBox
-
-    from pymmcore_widgets.useq_widgets._mda_sequence import (
-        AutofocusAxis,
-        KeepShutterOpen,
-    )
 
     from ._save_widget import SaveGroupBox
 
@@ -658,13 +642,16 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
     def add_supporting_sections(
         self,
         *,
-        axis_order: QComboBox,
-        keep_shutter_open: KeepShutterOpen,
-        autofocus_axis: AutofocusAxis,
         camera_roi: CameraRoiWidget,
         save_info: SaveGroupBox,
     ) -> None:
-        """Append ROI, Saving, and global Settings after the five axes."""
+        """Append Camera ROI and Saving sections after the five axes.
+
+        Global settings (axis order, keep shutter open, autofocus axis) are
+        not a collapsible section here -- ``MDAWidgetCollapsible`` places them
+        inline in its own footer instead (see
+        ``MDAWidgetCollapsible._install_layout``).
+        """
         if self._supporting_sections_added:
             return
 
@@ -677,9 +664,8 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             parent=self._content,
         )
         self.roi_section.setObjectName("mdaRoiSection")
-        self.roi_section.set_content_widget(camera_roi)
+        self.roi_section.set_content_widget(self._wrap_in_card(camera_roi))
         self.roi_section.checkedChanged.connect(self._on_roi_section_checked)
-        camera_roi.layout().setContentsMargins(5, 5, 5, 5)
         camera_roi.roiChanged.connect(self._on_roi_value_changed)
         camera_roi.setEnabled(False)
         self._camera_roi = camera_roi
@@ -700,46 +686,12 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         save_info.valueChanged.connect(self._update_save_summary)
         self._content_layout.addWidget(self.saving_section)
 
-        self.settings_section = CollapsibleAcquisitionSection(
-            "Settings",
-            expanded=False,
-            metrics=self._metrics,
-            icon=MDA_ICONS.get("settings"),
-            parent=self._content,
-        )
-        self._axis_order = axis_order
-        self._keep_shutter_open = keep_shutter_open
-        self._autofocus_axis = autofocus_axis
-        axis_order.currentTextChanged.connect(self._update_settings_summary)
-        keep_shutter_open.valueChanged.connect(self._update_settings_summary)
-        autofocus_axis.valueChanged.connect(self._update_settings_summary)
-        # Toggling an axis repopulates the order combo with signals blocked (so
-        # currentTextChanged does not fire); tabChecked does fire, and this
-        # connection runs after the upstream handler that rebuilds the combo, so
-        # the order string is already up to date when we read it.
-        self.tabChecked.connect(self._update_settings_summary)
-        axis_row = QWidget()
-        axis_layout = QHBoxLayout(axis_row)
-        axis_layout.setContentsMargins(0, 0, 0, 0)
-        axis_layout.addWidget(QLabel("Axis order:"))
-        axis_layout.addWidget(axis_order)
-        axis_layout.addStretch()
-        settings_content = QWidget()
-        settings_layout = QVBoxLayout(settings_content)
-        settings_layout.setContentsMargins(10, 10, 10, 10)
-        settings_layout.setSpacing(5)
-        settings_layout.addWidget(axis_row)
-        settings_layout.addWidget(keep_shutter_open)
-        settings_layout.addWidget(autofocus_axis)
-        self.settings_section.set_content_widget(self._wrap_in_card(settings_content))
-        self._content_layout.addWidget(self.settings_section)
         self._content_layout.addStretch()
 
         self._save_info = save_info
         self._supporting_sections_added = True
         self._update_roi_summary()
         self._update_save_summary()
-        self._update_settings_summary()
         self.apply_save_body_style()
 
     def apply_save_body_style(self) -> None:
@@ -769,7 +721,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         if self._supporting_sections_added:
             self._update_roi_summary()
             self._update_save_summary()
-            self._update_settings_summary()
 
     def _on_roi_section_checked(self, checked: bool) -> None:
         self._camera_roi.setEnabled(self._editor_enabled and checked)
@@ -811,20 +762,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         self.roi_section.set_summary(
             f"On · {width} x {height} at ({x}, {y})", status=True
         )
-
-    def _update_settings_summary(self, *_: object) -> None:
-        # Show the acquisition axis order (e.g. "cz"), and only append the
-        # shutter/autofocus axes when they are actually in use -- naming the
-        # axes (e.g. "Keep Shutter Open: z", "AF: p") rather than just the
-        # feature.
-        parts: list[str] = []
-        if order := self._axis_order.currentText():
-            parts.append(order)
-        if shutter := self._keep_shutter_open.value():
-            parts.append(f"Keep Shutter Open: {', '.join(shutter)}")
-        if af := self._autofocus_axis.value():
-            parts.append(f"AF: {', '.join(af)}")
-        self.settings_section.set_summary(" · ".join(parts))
 
     def set_section_metrics(self, metrics: SectionMetrics) -> None:
         """Adopt new pixel sizes for every section and the content spacing."""
@@ -870,7 +807,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         if self._supporting_sections_added:
             self.roi_section.set_checkbox_enabled(enabled)
             self._camera_roi.setEnabled(enabled and bool(self.roi_section.checked))
-            self.settings_section._body.setEnabled(enabled)
             self.saving_section.set_checkbox_enabled(enabled)
             self._save_info.setEnabled(enabled)
 
@@ -1007,9 +943,6 @@ class MDAWidgetCollapsible(MDAWidget):
     def _create_tab_widget(self) -> CoreMDATabs:
         return CollapsibleCoreMDATabs(None, self._mmc)
 
-    def _af_engaged_no_axis_message(self) -> str:
-        return AF_ENGAGED_NO_AXIS_COLLAPSIBLE
-
     @property
     def tabs(self) -> CollapsibleCoreMDATabs:
         """Return the collapsible axis container."""
@@ -1090,6 +1023,7 @@ class MDAWidgetCollapsible(MDAWidget):
     def _enable_widgets(self, enable: bool) -> None:
         """Disable editors during an acquisition while keeping controls usable."""
         self.tabs.set_editor_enabled(enable)
+        self._settings_group.setEnabled(enable)
         self._save_button.setEnabled(enable)
         self._load_button.setEnabled(enable)
 
@@ -1102,11 +1036,7 @@ class MDAWidgetCollapsible(MDAWidget):
         _clear_layout(layout)
 
         tabs.add_supporting_sections(
-            axis_order=self.axis_order,
-            keep_shutter_open=self.keep_shutter_open,
-            autofocus_axis=self.af_axis,
-            camera_roi=self.camera_roi,
-            save_info=self.save_info,
+            camera_roi=self.camera_roi, save_info=self.save_info
         )
 
         metrics = tabs._metrics
@@ -1120,6 +1050,26 @@ class MDAWidgetCollapsible(MDAWidget):
             metrics.footer_margin_bottom,
         )
         self._footer_layout = footer_layout
+
+        # Global settings live inline here, in a group box that only extends
+        # horizontally (its own natural, non-stretched height), instead of as
+        # their own collapsible section -- there's room for them here, and
+        # unlike a dimension they have no on/off state that would benefit
+        # from a disclosure affordance.
+        axis_row = QHBoxLayout()
+        axis_row.setContentsMargins(0, 0, 0, 0)
+        axis_row.addWidget(self._axis_order_label)
+        self.axis_order.setMaximumWidth(100)
+        axis_row.addWidget(self.axis_order)
+        axis_row.addStretch()
+
+        self._settings_group = settings_group = QGroupBox()
+        settings_layout = QVBoxLayout(settings_group)
+        settings_layout.addLayout(axis_row)
+        settings_layout.addWidget(self.keep_shutter_open)
+        settings_layout.addWidget(self.af_axis)
+        footer_layout.addWidget(settings_group)
+
         estimate_row = QHBoxLayout()
         estimate_row.addWidget(self._time_warning)
         estimate_row.addWidget(self._duration_label, 1)

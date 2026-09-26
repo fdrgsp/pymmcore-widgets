@@ -16,6 +16,7 @@ from ._collapsible_mda import (
 )
 from ._core_channels import CoreConnectedChannelTable
 from ._core_mda import MDAWidget
+from ._sidebar_mda import MDAWidgetSidebar, SidebarMDATabs, SidebarRow
 
 __all__ = [
     "CAMERA_ROI_METADATA_KEY",
@@ -27,7 +28,10 @@ __all__ = [
     "CoreConnectedChannelTable",
     "MDAWidget",
     "MDAWidgetCollapsible",
+    "MDAWidgetSidebar",
     "SectionMetrics",
+    "SidebarMDATabs",
+    "SidebarRow",
     "channel_properties",
     "to_channel_properties_sequence",
 ]

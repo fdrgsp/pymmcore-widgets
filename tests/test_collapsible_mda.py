@@ -51,7 +51,9 @@ def test_collapsible_is_mda_widget(qtbot: QtBot) -> None:
     assert isinstance(wdg, MDAWidget)
     assert isinstance(wdg.tab_wdg, CollapsibleCoreMDATabs)
     assert wdg.tabs is wdg.tab_wdg
-    # The axes are followed by non-axis ROI, Saving, and Settings sections.
+    # The axes are followed by non-axis ROI and Saving sections. Global
+    # settings (axis order, keep shutter open, autofocus axis) are not a
+    # collapsible section -- they're inline in the widget's own footer.
     assert [s.title for s in wdg.tabs.sections] == [
         "Channels",
         "Positions",
@@ -60,14 +62,15 @@ def test_collapsible_is_mda_widget(qtbot: QtBot) -> None:
         "Time Series",
         "Camera ROI",
         "Saving",
-        "Settings",
     ]
-    assert wdg.tabs.roi_section is wdg.tabs.sections[-3]
-    assert wdg.tabs.saving_section is wdg.tabs.sections[-2]
-    assert wdg.tabs.settings_section is wdg.tabs.sections[-1]
+    assert wdg.tabs.roi_section is wdg.tabs.sections[-2]
+    assert wdg.tabs.saving_section is wdg.tabs.sections[-1]
     assert wdg.tabs.tabBar().isHidden()
     assert not wdg.camera_roi.snap_checkbox.isHidden()
     assert wdg.camera_roi.snap_checkbox.isChecked()
+    assert wdg._settings_group.isAncestorOf(wdg.axis_order)
+    assert wdg._settings_group.isAncestorOf(wdg.keep_shutter_open)
+    assert wdg._settings_group.isAncestorOf(wdg.af_axis)
 
     # Enabling the supporting section must not imply a cropped ROI.
     assert wdg.camera_roi.camera_roi_combo.currentText() == "Full Chip"
@@ -186,16 +189,24 @@ def test_settings_file_actions_are_in_execution_footer(qtbot: QtBot) -> None:
 
     footer = wdg.findChild(QWidget, "mdaExecutionFooter")
     assert footer is not None
+    assert footer.isAncestorOf(wdg._settings_group)
     for button in (wdg._save_button, wdg._load_button):
         assert footer.isAncestorOf(button)
-        assert not wdg.tabs.settings_section._body.isAncestorOf(button)
+        assert not wdg._settings_group.isAncestorOf(button)
 
     qtbot.wait(1)
     save_center = wdg._save_button.mapTo(footer, wdg._save_button.rect().center())
     load_center = wdg._load_button.mapTo(footer, wdg._load_button.rect().center())
     run = wdg.control_btns.run_btn
     run_center = run.mapTo(footer, run.rect().center())
-    actions_row = footer.layout().itemAt(1).layout()
+    footer_layout = footer.layout()
+    assert footer_layout is not None
+    actions_row = None
+    for i in range(footer_layout.count()):
+        item_layout = footer_layout.itemAt(i).layout()
+        if item_layout is not None and item_layout.indexOf(wdg._save_button) != -1:
+            actions_row = item_layout
+            break
     assert actions_row is not None
     assert actions_row.indexOf(wdg._save_button) < actions_row.indexOf(wdg._load_button)
     assert actions_row.indexOf(wdg._load_button) < actions_row.indexOf(wdg.control_btns)
@@ -277,7 +288,7 @@ def test_collapsible_disables_editors_during_run(qtbot: QtBot) -> None:
         assert section.checkbox is not None
         assert not section.checkbox.isEnabled()
         assert not widget.isEnabled()
-    assert not tabs.settings_section._body.isEnabled()
+    assert not wdg._settings_group.isEnabled()
     assert not tabs.roi_section.checkbox.isEnabled()
     assert not wdg.camera_roi.isEnabled()
     assert not wdg.save_info.isEnabled()
@@ -286,7 +297,7 @@ def test_collapsible_disables_editors_during_run(qtbot: QtBot) -> None:
 
     wdg._enable_widgets(True)
     assert wdg.channels.isEnabled()
-    assert tabs.settings_section._body.isEnabled()
+    assert wdg._settings_group.isEnabled()
     assert tabs.roi_section.checkbox.isEnabled()
     assert wdg.save_info.isEnabled()
     assert wdg._save_button.isEnabled()

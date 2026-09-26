@@ -221,7 +221,7 @@ class AutofocusAxis(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        lbl = QLabel("Use Hardware Autofocus on Axis:")
+        self.label = QLabel("Use Hardware Autofocus on Axis:")
         self.use_af_p = QCheckBox("p")
         self.use_af_t = QCheckBox("t")
         self.use_af_g = QCheckBox("g")
@@ -229,7 +229,7 @@ class AutofocusAxis(QWidget):
         layout = QHBoxLayout(self)
         layout.setSpacing(10)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(lbl)
+        layout.addWidget(self.label)
         layout.addWidget(self.use_af_p)
         layout.addWidget(self.use_af_t)
         layout.addWidget(self.use_af_g)
@@ -267,14 +267,14 @@ class KeepShutterOpen(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        lbl = QLabel("Keep Shutter Open Across Axis:")
+        self.label = QLabel("Keep Shutter Open Across Axis:")
         self.leave_open_t = QCheckBox("t")
         self.leave_open_z = QCheckBox("z")
 
         layout = QHBoxLayout(self)
         layout.setSpacing(10)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(lbl)
+        layout.addWidget(self.label)
         layout.addWidget(self.leave_open_z)
         layout.addWidget(self.leave_open_t)
         layout.addStretch()
@@ -352,13 +352,31 @@ class MDASequenceWidget(QWidget):
 
         # -------------- Main Layout --------------
 
+        # Stored on self (rather than an anonymous QLabel) so a subclass that
+        # rebuilds this layout from scratch (e.g. MDAWidgetCollapsible,
+        # MDAWidgetSidebar) can move -- not duplicate -- it into its own
+        # layout. A layout only manages widgets added to it; one dropped by
+        # clearing a layout without also being re-added elsewhere is not
+        # deleted or hidden, just orphaned at its last position, silently
+        # overlapping whatever is drawn there now.
+        self._axis_order_label = QLabel("Axis Order:")
         top_row = QHBoxLayout()
-        top_row.addWidget(QLabel("Axis Order:"))
+        top_row.addWidget(self._axis_order_label)
         top_row.addWidget(self.axis_order)
         top_row.addStretch()
 
         self.keep_shutter_open = KeepShutterOpen()
         self.af_axis = AutofocusAxis()
+        # Align the two widgets' checkboxes by giving their labels equal
+        # width -- otherwise "Keep Shutter Open Across Axis:" (shorter) and
+        # "Use Hardware Autofocus on Axis:" (longer) leave their checkboxes at
+        # different x positions when stacked, in every MDA widget presentation.
+        label_width = max(
+            self.keep_shutter_open.label.sizeHint().width(),
+            self.af_axis.label.sizeHint().width(),
+        )
+        self.keep_shutter_open.label.setFixedWidth(label_width)
+        self.af_axis.label.setFixedWidth(label_width)
         cbox_row = QVBoxLayout()
         cbox_row.setContentsMargins(0, 0, 0, 0)
         cbox_row.setSpacing(5)

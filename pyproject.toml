@@ -51,7 +51,7 @@ dependencies = [
     "psutil>=5.9",
     "pymmcore-plus[cli]>=0.15.4",
     'qtpy >=2.0',
-    'superqt[quantity,cmap,iconify] >=0.7.1',
+    'superqt[quantity,cmap,iconify] >=0.7.3',
     'useq-schema >=0.8.1',
     'vispy >=0.15.1',
     "pyopengl >=3.1.9; platform_system == 'Darwin'",
