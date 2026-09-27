@@ -347,6 +347,40 @@ def test_serializable_roi_value_does_not_apply_hardware(qtbot: QtBot) -> None:
     requested.assert_called_once()
 
 
+def test_set_accent_colors_covers_every_icon_update_path(qtbot: QtBot) -> None:
+    """A themed host's colors must survive every way the icons can change.
+
+    Regression coverage: `setLiveSelectionActive` sets the button's checked
+    state with signals blocked (so a host driving the state doesn't re-emit
+    `roiSelectionRequested`), which also means anything relying on the
+    `toggled` signal to catch up would miss that path entirely.
+    """
+    cam = CameraRoiWidget(show_live_selection=True)
+    qtbot.addWidget(cam)
+
+    on, off = "#4caf50", "#f44336"
+    cam.setAccentColors(on, off)
+    assert cam.select_roi_btn.toolTip().startswith("Open")
+
+    # setLiveSelectionActive: the signals-blocked path a host controller uses.
+    cam.setLiveSelectionActive(True)
+    assert cam.select_roi_btn.toolTip().startswith("Stop")
+    cam.setLiveSelectionActive(False)
+    assert cam.select_roi_btn.toolTip().startswith("Open")
+
+    # A direct click: the unblocked path with no host connected at all.
+    cam.select_roi_btn.click()
+    assert cam.select_roi_btn.toolTip().startswith("Stop")
+    cam.select_roi_btn.click()
+    assert cam.select_roi_btn.toolTip().startswith("Open")
+
+    # Colors set before either button existed in a particular state must
+    # still be current the next time each one changes.
+    cam.setAccentColors("#111111", "#222222")
+    cam.setLiveSelectionActive(True)
+    assert cam._off_color == "#222222"
+
+
 def test_apply_full_frame_recovers_sensor_size_after_existing_crop(
     qtbot: QtBot,
 ) -> None:

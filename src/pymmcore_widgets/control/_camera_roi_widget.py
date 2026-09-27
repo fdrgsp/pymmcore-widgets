@@ -193,8 +193,14 @@ class CameraRoiWidget(QWidget):
 
         self.snap_checkbox = QCheckBox(text="Auto Snap")
 
+        # Plain CSS names by default; a themed host can override both with
+        # setAccentColors() so the crop/live-selection icons match its own
+        # semantic colors instead.
+        self._on_color = "green"
+        self._off_color = "red"
+
         self.crop_btn = QPushButton("Crop")
-        self.crop_btn.setIcon(QIconifyIcon("mdi:crop", color="green"))
+        self.crop_btn.setIcon(QIconifyIcon("mdi:crop", color=self._on_color))
         self.crop_btn.setIconSize(QSize(24, 24))
 
         self.select_roi_btn = QPushButton("Select in Live View")
@@ -369,13 +375,27 @@ class CameraRoiWidget(QWidget):
         host's own live toggle uses for that state.
         """
         if active:
-            icon, color = "fluent:video-off-24-regular", "red"
+            icon, color = "fluent:video-off-24-regular", self._off_color
             tooltip = "Stop selecting the camera ROI in the live preview"
         else:
-            icon, color = "fluent:video-24-regular", "green"
+            icon, color = "fluent:video-24-regular", self._on_color
             tooltip = "Open the live preview and select the camera ROI on the image"
         self.select_roi_btn.setIcon(QIconifyIcon(icon, color=color))
         self.select_roi_btn.setToolTip(tooltip)
+
+    def setAccentColors(self, on_color: str, off_color: str) -> None:
+        """Override the crop/live-selection icons' colors.
+
+        Both default to plain CSS "green"/"red". A themed host calls this
+        once (and again on its own theme changes) to make them match its own
+        semantic colors instead -- every icon these two buttons can show,
+        current state included, is rebuilt from ``on_color``/``off_color``
+        immediately, and every later state change keeps using them.
+        """
+        self._on_color = on_color
+        self._off_color = off_color
+        self.crop_btn.setIcon(QIconifyIcon("mdi:crop", color=self._on_color))
+        self._update_live_selection_button(self.select_roi_btn.isChecked())
 
     def setRoiSelectionAvailable(self, available: bool) -> None:
         """Show the live-selection action when a host has connected a viewer."""
