@@ -106,13 +106,15 @@ class CoreMDATabs(MDATabs):
         self.channels = CoreConnectedChannelTable(1, self._mmc)
 
     def _on_tab_checked(self, idx: int, checked: bool) -> None:
-        # The base class shows/hides Do Stack purely on the Z-stack axis state.
-        # Here Do Stack is further gated behind the channel table's "Advanced"
-        # toggle, so route the Z-stack state through the table (which recomputes
-        # Do Stack visibility from both inputs).
+        # The base class shows/hides Do Stack and Acquire Every purely on their
+        # own axis's state. Here both are further gated behind the channel
+        # table's "Advanced" toggle, so route each axis's state through the
+        # table (which recomputes visibility from both inputs).
         super()._on_tab_checked(idx, checked)
         if idx == self.indexOf(self.z_plan):
             self.channels.setZStackActive(checked)
+        elif idx == self.indexOf(self.time_plan):
+            self.channels.setTimePlanActive(checked)
 
     def _enable_tabs(self, enable: bool) -> None:
         """Enable or disable the tab checkboxes and their contents.

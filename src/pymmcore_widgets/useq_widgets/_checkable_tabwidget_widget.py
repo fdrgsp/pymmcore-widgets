@@ -86,8 +86,8 @@ class CheckableTabWidget(QTabWidget):
     @overload
     def addTab(
         self,
-        widget: None | QWidget,
-        a1: None | str,
+        widget: QWidget | None,
+        a1: str | None,
         /,
         *,
         position: QTabBar.ButtonPosition = ...,
@@ -97,9 +97,9 @@ class CheckableTabWidget(QTabWidget):
     @overload
     def addTab(
         self,
-        widget: None | QWidget,
+        widget: QWidget | None,
         icon: QIcon,
-        label: None | str,
+        label: str | None,
         /,
         *,
         position: QTabBar.ButtonPosition = ...,
@@ -108,7 +108,7 @@ class CheckableTabWidget(QTabWidget):
 
     def addTab(
         self,
-        widget: None | QWidget,
+        widget: QWidget | None,
         *args: Any,
         position: QTabBar.ButtonPosition = QTabBar.ButtonPosition.LeftSide,
         checked: bool = False,

@@ -147,11 +147,13 @@ class CoreConnectedChannelTable(ChannelTable):
         self._syncing_intensity = False
         # the extra columns are opt-in by default visibility; see setLightSourceVisible
         self._light_source_visible = True
-        # the advanced columns (Do Stack / Z Offset) are hidden by default; see
-        # setAdvancedVisible. Do Stack additionally requires the Z-stack axis to
-        # be active, tracked here and updated by the owning MDA tab widget.
+        # the advanced columns (Do Stack / Acquire Every / Z Offset) are hidden
+        # by default; see setAdvancedVisible. Do Stack and Acquire Every
+        # additionally require their own axis to be active, tracked here and
+        # updated by the owning MDA tab widget.
         self._advanced_visible = False
         self._z_stack_active = False
+        self._time_plan_active = False
 
         self.show_light_source = QCheckBox("Show Light Source")
         self.show_light_source.setToolTip(
@@ -164,8 +166,9 @@ class CoreConnectedChannelTable(ChannelTable):
 
         self.advanced = QCheckBox("Advanced")
         self.advanced.setToolTip(
-            "Show the advanced per-channel columns: Z Offset, and Do Stack (the "
-            "latter only while the Z Stack axis is active).\n"
+            "Show the advanced per-channel columns: Z Offset, Do Stack and "
+            "Acquire Every (the latter two only while their own axis -- Z Stack "
+            "and Time Series -- is active).\n"
             "While unchecked those columns are hidden."
         )
         self.advanced.setChecked(self._advanced_visible)
@@ -240,6 +243,17 @@ class CoreConnectedChannelTable(ChannelTable):
         owning MDA tab widget calls this as the Z-stack axis is toggled.
         """
         self._z_stack_active = bool(active)
+        self._apply_advanced_visibility()
+
+    def setTimePlanActive(self, active: bool) -> None:
+        """Record whether the Time Series axis is active.
+
+        The *Acquire Every* column is only meaningful with a time plan, so --
+        like *Do Stack* above -- it is shown only when the advanced columns are
+        visible *and* the axis is active. The owning MDA tab widget calls this
+        as the Time Series axis is toggled.
+        """
+        self._time_plan_active = bool(active)
         self._apply_advanced_visibility()
 
     def refresh(self) -> None:
@@ -495,6 +509,9 @@ class CoreConnectedChannelTable(ChannelTable):
         if (do_stack_col := table.indexOf(self.DO_STACK)) >= 0:
             show_do_stack = self._advanced_visible and self._z_stack_active
             table.setColumnHidden(do_stack_col, not show_do_stack)
+        if (every_col := table.indexOf(self.ACQUIRE_EVERY)) >= 0:
+            show_every = self._advanced_visible and self._time_plan_active
+            table.setColumnHidden(every_col, not show_every)
 
     def _update_light_sources(self) -> None:
         """Rebuild the light source column's choices from the current configuration."""

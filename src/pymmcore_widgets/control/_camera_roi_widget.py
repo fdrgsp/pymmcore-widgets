@@ -106,7 +106,6 @@ class CameraRoiWidget(QWidget):
 
         self._mmc = mmcore or CMMCorePlus.instance()
         self._show_auto_snap = show_auto_snap
-        self._show_roi_info = True
         self._live_restart_pending = False
 
         # this is use to store each camera information so that when the camera is
@@ -186,16 +185,6 @@ class CameraRoiWidget(QWidget):
 
         main_layout.addWidget(self._custom_roi_wdg)
 
-        # info label groupbox ---------------------------------------------------
-        self._info_lbl_wdg = QGroupBox()
-        _info_layout = QVBoxLayout(self._info_lbl_wdg)
-        _info_layout.setSpacing(5)
-        _info_layout.setContentsMargins(3, 3, 3, 3)
-        self.lbl_info = QLabel("....")
-        _info_layout.addWidget(self.lbl_info)
-
-        main_layout.addWidget(self._info_lbl_wdg)
-
         # snap and crop buttons widget -------------------------------------------
         self._bottom_wdg = QWidget()
         _bottom_layout = QHBoxLayout(self._bottom_wdg)
@@ -231,7 +220,6 @@ class CameraRoiWidget(QWidget):
 
         # core connections -------------------------------------------------------
         self._mmc.events.systemConfigurationLoaded.connect(self._on_sys_cfg_loaded)
-        self._mmc.events.pixelSizeChanged.connect(self._update_lbl_info)
         self._mmc.events.roiSet.connect(self._on_roi_set)
         self._mmc.events.propertyChanged.connect(self._on_property_changed)
 
@@ -370,7 +358,6 @@ class CameraRoiWidget(QWidget):
         self.start_y.setEnabled(mode == CUSTOM_ROI and not centered)
         self._custom_roi_wdg.setEnabled(mode == CUSTOM_ROI)
         self.crop_btn.setEnabled(mode == CUSTOM_ROI)
-        self._update_lbl_info()
         self.roiChanged.emit(x, y, width, height, mode)
 
     def setLiveSelectionActive(self, active: bool) -> None:
@@ -387,7 +374,6 @@ class CameraRoiWidget(QWidget):
     def _disconnect(self) -> None:
         connections = (
             (self._mmc.events.systemConfigurationLoaded, self._on_sys_cfg_loaded),
-            (self._mmc.events.pixelSizeChanged, self._update_lbl_info),
             (self._mmc.events.roiSet, self._on_roi_set),
             (self._mmc.events.propertyChanged, self._on_property_changed),
         )
@@ -408,8 +394,6 @@ class CameraRoiWidget(QWidget):
                 self.camera_combo.clear()
             with signals_blocked(self.camera_roi_combo):
                 self.camera_roi_combo.clear()
-            self.lbl_info.clear()
-            self.lbl_info.setStyleSheet("")
             self._enable(False)
             return
 
@@ -446,7 +430,6 @@ class CameraRoiWidget(QWidget):
         self._update_roi_values()
 
         # update the info label
-        self._update_lbl_info()
 
     @Slot(str, str, object)
     def _on_property_changed(self, device: str, prop: str, value: str) -> None:
@@ -467,7 +450,6 @@ class CameraRoiWidget(QWidget):
             y + height
         ) > self._cameras[camera].pixel_height:
             self._clearROI()
-            self._update_lbl_info()
             QMessageBox.critical(
                 self,
                 "Out of Bounds Error",
@@ -507,8 +489,6 @@ class CameraRoiWidget(QWidget):
         self._custom_roi_wdg.setEnabled(crop_mode == CUSTOM_ROI)
         self.crop_btn.setEnabled(crop_mode == CUSTOM_ROI)
 
-        self._update_lbl_info()
-
         if self.snap_checkbox.isChecked() and self.snap_checkbox.isVisible():
             self._mmc.snap()
 
@@ -542,7 +522,6 @@ class CameraRoiWidget(QWidget):
         """Update the ROI When the camera combo box changes."""
         self._update_roi_values()
         self.camera_roi_combo.setCurrentText(self._cameras[camera].crop_mode)
-        self._update_lbl_info()
 
         # show auto snap checkbox only if the selected camera is the core active camera
         self.snap_checkbox.setVisible(
@@ -563,7 +542,6 @@ class CameraRoiWidget(QWidget):
             self.crop_btn.setEnabled(True)
 
             self.roiChanged.emit(*self._get_roi_values(), value)
-            self._update_lbl_info()
             return
 
         restart_live = self._mmc.isSequenceRunning() and not self._mmc.mda.is_running()
@@ -590,8 +568,6 @@ class CameraRoiWidget(QWidget):
             if restart_live:
                 self._live_restart_pending = True
                 QTimer.singleShot(0, self._restart_live_after_roi_change)
-
-        self._update_lbl_info()
 
     def _restart_live_after_roi_change(self) -> None:
         if not self._live_restart_pending:
@@ -662,7 +638,6 @@ class CameraRoiWidget(QWidget):
         """Handle the crop button click event."""
         start_x, start_y, width, height = self._get_roi_values()
         self._mmc.setROI(self.camera, start_x, start_y, width, height)
-        self._update_lbl_info()
 
     # ________________________________________________________________________________
 
@@ -707,51 +682,6 @@ class CameraRoiWidget(QWidget):
             height = round(camera_roi.pixel_height / val)
             items.append(f"{width} x {height}")
         return items
-
-    @Slot()
-    def _update_lbl_info(self) -> None:
-        """Update the info label with the current ROI information."""
-        if not self._show_roi_info:
-            return
-        camera = self.camera
-        if not camera or camera not in self._cameras:
-            self.lbl_info.clear()
-            self.lbl_info.setStyleSheet("")
-            return
-        try:
-            hardware_roi = tuple(self._mmc.getROI(camera))
-        except RuntimeError:
-            # During configuration loading, the previous camera may already be
-            # unloaded while its combobox/model state has not yet been refreshed.
-            self.lbl_info.clear()
-            self.lbl_info.setStyleSheet("")
-            return
-
-        start_x, start_y, width, height = self._get_roi_values()
-
-        px_size = self._mmc.getPixelSizeUm() or 0
-
-        width_um = width * px_size
-        height_um = height * px_size
-        text = f"Size: {width} px * {height} px [{width_um} µm * {height_um} µm]"
-
-        self.lbl_info.setText(text)
-
-        if hardware_roi == (start_x, start_y, width, height):
-            self.lbl_info.setStyleSheet("")
-        else:
-            self.lbl_info.setStyleSheet("color: magenta;")
-
-    def setRoiInfoVisible(self, visible: bool) -> None:
-        """Show or hide the current-hardware ROI status row."""
-        self._show_roi_info = visible
-        self._info_lbl_wdg.setVisible(visible)
-        if visible:
-            self._update_lbl_info()
-
-    def roiInfoVisible(self) -> bool:
-        """Return whether the current-hardware ROI status row is enabled."""
-        return self._show_roi_info
 
     def _update_roi_values(self, roi: ROI | None = None) -> None:
         """Set the ROI values for the specified camera."""
@@ -858,7 +788,6 @@ class CameraRoiWidget(QWidget):
         """Update the camera info with the new ROI values."""
         start_x, start_y, width, height = self._get_roi_values()
         self.roiChanged.emit(start_x, start_y, width, height, CUSTOM_ROI)
-        self._update_lbl_info()
 
     def _update_start_max_value(self) -> None:
         """Update the maximum value for the start_x and start_y spinboxes."""

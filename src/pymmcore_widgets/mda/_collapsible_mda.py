@@ -15,7 +15,6 @@ it with a stylesheet.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
@@ -34,7 +33,6 @@ from qtpy.QtGui import (
 from qtpy.QtWidgets import (
     QCheckBox,
     QFrame,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLayout,
@@ -49,23 +47,17 @@ from qtpy.QtWidgets import (
 )
 from superqt.iconify import QIconifyIcon
 
-from pymmcore_widgets.control._camera_roi_widget import CameraRoiWidget
-from pymmcore_widgets.useq_widgets import PYMMCW_METADATA_KEY
-
 from ._core_mda import CoreMDATabs, MDAWidget
-
-CAMERA_ROI_METADATA_KEY = "camera_roi"
 
 # Icon (iconify string) shown before each section's title. Edit freely to
 # change a section's icon; keys match the CollapsibleAcquisitionSection
-# instances created below (the five axes plus "camera_roi"/"saving"/"settings").
+# instances created below (the five axes plus "saving"/"settings").
 MDA_ICONS: dict[str, str] = {
     "channels": "mdi:palette-outline",
     "stage_positions": "mdi:map-marker-multiple-outline",
     "grid_plan": "mdi:grid",
     "z_plan": "mdi:arrow-up-down",
     "time_plan": "mdi:clock-time-four-outline",
-    "camera_roi": "mdi:crop",
     "saving": "mdi:content-save-outline",
     "settings": "mdi:cog-outline",
 }
@@ -74,7 +66,6 @@ _ICON_SIZE = 18
 if TYPE_CHECKING:
     import useq
     from pymmcore_plus import CMMCorePlus
-    from pymmcore_plus.mda import SingleOutput
 
     from ._save_widget import SaveGroupBox
 
@@ -109,6 +100,8 @@ class SectionMetrics:
     body_margin_bottom: int = 8
     body_spacing: int = 8
     content_spacing: int = 4
+    content_margin_h: int = 8
+    """Inset of the sections (and the settings card) from the widget's edges."""
     footer_margin_h: int = 8
     footer_margin_top: int = 4
     footer_margin_bottom: int = 8
@@ -171,23 +164,35 @@ class _CardFrame(QFrame):
     so it reads in both light and dark themes. It is painted (rather than set
     via a stylesheet or a border palette role) so it survives a downstream
     application that clears stylesheets or overrides widget palettes.
+
+    Always reads the palette's ``Active`` group, regardless of this widget's
+    own enabled state: the card is a structural outline around a section, not
+    content, and should not fade the way ``Text`` does automatically when a
+    widget is disabled (``Active`` still resolves correctly for an enabled
+    card -- there is only a visible difference when the card itself has been
+    disabled). This matters for a presentation that disables the *card* itself
+    as the enable control for its content (e.g. `TopbarMDATabs`'s checkable
+    tabs, whose auto-wiring disables the tab's page widget directly) --
+    without it, the border would fade to near-invisible right when it matters
+    most, on an unchecked-but-still-viewable tab.
     """
 
     _RADIUS = 6
-    _BORDER_ALPHA = 70
+    _BORDER_ALPHA = 140
     _FILL_ALPHA = 14
+    _BORDER_WIDTH = 1.5
 
     def paintEvent(self, a0: QPaintEvent | None) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        text = self.palette().color(QPalette.ColorRole.Text)
+        text = self.palette().color(QPalette.ColorGroup.Active, QPalette.ColorRole.Text)
         border = QColor(text)
         border.setAlpha(self._BORDER_ALPHA)
         fill = QColor(text)
         fill.setAlpha(self._FILL_ALPHA)
-        painter.setPen(QPen(border, 1))
+        painter.setPen(QPen(border, self._BORDER_WIDTH))
         painter.setBrush(fill)
-        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        rect = QRectF(self.rect()).adjusted(0.75, 0.75, -0.75, -0.75)
         painter.drawRoundedRect(rect, self._RADIUS, self._RADIUS)
 
 
@@ -438,7 +443,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
     _AXES = (
         ("c", "Channels", "channels", 4, True),
         ("p", "Positions", "stage_positions", 1, False),
-        ("g", "Grid / Tile Scan", "grid_plan", 2, False),
+        ("g", "Grid/Tiles", "grid_plan", 2, False),
         ("z", "Z Stack", "z_plan", 3, False),
         ("t", "Time Series", "time_plan", 0, False),
     )
@@ -456,7 +461,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         self._widget_by_logical_index: dict[int, QWidget] = {}
         self._supporting_sections_added = False
         self._editor_enabled = True
-        self._restoring_roi_section = False
         super().__init__(parent, core)
 
         # ``_sections_ready`` is still False, so ``self.isChecked`` routes to the
@@ -639,37 +643,17 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         super().setValue(value)
         self.refresh_summaries()
 
-    def add_supporting_sections(
-        self,
-        *,
-        camera_roi: CameraRoiWidget,
-        save_info: SaveGroupBox,
-    ) -> None:
-        """Append Camera ROI and Saving sections after the five axes.
+    def add_supporting_sections(self, *, save_info: SaveGroupBox) -> None:
+        """Append the Saving section after the five axes.
 
         Global settings (axis order, keep shutter open, autofocus axis) are
-        not a collapsible section here -- ``MDAWidgetCollapsible`` places them
-        inline in its own footer instead (see
+        not a section: they have no on/off state and always apply, so there is
+        nothing for a disclosure affordance to reveal. ``MDAWidgetCollapsible``
+        keeps them in a card below the sections instead (see
         ``MDAWidgetCollapsible._install_layout``).
         """
         if self._supporting_sections_added:
             return
-
-        self.roi_section = CollapsibleAcquisitionSection(
-            "Camera ROI",
-            checked=False,
-            expanded=False,
-            metrics=self._metrics,
-            icon=MDA_ICONS.get("camera_roi"),
-            parent=self._content,
-        )
-        self.roi_section.setObjectName("mdaRoiSection")
-        self.roi_section.set_content_widget(self._wrap_in_card(camera_roi))
-        self.roi_section.checkedChanged.connect(self._on_roi_section_checked)
-        camera_roi.roiChanged.connect(self._on_roi_value_changed)
-        camera_roi.setEnabled(False)
-        self._camera_roi = camera_roi
-        self._content_layout.addWidget(self.roi_section)
 
         self.saving_section = CollapsibleAcquisitionSection(
             "Saving",
@@ -680,7 +664,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             parent=self._content,
         )
         self.saving_section.setObjectName("mdaSavingSection")
-        self.saving_section.set_content_widget(self._wrap_in_card(save_info))
+        self.saving_section.set_content_widget(self._wrap_in_card(save_info, margin=7))
         self.saving_section.checkedChanged.connect(save_info.setChecked)
         save_info.toggled.connect(self.saving_section.set_checked)
         save_info.valueChanged.connect(self._update_save_summary)
@@ -690,7 +674,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
 
         self._save_info = save_info
         self._supporting_sections_added = True
-        self._update_roi_summary()
         self._update_save_summary()
         self.apply_save_body_style()
 
@@ -713,60 +696,24 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             " width: 0px; height: 0px;"
             "}"
         )
+        # A QGroupBox's layout is inset all round to clear the frame and title
+        # it normally draws. With both hidden that inset is just dead space,
+        # stacked on top of the section body's own margins.
+        if (save_layout := self._save_info.layout()) is not None:
+            save_layout.setContentsMargins(0, 0, 0, 0)
 
     def refresh_summaries(self) -> None:
         """Refresh every summary from the original source widgets."""
         for widget in self._section_by_widget:
             self._update_axis_summary(widget)
         if self._supporting_sections_added:
-            self._update_roi_summary()
             self._update_save_summary()
-
-    def _on_roi_section_checked(self, checked: bool) -> None:
-        self._camera_roi.setEnabled(self._editor_enabled and checked)
-        if not checked and not self._restoring_roi_section:
-            # Mirrors MDAWidgetCollapsible._apply_camera_roi's prepare_mda-time
-            # reset, just triggered immediately so Live reflects "not using an
-            # ROI" right away instead of waiting for the next MDA run's own
-            # preflight. The planned ROI is restored into the editor right after,
-            # so re-checking still shows exactly what was configured before --
-            # only the real hardware moves, not the widget's remembered plan.
-            planned_roi = self._camera_roi.roiValue()
-            try:
-                self._camera_roi.applyFullFrame()
-            finally:
-                self._camera_roi.setRoiValue(planned_roi)
-        self._update_roi_summary()
-
-    def _on_roi_value_changed(
-        self, x: int, y: int, width: int, height: int, _mode: str
-    ) -> None:
-        self._update_roi_summary(x, y, width, height)
-
-    def _update_roi_summary(
-        self,
-        x: int | None = None,
-        y: int | None = None,
-        width: int | None = None,
-        height: int | None = None,
-    ) -> None:
-        if not self.roi_section.checked:
-            self.roi_section.set_summary("Off · Full chip", status=False)
-            return
-        if None in (x, y, width, height):
-            value = self._camera_roi.roiValue()
-            x = value["x"]
-            y = value["y"]
-            width = value["width"]
-            height = value["height"]
-        self.roi_section.set_summary(
-            f"On · {width} x {height} at ({x}, {y})", status=True
-        )
 
     def set_section_metrics(self, metrics: SectionMetrics) -> None:
         """Adopt new pixel sizes for every section and the content spacing."""
         self._metrics = metrics
         self._content_layout.setSpacing(metrics.content_spacing)
+        self._content_layout.setContentsMargins(3, 0, 3, 0)
         for section in self.sections:
             section.apply_metrics(metrics)
         # heights scale with the font, so re-derive the editor minimums too.
@@ -805,8 +752,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             section.set_checkbox_enabled(enabled)
             widget.setEnabled(enabled and bool(section.checked))
         if self._supporting_sections_added:
-            self.roi_section.set_checkbox_enabled(enabled)
-            self._camera_roi.setEnabled(enabled and bool(self.roi_section.checked))
             self.saving_section.set_checkbox_enabled(enabled)
             self._save_info.setEnabled(enabled)
 
@@ -923,21 +868,12 @@ class MDAWidgetCollapsible(MDAWidget):
     sections with a fixed execution footer instead of a checkable tab widget.
     """
 
-    roiSelectionRequested = Signal(bool)
-
     def __init__(
         self, *, parent: QWidget | None = None, mmcore: CMMCorePlus | None = None
     ) -> None:
         super().__init__(parent=parent, mmcore=mmcore)
-        self.camera_roi = CameraRoiWidget(
-            parent=self,
-            mmcore=self._mmc,
-            show_auto_snap=True,
-        )
-        self.camera_roi.snap_checkbox.setChecked(True)
-        self.camera_roi.roiChanged.connect(lambda *_args: self.valueChanged.emit())
-        self.camera_roi.roiSelectionRequested.connect(self.roiSelectionRequested.emit)
         self._footer_layout: QVBoxLayout | None = None
+        self._settings_row: QHBoxLayout | None = None
         self._install_layout()
 
     def _create_tab_widget(self) -> CoreMDATabs:
@@ -952,7 +888,7 @@ class MDAWidgetCollapsible(MDAWidget):
         return tabs
 
     def set_section_metrics(self, metrics: SectionMetrics) -> None:
-        """Adopt new pixel sizes for every section and the footer."""
+        """Adopt new pixel sizes for every section, the settings card and footer."""
         self.tabs.set_section_metrics(metrics)
         if self._footer_layout is not None:
             self._footer_layout.setContentsMargins(
@@ -961,69 +897,20 @@ class MDAWidgetCollapsible(MDAWidget):
                 metrics.footer_margin_h,
                 metrics.footer_margin_bottom,
             )
+        if self._settings_row is not None:
+            self._apply_settings_row_metrics(metrics)
 
-    def value(self) -> useq.MDASequence:
-        """Return the sequence with the planned camera ROI in widget metadata."""
-        value = super().value()
-        meta: dict = value.metadata.setdefault(PYMMCW_METADATA_KEY, {})
-        meta[CAMERA_ROI_METADATA_KEY] = {
-            "enabled": self.tabs.roi_section.checked,
-            **self.camera_roi.roiValue(),
-        }
-        return value
-
-    def setValue(self, value: useq.MDASequence) -> None:
-        """Restore the sequence and its planned ROI without changing hardware."""
-        super().setValue(value)
-        raw = value.metadata.get(PYMMCW_METADATA_KEY, {}).get(CAMERA_ROI_METADATA_KEY)
-        enabled = False
-        if isinstance(raw, Mapping):
-            try:
-                self.camera_roi.setRoiValue(raw)
-            except ValueError:
-                pass
-            else:
-                enabled = bool(raw.get("enabled", False))
-        # Restoring a saved sequence must not reach out and change live hardware
-        # as a side effect of setting the checkbox -- only an interactive uncheck
-        # should do that (see CollapsibleCoreMDATabs._on_roi_section_checked).
-        self.tabs._restoring_roi_section = True
-        try:
-            self.tabs.roi_section.set_checked(enabled)
-        finally:
-            self.tabs._restoring_roi_section = False
-        self.tabs.refresh_summaries()
-
-    def prepare_mda(self) -> bool | SingleOutput | None:
-        """Validate the MDA and apply its camera ROI once before acquisition."""
-        output = super().prepare_mda()
-        if isinstance(output, bool):
-            return output
-        self._apply_camera_roi()
-        return output
-
-    def _apply_camera_roi(self) -> None:
-        if not self.tabs.roi_section.checked:
-            planned_roi = self.camera_roi.roiValue()
-            try:
-                self.camera_roi.applyFullFrame()
-            finally:
-                # Full frame is a hardware preflight state, not a change to the
-                # ROI the user has configured for the next enabled acquisition.
-                self.camera_roi.setRoiValue(planned_roi)
-            return
-        roi = self.camera_roi.roiValue()
-        camera = roi["camera"]
-        if not camera:
-            return
-        requested = (roi["x"], roi["y"], roi["width"], roi["height"])
-        if tuple(self._mmc.getROI(camera)) != requested:
-            self._mmc.setROI(camera, *requested)
+    def _apply_settings_row_metrics(self, metrics: SectionMetrics) -> None:
+        """Inset the settings card to match the sections above it."""
+        if self._settings_row is not None:
+            self._settings_row.setContentsMargins(3, 10, 3, 10)
 
     def _enable_widgets(self, enable: bool) -> None:
         """Disable editors during an acquisition while keeping controls usable."""
         self.tabs.set_editor_enabled(enable)
-        self._settings_group.setEnabled(enable)
+        # The settings card lives outside `tabs` (see `_install_layout`), and
+        # this override replaces the base sweep that would otherwise reach it.
+        self._settings_box.setEnabled(enable)
         self._save_button.setEnabled(enable)
         self._load_button.setEnabled(enable)
 
@@ -1035,9 +922,29 @@ class MDAWidgetCollapsible(MDAWidget):
             raise RuntimeError("MDAWidget has no layout")
         _clear_layout(layout)
 
-        tabs.add_supporting_sections(
-            camera_roi=self.camera_roi, save_info=self.save_info
-        )
+        tabs.add_supporting_sections(save_info=self.save_info)
+
+        # Global settings are not a section: they have no on/off state and
+        # always apply, so there is nothing for a disclosure affordance to
+        # reveal. They sit in a card of their own between the sections and the
+        # footer instead -- always visible, however the sections are scrolled.
+        # Same painted card the section bodies use, rather than a QGroupBox
+        # (see `CollapsibleCoreMDATabs._wrap_in_card` for why).
+        self._settings_widget = settings_widget = QWidget()
+        settings_layout = QVBoxLayout(settings_widget)
+        settings_layout.setContentsMargins(5, 5, 5, 5)
+        settings_layout.setSpacing(5)
+        axis_row = QWidget()
+        axis_layout = QHBoxLayout(axis_row)
+        axis_layout.setContentsMargins(0, 0, 0, 0)
+        axis_layout.addWidget(self._axis_order_label)
+        self.axis_order.setMaximumWidth(100)
+        axis_layout.addWidget(self.axis_order)
+        axis_layout.addStretch()
+        settings_layout.addWidget(axis_row)
+        settings_layout.addWidget(self.keep_shutter_open)
+        settings_layout.addWidget(self.af_axis)
+        self._settings_box = tabs._wrap_in_card(settings_widget)
 
         metrics = tabs._metrics
         footer = QFrame()
@@ -1051,25 +958,6 @@ class MDAWidgetCollapsible(MDAWidget):
         )
         self._footer_layout = footer_layout
 
-        # Global settings live inline here, in a group box that only extends
-        # horizontally (its own natural, non-stretched height), instead of as
-        # their own collapsible section -- there's room for them here, and
-        # unlike a dimension they have no on/off state that would benefit
-        # from a disclosure affordance.
-        axis_row = QHBoxLayout()
-        axis_row.setContentsMargins(0, 0, 0, 0)
-        axis_row.addWidget(self._axis_order_label)
-        self.axis_order.setMaximumWidth(100)
-        axis_row.addWidget(self.axis_order)
-        axis_row.addStretch()
-
-        self._settings_group = settings_group = QGroupBox()
-        settings_layout = QVBoxLayout(settings_group)
-        settings_layout.addLayout(axis_row)
-        settings_layout.addWidget(self.keep_shutter_open)
-        settings_layout.addWidget(self.af_axis)
-        footer_layout.addWidget(settings_group)
-
         estimate_row = QHBoxLayout()
         estimate_row.addWidget(self._time_warning)
         estimate_row.addWidget(self._duration_label, 1)
@@ -1082,10 +970,19 @@ class MDAWidgetCollapsible(MDAWidget):
         actions_row.addWidget(self.control_btns)
         footer_layout.addLayout(actions_row)
 
+        # Line the card up with the sections above it, and keep it clear of
+        # both them and the footer. Kept on self so `set_section_metrics` can
+        # re-inset it -- otherwise it alone would keep the construction-time
+        # metrics while the sections moved to the caller's.
+        self._settings_row = settings_row = QHBoxLayout()
+        self._apply_settings_row_metrics(metrics)
+        settings_row.addWidget(self._settings_box)
+
         box = cast("QVBoxLayout", layout)
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(0)
         box.addWidget(tabs, 1)
+        box.addLayout(settings_row)
         box.addWidget(footer)
 
 

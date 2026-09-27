@@ -102,17 +102,6 @@ def test_load_camera_roi_widget(qtbot: QtBot, multi_cam_cfg: Path):
     assert not snap.isChecked()
     assert not crop.isEnabled()
 
-    assert cam.lbl_info.text() == "Size: 512 px * 512 px [512.0 µm * 512.0 µm]"
-    assert not cam.lbl_info.styleSheet()
-
-    assert cam.roiInfoVisible()
-    cam.setRoiInfoVisible(False)
-    assert not cam.roiInfoVisible()
-    assert cam._info_lbl_wdg.isHidden()
-    cam.setRoiInfoVisible(True)
-    assert cam.roiInfoVisible()
-    assert not cam._info_lbl_wdg.isHidden()
-
     cams_info = {
         "Camera": CameraInfo(
             pixel_width=512,
@@ -153,8 +142,6 @@ def test_preset_crop_mode(qtbot: QtBot, multi_cam_cfg: Path):
     # default core camera should not change
     assert mmc.getCameraDevice() == "Camera"
     assert cam.camera_roi_combo.currentText() == FULL
-    assert cam.lbl_info.text() == "Size: 512 px * 512 px [256.0 µm * 256.0 µm]"
-    assert not cam.lbl_info.styleSheet()
 
     cam.camera_roi_combo.setCurrentText("256 x 256")
 
@@ -169,8 +156,6 @@ def test_preset_crop_mode(qtbot: QtBot, multi_cam_cfg: Path):
     assert cbox.isChecked()
     assert snap.isHidden()
     assert not crop.isEnabled()
-    assert cam.lbl_info.text() == "Size: 256 px * 256 px [128.0 µm * 128.0 µm]"
-    assert not cam.lbl_info.styleSheet()
 
     assert cam.value()["Camera1"].roi == ROI(x=128, y=128, w=256, h=256, centered=True)
     assert cam.value()["Camera1"].crop_mode == "256 x 256"
@@ -199,8 +184,6 @@ def test_custom_crop_mode(qtbot: QtBot, multi_cam_cfg: Path):
     # default core camera should not change
     assert mmc.getCameraDevice() == "Camera"
     assert cam.camera_roi_combo.currentText() == FULL
-    assert cam.lbl_info.text() == "Size: 512 px * 512 px [128.0 µm * 128.0 µm]"
-    assert not cam.lbl_info.styleSheet()
 
     # set the crop mode to CUSTOM_ROI
     cam.camera_roi_combo.setCurrentText(CUSTOM_ROI)
@@ -220,8 +203,6 @@ def test_custom_crop_mode(qtbot: QtBot, multi_cam_cfg: Path):
     assert y.value() == 50  # 512 - 412 // 2
     assert x.maximum() == 12  # 512 - 500
     assert y.maximum() == 100  # 512 - 412
-    assert cam.lbl_info.text() == "Size: 500 px * 412 px [125.0 µm * 103.0 µm]"
-    assert cam.lbl_info.styleSheet() == "color: magenta;"
 
     # without pressing the crop button, the stored roi should not change
     assert cam.value()["Camera2"].roi == ROI(x=0, y=0, w=512, h=512, centered=True)
@@ -234,13 +215,10 @@ def test_custom_crop_mode(qtbot: QtBot, multi_cam_cfg: Path):
     assert cam.value()["Camera2"].roi == ROI(x=6, y=50, w=500, h=412, centered=True)
     assert cam.value()["Camera2"].crop_mode == CUSTOM_ROI
     assert tuple(mmc.getROI("Camera2")) == (6, 50, 500, 412)
-    assert not cam.lbl_info.styleSheet()
 
     # change the camera ROI with centered=False
     cbox.setChecked(False)
     w.setValue(412)
-    assert cam.lbl_info.text() == "Size: 412 px * 412 px [103.0 µm * 103.0 µm]"
-    assert cam.lbl_info.styleSheet() == "color: magenta;"
     assert tuple(mmc.getROI("Camera2")) == (6, 50, 500, 412)
 
     with qtbot.waitSignal(mmc.events.roiSet):
@@ -249,7 +227,6 @@ def test_custom_crop_mode(qtbot: QtBot, multi_cam_cfg: Path):
     assert cam.value()["Camera2"].roi == ROI(x=6, y=50, w=412, h=412, centered=False)
     assert cam.value()["Camera2"].crop_mode == CUSTOM_ROI
     assert tuple(mmc.getROI("Camera2")) == (6, 50, 412, 412)
-    assert not cam.lbl_info.styleSheet()
 
     assert cam.value()["Camera2"] == CameraInfo(
         pixel_width=512,
@@ -284,7 +261,6 @@ def test_core_setROI(qtbot: QtBot, multi_cam_cfg: Path):
     assert roi_combo.currentText() == CUSTOM_ROI
     assert not cbox.isChecked()
     assert crop.isEnabled()
-    assert not cam.lbl_info.styleSheet()
 
     # centered
     with qtbot.waitSignal(mmc.events.roiSet):
@@ -412,10 +388,8 @@ def test_config_load_pixel_size_event_before_camera_role(
     cam = CameraRoiWidget(mmcore=global_mmcore)
     qtbot.addWidget(cam)
     assert cam.camera == ""
-    assert cam.lbl_info.text() == ""
 
     global_mmcore.loadSystemConfiguration(config_path)
     qtbot.waitUntil(lambda: cam.camera == "Camera")
 
     assert cam.camera == "Camera"
-    assert cam.lbl_info.text() == "Size: 512 px * 512 px [512.0 µm * 512.0 µm]"

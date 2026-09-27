@@ -8,7 +8,6 @@ from ._channel_properties import (
     to_channel_properties_sequence,
 )
 from ._collapsible_mda import (
-    CAMERA_ROI_METADATA_KEY,
     CollapsibleAcquisitionSection,
     CollapsibleCoreMDATabs,
     MDAWidgetCollapsible,
@@ -16,10 +15,9 @@ from ._collapsible_mda import (
 )
 from ._core_channels import CoreConnectedChannelTable
 from ._core_mda import MDAWidget
-from ._sidebar_mda import MDAWidgetSidebar, SidebarMDATabs, SidebarRow
+from ._topbar_mda import MDAWidgetTopbar, TopbarMDATabs
 
 __all__ = [
-    "CAMERA_ROI_METADATA_KEY",
     "CHANNEL_PROPERTIES_KEY",
     "ChannelPropertiesSequence",
     "ChannelProperty",
@@ -28,10 +26,9 @@ __all__ = [
     "CoreConnectedChannelTable",
     "MDAWidget",
     "MDAWidgetCollapsible",
-    "MDAWidgetSidebar",
+    "MDAWidgetTopbar",
     "SectionMetrics",
-    "SidebarMDATabs",
-    "SidebarRow",
+    "TopbarMDATabs",
     "channel_properties",
     "to_channel_properties_sequence",
 ]

@@ -100,7 +100,7 @@ class MDATabs(CheckableTabWidget):
 
         self.addTab(self.time_plan, "Time", checked=False)
         self.addTab(self.stage_positions, "Positions", checked=False)
-        self.addTab(self.grid_plan, "Grid", checked=False)
+        self.addTab(self.grid_plan, "Grid/Tiles", checked=False)
         self.addTab(self.z_plan, "Z Stack", checked=False)
         self.addTab(self.channels, "Channels", checked=False)
         self.setCurrentIndex(self.indexOf(self.channels))
@@ -354,7 +354,7 @@ class MDASequenceWidget(QWidget):
 
         # Stored on self (rather than an anonymous QLabel) so a subclass that
         # rebuilds this layout from scratch (e.g. MDAWidgetCollapsible,
-        # MDAWidgetSidebar) can move -- not duplicate -- it into its own
+        # MDAWidgetTopbar) can move -- not duplicate -- it into its own
         # layout. A layout only manages widgets added to it; one dropped by
         # clearing a layout without also being re-added elsewhere is not
         # deleted or hidden, just orphaned at its last position, silently

@@ -11,7 +11,7 @@ import useq
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtWidgets import QApplication
 
-from pymmcore_widgets import MDAWidgetSidebar
+from pymmcore_widgets import MDAWidgetTopbar
 
 with suppress(ImportError):
     from rich import print
@@ -21,7 +21,7 @@ app = QApplication([])
 mmc = CMMCorePlus.instance()
 mmc.loadSystemConfiguration()
 
-wdg = MDAWidgetSidebar()
+wdg = MDAWidgetTopbar()
 wdg.channels.setChannelGroups({"Channel": ["DAPI", "FITC"]})
 wdg.time_plan.setValue(useq.TIntervalLoops(interval=0.5, loops=11))
 wdg.valueChanged.connect(lambda: print(wdg.value()))
