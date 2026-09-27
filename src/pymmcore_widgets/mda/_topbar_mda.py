@@ -538,11 +538,6 @@ class TopbarMDATabs(CoreMDATabs):
             " width: 0px; height: 0px;"
             "}"
         )
-        # A QGroupBox's layout is inset all round to clear the frame and title
-        # it normally draws. With both hidden that inset is just dead space,
-        # stacked on top of the card's own margin.
-        if (save_layout := self._save_info.layout()) is not None:
-            save_layout.setContentsMargins(0, 0, 0, 0)
 
     def _enable_tabs(self, enable: bool) -> None:
         """Enable or disable every tab's checkbox and content.

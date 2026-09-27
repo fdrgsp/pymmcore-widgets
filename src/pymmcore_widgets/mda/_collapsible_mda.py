@@ -696,11 +696,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             " width: 0px; height: 0px;"
             "}"
         )
-        # A QGroupBox's layout is inset all round to clear the frame and title
-        # it normally draws. With both hidden that inset is just dead space,
-        # stacked on top of the section body's own margins.
-        if (save_layout := self._save_info.layout()) is not None:
-            save_layout.setContentsMargins(0, 0, 0, 0)
 
     def refresh_summaries(self) -> None:
         """Refresh every summary from the original source widgets."""
