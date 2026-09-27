@@ -199,7 +199,7 @@ class CameraRoiWidget(QWidget):
 
         self.select_roi_btn = QPushButton("Select in Live View")
         self.select_roi_btn.setIcon(
-            QIconifyIcon("fluent:camera-24-regular", color="green")
+            QIconifyIcon("fluent:video-24-regular", color="green")
         )
         self.select_roi_btn.setIconSize(QSize(24, 24))
         self.select_roi_btn.setCheckable(True)
