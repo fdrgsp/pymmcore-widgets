@@ -198,15 +198,10 @@ class CameraRoiWidget(QWidget):
         self.crop_btn.setIconSize(QSize(24, 24))
 
         self.select_roi_btn = QPushButton("Select in Live View")
-        self.select_roi_btn.setIcon(
-            QIconifyIcon("fluent:video-24-regular", color="green")
-        )
         self.select_roi_btn.setIconSize(QSize(24, 24))
         self.select_roi_btn.setCheckable(True)
-        self.select_roi_btn.setToolTip(
-            "Open the live preview and select the camera ROI on the image"
-        )
         self.select_roi_btn.setVisible(show_live_selection)
+        self._update_live_selection_button(False)
 
         _bottom_layout.addWidget(self.snap_checkbox)
         _bottom_layout.addStretch()
@@ -230,6 +225,9 @@ class CameraRoiWidget(QWidget):
         self.start_y.valueChanged.connect(self._on_start_spinbox_changed)
         self.crop_btn.clicked.connect(self._on_crop_button_clicked)
         self.select_roi_btn.toggled.connect(self.roiSelectionRequested.emit)
+        # `setLiveSelectionActive` covers a host driving the state; this covers
+        # a direct click, including with no host connected at all.
+        self.select_roi_btn.toggled.connect(self._update_live_selection_button)
 
         self.destroyed.connect(self._disconnect)
 
@@ -361,6 +359,23 @@ class CameraRoiWidget(QWidget):
         """Update the live-selection button without emitting a new request."""
         with signals_blocked(self.select_roi_btn):
             self.select_roi_btn.setChecked(active)
+        self._update_live_selection_button(active)
+
+    def _update_live_selection_button(self, active: bool) -> None:
+        """Show what a click does next, the way a live button does.
+
+        A selection session puts the preview into live mode, so while one is
+        running the action on offer is "stop" -- same red video-off glyph the
+        host's own live toggle uses for that state.
+        """
+        if active:
+            icon, color = "fluent:video-off-24-regular", "red"
+            tooltip = "Stop selecting the camera ROI in the live preview"
+        else:
+            icon, color = "fluent:video-24-regular", "green"
+            tooltip = "Open the live preview and select the camera ROI on the image"
+        self.select_roi_btn.setIcon(QIconifyIcon(icon, color=color))
+        self.select_roi_btn.setToolTip(tooltip)
 
     def setRoiSelectionAvailable(self, available: bool) -> None:
         """Show the live-selection action when a host has connected a viewer."""
