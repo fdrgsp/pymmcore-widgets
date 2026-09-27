@@ -337,6 +337,7 @@ class DataTableWidget(QWidget):
         self._toolbar.addWidget(spacer)
 
         # add actions (makes them QToolButtons)
+        self._toolbar.addSeparator()  # ------------
         self._toolbar.addAction(self.act_add_row)
         self._toolbar.addAction(self.act_move_up)
         self._toolbar.addAction(self.act_move_down)
