@@ -21,9 +21,12 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
 from pymmcore_widgets._util import ResizingGraphicsView
+
+from ._custom_plate_widget import CustomPlateWidget, register_custom_plates
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -73,9 +76,13 @@ class WellPlateWidget(QWidget):
     ) -> None:
         super().__init__(parent)
 
+        # pick up any custom plates the user has created/saved on a previous run
+        register_custom_plates()
+
         self._plate: useq.WellPlate | None = None
         self._a1_center_xy: tuple[float, float] = (0.0, 0.0)
         self._rotation: float | None = None
+        self._custom_plate_dlg: CustomPlateWidget | None = None
 
         # WIDGETS ---------------------------------------
 
@@ -83,6 +90,14 @@ class WellPlateWidget(QWidget):
         self.plate_name = QComboBox()
         plate_names = sorted(useq.registered_well_plate_keys(), key=_sort_plate)
         self.plate_name.addItems(plate_names)
+
+        # button to create/edit/delete custom plates
+        self._custom_plate_button = QPushButton()
+        self._custom_plate_button.setIcon(QIconifyIcon("mdi:plus-box-outline"))
+        self._custom_plate_button.setToolTip(
+            "Create, edit, or delete a custom plate..."
+        )
+        self._custom_plate_button.setAutoDefault(False)
 
         # clear selection button
         self._clear_button = QPushButton(text="Clear Selection")
@@ -103,6 +118,7 @@ class WellPlateWidget(QWidget):
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.addWidget(QLabel("WellPlate:"), 0)
         top_layout.addWidget(self.plate_name, 1)
+        top_layout.addWidget(self._custom_plate_button, 0)
         top_layout.addWidget(self._clear_button, 0)
 
         main_layout = QVBoxLayout(self)
@@ -116,6 +132,7 @@ class WellPlateWidget(QWidget):
         self._clear_button.clicked.connect(self._view.clearSelection)
         self.plate_name.currentTextChanged.connect(self._on_plate_name_changed)
         self._show_rotation_cb.toggled.connect(self._update_view)
+        self._custom_plate_button.clicked.connect(self._show_custom_plate_dialog)
 
         if plan:
             self.setValue(plan)
@@ -213,6 +230,39 @@ class WellPlateWidget(QWidget):
         val = self.value().model_copy(update={"plate": plate, "selected_wells": None})
         self.setValue(val)
         self.valueChanged.emit(self.value())
+
+    def _show_custom_plate_dialog(self) -> None:
+        if self._custom_plate_dlg is None:
+            self._custom_plate_dlg = CustomPlateWidget(self)
+            self._custom_plate_dlg.plateSaved.connect(self._on_custom_plate_saved)
+            self._custom_plate_dlg.plateDeleted.connect(self._on_custom_plate_deleted)
+        self._custom_plate_dlg.show()
+        self._custom_plate_dlg.raise_()
+        self._custom_plate_dlg.activateWindow()
+
+    def _on_custom_plate_saved(self, plate_name: str) -> None:
+        """Refresh the combobox and select the plate that was just saved."""
+        with signals_blocked(self.plate_name):
+            self.plate_name.clear()
+            names = sorted(useq.registered_well_plate_keys(), key=_sort_plate)
+            self.plate_name.addItems(names)
+            self.plate_name.setCurrentText(plate_name)
+        self._on_plate_name_changed(plate_name)
+
+    def _on_custom_plate_deleted(self, plate_name: str) -> None:
+        """Refresh the combobox, falling back off a plate that was just deleted."""
+        previous = self.plate_name.currentText()
+        names = sorted(useq.registered_well_plate_keys(), key=_sort_plate)
+        if previous != plate_name and previous in names:
+            target = previous
+        else:
+            target = names[0] if names else ""
+        with signals_blocked(self.plate_name):
+            self.plate_name.clear()
+            self.plate_name.addItems(names)
+            self.plate_name.setCurrentText(target)
+        if target:
+            self._on_plate_name_changed(target)
 
 
 class HoverEllipse(QGraphicsEllipseItem):

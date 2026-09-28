@@ -10,6 +10,7 @@ from ._column_info import (
     TextColumn,
     TimeDeltaColumn,
 )
+from ._custom_plate_widget import CustomPlateWidget
 from ._data_table import DataTable, DataTableWidget
 from ._grid import GridPlanWidget
 from ._mda_sequence import PYMMCW_METADATA_KEY, MDASequenceWidget
@@ -25,6 +26,7 @@ __all__ = [
     "ChannelTable",
     "ChoiceColumn",
     "ComboColumn",
+    "CustomPlateWidget",
     "DataTable",
     "DataTableWidget",
     "FloatColumn",
