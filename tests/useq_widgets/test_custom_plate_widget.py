@@ -22,12 +22,13 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 def _cleanup_registry() -> None:
-    # `useq.register_well_plates` mutates a module-level dict; make sure any
-    # plate keys we create here don't leak into other tests.
-    before = set(_PLATE_REGISTRY)
+    # `useq.register_well_plates` mutates a module-level dict, and this widget
+    # can now delete built-ins from it too - snapshot and fully restore so
+    # nothing leaks into (or goes missing from) other tests.
+    before = dict(_PLATE_REGISTRY)
     yield
-    for key in set(_PLATE_REGISTRY) - before:
-        _PLATE_REGISTRY.pop(key, None)
+    _PLATE_REGISTRY.clear()
+    _PLATE_REGISTRY.update(before)
 
 
 def _set_form(
@@ -77,31 +78,81 @@ def test_custom_plate_widget_save_and_persist(
     assert "my-custom-plate" in dlg2._db
 
 
-def test_custom_plate_widget_rejects_builtin_name(
+def test_custom_plate_widget_lists_and_allows_editing_builtins(
     qtbot: QtBot, tmp_path: Path, _cleanup_registry: None
 ) -> None:
+    """The list shows every registered plate, not just ones saved locally.
+
+    Built-ins are listed alongside custom plates, and are just as editable
+    and deletable - nothing here is read-only.
+    """
     dlg = CustomPlateWidget(plate_db_path=tmp_path / "db.json")
     qtbot.addWidget(dlg)
 
-    _set_form(dlg, name="96-well")
-    with patch.object(QMessageBox, "warning") as mock_warning:
+    names = []
+    for i in range(dlg._plate_list.count()):
+        row = dlg._plate_list.item(i)
+        assert row is not None
+        names.append(row.text())
+    assert "96-well" in names
+    assert "6-well" in names
+
+    item = dlg._plate_list.findItems("96-well", Qt.MatchFlag.MatchExactly)[0]
+    dlg._plate_list.setCurrentItem(item)
+
+    assert dlg._delete_btn.isEnabled()
+    assert dlg._name.text() == "96-well"
+    assert dlg._rows.value() == 8
+    assert dlg._columns.value() == 12
+
+    # editing and re-saving the selected built-in is an in-place edit (no
+    # confirmation), and persists the override into this dialog's own db
+    dlg._rows.setValue(1)
+    with patch.object(QMessageBox, "question") as mock_question:
         dlg._on_save_clicked()
-    mock_warning.assert_called_once()
+    mock_question.assert_not_called()
+    assert dlg._db["96-well"]["rows"] == 1
+    assert useq.WellPlate.from_str("96-well").rows == 1
+
+    # and it can be deleted like any other plate
+    yes = QMessageBox.StandardButton.Yes
+    with patch.object(QMessageBox, "question", return_value=yes):
+        dlg._on_delete_clicked()
     assert "96-well" not in dlg._db
+    assert "96-well" not in useq.registered_well_plate_keys()
+
+
+def test_custom_plate_widget_new_plates_go_on_top(
+    qtbot: QtBot, tmp_path: Path, _cleanup_registry: None
+) -> None:
+    """Custom plates are listed above built-ins, most recently saved first."""
+    dlg = CustomPlateWidget(plate_db_path=tmp_path / "db.json")
+    qtbot.addWidget(dlg)
+
+    _set_form(dlg, name="plate-a")
+    dlg._save_btn.click()
+    dlg._new_btn.click()
+    _set_form(dlg, name="plate-b")
+    dlg._save_btn.click()
+
+    top_two = [dlg._plate_list.item(0).text(), dlg._plate_list.item(1).text()]  # type: ignore[union-attr]
+    assert top_two == ["plate-b", "plate-a"]
+
+    # built-ins still appear, but after the custom plates
+    rest = [
+        dlg._plate_list.item(i).text()  # type: ignore[union-attr]
+        for i in range(2, dlg._plate_list.count())
+    ]
+    assert "96-well" in rest
 
 
 def test_custom_plate_widget_can_reclaim_name_registered_elsewhere(
     qtbot: QtBot, tmp_path: Path, _cleanup_registry: None
 ) -> None:
     """A name already live-registered with useq (e.g. by another
-    CustomPlateWidget instance/process in the same session) but that isn't
-    one of useq's *true* built-ins, and isn't in this dialog's own db yet,
-    must still be savable - not rejected as a "built-in name" clash.
-
-    Regression test: the guard used to compare against
-    `useq.registered_well_plate_keys()` (which includes every custom plate
-    ever registered by anyone), so a custom name registered elsewhere looked
-    indistinguishable from a real built-in and got silently rejected.
+    CustomPlateWidget instance/process in the same session), but that isn't in
+    *this* dialog's own db yet, is treated like any other name clash: confirm,
+    then overwrite - it's savable, just not silently.
     """
     useq.register_well_plates(
         {
@@ -119,10 +170,59 @@ def test_custom_plate_widget_can_reclaim_name_registered_elsewhere(
     assert "shared-plate" not in dlg._db
 
     _set_form(dlg, name="shared-plate")
-    with patch.object(QMessageBox, "warning") as mock_warning:
+    yes = QMessageBox.StandardButton.Yes
+    with patch.object(QMessageBox, "question", return_value=yes) as mock_question:
         dlg._on_save_clicked()
-    mock_warning.assert_not_called()
+    mock_question.assert_called_once()
     assert "shared-plate" in dlg._db
+
+
+def test_custom_plate_widget_prompts_before_overwrite(
+    qtbot: QtBot, tmp_path: Path, _cleanup_registry: None
+) -> None:
+    """Saving a name that collides with a *different* existing plate asks first."""
+    dlg = CustomPlateWidget(plate_db_path=tmp_path / "db.json")
+    qtbot.addWidget(dlg)
+
+    _set_form(dlg, name="plate-a", rows=2, columns=2)
+    dlg._save_btn.click()
+
+    # start a new (unselected) entry that happens to reuse "plate-a"
+    dlg._new_btn.click()
+    _set_form(dlg, name="plate-a", rows=9, columns=9)
+
+    # decline the overwrite -> nothing changes
+    no = QMessageBox.StandardButton.No
+    with patch.object(QMessageBox, "question", return_value=no):
+        dlg._on_save_clicked()
+    assert dlg._db["plate-a"]["rows"] == 2
+
+    # accept the overwrite -> the new values win
+    yes = QMessageBox.StandardButton.Yes
+    with patch.object(QMessageBox, "question", return_value=yes) as mock_question:
+        dlg._on_save_clicked()
+    mock_question.assert_called_once()
+    assert dlg._db["plate-a"]["rows"] == 9
+
+
+def test_custom_plate_widget_editing_selected_plate_does_not_prompt(
+    qtbot: QtBot, tmp_path: Path, _cleanup_registry: None
+) -> None:
+    """Re-saving the currently *selected* plate (an in-place edit) is silent."""
+    dlg = CustomPlateWidget(plate_db_path=tmp_path / "db.json")
+    qtbot.addWidget(dlg)
+
+    _set_form(dlg, name="plate-a", rows=2, columns=2)
+    dlg._save_btn.click()
+    current = dlg._plate_list.currentItem()
+    assert current is not None
+    assert current.text() == "plate-a"
+
+    dlg._rows.setValue(7)
+    with patch.object(QMessageBox, "question") as mock_question:
+        dlg._on_save_clicked()
+    mock_question.assert_not_called()
+    assert dlg._db["plate-a"]["rows"] == 7
 
 
 def test_custom_plate_widget_delete(
@@ -171,7 +271,9 @@ def test_custom_plate_widget_reselect_after_new(
     assert dlg._plate_list.currentItem() is None
     assert not dlg._delete_btn.isEnabled()
 
-    item = dlg._plate_list.item(0)
+    # the list now also contains useq's built-ins, so look up "plate-a" by
+    # name rather than assuming it's the first row
+    item = dlg._plate_list.findItems("plate-a", Qt.MatchFlag.MatchExactly)[0]
     rect = dlg._plate_list.visualItemRect(item)
     qtbot.mouseClick(
         dlg._plate_list.viewport(), Qt.MouseButton.LeftButton, pos=rect.center()
