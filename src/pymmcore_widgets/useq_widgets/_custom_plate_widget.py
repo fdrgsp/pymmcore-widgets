@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import useq
 from platformdirs import user_data_dir
-from qtpy.QtCore import Qt, Signal
+from qtpy.QtCore import Qt, QTimer, Signal
 from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -326,6 +326,14 @@ class CustomPlateWidget(QDialog):
         # the rows were repopulated with signals blocked, so ask the view for a
         # relayout/repaint explicitly rather than relying on it having noticed
         self._plate_list.viewport().update()
+        # ...and again on the next event loop pass. scrollToItem() below scrolls
+        # by blitting the viewport and repainting only the newly exposed strip;
+        # done synchronously inside a button handler that also triggers a large
+        # signal cascade, that leaves a garbled frame on screen (rows repeated,
+        # the new row missing) even though the model and selection are correct.
+        # A full repaint once the cascade has unwound is what actually settles
+        # it -- update() alone, called at any point during the handler, doesn't.
+        QTimer.singleShot(0, self._repaint_list)
         if select:
             items = self._plate_list.findItems(select, Qt.MatchFlag.MatchExactly)
             if items:
@@ -340,6 +348,9 @@ class CustomPlateWidget(QDialog):
                 self._plate_list.setFocus()
                 return
         self._delete_btn.setEnabled(self._plate_list.currentItem() is not None)
+
+    def _repaint_list(self) -> None:
+        self._plate_list.viewport().update()
 
     def _update_preview(self) -> None:
         try:
