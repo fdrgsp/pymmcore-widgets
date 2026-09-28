@@ -143,7 +143,7 @@ class CustomPlateWidget(QDialog):
         self._plate_list.setMinimumHeight(140)
 
         self._name = QLineEdit()
-        self._circular = QCheckBox("Circular Wells")
+        self._circular = QCheckBox("Circular")
         self._circular.setChecked(True)
 
         self._rows = QSpinBox()
@@ -202,10 +202,10 @@ class CustomPlateWidget(QDialog):
             btn_row_layout.addWidget(btn, 1)
 
         rows = [
-            _labeled_row("Name:", self._name),
-            _labeled_row("", self._circular),
-            _labeled_row("Rows:", self._rows),
-            _labeled_row("Columns:", self._columns),
+            _labeled_row("Plate Name:", self._name),
+            _labeled_row("Number of Rows:", self._rows),
+            _labeled_row("Number of Columns:", self._columns),
+            _labeled_row("Well Shape:", self._circular),
             _labeled_row("Well Size x (mm):", self._well_size_x),
             _labeled_row("Well Size y (mm):", self._well_size_y),
             _labeled_row("Well Spacing x (mm):", self._spacing_x),
