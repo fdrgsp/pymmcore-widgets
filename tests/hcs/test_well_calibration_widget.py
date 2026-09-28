@@ -5,9 +5,11 @@ from unittest.mock import patch
 
 import pytest
 
+from pymmcore_widgets._util import GREEN
 from pymmcore_widgets.hcs._well_calibration_widget import (
     COMBO_ROLE,
     MODES,
+    YELLOW,
     Mode,
     WellCalibrationWidget,
 )
@@ -16,9 +18,6 @@ if TYPE_CHECKING:
     from pymmcore_plus import CMMCorePlus
     from pytestqt.qtbot import QtBot
     from qtpy.QtWidgets import QLabel
-
-YELLOW = "#ffff00"
-GREEN = "#00ff00"
 
 
 def get_icon_color(qlabel: QLabel):

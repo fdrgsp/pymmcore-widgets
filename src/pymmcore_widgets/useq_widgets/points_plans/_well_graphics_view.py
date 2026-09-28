@@ -9,7 +9,7 @@ from qtpy.QtGui import QColor, QPainter, QPen
 from qtpy.QtWidgets import QGraphicsItem, QGraphicsScene, QWidget
 from useq import Shape
 
-from pymmcore_widgets._util import ResizingGraphicsView
+from pymmcore_widgets._util import GREEN, ResizingGraphicsView
 
 if TYPE_CHECKING:
     from qtpy.QtGui import QMouseEvent
@@ -104,7 +104,7 @@ class WellView(ResizingGraphicsView):
         if (rect := self._well_rect()).isNull():
             return
 
-        pen = QPen(QColor(Qt.GlobalColor.green))
+        pen = QPen(QColor(GREEN))
         pen.setWidth(self._scaled_pen_size())
         pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
 

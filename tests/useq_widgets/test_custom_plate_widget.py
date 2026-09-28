@@ -114,6 +114,38 @@ def test_custom_plate_widget_delete(
     assert "to-delete" not in load_custom_plate_database(db_path)
 
 
+def test_custom_plate_widget_reselect_after_new(
+    qtbot: QtBot, tmp_path: Path, _cleanup_registry: None
+) -> None:
+    """Clicking New, then re-clicking the same item, should re-enable Delete.
+
+    Regression test: `clearSelection()` alone doesn't reset QListWidget's
+    "current" item, so re-clicking the same (already-current) row silently
+    failed to re-fire `currentTextChanged`, leaving Delete stuck disabled.
+    """
+    db_path = tmp_path / "db.json"
+    dlg = CustomPlateWidget(plate_db_path=db_path)
+    qtbot.addWidget(dlg)
+    dlg.show()
+
+    _set_form(dlg, name="plate-a")
+    dlg._save_btn.click()
+    assert dlg._delete_btn.isEnabled()
+
+    dlg._new_btn.click()
+    assert dlg._plate_list.currentItem() is None
+    assert not dlg._delete_btn.isEnabled()
+
+    item = dlg._plate_list.item(0)
+    rect = dlg._plate_list.visualItemRect(item)
+    qtbot.mouseClick(
+        dlg._plate_list.viewport(), Qt.MouseButton.LeftButton, pos=rect.center()
+    )
+
+    assert dlg._plate_list.currentItem() is item
+    assert dlg._delete_btn.isEnabled()
+
+
 def test_well_plate_widget_picks_up_custom_plate(
     qtbot: QtBot, tmp_path: Path, _cleanup_registry: None
 ) -> None:

@@ -153,6 +153,7 @@ class CustomPlateWidget(QDialog):
 
         self._preview = WellPlateView()
         self._preview.setSelectionMode(WellPlateView.SelectionMode.NoSelection)
+        self._preview.setDragMode(WellPlateView.DragMode.NoDrag)
         self._preview.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
@@ -254,7 +255,11 @@ class CustomPlateWidget(QDialog):
 
     def _clear_form(self) -> None:
         with signals_blocked(self._plate_list):
-            self._plate_list.clearSelection()
+            # clearSelection() alone only removes the highlight; it leaves the
+            # list's "current" item in place, so re-clicking that same item
+            # afterwards wouldn't re-fire currentTextChanged. setCurrentRow(-1)
+            # actually clears it, so any later click is seen as a real change.
+            self._plate_list.setCurrentRow(-1)
         self._delete_btn.setEnabled(False)
         self._set_form(
             useq.WellPlate(
@@ -271,6 +276,11 @@ class CustomPlateWidget(QDialog):
             items = self._plate_list.findItems(select, Qt.MatchFlag.MatchExactly)
             if items:
                 self._plate_list.setCurrentItem(items[0])
+                # give the list keyboard focus so the new selection renders with
+                # the "active" highlight color; otherwise (e.g. on macOS) an
+                # unfocused selection can render as a pale highlight with white
+                # text, making the newly-saved item look like it isn't there
+                self._plate_list.setFocus()
                 return
         self._delete_btn.setEnabled(bool(self._plate_list.currentItem()))
 

@@ -7,6 +7,7 @@ import numpy as np
 import useq
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import Qt, Signal
+from qtpy.QtGui import QColor
 from qtpy.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
@@ -20,10 +21,9 @@ from qtpy.QtWidgets import (
 )
 from superqt.iconify import QIconifyIcon
 
-from pymmcore_widgets._util import SeparatorWidget
+from pymmcore_widgets._util import GREEN, SeparatorWidget
 from pymmcore_widgets.hcs._well_calibration_widget import (
     CALIBRATED_ICON,
-    GREEN,
     WellCalibrationWidget,
 )
 from pymmcore_widgets.useq_widgets._well_plate_widget import WellPlateView
@@ -425,7 +425,7 @@ class PlateCalibrationWidget(QWidget):
             if calibrated and (well_calib_wdg := self._current_calibration_widget()):
                 if center := well_calib_wdg.wellCenter():
                     self._calibrated_wells[idx] = center
-                    self._plate_view.setWellColor(*idx, Qt.GlobalColor.green)
+                    self._plate_view.setWellColor(*idx, QColor(GREEN))
             else:
                 self._calibrated_wells.pop(idx, None)
                 self._plate_view.setWellColor(*idx, None)

@@ -24,7 +24,7 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
-from pymmcore_widgets._util import ResizingGraphicsView
+from pymmcore_widgets._util import GREEN, ResizingGraphicsView
 
 from ._custom_plate_widget import CustomPlateWidget, register_custom_plates
 
@@ -92,8 +92,8 @@ class WellPlateWidget(QWidget):
         self.plate_name.addItems(plate_names)
 
         # button to create/edit/delete custom plates
-        self._custom_plate_button = QPushButton()
-        self._custom_plate_button.setIcon(QIconifyIcon("mdi:plus-box-outline"))
+        self._custom_plate_button = QPushButton("Custom")
+        self._custom_plate_button.setIcon(QIconifyIcon("mdi:plus-thick"))
         self._custom_plate_button.setToolTip(
             "Create, edit, or delete a custom plate..."
         )
@@ -269,7 +269,7 @@ class HoverEllipse(QGraphicsEllipseItem):
     def __init__(self, rect: QRectF, parent: QGraphicsItem | None = None):
         super().__init__(rect, parent)
         self.setAcceptHoverEvents(True)
-        self._selected_color = Qt.GlobalColor.green
+        self._selected_color = QColor(GREEN)
         self._unselected_color = Qt.GlobalColor.black
         self.setBrush(self._unselected_color)
 
@@ -300,7 +300,7 @@ class WellPlateView(ResizingGraphicsView):
         self._scene = QGraphicsScene()
         super().__init__(self._scene, parent)
         self._selection_mode = QAbstractItemView.SelectionMode.MultiSelection
-        self._selected_color = Qt.GlobalColor.green
+        self._selected_color: QColor | Qt.GlobalColor = QColor(GREEN)
         self._unselected_color = Qt.GlobalColor.transparent
         self._draw_labels: bool = True
         self._draw_well_edge_spots: bool = False
@@ -329,11 +329,11 @@ class WellPlateView(ResizingGraphicsView):
         # whether option/alt is pressed at the time of the mouse press
         self._is_removing = False
 
-    def setSelectedColor(self, color: Qt.GlobalColor) -> None:
+    def setSelectedColor(self, color: QColor | Qt.GlobalColor) -> None:
         """Set the color of the selected wells."""
         self._selected_color = color
 
-    def selectedColor(self) -> Qt.GlobalColor:
+    def selectedColor(self) -> QColor | Qt.GlobalColor:
         """Return the color of the selected wells."""
         return self._selected_color
 
@@ -613,7 +613,9 @@ class WellPlateView(ResizingGraphicsView):
         height = int(width // aspect)
         return QSize(width, height)
 
-    def setWellColor(self, row: int, col: int, color: Qt.GlobalColor | None) -> None:
+    def setWellColor(
+        self, row: int, col: int, color: QColor | Qt.GlobalColor | None
+    ) -> None:
         """Set the color of the well at the given row and column.
 
         This overrides any selection color.  If `color` is None, the well color is

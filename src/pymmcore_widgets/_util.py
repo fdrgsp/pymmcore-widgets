@@ -225,6 +225,9 @@ def disable_wheel_scroll_recursive(widget: QWidget) -> None:
         disable_wheel_scroll(target)
 
 
+GREEN = "#4caf50"
+
+
 class SeparatorWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
