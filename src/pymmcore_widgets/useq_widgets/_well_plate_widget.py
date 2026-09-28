@@ -484,9 +484,11 @@ class WellPlateView(ResizingGraphicsView):
         font = QFont()
         font.setPixelSize(int(min(6000, well_rect.width() / 2.5)))
 
-        # Since most plates have the same extent, a constant pen width seems to work
+        # a cosmetic pen keeps a constant on-screen thickness no matter the plate's
+        # physical scale or how far the view is zoomed out to fit it
         pen = QPen(Qt.GlobalColor.black)
-        pen.setWidth(200)
+        pen.setCosmetic(True)
+        pen.setWidthF(2)
 
         self.clear()
         indices = plan.all_well_indices.reshape(-1, 2)
