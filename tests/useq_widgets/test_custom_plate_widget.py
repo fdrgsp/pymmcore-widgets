@@ -90,6 +90,41 @@ def test_custom_plate_widget_rejects_builtin_name(
     assert "96-well" not in dlg._db
 
 
+def test_custom_plate_widget_can_reclaim_name_registered_elsewhere(
+    qtbot: QtBot, tmp_path: Path, _cleanup_registry: None
+) -> None:
+    """A name already live-registered with useq (e.g. by another
+    CustomPlateWidget instance/process in the same session) but that isn't
+    one of useq's *true* built-ins, and isn't in this dialog's own db yet,
+    must still be savable - not rejected as a "built-in name" clash.
+
+    Regression test: the guard used to compare against
+    `useq.registered_well_plate_keys()` (which includes every custom plate
+    ever registered by anyone), so a custom name registered elsewhere looked
+    indistinguishable from a real built-in and got silently rejected.
+    """
+    useq.register_well_plates(
+        {
+            "shared-plate": {
+                "rows": 2,
+                "columns": 2,
+                "well_spacing": 1.0,
+                "well_size": 1.0,
+            }
+        }
+    )
+
+    dlg = CustomPlateWidget(plate_db_path=tmp_path / "db.json")
+    qtbot.addWidget(dlg)
+    assert "shared-plate" not in dlg._db
+
+    _set_form(dlg, name="shared-plate")
+    with patch.object(QMessageBox, "warning") as mock_warning:
+        dlg._on_save_clicked()
+    mock_warning.assert_not_called()
+    assert "shared-plate" in dlg._db
+
+
 def test_custom_plate_widget_delete(
     qtbot: QtBot, tmp_path: Path, _cleanup_registry: None
 ) -> None:

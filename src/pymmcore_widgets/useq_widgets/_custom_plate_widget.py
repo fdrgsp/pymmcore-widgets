@@ -38,6 +38,14 @@ DEFAULT_CUSTOM_PLATE_DB_PATH = (
     Path(user_data_dir(appname="pymmcore-widgets")) / "custom_well_plates.json"
 )
 
+# useq's own shipped plate names, captured here (at import time, before any
+# custom plate could have been registered by this or any other widget
+# instance/process). Used to tell a genuine name clash with a built-in plate
+# apart from a custom name that simply isn't in *this* dialog's `self._db`
+# yet (e.g. it was registered by another CustomPlateWidget instance, or one
+# process launched earlier in the same session) - which should be allowed.
+_BUILTIN_PLATE_KEYS = frozenset(useq.registered_well_plate_keys())
+
 
 def load_custom_plate_database(
     path: Path | str = DEFAULT_CUSTOM_PLATE_DB_PATH,
@@ -111,6 +119,9 @@ class CustomPlateWidget(QDialog):
 
         self._plate_list = QListWidget()
         self._plate_list.setToolTip("Custom plates saved on this computer.")
+        # without this the list collapses to a couple of rows next to the taller
+        # form, and newly saved plates end up scrolled out of sight
+        self._plate_list.setMinimumHeight(140)
 
         self._name = QLineEdit()
         self._circular = QCheckBox("Circular Wells")
@@ -272,10 +283,16 @@ class CustomPlateWidget(QDialog):
         with signals_blocked(self._plate_list):
             self._plate_list.clear()
             self._plate_list.addItems(sorted(self._db))
+        # the rows were repopulated with signals blocked, so ask the view for a
+        # relayout/repaint explicitly rather than relying on it having noticed
+        self._plate_list.viewport().update()
         if select and select in self._db:
             items = self._plate_list.findItems(select, Qt.MatchFlag.MatchExactly)
             if items:
                 self._plate_list.setCurrentItem(items[0])
+                # the list is short and sorted, so a newly saved plate can land
+                # below the fold; make sure it's actually in view
+                self._plate_list.scrollToItem(items[0])
                 # give the list keyboard focus so the new selection renders with
                 # the "active" highlight color; otherwise (e.g. on macOS) an
                 # unfocused selection can render as a pale highlight with white
@@ -307,8 +324,7 @@ class CustomPlateWidget(QDialog):
         if not plate.name:
             QMessageBox.warning(self, "Missing Name", "Please enter a plate name.")
             return
-        is_builtin = plate.name in useq.registered_well_plate_keys()
-        if plate.name not in self._db and is_builtin:
+        if plate.name in _BUILTIN_PLATE_KEYS:
             QMessageBox.warning(
                 self,
                 "Name Already in Use",
