@@ -390,15 +390,6 @@ class CustomPlateWidget(QDialog):
 
         self._refresh_list(select=plate.name)
         self.plateSaved.emit(plate.name)
-        # listeners on plateSaved (e.g. WellPlateWidget updating its combobox)
-        # live in an ancestor window and can steal key-window status back from
-        # this dialog as a side effect. When that happens the just-selected row
-        # keeps its data/selection correctly, but macOS paints it with the
-        # "inactive" (pale) selection color, making the new plate look like it
-        # was never added until the user clicks another row. Reclaim activation
-        # so the highlight actually renders as selected.
-        self.raise_()
-        self.activateWindow()
 
     def _on_delete_clicked(self) -> None:
         item = self._plate_list.currentItem()
@@ -422,7 +413,3 @@ class CustomPlateWidget(QDialog):
         self._refresh_list()
         self._clear_form()
         self.plateDeleted.emit(key)
-        # see the comment in _on_save_clicked: reclaim activation in case a
-        # plateDeleted listener stole it back.
-        self.raise_()
-        self.activateWindow()
