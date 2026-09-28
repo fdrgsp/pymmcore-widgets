@@ -309,6 +309,7 @@ class CustomPlateWidget(QDialog):
             )
         )
         self._name.setFocus()
+        self._schedule_repaint()
 
     def _refresh_list(self, select: str | None = None) -> None:
         # imported lazily to avoid a circular import with `_well_plate_widget`
@@ -326,14 +327,7 @@ class CustomPlateWidget(QDialog):
         # the rows were repopulated with signals blocked, so ask the view for a
         # relayout/repaint explicitly rather than relying on it having noticed
         self._plate_list.viewport().update()
-        # ...and again on the next event loop pass. scrollToItem() below scrolls
-        # by blitting the viewport and repainting only the newly exposed strip;
-        # done synchronously inside a button handler that also triggers a large
-        # signal cascade, that leaves a garbled frame on screen (rows repeated,
-        # the new row missing) even though the model and selection are correct.
-        # A full repaint once the cascade has unwound is what actually settles
-        # it -- update() alone, called at any point during the handler, doesn't.
-        QTimer.singleShot(0, self._repaint_list)
+        self._schedule_repaint()
         if select:
             items = self._plate_list.findItems(select, Qt.MatchFlag.MatchExactly)
             if items:
@@ -349,8 +343,29 @@ class CustomPlateWidget(QDialog):
                 return
         self._delete_btn.setEnabled(self._plate_list.currentItem() is not None)
 
-    def _repaint_list(self) -> None:
-        self._plate_list.viewport().update()
+    def _schedule_repaint(self) -> None:
+        """Repaint the whole dialog once the current button handler has unwound.
+
+        Rewriting the list and the form synchronously inside a Save/Delete/New
+        handler -- which also fans a large signal cascade out through whatever
+        embeds this dialog -- leaves a stale frame on screen: the list shows
+        repeated rows and drops the new one, and the form keeps the *previous*
+        plate's name and numbers. The widgets' actual state is correct
+        throughout; only the painted pixels lag, until some later event
+        (clicking another row) happens to force a redraw.
+
+        Repainting on the next event loop pass, after the cascade has settled,
+        is what fixes it; update()/repaint() called at any point *during* the
+        handler is not enough. Every descendant has to be invalidated
+        individually, too: updating only this dialog leaves the list stale,
+        since Qt skips opaque child widgets (here the list's viewport) when
+        just their parent is marked dirty.
+        """
+        QTimer.singleShot(0, self._repaint)
+
+    def _repaint(self) -> None:
+        for wdg in (self, *self.findChildren(QWidget)):
+            wdg.update()
 
     def _update_preview(self) -> None:
         try:
