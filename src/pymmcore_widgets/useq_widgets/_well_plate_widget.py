@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 import useq
 from qtpy.QtCore import QRect, QRectF, QSize, Qt, Signal
-from qtpy.QtGui import QColor, QFont, QMouseEvent, QPainter, QPen
+from qtpy.QtGui import QColor, QFont, QMouseEvent, QPainter, QPalette, QPen
 from qtpy.QtWidgets import (
     QAbstractGraphicsShapeItem,
     QAbstractItemView,
@@ -485,8 +485,10 @@ class WellPlateView(ResizingGraphicsView):
         font.setPixelSize(int(min(6000, well_rect.width() / 2.5)))
 
         # a cosmetic pen keeps a constant on-screen thickness no matter the plate's
-        # physical scale or how far the view is zoomed out to fit it
-        pen = QPen(Qt.GlobalColor.black)
+        # physical scale or how far the view is zoomed out to fit it. Use the
+        # palette's text color (rather than a hardcoded black) so the well outlines
+        # stay visible in dark mode, matching the well labels which already adapt.
+        pen = QPen(self.palette().color(QPalette.ColorRole.Text))
         pen.setCosmetic(True)
         pen.setWidthF(2)
 
