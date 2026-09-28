@@ -13,6 +13,7 @@ from pymmcore_widgets.useq_widgets._custom_plate_widget import (
     _PLATE_REGISTRY,
     load_custom_plate_database,
 )
+from pymmcore_widgets.useq_widgets._well_plate_widget import _sort_plate
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -122,28 +123,30 @@ def test_custom_plate_widget_lists_and_allows_editing_builtins(
     assert "96-well" not in useq.registered_well_plate_keys()
 
 
-def test_custom_plate_widget_new_plates_go_on_top(
+def test_custom_plate_widget_save_selects_and_focuses_new_plate(
     qtbot: QtBot, tmp_path: Path, _cleanup_registry: None
 ) -> None:
-    """Custom plates are listed above built-ins, most recently saved first."""
+    """The list is one flat, sorted list (built-ins and customs together);
+    a newly saved plate lands wherever it naturally sorts, and is selected
+    and focused so it's clearly visible even if that's off the top of the
+    (scrolled) list.
+    """
     dlg = CustomPlateWidget(plate_db_path=tmp_path / "db.json")
     qtbot.addWidget(dlg)
+    dlg.show()
 
-    _set_form(dlg, name="plate-a")
-    dlg._save_btn.click()
-    dlg._new_btn.click()
-    _set_form(dlg, name="plate-b")
+    _set_form(dlg, name="zzz-plate")
     dlg._save_btn.click()
 
-    top_two = [dlg._plate_list.item(0).text(), dlg._plate_list.item(1).text()]  # type: ignore[union-attr]
-    assert top_two == ["plate-b", "plate-a"]
+    names = [dlg._plate_list.item(i).text() for i in range(dlg._plate_list.count())]  # type: ignore[union-attr]
+    assert names == sorted(useq.registered_well_plate_keys(), key=_sort_plate)
 
-    # built-ins still appear, but after the custom plates
-    rest = [
-        dlg._plate_list.item(i).text()  # type: ignore[union-attr]
-        for i in range(2, dlg._plate_list.count())
-    ]
-    assert "96-well" in rest
+    current = dlg._plate_list.currentItem()
+    assert current is not None
+    assert current.text() == "zzz-plate"
+    # hasFocus() needs the top-level window to be OS-active, which isn't
+    # guaranteed under a headless test runner; focusWidget() doesn't.
+    assert dlg.focusWidget() is dlg._plate_list
 
 
 def test_custom_plate_widget_can_reclaim_name_registered_elsewhere(

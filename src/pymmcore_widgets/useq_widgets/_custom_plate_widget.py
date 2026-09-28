@@ -314,18 +314,15 @@ class CustomPlateWidget(QDialog):
         # imported lazily to avoid a circular import with `_well_plate_widget`
         from ._well_plate_widget import _sort_plate
 
-        # plates saved through this dialog on top (most recently saved first),
-        # everything else useq knows about (built-ins, or plates registered
-        # elsewhere) follows - all of them are equally editable/deletable here.
-        customs = list(reversed(self._db))
-        others = sorted(
-            (k for k in useq.registered_well_plate_keys() if k not in self._db),
-            key=_sort_plate,
-        )
+        # one flat, sorted list of everything useq knows about - built-ins and
+        # custom plates alike are equally editable/deletable here, so there's
+        # no need to separate them; a newly saved plate lands wherever it
+        # naturally sorts (usually near the bottom) and gets focused below.
+        names = sorted(useq.registered_well_plate_keys(), key=_sort_plate)
 
         with signals_blocked(self._plate_list):
             self._plate_list.clear()
-            self._plate_list.addItems((*customs, *others))
+            self._plate_list.addItems(names)
         # the rows were repopulated with signals blocked, so ask the view for a
         # relayout/repaint explicitly rather than relying on it having noticed
         self._plate_list.viewport().update()
