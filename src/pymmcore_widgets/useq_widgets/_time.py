@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from qtpy.QtGui import QIcon
@@ -51,11 +52,15 @@ class TimePlanWidget(DataTableWidget):
             value of the table.
         """
         duration_col = self.table().indexOf(self.DURATION)
-        active_key = "duration" if self._mode_column == duration_col else "loops"
-        phases = [
-            {"interval": p["interval"], active_key: p[active_key]}
-            for p in self.table().iterRecords(exclude_unchecked=exclude_unchecked)
-        ]
+        duration_mode = self._mode_column == duration_col
+        phases = []
+        for p in self.table().iterRecords(exclude_unchecked=exclude_unchecked):
+            # duration = interval * loops can't be divided back out of a 0
+            # interval, so always fall back to loops for such a phase -
+            # regardless of which column is the table's active one - to avoid
+            # handing useq a TIntervalDuration whose .loops divides by zero.
+            active_key = "duration" if duration_mode and p["interval"] else "loops"
+            phases.append({"interval": p["interval"], active_key: p[active_key]})
         plan = MultiPhaseTimePlan(phases=phases)
         return plan.phases[0] if len(plan.phases) == 1 else plan  # type: ignore
 
@@ -83,10 +88,16 @@ class TimePlanWidget(DataTableWidget):
 
         super().setValue([p.model_dump(exclude_unset=True) for p in _phases])
 
-        col_idx = self.table().indexOf(
+        table = self.table()
+        for row in range(table.rowCount()):
+            row_data = table.rowData(row)
+            if self.INTERVAL.key in row_data:
+                self._set_duration_enabled(row, bool(row_data[self.INTERVAL.key]))
+
+        col_idx = table.indexOf(
             self.DURATION if isinstance(_phases[0], TIntervalDuration) else self.LOOPS
         )
-        self.table().setCurrentCell(self.table().rowCount() - 1, col_idx)
+        table.setCurrentCell(table.rowCount() - 1, col_idx)
         self._resolve_duration()
 
     # ------------------------- Private API -------------------------
@@ -110,9 +121,23 @@ class TimePlanWidget(DataTableWidget):
         table = self.table()
         loop_col = table.indexOf(self.LOOPS)
         duration_col = table.indexOf(self.DURATION)
+        interval_col = table.indexOf(self.INTERVAL)
+
+        data = self.table().rowData(_current_row)
+        if self.INTERVAL.key not in data:
+            return
+
+        # duration = interval * loops, so an interval of 0 can't be divided out
+        # of a duration to recover loops; disable duration and drive off loops
+        # instead, rather than silently failing to update on a ZeroDivisionError.
+        interval_is_zero = not data[self.INTERVAL.key]
+        self._set_duration_enabled(_current_row, not interval_is_zero)
+        if interval_is_zero:
+            if self._mode_column == duration_col:
+                self._set_mode_column(loop_col)
+            return
 
         plan: TIntervalDuration | TIntervalLoops
-        data = self.table().rowData(_current_row)
         try:
             if self._mode_column == duration_col:
                 plan = TIntervalDuration(
@@ -125,28 +150,62 @@ class TimePlanWidget(DataTableWidget):
         except KeyError:
             return
 
-        try:
-            if _current_col == loop_col:
+        if _current_col == loop_col:
+            self.DURATION.set_cell_data(
+                table, _current_row, duration_col, plan.duration
+            )
+        elif _current_col == duration_col:
+            self.LOOPS.set_cell_data(table, _current_row, loop_col, plan.loops)
+        elif _current_col == interval_col:
+            if self._mode_column == duration_col:
+                self.LOOPS.set_cell_data(table, _current_row, loop_col, plan.loops)
+            else:
                 self.DURATION.set_cell_data(
                     table, _current_row, duration_col, plan.duration
                 )
-            elif _current_col == duration_col:
-                self.LOOPS.set_cell_data(table, _current_row, loop_col, plan.loops)
-            elif _current_col == table.indexOf(self.INTERVAL):
-                if self._mode_column == duration_col:
-                    self.LOOPS.set_cell_data(table, _current_row, loop_col, plan.loops)
-                else:
-                    self.DURATION.set_cell_data(
-                        table, _current_row, duration_col, plan.duration
-                    )
-        except ZeroDivisionError:
-            # interval is 0 (e.g. user is mid-edit); nothing sensible to resolve yet
+
+    def _set_duration_enabled(self, row: int, enabled: bool) -> None:
+        """Enable/disable + tooltip the duration cell for `row`.
+
+        Duration can't be derived when interval is 0 (division by zero), so the
+        cell is disabled and pinned to 0 instead of being left showing a stale
+        value. (0 is the only value consistent with an interval of 0: duration =
+        interval * loops.) A blank field is avoided since it isn't a parseable
+        time value and would break round-tripping through rowData()/value().
+        """
+        table = self.table()
+        wdg = table.cellWidget(row, table.indexOf(self.DURATION))
+        if wdg is None:
             return
+        wdg.setEnabled(enabled)
+        if enabled:
+            wdg.setToolTip("")
+        else:
+            wdg.setToolTip(
+                "Duration can't be set when interval is 0.\nSet loops instead."
+            )
+            with signals_blocked(wdg):
+                wdg.setValue(timedelta(0))
+
+    def _current_row_interval_is_zero(self) -> bool:
+        table = self.table()
+        row = table.currentRow()
+        row = 0 if row < 0 else row
+        if row >= table.rowCount():
+            return False
+        data = table.rowData(row)
+        return self.INTERVAL.key in data and not data[self.INTERVAL.key]
 
     def _set_mode_column(self, col_idx: int) -> None:
         table = self.table()
+        duration_col = table.indexOf(self.DURATION)
         # only duration and loops can be set as active
-        if col_idx < table.indexOf(self.DURATION) or not table.columnInfo(col_idx):
+        if col_idx < duration_col or not table.columnInfo(col_idx):
+            return
+        # duration is disabled while interval is 0 (see _set_duration_enabled);
+        # e.g. clicking directly on the Duration header must not select it as
+        # the active column in that case.
+        if col_idx == duration_col and self._current_row_interval_is_zero():
             return
 
         previous, self._mode_column = self._mode_column, col_idx
