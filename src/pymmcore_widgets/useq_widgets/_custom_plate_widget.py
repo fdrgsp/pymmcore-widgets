@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import useq
 from platformdirs import user_data_dir
-from qtpy.QtCore import Qt, Signal
+from qtpy.QtCore import Qt, QTimer, Signal
 from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -143,7 +143,7 @@ class CustomPlateWidget(QDialog):
         self._plate_list.setMinimumHeight(140)
 
         self._name = QLineEdit()
-        self._circular = QCheckBox("Circular Wells")
+        self._circular = QCheckBox("Circular")
         self._circular.setChecked(True)
 
         self._rows = QSpinBox()
@@ -202,10 +202,10 @@ class CustomPlateWidget(QDialog):
             btn_row_layout.addWidget(btn, 1)
 
         rows = [
-            _labeled_row("Name:", self._name),
-            _labeled_row("", self._circular),
-            _labeled_row("Rows:", self._rows),
-            _labeled_row("Columns:", self._columns),
+            _labeled_row("Plate Name:", self._name),
+            _labeled_row("Number of Rows:", self._rows),
+            _labeled_row("Number of Columns:", self._columns),
+            _labeled_row("Well Shape:", self._circular),
             _labeled_row("Well Size x (mm):", self._well_size_x),
             _labeled_row("Well Size y (mm):", self._well_size_y),
             _labeled_row("Well Spacing x (mm):", self._spacing_x),
@@ -309,6 +309,7 @@ class CustomPlateWidget(QDialog):
             )
         )
         self._name.setFocus()
+        self._schedule_repaint()
 
     def _refresh_list(self, select: str | None = None) -> None:
         # imported lazily to avoid a circular import with `_well_plate_widget`
@@ -326,6 +327,7 @@ class CustomPlateWidget(QDialog):
         # the rows were repopulated with signals blocked, so ask the view for a
         # relayout/repaint explicitly rather than relying on it having noticed
         self._plate_list.viewport().update()
+        self._schedule_repaint()
         if select:
             items = self._plate_list.findItems(select, Qt.MatchFlag.MatchExactly)
             if items:
@@ -340,6 +342,30 @@ class CustomPlateWidget(QDialog):
                 self._plate_list.setFocus()
                 return
         self._delete_btn.setEnabled(self._plate_list.currentItem() is not None)
+
+    def _schedule_repaint(self) -> None:
+        """Repaint the whole dialog once the current button handler has unwound.
+
+        Rewriting the list and the form synchronously inside a Save/Delete/New
+        handler -- which also fans a large signal cascade out through whatever
+        embeds this dialog -- leaves a stale frame on screen: the list shows
+        repeated rows and drops the new one, and the form keeps the *previous*
+        plate's name and numbers. The widgets' actual state is correct
+        throughout; only the painted pixels lag, until some later event
+        (clicking another row) happens to force a redraw.
+
+        Repainting on the next event loop pass, after the cascade has settled,
+        is what fixes it; update()/repaint() called at any point *during* the
+        handler is not enough. Every descendant has to be invalidated
+        individually, too: updating only this dialog leaves the list stale,
+        since Qt skips opaque child widgets (here the list's viewport) when
+        just their parent is marked dirty.
+        """
+        QTimer.singleShot(0, self._repaint)
+
+    def _repaint(self) -> None:
+        for wdg in (self, *self.findChildren(QWidget)):
+            wdg.update()
 
     def _update_preview(self) -> None:
         try:

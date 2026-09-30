@@ -93,7 +93,7 @@ class WellPlateWidget(QWidget):
 
         # button to create/edit/delete custom plates
         self._custom_plate_button = QPushButton("Custom")
-        self._custom_plate_button.setIcon(QIconifyIcon("mdi:plus-thick"))
+        self._custom_plate_button.setIcon(QIconifyIcon("mdi:plus-thick", color=GREEN))
         self._custom_plate_button.setToolTip(
             "Create, edit, or delete a custom plate..."
         )
