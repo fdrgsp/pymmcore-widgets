@@ -134,7 +134,10 @@ class HCSWizard(QWizard):
         """Synchronize the points plan with the well size/shape."""
         # update the calibration widget with the new plate if it's different
         current_calib_plan = self.calibration_page.widget.value()
-        if current_calib_plan is None or current_calib_plan.plate != plate_plan.plate:
+        plate_changed = (
+            current_calib_plan is None or current_calib_plan.plate != plate_plan.plate
+        )
+        if plate_changed:
             self.calibration_page.widget.setValue(plate_plan.plate)
 
         pp_widget = self.points_plan_page.widget
@@ -143,16 +146,30 @@ class HCSWizard(QWizard):
         well_width, well_height = plate_plan.plate.well_size
         pp_widget.setWellSize(well_width, well_height)
 
+        # set the well shape (circular/rectangular) to match the plate's wells
+        is_circular = plate_plan.plate.circular_wells
+        pp_widget.setWellShape(
+            useq.Shape.ELLIPSE if is_circular else useq.Shape.RECTANGLE
+        )
+
         # additionally, restrict the max width and height of the random points widget
         # to the plate size minus the fov size.
         fovw = pp_widget._selector.fov_w.value()
         fovh = pp_widget._selector.fov_h.value()
 
+        # when the plate itself changes, reset the random points bounding shape to
+        # match the new well shape (only on an actual plate change, so we don't
+        # clobber a shape the user picked manually while just selecting wells)
+        random_wdg = pp_widget.random_points_wdg
+        if plate_changed:
+            random_wdg.shape.setCurrentText(
+                useq.Shape.ELLIPSE.value if is_circular else useq.Shape.RECTANGLE.value
+            )
+
         # if the random points shape is a rectangle, but the wells are circular,
         # reduce the max width and height by 1.4 to keep the points inside the wells
-        random_wdg = pp_widget.random_points_wdg
         if random_wdg.shape.currentText() == useq.Shape.RECTANGLE.value:
-            if plate_plan.plate.circular_wells:
+            if is_circular:
                 well_width /= 1.4
                 well_height /= 1.4
 
