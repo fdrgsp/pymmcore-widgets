@@ -171,9 +171,9 @@ class WellView(ResizingGraphicsView):
         last_p: useq.RelativePosition | None = None
         item: QGraphicsItem
         for i, pos in enumerate(points):
-            # first point is black, the rest are white
+            # first point is green, the rest are white
             first_point = i == 0
-            color = Qt.GlobalColor.black if first_point else Qt.GlobalColor.white
+            color = GREEN if first_point else Qt.GlobalColor.white
             pen.setColor(QColor(color))
 
             # invert y for screen coordinates
