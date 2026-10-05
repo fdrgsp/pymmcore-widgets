@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import useq
-from qtpy.QtCore import QRect, QRectF, QSize, Qt, Signal
+from qtpy.QtCore import QEvent, QRect, QRectF, QSize, Qt, Signal
 from qtpy.QtGui import QColor, QFont, QMouseEvent, QPainter, QPalette, QPen
 from qtpy.QtWidgets import (
     QAbstractGraphicsShapeItem,
@@ -15,6 +15,7 @@ from qtpy.QtWidgets import (
     QGraphicsItem,
     QGraphicsScene,
     QGraphicsSceneHoverEvent,
+    QGraphicsTextItem,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -451,6 +452,21 @@ class WellPlateView(ResizingGraphicsView):
         """Clear the current selection."""
         self._change_selection((), self._selected_items)
 
+    def changeEvent(self, event: QEvent | None) -> None:
+        super().changeEvent(event)
+        # well outlines and labels are drawn with the palette's text color, which is
+        # baked into the items when they are created. Recolor them in place (rather
+        # than redrawing, which would drop the current selection) on a theme change.
+        if event is not None and event.type() == QEvent.Type.PaletteChange:
+            text_color = self.palette().color(QPalette.ColorRole.Text)
+            for well in self._well_items.values():
+                pen = well.pen()
+                pen.setColor(text_color)
+                well.setPen(pen)
+            for label in self._well_labels:
+                if isinstance(label, QGraphicsTextItem):
+                    label.setDefaultTextColor(text_color)
+
     def clear(self) -> None:
         """Clear all the wells from the view."""
         while self._well_items:
@@ -487,8 +503,9 @@ class WellPlateView(ResizingGraphicsView):
         # a cosmetic pen keeps a constant on-screen thickness no matter the plate's
         # physical scale or how far the view is zoomed out to fit it. Use the
         # palette's text color (rather than a hardcoded black) so the well outlines
-        # stay visible in dark mode, matching the well labels which already adapt.
-        pen = QPen(self.palette().color(QPalette.ColorRole.Text))
+        # stay visible in dark mode, matching the well labels.
+        text_color = self.palette().color(QPalette.ColorRole.Text)
+        pen = QPen(text_color)
         pen.setCosmetic(True)
         pen.setWidthF(2)
 
@@ -515,6 +532,10 @@ class WellPlateView(ResizingGraphicsView):
             if self._draw_labels:
                 if text_item := self._scene.addText(pos.name):
                     text_item.setFont(font)
+                    # a QGraphicsTextItem bakes in the application text color at
+                    # construction, so set it explicitly (and refresh it in
+                    # changeEvent) rather than letting it go stale on a theme change
+                    text_item.setDefaultTextColor(text_color)
                     br = text_item.boundingRect()
                     text_item.setPos(
                         screen_x - br.width() // 2, screen_y - br.height() // 2

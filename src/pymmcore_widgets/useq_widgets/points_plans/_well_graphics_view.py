@@ -4,9 +4,15 @@ import warnings
 from typing import TYPE_CHECKING
 
 import useq
-from qtpy.QtCore import QRectF, QSize, Qt, Signal
-from qtpy.QtGui import QColor, QPainter, QPen
-from qtpy.QtWidgets import QGraphicsItem, QGraphicsScene, QWidget
+from qtpy.QtCore import QEvent, QRectF, QSize, Qt, Signal
+from qtpy.QtGui import QColor, QPainter, QPalette, QPen
+from qtpy.QtWidgets import (
+    QAbstractGraphicsShapeItem,
+    QGraphicsItem,
+    QGraphicsLineItem,
+    QGraphicsScene,
+    QWidget,
+)
 from useq import Shape
 
 from pymmcore_widgets._util import GREEN, ResizingGraphicsView
@@ -58,7 +64,9 @@ class WellView(ResizingGraphicsView):
         self._fov_height_um: float | None = None
 
         # all of the rectangles representing the FOVs
-        self._fov_items: list[QGraphicsItem] = []
+        self._fov_items: list[QAbstractGraphicsShapeItem] = []
+        # the lines connecting consecutive FOVs
+        self._line_items: list[QGraphicsLineItem] = []
 
         self.setMinimumSize(250, 250)
 
@@ -137,11 +145,14 @@ class WellView(ResizingGraphicsView):
         # delete existing FOVs
         while self._fov_items:
             self._scene.removeItem(self._fov_items.pop())
+        while self._line_items:
+            self._scene.removeItem(self._line_items.pop())
 
-        pen = QPen(Qt.GlobalColor.white)
+        marker_color = self._marker_color()
+        pen = QPen(marker_color)
         pen.setWidth(int(self._scaled_pen_size() / 1.6))
         pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
-        line_pen = QPen(QColor(0, 0, 0, 100))
+        line_pen = QPen(self._line_color(marker_color))
         line_pen.setWidth(int(self._scaled_pen_size() / 1.75))
         line_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
 
@@ -169,12 +180,11 @@ class WellView(ResizingGraphicsView):
 
         # draw the FOVs, and a connecting line
         last_p: useq.RelativePosition | None = None
-        item: QGraphicsItem
+        item: QAbstractGraphicsShapeItem
         for i, pos in enumerate(points):
-            # first point is green, the rest are white
+            # first point is green, the rest use the palette's text color
             first_point = i == 0
-            color = GREEN if first_point else Qt.GlobalColor.white
-            pen.setColor(QColor(color))
+            pen.setColor(QColor(GREEN) if first_point else marker_color)
 
             # invert y for screen coordinates
             px, py = pos.x, -pos.y
@@ -190,8 +200,41 @@ class WellView(ResizingGraphicsView):
             if i > 0 and last_p:
                 line = self._scene.addLine(last_p.x, -last_p.y, px, py, line_pen)
                 line.setZValue(2)
-                self._fov_items.append(line)
+                self._line_items.append(line)
             last_p = pos
+
+    def _marker_color(self) -> QColor:
+        """Return the color used to draw the FOV markers.
+
+        The palette's text color (rather than a hardcoded white) keeps the markers
+        visible against the view background in both light and dark themes.
+        """
+        return self.palette().color(QPalette.ColorRole.Text)
+
+    def _line_color(self, marker_color: QColor) -> QColor:
+        """Return the (translucent) color of the lines connecting the FOVs."""
+        color = QColor(marker_color)
+        color.setAlpha(100)
+        return color
+
+    def changeEvent(self, event: QEvent | None) -> None:
+        super().changeEvent(event)
+        # the markers and connecting lines are drawn with the palette's text color,
+        # so recolor them (rather than redraw, which would re-roll random points)
+        # whenever the application theme changes.
+        if event is not None and event.type() == QEvent.Type.PaletteChange:
+            marker_color = self._marker_color()
+            line_color = self._line_color(marker_color)
+            for i, fov in enumerate(self._fov_items):
+                if i == 0:  # the first point stays green
+                    continue
+                fov_pen = fov.pen()
+                fov_pen.setColor(marker_color)
+                fov.setPen(fov_pen)
+            for line in self._line_items:
+                line_pen = line.pen()
+                line_pen.setColor(line_color)
+                line.setPen(line_pen)
 
     def _well_rect(self) -> QRectF:
         """Return the QRectF of the well area."""
