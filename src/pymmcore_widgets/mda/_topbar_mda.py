@@ -620,8 +620,16 @@ class MDAWidgetTopbar(MDAWidget):
         axis_row.addStretch()
         settings_layout.addLayout(axis_row)
         settings_layout.addWidget(self.keep_shutter_open)
-        settings_layout.addWidget(self.af_axis)
         self._settings_box = TopbarMDATabs._wrap_in_card(settings_widget)
+        # Autofocus gets a card of its own below: it has more controls than the
+        # settings above it, and which ones apply depends on the kind selected.
+        af_widget = QWidget()
+        af_layout = QVBoxLayout(af_widget)
+        # same inner inset as the settings card above, so the two line up
+        af_layout.setContentsMargins(5, 5, 5, 5)
+        af_layout.setSpacing(5)
+        af_layout.addWidget(self.af_axis)
+        self._af_box = TopbarMDATabs._wrap_in_card(af_widget)
 
         tabs.add_supporting_sections(save_info=self.save_info)
 
@@ -648,7 +656,12 @@ class MDAWidgetTopbar(MDAWidget):
         # adding, to keep the card off the footer.
         settings_row = QHBoxLayout()
         settings_row.setContentsMargins(margin, 0, margin, margin // 2)
-        settings_row.addWidget(self._settings_box)
+        settings_col = QVBoxLayout()
+        settings_col.setContentsMargins(0, 0, 0, 0)
+        settings_col.setSpacing(5)
+        settings_col.addWidget(self._settings_box)
+        settings_col.addWidget(self._af_box)
+        settings_row.addLayout(settings_col)
 
         box = cast("QVBoxLayout", layout)
         box.setContentsMargins(0, 0, 0, 0)

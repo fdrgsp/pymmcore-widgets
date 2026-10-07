@@ -8,14 +8,18 @@ from typing import TYPE_CHECKING, cast
 import useq
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QSizePolicy,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -73,9 +77,74 @@ def populate_axis_order_combo(combo: QComboBox, used_axes: Sequence[str]) -> Non
         combo.setEnabled(combo.count() > 1)
 
 
-AF_AXIS_TOOLTIP = "Use Hardware Autofocus on the selected axes."
+AF_AXIS_TOOLTIP = (
+    "Refocus during the acquisition, so that slow drift, a tilted sample or a\n"
+    "stage that does not return exactly does not blur the later time points."
+)
 AF_DISABLED_TOOLTIP = (
-    "The hardware autofocus cannot be used with absolute Z positions (TOP_BOTTOM mode)."
+    "Autofocus cannot be used with absolute Z positions (TOP_BOTTOM mode).\n"
+    "It corrects the focus position, which an absolute Z plan would then override.\n"
+    "Switch the Z plan to a relative mode (RANGE_AROUND or ABOVE_BELOW) to use it."
+)
+AF_ENABLE_TOOLTIP = "Run an autofocus routine during the acquisition."
+AF_ON_AXIS_TOOLTIP = (
+    "When to autofocus: every time one of these axes changes.\n"
+    "\n"
+    "p - at every stage position (the usual choice: each position drifts its own way)\n"
+    "t - at every time point\n"
+    "g - at every tile of a grid"
+)
+AF_MODE_TOOLTIP = (
+    "Which kind of autofocus to run. An acquisition uses one or the other,\nnever both."
+)
+AF_HARDWARE_TOOLTIP = (
+    "Use the microscope's autofocus device, e.g. Nikon PFS or Zeiss Definite Focus.\n"
+    "\n"
+    "It reflects light off the coverslip, so it is fast, takes no camera images and\n"
+    "does not expose the sample -- but it holds a fixed distance from the coverslip\n"
+    "rather than finding the sharpest image, and only locks within a limited range.\n"
+    "\n"
+    "Requires an autofocus device in the current configuration."
+)
+AF_SOFTWARE_TOOLTIP = (
+    "Find the sharpest image by acquiring a short Z series and scoring each image.\n"
+    "\n"
+    "It focuses on the sample itself rather than on the coverslip, and needs no\n"
+    "special hardware -- but every run costs several images, so it takes time and\n"
+    "exposes the sample.\n"
+    "\n"
+    "Only one kind of autofocus runs in an acquisition."
+)
+AF_NO_SOFTWARE_TOOLTIP = (
+    "No software autofocus methods are available in this installation."
+)
+AF_EVERY_N_TOOLTIP = (
+    "Autofocus only on every Nth time point, whichever axis triggered it.\n"
+    "\n"
+    "A software autofocus run costs several images each time, so on a long time\n"
+    "series it is often enough to refocus occasionally. 1 means every time point."
+)
+AF_SEARCH_TOOLTIP = (
+    "What to do when the autofocus device cannot lock where it starts.\n"
+    "\n"
+    "Hardware autofocus only locks within a limited range of the coverslip, so a\n"
+    "large move -- a new well, a tilted plate, or drift -- can leave the sample\n"
+    "outside it. The focus device is then stepped down, and then up, retrying at\n"
+    "each step until it locks.\n"
+    "\n"
+    "Set both distances to 0 to disable the search and only try the current position."
+)
+AF_SEARCH_BELOW_TOOLTIP = (
+    "How far below the starting position to search for a lock. 0 disables it."
+)
+AF_SEARCH_ABOVE_TOOLTIP = (
+    "How far above the starting position to search for a lock, after searching\n"
+    "below. 0 disables it."
+)
+AF_SEARCH_STEP_TOOLTIP = (
+    "Distance between attempts while searching for a lock.\n"
+    "Smaller is more thorough but slower; it should be no larger than the device's\n"
+    "lock range."
 )
 
 
@@ -216,35 +285,233 @@ class MDATabs(CheckableTabWidget):
 
 
 class AutofocusAxis(QWidget):
+    """Autofocus settings: whether to use it, which kind, when, and how it searches.
+
+    The group as a whole is switched on and off by `enabled`.  `Hardware` and
+    `Software` are exclusive: an acquisition carries a single autofocus plan.
+    `Software` stays disabled until software autofocus methods are available
+    (see `setSoftwareMethods`).
+    """
+
     valueChanged = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        self.label = QLabel("Use Hardware Autofocus on Axis:")
+        # the group's own on/off switch, like a checkable QGroupBox -- but drawn as a
+        # plain checkbox, since a QGroupBox renders no frame on macOS (see the
+        # MDA tab widgets' `_wrap_in_card`).
+        self.enabled = QCheckBox("Autofocus")
+        font = self.enabled.font()
+        font.setBold(True)
+        self.enabled.setFont(font)
+        self.enabled.setToolTip(AF_ENABLE_TOOLTIP)
+
+        self.label = QLabel("On Axis:")
+        self.label.setToolTip(AF_ON_AXIS_TOOLTIP)
         self.use_af_p = QCheckBox("p")
         self.use_af_t = QCheckBox("t")
         self.use_af_g = QCheckBox("g")
+        for _box in (self.use_af_p, self.use_af_t, self.use_af_g):
+            _box.setToolTip(AF_ON_AXIS_TOOLTIP)
 
-        layout = QHBoxLayout(self)
-        layout.setSpacing(10)
+        # --- which kind of autofocus (exclusive) ---
+        self._mode_label = QLabel("Mode:")
+        self._mode_label.setToolTip(AF_MODE_TOOLTIP)
+        self.use_hardware = QRadioButton("Hardware")
+        self.use_hardware.setChecked(True)
+        self.use_hardware.setToolTip(AF_HARDWARE_TOOLTIP)
+        self.use_software = QRadioButton("Software")
+        self.use_software.setEnabled(False)
+        self.use_software.setToolTip(AF_NO_SOFTWARE_TOOLTIP)
+        self._kind_group = QButtonGroup(self)
+        self._kind_group.setExclusive(True)
+        self._kind_group.addButton(self.use_hardware)
+        self._kind_group.addButton(self.use_software)
+
+        # --- hardware only: search for a lock if autofocus fails where it starts ---
+        self._search_label = QLabel("Search:")
+        self._search_label.setToolTip(AF_SEARCH_TOOLTIP)
+        self.search_below_um = self._search_spin(
+            "below ", 10.0, AF_SEARCH_BELOW_TOOLTIP
+        )
+        self.search_above_um = self._search_spin(
+            "above ", 10.0, AF_SEARCH_ABOVE_TOOLTIP
+        )
+        self.search_step_um = self._search_spin("step ", 5.0, AF_SEARCH_STEP_TOOLTIP)
+
+        # --- software only: skipping time points, since each run costs many images ---
+        self._every_n_label = QLabel("Run:")
+        self._every_n_label.setToolTip(AF_EVERY_N_TOOLTIP)
+        self.every_n_timepoints = QSpinBox()
+        self.every_n_timepoints.setRange(1, 10000)
+        self.every_n_timepoints.setValue(1)
+        self.every_n_timepoints.setPrefix("every ")
+        self.every_n_timepoints.setSuffix(" timepoint(s)")
+        self.every_n_timepoints.setToolTip(AF_EVERY_N_TOOLTIP)
+        disable_wheel_scroll(self.every_n_timepoints)
+
+        # The last plan of each kind seen by setPlan(), used as the base that value()
+        # edits.  It carries the fields this widget cannot edit (the motor offset,
+        # retries, and a software plan's method and settings), so a
+        # setValue()/value() round trip never drops them -- and never silently turns a
+        # software autofocus plan into a hardware one.
+        self._hardware_plan: useq.AxesBasedAF | None = None
+        self._software_plan: useq.SoftwareAxesBasedAF | None = None
+
+        axis_row = QHBoxLayout()
+        axis_row.setSpacing(10)
+        axis_row.setContentsMargins(0, 0, 0, 0)
+        axis_row.addWidget(self.label)
+        axis_row.addWidget(self.use_af_p)
+        axis_row.addWidget(self.use_af_t)
+        axis_row.addWidget(self.use_af_g)
+        axis_row.addStretch()
+
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(10)
+        mode_row.setContentsMargins(0, 0, 0, 0)
+        mode_row.addWidget(self._mode_label)
+        mode_row.addWidget(self.use_hardware)
+        mode_row.addWidget(self.use_software)
+        mode_row.addStretch()
+
+        options_row = QHBoxLayout()
+        options_row.setSpacing(10)
+        options_row.setContentsMargins(0, 0, 0, 0)
+        options_row.addWidget(self._search_label)
+        options_row.addWidget(self.search_below_um)
+        options_row.addWidget(self.search_above_um)
+        options_row.addWidget(self.search_step_um)
+        options_row.addWidget(self._every_n_label)
+        options_row.addWidget(self.every_n_timepoints)
+        options_row.addStretch()
+
+        self._body = QWidget()
+        body_layout = QVBoxLayout(self._body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(5)
+        body_layout.addLayout(axis_row)
+        body_layout.addLayout(mode_row)
+        body_layout.addLayout(options_row)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(5)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.label)
-        layout.addWidget(self.use_af_p)
-        layout.addWidget(self.use_af_t)
-        layout.addWidget(self.use_af_g)
-        layout.addStretch()
+        layout.addWidget(self.enabled)
+        layout.addWidget(self._body)
 
+        self.enabled.toggled.connect(self._on_enabled_toggled)
         self.use_af_p.toggled.connect(self.valueChanged)
         self.use_af_t.toggled.connect(self.valueChanged)
         self.use_af_g.toggled.connect(self.valueChanged)
+        self.every_n_timepoints.valueChanged.connect(self.valueChanged)
+        self.use_hardware.toggled.connect(self._on_kind_toggled)
+        self.search_below_um.valueChanged.connect(self.valueChanged)
+        self.search_above_um.valueChanged.connect(self.valueChanged)
+        self.search_step_um.valueChanged.connect(self.valueChanged)
+
+        # one label column for the three rows, so their controls line up
+        label_width = max(
+            w.sizeHint().width()
+            for w in (
+                self.label,
+                self._mode_label,
+                self._search_label,
+                self._every_n_label,
+            )
+        )
+        for w in (
+            self.label,
+            self._mode_label,
+            self._search_label,
+            self._every_n_label,
+        ):
+            w.setFixedWidth(label_width)
 
         self.setToolTip(AF_AXIS_TOOLTIP)
+        self._body.setEnabled(False)
+        self._update_kind_widgets()
+
+    def _search_spin(self, prefix: str, default: float, tooltip: str) -> QDoubleSpinBox:
+        spin = QDoubleSpinBox()
+        spin.setRange(0.0, 10000.0)
+        spin.setDecimals(1)
+        spin.setSingleStep(1.0)
+        spin.setValue(default)
+        spin.setPrefix(prefix)
+        spin.setSuffix(" \u00b5m")
+        spin.setToolTip(tooltip)
+        disable_wheel_scroll(spin)
+        return spin
+
+    # -------------------------------- kind --------------------------------
+
+    def kind(self) -> str | None:
+        """Return `"hardware"`, `"software"`, or `None` if autofocus is off."""
+        if not self.isEnabled() or not self.enabled.isChecked():
+            return None
+        return "software" if self.use_software.isChecked() else "hardware"
+
+    def setKind(self, kind: str | None) -> None:
+        """Select the kind of autofocus, or switch autofocus off with `None`."""
+        with signals_blocked(self.enabled), signals_blocked(self.use_hardware):
+            self.enabled.setChecked(kind is not None)
+            if kind == "software":
+                self.use_software.setChecked(True)
+            elif kind == "hardware":
+                self.use_hardware.setChecked(True)
+        self._body.setEnabled(self.enabled.isChecked())
+        self._update_kind_widgets()
+
+    def setSoftwareMethods(self, methods: Sequence[str]) -> None:
+        """Enable the `Software` option if any software autofocus methods exist."""
+        available = bool(methods)
+        self.use_software.setEnabled(available)
+        self.use_software.setToolTip(
+            AF_SOFTWARE_TOOLTIP if available else AF_NO_SOFTWARE_TOOLTIP
+        )
+        if not available and self.use_software.isChecked():
+            self.use_hardware.setChecked(True)
+
+    def _on_enabled_toggled(self, checked: bool) -> None:
+        self._body.setEnabled(checked)
+        self.valueChanged.emit()
+
+    def _on_kind_toggled(self) -> None:
+        # one connection is enough: the two radios are exclusive, so any change
+        # toggles `use_hardware`
+        self._update_kind_widgets()
+        self.valueChanged.emit()
+
+    def _update_kind_widgets(self) -> None:
+        """Show only the options that apply to the selected kind.
+
+        The Z search is a hardware-autofocus recovery; skipping time points matters
+        for software autofocus, where each run costs many images.
+        """
+        hardware = self.use_hardware.isChecked()
+        hardware_only: tuple[QWidget, ...] = (
+            self._search_label,
+            self.search_below_um,
+            self.search_above_um,
+            self.search_step_um,
+        )
+        software_only: tuple[QWidget, ...] = (
+            self._every_n_label,
+            self.every_n_timepoints,
+        )
+        for wdg in hardware_only:
+            wdg.setVisible(hardware)
+        for wdg in software_only:
+            wdg.setVisible(not hardware)
+
+    # ------------------------------- value --------------------------------
 
     def value(self) -> tuple[str, ...]:
-        """Return the autofocus axes."""
+        """Return the autofocus axes, or `()` if autofocus is off."""
         af_axis: tuple[str, ...] = ()
-        if not self.isEnabled():
+        if self.kind() is None:
             return af_axis
         if self.use_af_p.isChecked():
             af_axis += ("p",)
@@ -259,6 +526,48 @@ class AutofocusAxis(QWidget):
         self.use_af_p.setChecked("p" in value)
         self.use_af_t.setChecked("t" in value)
         self.use_af_g.setChecked("g" in value)
+        if value and not self.enabled.isChecked():
+            self.setKind(self.kind() or "hardware")
+
+    def plan(self, axes: tuple[str, ...], **kwargs: object) -> useq.AnyAutofocusPlan:
+        """Build the autofocus plan of the selected kind, for `axes`.
+
+        `kwargs` are extra fields for the plan (e.g. `autofocus_motor_offset`), and
+        take precedence over the values carried by the last plan this widget was given.
+        """
+        updates: dict = {"axes": axes}
+        if self.kind() == "software":
+            # a software plan needs a `method`, which this widget cannot choose: it can
+            # only edit one it was given.
+            updates["every_n_timepoints"] = self.every_n_timepoints.value()
+            soft = self._software_plan or useq.SoftwareAxesBasedAF(axes=axes, method="")
+            return soft.replace(**updates, **kwargs)
+        updates["search_below_um"] = self.search_below_um.value()
+        updates["search_above_um"] = self.search_above_um.value()
+        updates["search_step_um"] = self.search_step_um.value()
+        hard = self._hardware_plan or useq.AxesBasedAF(axes=axes)
+        return hard.replace(**updates, **kwargs)
+
+    def setPlan(self, plan: useq.AnyAutofocusPlan | None) -> None:
+        """Restore the kind and per-kind settings from `plan`."""
+        if plan is None:
+            self.setKind(None)
+            return
+        with signals_blocked(self):
+            if isinstance(plan, useq.SoftwareAxesBasedAF):
+                self._software_plan = plan
+                self.every_n_timepoints.setValue(plan.every_n_timepoints)
+                # make sure the option can be chosen, so value() round-trips the plan
+                # even before a method picker exists.
+                self.use_software.setEnabled(True)
+                self.use_software.setToolTip(AF_SOFTWARE_TOOLTIP)
+                self.setKind("software")
+            else:
+                self._hardware_plan = plan
+                self.search_below_um.setValue(plan.search_below_um)
+                self.search_above_um.setValue(plan.search_above_um)
+                self.search_step_um.setValue(plan.search_step_um)
+                self.setKind("hardware")
 
 
 class KeepShutterOpen(QWidget):
@@ -367,16 +676,9 @@ class MDASequenceWidget(QWidget):
 
         self.keep_shutter_open = KeepShutterOpen()
         self.af_axis = AutofocusAxis()
-        # Align the two widgets' checkboxes by giving their labels equal
-        # width -- otherwise "Keep Shutter Open Across Axis:" (shorter) and
-        # "Use Hardware Autofocus on Axis:" (longer) leave their checkboxes at
-        # different x positions when stacked, in every MDA widget presentation.
-        label_width = max(
-            self.keep_shutter_open.label.sizeHint().width(),
-            self.af_axis.label.sizeHint().width(),
-        )
-        self.keep_shutter_open.label.setFixedWidth(label_width)
-        self.af_axis.label.setFixedWidth(label_width)
+        # Autofocus aligns its own rows internally (it has several), so its label is
+        # left to size itself -- padding it to match the one above would push its
+        # checkboxes far to the right of it.
         cbox_row = QVBoxLayout()
         cbox_row.setContentsMargins(0, 0, 0, 0)
         cbox_row.setSpacing(5)
@@ -462,7 +764,7 @@ class MDASequenceWidget(QWidget):
             replace.update(self._simplify_af_offsets(val))
         elif af_axes := self.af_axis.value():
             # otherwise use selected af axes as global autofocus plan
-            replace["autofocus_plan"] = useq.AxesBasedAF(axes=af_axes)
+            replace["autofocus_plan"] = self.af_axis.plan(af_axes)
 
         if replace:
             val = val.replace(**replace)
@@ -490,15 +792,19 @@ class MDASequenceWidget(QWidget):
 
             # update autofocus axes checkboxes
             axis: set[str] = set()
+            af_plan = value.autofocus_plan
             # update from global autofocus plan
-            if value.autofocus_plan:
-                axis.update(value.autofocus_plan.axes)
+            if af_plan:
+                axis.update(af_plan.axes)
             # update from autofocus plans in each position sub-sequence
             if value.stage_positions:
                 for pos in value.stage_positions:
-                    if pos.sequence and pos.sequence.autofocus_plan:
-                        axis.update(pos.sequence.autofocus_plan.axes)
+                    if pos.sequence and (pos_af := pos.sequence.autofocus_plan):
+                        axis.update(pos_af.axes)
+                        af_plan = af_plan or pos_af
             self.af_axis.setValue(tuple(axis))
+            # restore the kind of autofocus and its per-kind settings
+            self.af_axis.setPlan(af_plan)
             axis_text = "".join(
                 x for x in value.axis_order if x in self.tab_wdg.usedAxes()
             )
@@ -596,7 +902,7 @@ class MDASequenceWidget(QWidget):
                 QMessageBox.warning(
                     self,
                     "Autofocus Plan Disabled",
-                    "The Hardware Autofocus cannot be used with a Z Plan with Absolute "
+                    "Autofocus cannot be used with a Z Plan with Absolute "
                     "Z Positions (TOP_BOTTOM mode). It has been disabled.\n\n"
                     "To re-enable it, select a Z Plan with Relative Positions"
                     "(RANGE_AROUND or ABOVE_BELOW modes).",
@@ -641,9 +947,10 @@ class MDASequenceWidget(QWidget):
         self.valueChanged.emit()
 
     def _on_af_toggled(self) -> None:
-        # if the 'af_per_position' checkbox in the PositionTable is checked, set checked
-        # also the autofocus p axis checkbox.
+        # if the 'af_per_position' checkbox in the PositionTable is checked, turn
+        # autofocus on and set checked also the autofocus p axis checkbox.
         if self._use_af_per_position() and self.tab_wdg.isChecked(self.stage_positions):
+            self.af_axis.enabled.setChecked(True)
             self.af_axis.use_af_p.setChecked(True)
 
     def _update_available_axis_orders(self) -> None:
@@ -700,8 +1007,8 @@ class MDASequenceWidget(QWidget):
                 if pos.sequence == NULL_SEQUENCE:
                     pos = pos.replace(sequence=None)
             stage_positions.append(pos)
-        af_plan = useq.AxesBasedAF(
-            autofocus_motor_offset=af_offsets.pop(), axes=self.af_axis.value()
+        af_plan = self.af_axis.plan(
+            self.af_axis.value(), autofocus_motor_offset=af_offsets.pop()
         )
         return {"autofocus_plan": af_plan, "stage_positions": stage_positions}
 

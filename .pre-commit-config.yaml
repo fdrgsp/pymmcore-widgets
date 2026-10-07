@@ -33,6 +33,9 @@ repos:
           # caches this env by the dependency string, so run `pre-commit clean`
           # after pushing a pymmcore-plus change this hook needs to see.
           - pymmcore-plus @ git+https://github.com/fdrgsp/pymmcore-plus@cite
-          - useq-schema >=0.8.0
+          # likewise: the autofocus section reads the software-autofocus plan and
+          # the hardware plan's search fields, neither of which the released
+          # useq-schema has.
+          - useq-schema @ git+https://github.com/fdrgsp/useq-schema@cite
           - psutil >=5.9
           - types-psutil >=5.9

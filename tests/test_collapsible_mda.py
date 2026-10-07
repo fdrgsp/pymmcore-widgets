@@ -63,7 +63,10 @@ def test_collapsible_is_mda_widget(qtbot: QtBot) -> None:
     assert not wdg.tabs.isAncestorOf(wdg._settings_box)
     assert wdg._settings_box.isAncestorOf(wdg.axis_order)
     assert wdg._settings_box.isAncestorOf(wdg.keep_shutter_open)
-    assert wdg._settings_box.isAncestorOf(wdg.af_axis)
+    # Autofocus sits in a card of its own, below the settings card.
+    assert not wdg._settings_box.isAncestorOf(wdg.af_axis)
+    assert wdg._af_box.isAncestorOf(wdg.af_axis)
+    assert wdg._af_box is not wdg._settings_box
 
 
 def test_collapsible_settings_sit_between_the_sections_and_the_footer(

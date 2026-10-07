@@ -906,6 +906,7 @@ class MDAWidgetCollapsible(MDAWidget):
         # The settings card lives outside `tabs` (see `_install_layout`), and
         # this override replaces the base sweep that would otherwise reach it.
         self._settings_box.setEnabled(enable)
+        self._af_box.setEnabled(enable)
         self._save_button.setEnabled(enable)
         self._load_button.setEnabled(enable)
 
@@ -938,8 +939,16 @@ class MDAWidgetCollapsible(MDAWidget):
         axis_layout.addStretch()
         settings_layout.addWidget(axis_row)
         settings_layout.addWidget(self.keep_shutter_open)
-        settings_layout.addWidget(self.af_axis)
         self._settings_box = tabs._wrap_in_card(settings_widget)
+        # Autofocus gets a card of its own below: it has more controls than the
+        # settings above it, and which ones apply depends on the kind selected.
+        af_widget = QWidget()
+        af_layout = QVBoxLayout(af_widget)
+        # same inner inset as the settings card above, so the two line up
+        af_layout.setContentsMargins(5, 5, 5, 5)
+        af_layout.setSpacing(5)
+        af_layout.addWidget(self.af_axis)
+        self._af_box = tabs._wrap_in_card(af_widget)
 
         metrics = tabs._metrics
         footer = QFrame()
@@ -971,7 +980,12 @@ class MDAWidgetCollapsible(MDAWidget):
         # metrics while the sections moved to the caller's.
         self._settings_row = settings_row = QHBoxLayout()
         self._apply_settings_row_metrics(metrics)
-        settings_row.addWidget(self._settings_box)
+        settings_col = QVBoxLayout()
+        settings_col.setContentsMargins(0, 0, 0, 0)
+        settings_col.setSpacing(5)
+        settings_col.addWidget(self._settings_box)
+        settings_col.addWidget(self._af_box)
+        settings_row.addLayout(settings_col)
 
         box = cast("QVBoxLayout", layout)
         box.setContentsMargins(0, 0, 0, 0)

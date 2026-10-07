@@ -18,7 +18,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 from superqt.iconify import QIconifyIcon
-from useq import MDAEvent, MDASequence, Position
+from useq import AxesBasedAF, MDAEvent, MDASequence, Position
 
 from pymmcore_widgets._util import get_next_available_path
 from pymmcore_widgets.useq_widgets import MDASequenceWidget
@@ -306,11 +306,11 @@ class MDAWidget(MDASequenceWidget):
                 pos.replace(z=z) for pos in val.stage_positions
             )
 
-        # if there is an autofocus_plan but the autofocus_motor_offset is None, set it
-        # to the current value
+        # if there is a hardware autofocus_plan but the autofocus_motor_offset is
+        # None, set it to the current value.  A software plan has no offset motor.
         if (
             self._mmc.getAutoFocusDevice()
-            and (afplan := val.autofocus_plan)
+            and isinstance(afplan := val.autofocus_plan, AxesBasedAF)
             and afplan.autofocus_motor_offset is None
         ):
             p2 = afplan.replace(autofocus_motor_offset=self._mmc.getAutoFocusOffset())
