@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from importlib.util import find_spec
 from itertools import permutations
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import useq
 from qtpy.QtCore import Qt, Signal
@@ -28,6 +29,9 @@ from superqt.utils import signals_blocked
 import pymmcore_widgets
 from pymmcore_widgets._humanize import humanize_time
 from pymmcore_widgets._util import disable_wheel_scroll
+from pymmcore_widgets.useq_widgets._autofocus_settings import (
+    AutofocusSettingsDialog,
+)
 from pymmcore_widgets.useq_widgets._channels import ChannelTable
 from pymmcore_widgets.useq_widgets._checkable_tabwidget_widget import CheckableTabWidget
 from pymmcore_widgets.useq_widgets._grid import GridPlanWidget
@@ -114,6 +118,16 @@ AF_SOFTWARE_TOOLTIP = (
     "exposes the sample.\n"
     "\n"
     "Only one kind of autofocus runs in an acquisition."
+)
+AF_METHOD_TOOLTIP = (
+    "Which image-based routine to run.\n"
+    "\n"
+    "They differ in how they search and how many images that costs; each one's\n"
+    "own settings are behind the Settings button."
+)
+AF_SETTINGS_TOOLTIP = (
+    "Edit this routine's settings: how far to search, how sharpness is measured,\n"
+    "and which channel and exposure to focus with."
 )
 AF_NO_SOFTWARE_TOOLTIP = (
     "No software autofocus methods are available in this installation."
@@ -340,6 +354,22 @@ class AutofocusAxis(QWidget):
         )
         self.search_step_um = self._search_spin("step ", 5.0, AF_SEARCH_STEP_TOOLTIP)
 
+        # --- software only: which routine, and its settings ---
+        self._method_label = QLabel("Method:")
+        self._method_label.setToolTip(AF_METHOD_TOOLTIP)
+        self.method = QComboBox()
+        self.method.setToolTip(AF_METHOD_TOOLTIP)
+        self.settings_button = QPushButton("Settings...")
+        self.settings_button.setToolTip(AF_SETTINGS_TOOLTIP)
+        self.settings_button.setEnabled(False)
+        # each method keeps its own settings, so switching back and forth does not
+        # discard what was configured
+        self._method_models: dict[str, type] = {}
+        self._method_settings: dict[str, dict[str, Any]] = {}
+        # set by the core-aware widget, which knows what devices are loaded
+        self._software_devices_ok = True
+        self._software_unavailable_reason = ""
+
         # --- software only: skipping time points, since each run costs many images ---
         self._every_n_label = QLabel("Run:")
         self._every_n_label.setToolTip(AF_EVERY_N_TOOLTIP)
@@ -376,16 +406,28 @@ class AutofocusAxis(QWidget):
         mode_row.addWidget(self.use_software)
         mode_row.addStretch()
 
-        options_row = QHBoxLayout()
-        options_row.setSpacing(10)
-        options_row.setContentsMargins(0, 0, 0, 0)
-        options_row.addWidget(self._search_label)
-        options_row.addWidget(self.search_below_um)
-        options_row.addWidget(self.search_above_um)
-        options_row.addWidget(self.search_step_um)
-        options_row.addWidget(self._every_n_label)
-        options_row.addWidget(self.every_n_timepoints)
-        options_row.addStretch()
+        search_row = QHBoxLayout()
+        search_row.setSpacing(10)
+        search_row.setContentsMargins(0, 0, 0, 0)
+        search_row.addWidget(self._search_label)
+        search_row.addWidget(self.search_below_um)
+        search_row.addWidget(self.search_above_um)
+        search_row.addWidget(self.search_step_um)
+        search_row.addStretch()
+
+        method_row = QHBoxLayout()
+        method_row.setSpacing(10)
+        method_row.setContentsMargins(0, 0, 0, 0)
+        method_row.addWidget(self._method_label)
+        method_row.addWidget(self.method, 1)
+        method_row.addWidget(self.settings_button)
+
+        every_row = QHBoxLayout()
+        every_row.setSpacing(10)
+        every_row.setContentsMargins(0, 0, 0, 0)
+        every_row.addWidget(self._every_n_label)
+        every_row.addWidget(self.every_n_timepoints)
+        every_row.addStretch()
 
         self._body = QWidget()
         body_layout = QVBoxLayout(self._body)
@@ -393,7 +435,9 @@ class AutofocusAxis(QWidget):
         body_layout.setSpacing(5)
         body_layout.addLayout(axis_row)
         body_layout.addLayout(mode_row)
-        body_layout.addLayout(options_row)
+        body_layout.addLayout(search_row)
+        body_layout.addLayout(method_row)
+        body_layout.addLayout(every_row)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(5)
@@ -410,23 +454,19 @@ class AutofocusAxis(QWidget):
         self.search_below_um.valueChanged.connect(self.valueChanged)
         self.search_above_um.valueChanged.connect(self.valueChanged)
         self.search_step_um.valueChanged.connect(self.valueChanged)
+        self.method.currentTextChanged.connect(self._on_method_changed)
+        self.settings_button.clicked.connect(self._edit_settings)
 
         # one label column for the three rows, so their controls line up
-        label_width = max(
-            w.sizeHint().width()
-            for w in (
-                self.label,
-                self._mode_label,
-                self._search_label,
-                self._every_n_label,
-            )
-        )
-        for w in (
+        _labels = (
             self.label,
             self._mode_label,
             self._search_label,
+            self._method_label,
             self._every_n_label,
-        ):
+        )
+        label_width = max(w.sizeHint().width() for w in _labels)
+        for w in _labels:
             w.setFixedWidth(label_width)
 
         self.setToolTip(AF_AXIS_TOOLTIP)
@@ -448,10 +488,17 @@ class AutofocusAxis(QWidget):
     # -------------------------------- kind --------------------------------
 
     def kind(self) -> str | None:
-        """Return `"hardware"`, `"software"`, or `None` if autofocus is off."""
+        """Return `"hardware"`, `"software"`, or `None` if autofocus is off.
+
+        A mode that is switched off because the microscope cannot run it -- no
+        autofocus device, or no software routines -- yields `None`, so no plan is
+        built for something that could not run.
+        """
         if not self.isEnabled() or not self.enabled.isChecked():
             return None
-        return "software" if self.use_software.isChecked() else "hardware"
+        if self.use_software.isChecked():
+            return "software" if self.use_software.isEnabled() else None
+        return "hardware" if self.use_hardware.isEnabled() else None
 
     def setKind(self, kind: str | None) -> None:
         """Select the kind of autofocus, or switch autofocus off with `None`."""
@@ -464,15 +511,76 @@ class AutofocusAxis(QWidget):
         self._body.setEnabled(self.enabled.isChecked())
         self._update_kind_widgets()
 
-    def setSoftwareMethods(self, methods: Sequence[str]) -> None:
-        """Enable the `Software` option if any software autofocus methods exist."""
-        available = bool(methods)
+    def setSoftwareMethods(
+        self, methods: Sequence[str] | Mapping[str, type] | None
+    ) -> None:
+        """Offer these software autofocus routines, enabling the `Software` option.
+
+        Pass a mapping of name to settings dataclass to get an editable settings form
+        for each; a plain sequence of names offers the routines without one.
+        """
+        methods = methods or {}
+        names = list(methods)
+        self._method_models = dict(methods) if isinstance(methods, Mapping) else {}
+
+        with signals_blocked(self.method):
+            current = self.method.currentText()
+            self.method.clear()
+            self.method.addItems(names)
+            if current in names:
+                self.method.setCurrentText(current)
+        self._update_settings_button()
+        self._refresh_software_enabled()
+
+    def setSoftwareAvailable(self, available: bool, reason: str = "") -> None:
+        """Say whether the microscope can run a software routine at all.
+
+        It needs a camera to acquire with and a focus drive to move -- but no
+        autofocus device, which is what sets it apart from the hardware kind.
+        `reason` is shown as the tooltip when it cannot.
+        """
+        self._software_devices_ok = available
+        self._software_unavailable_reason = reason
+        self._refresh_software_enabled()
+
+    def _refresh_software_enabled(self) -> None:
+        has_methods = self.method.count() > 0
+        available = has_methods and self._software_devices_ok
         self.use_software.setEnabled(available)
-        self.use_software.setToolTip(
-            AF_SOFTWARE_TOOLTIP if available else AF_NO_SOFTWARE_TOOLTIP
+        if available:
+            tooltip = AF_SOFTWARE_TOOLTIP
+        elif not has_methods:
+            tooltip = AF_NO_SOFTWARE_TOOLTIP
+        else:
+            tooltip = self._software_unavailable_reason or AF_NO_SOFTWARE_TOOLTIP
+        self.use_software.setToolTip(tooltip)
+
+    def softwareMethod(self) -> str:
+        """The selected software autofocus routine."""
+        return self.method.currentText()
+
+    def softwareSettings(self) -> dict[str, Any]:
+        """The settings for the selected routine."""
+        return dict(self._method_settings.get(self.softwareMethod(), {}))
+
+    def _update_settings_button(self) -> None:
+        """A routine with no known settings model has nothing to edit."""
+        self.settings_button.setEnabled(self.softwareMethod() in self._method_models)
+
+    def _on_method_changed(self) -> None:
+        self._update_settings_button()
+        self.valueChanged.emit()
+
+    def _edit_settings(self) -> None:
+        method = self.softwareMethod()
+        if (model := self._method_models.get(method)) is None:  # pragma: no cover
+            return
+        dialog = AutofocusSettingsDialog(
+            model, self.softwareSettings(), method=method, parent=self
         )
-        if not available and self.use_software.isChecked():
-            self.use_hardware.setChecked(True)
+        if dialog.exec():
+            self._method_settings[method] = dialog.value()
+            self.valueChanged.emit()
 
     def _on_enabled_toggled(self, checked: bool) -> None:
         self._body.setEnabled(checked)
@@ -498,6 +606,9 @@ class AutofocusAxis(QWidget):
             self.search_step_um,
         )
         software_only: tuple[QWidget, ...] = (
+            self._method_label,
+            self.method,
+            self.settings_button,
             self._every_n_label,
             self.every_n_timepoints,
         )
@@ -540,6 +651,9 @@ class AutofocusAxis(QWidget):
             # a software plan needs a `method`, which this widget cannot choose: it can
             # only edit one it was given.
             updates["every_n_timepoints"] = self.every_n_timepoints.value()
+            if method := self.softwareMethod():
+                updates["method"] = method
+                updates["settings"] = self.softwareSettings()
             soft = self._software_plan or useq.SoftwareAxesBasedAF(axes=axes, method="")
             return soft.replace(**updates, **kwargs)
         updates["search_below_um"] = self.search_below_um.value()
@@ -557,6 +671,14 @@ class AutofocusAxis(QWidget):
             if isinstance(plan, useq.SoftwareAxesBasedAF):
                 self._software_plan = plan
                 self.every_n_timepoints.setValue(plan.every_n_timepoints)
+                if plan.method:
+                    if self.method.findText(plan.method) < 0:
+                        # a routine this installation does not have: keep it, so the
+                        # sequence is not quietly changed to a different one
+                        self.method.addItem(plan.method)
+                    self.method.setCurrentText(plan.method)
+                    self._method_settings[plan.method] = dict(plan.settings)
+                    self._update_settings_button()
                 # make sure the option can be chosen, so value() round-trips the plan
                 # even before a method picker exists.
                 self.use_software.setEnabled(True)

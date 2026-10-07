@@ -1156,22 +1156,26 @@ def test_core_mda_autofocus_and_z_plan(
         with qtbot.waitSignal(mmc.events.propertyChanged):
             mmc.setProperty("Core", "AutoFocus", "")
 
-    # both af_axis and af_per_position should be disabled
-    assert not wdg.af_axis.isEnabled()
+    if trigger == "zplan":
+        # an absolute z plan rules out autofocus of either kind: it would override
+        # the focus position autofocus had just corrected
+        assert not wdg.af_axis.isEnabled()
+        assert wdg.af_axis.toolTip() == AF_DISABLED_TOOLTIP
+        assert pos_table.af_per_position.toolTip() == AF_DISABLED_TOOLTIP
+    else:
+        # without an autofocus device the hardware kind is out, but a software
+        # routine needs only a camera and a focus stage, so the section stays usable
+        assert wdg.af_axis.isEnabled()
+        assert not wdg.af_axis.use_hardware.isEnabled()
+        assert wdg.af_axis.toolTip() == AF_AXIS_TOOLTIP
+        assert pos_table.af_per_position.toolTip() == AF_UNAVAILABLE
+
+    # either way, the selected mode cannot run, so no plan comes out
     assert wdg.af_axis.use_af_p.isChecked()
     assert not wdg.af_axis.value()
-    assert (
-        wdg.af_axis.toolTip() == AF_UNAVAILABLE
-        if trigger == "core"
-        else AF_DISABLED_TOOLTIP
-    )
+    # per-position offsets are a hardware-autofocus feature
     assert not pos_table.af_per_position.isEnabled()
     assert pos_table.af_per_position.isChecked()
-    assert (
-        pos_table.af_per_position.toolTip() == AF_UNAVAILABLE
-        if trigger == "core"
-        else AF_DISABLED_TOOLTIP
-    )
     # AF column should be hidden
     assert pos_table.table().isColumnHidden(af_col)
     assert pos_table.table().isColumnHidden(af_btn_col)

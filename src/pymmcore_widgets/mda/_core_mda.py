@@ -25,6 +25,7 @@ from pymmcore_widgets.useq_widgets import MDASequenceWidget
 from pymmcore_widgets.useq_widgets._mda_sequence import (
     AF_AXIS_TOOLTIP,
     AF_DISABLED_TOOLTIP,
+    AF_HARDWARE_TOOLTIP,
     PYMMCW_METADATA_KEY,
     MDATabs,
 )
@@ -454,6 +455,7 @@ class MDAWidget(MDASequenceWidget):
     def _on_sys_config_loaded(self) -> None:
         self.stage_positions._update_xy_enablement()
         self.stage_positions._update_z_enablement()
+        self._update_software_autofocus_methods()
         self._update_autofocus_enablement()
 
     @Slot(str, str, object)
@@ -470,20 +472,56 @@ class MDAWidget(MDASequenceWidget):
             props[prop]()
             self.valueChanged.emit()
 
+    def _update_software_autofocus_methods(self) -> None:
+        """Offer the image-based autofocus routines the engine knows about."""
+        try:
+            from pymmcore_plus.autofocus import available_methods, settings_model
+        except ImportError:  # pragma: no cover  (older pymmcore-plus)
+            return
+        self.af_axis.setSoftwareMethods(
+            {name: settings_model(name) for name in available_methods()}
+        )
+
     def _update_autofocus_enablement(self) -> None:
         """Enable or disable the autofocus widgets.
 
-        Enable af_axis and af_per_position only if there is an autofocus device and no
-        absolute z plan is selected.
+        Software autofocus needs no autofocus *device*, only a camera and a focus
+        drive, so the section stays usable when either kind is available.  An
+        absolute z plan rules out both, since autofocus adjusts the focus position
+        that such a plan would then override.
         """
-        # get the autofocus device
         af_device = self._get_autofocus_device()
+        has_hardware = bool(af_device)
+        # an image-based routine needs something to image with and something to move
+        missing = [
+            what
+            for what, device in (
+                ("a camera", self._mmc.getCameraDevice()),
+                ("a focus stage", self._mmc.getFocusDevice()),
+            )
+            if not device
+        ]
+        self.af_axis.setSoftwareAvailable(
+            not missing,
+            f"Software autofocus needs {' and '.join(missing)}." if missing else "",
+        )
+        has_software = self.af_axis.use_software.isEnabled()
+        absolute_z = (
+            self.tab_wdg.isChecked(self.z_plan)
+            and self.z_plan.mode() == Mode.TOP_BOTTOM
+        )
 
-        # update the autofocus axis widget
-        self.af_axis.setEnabled(bool(af_device))
+        self.af_axis.setEnabled(not absolute_z and (has_hardware or has_software))
         self.af_axis.setToolTip(self._get_tooltip(self.af_axis))
+        self.af_axis.use_hardware.setEnabled(has_hardware)
+        self.af_axis.use_hardware.setToolTip(
+            AF_HARDWARE_TOOLTIP if has_hardware else AF_UNAVAILABLE
+        )
+        # NOTE: the mode is deliberately not switched for the user. A sequence that
+        # asks for one kind must not quietly run the other; with its mode disabled,
+        # the section simply produces no plan.
 
-        # update the autofocus per position widget
+        # per-position autofocus offsets are a hardware-autofocus feature
         self.stage_positions.af_per_position.setEnabled(bool(af_device))
         # set tooltip af_per_position
         self.stage_positions.af_per_position.setToolTip(
@@ -492,8 +530,11 @@ class MDAWidget(MDASequenceWidget):
 
     def _get_tooltip(self, wdg: QWidget) -> str:
         """Return the tooltip for the autofocus widgets."""
-        # if there is no autofocus device, return the unavailable tooltip
+        # if there is no autofocus device, return the unavailable tooltip -- unless a
+        # software routine is available, which needs no autofocus device
         if not self._mmc.getAutoFocusDevice():
+            if wdg is self.af_axis and self.af_axis.use_software.isEnabled():
+                return AF_AXIS_TOOLTIP
             return AF_UNAVAILABLE
         # if autofocus device is available, but the z plan is in absolute mode, return
         # the disabled tooltip

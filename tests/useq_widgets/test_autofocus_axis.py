@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import useq
@@ -64,11 +65,12 @@ def test_software_disabled_until_methods_exist(qtbot: QtBot) -> None:
     af.setSoftwareMethods(["oughtafocus", "jaf_hp"])
     assert af.use_software.isEnabled()
 
-    # losing the methods must not leave software autofocus selected
+    # losing the methods disables the option; the mode is deliberately not switched
+    # for the user, so no plan is built for something that cannot run
     af.use_software.setChecked(True)
     af.setSoftwareMethods([])
     assert not af.use_software.isEnabled()
-    assert af.kind() == "hardware"
+    assert af.kind() is None
 
 
 def test_each_kind_shows_only_its_own_options(qtbot: QtBot) -> None:
@@ -273,3 +275,109 @@ def test_search_tooltips_are_specific_to_each_field(qtbot: QtBot) -> None:
     assert len(tips) == 3  # not the same text pasted three times
     assert "below" in af.search_below_um.toolTip()
     assert "above" in af.search_above_um.toolTip()
+
+
+# ------------------------------ the method picker ------------------------------
+
+
+@dataclass(frozen=True)
+class _DemoSettings:
+    """A demo routine."""
+
+    span_um: float = 5.0
+
+
+def test_methods_populate_the_picker(qtbot: QtBot) -> None:
+    af = AutofocusAxis()
+    qtbot.addWidget(af)
+    af.enabled.setChecked(True)
+    af.setSoftwareMethods({"oughtafocus": _DemoSettings, "jaf": _DemoSettings})
+
+    assert [af.method.itemText(i) for i in range(af.method.count())] == [
+        "oughtafocus",
+        "jaf",
+    ]
+    assert af.use_software.isEnabled()
+    assert af.settings_button.isEnabled()
+
+
+def test_methods_without_a_model_offer_no_settings(qtbot: QtBot) -> None:
+    af = AutofocusAxis()
+    qtbot.addWidget(af)
+    af.enabled.setChecked(True)
+    af.setSoftwareMethods(["mystery"])
+    assert af.use_software.isEnabled()
+    assert not af.settings_button.isEnabled()
+
+
+def test_software_needs_the_right_devices(qtbot: QtBot) -> None:
+    """A routine needs a camera and a focus drive, whatever methods are installed."""
+    af = AutofocusAxis()
+    qtbot.addWidget(af)
+    af.enabled.setChecked(True)
+    af.setSoftwareMethods({"oughtafocus": _DemoSettings})
+    assert af.use_software.isEnabled()
+
+    af.setSoftwareAvailable(False, "Software autofocus needs a camera.")
+    assert not af.use_software.isEnabled()
+    assert af.use_software.toolTip() == "Software autofocus needs a camera."
+
+    af.setSoftwareAvailable(True)
+    assert af.use_software.isEnabled()
+
+
+def test_the_chosen_method_and_settings_reach_the_plan(qtbot: QtBot) -> None:
+    af = AutofocusAxis()
+    qtbot.addWidget(af)
+    af.enabled.setChecked(True)
+    af.setSoftwareMethods({"oughtafocus": _DemoSettings, "jaf": _DemoSettings})
+    af.use_software.setChecked(True)
+    af.method.setCurrentText("jaf")
+    af._method_settings["jaf"] = {"span_um": 12.0}
+
+    plan = af.plan(("p",))
+    assert isinstance(plan, useq.SoftwareAxesBasedAF)
+    assert plan.method == "jaf"
+    assert plan.settings == {"span_um": 12.0}
+
+
+def test_each_method_keeps_its_own_settings(qtbot: QtBot) -> None:
+    af = AutofocusAxis()
+    qtbot.addWidget(af)
+    af.enabled.setChecked(True)
+    af.setSoftwareMethods({"a": _DemoSettings, "b": _DemoSettings})
+    af.use_software.setChecked(True)
+    af._method_settings["a"] = {"span_um": 1.0}
+    af._method_settings["b"] = {"span_um": 2.0}
+
+    af.method.setCurrentText("a")
+    assert af.plan(("p",)).settings == {"span_um": 1.0}
+    af.method.setCurrentText("b")
+    assert af.plan(("p",)).settings == {"span_um": 2.0}
+    af.method.setCurrentText("a")
+    assert af.plan(("p",)).settings == {"span_um": 1.0}
+
+
+def test_a_method_this_installation_lacks_is_kept(qtbot: QtBot) -> None:
+    """Otherwise opening someone else's sequence would silently change the routine."""
+    af = AutofocusAxis()
+    qtbot.addWidget(af)
+    af.setSoftwareMethods({"oughtafocus": _DemoSettings})
+    plan = useq.SoftwareAxesBasedAF(
+        axes=("p",), method="their_custom_method", settings={"x": 1}
+    )
+    af.setPlan(plan)
+
+    assert af.softwareMethod() == "their_custom_method"
+    assert af.plan(("p",)).method == "their_custom_method"
+    assert af.plan(("p",)).settings == {"x": 1}
+    # ... but there is no form for a routine we do not have
+    assert not af.settings_button.isEnabled()
+
+
+def test_changing_method_emits_value_changed(qtbot: QtBot) -> None:
+    af = AutofocusAxis()
+    qtbot.addWidget(af)
+    af.setSoftwareMethods({"a": _DemoSettings, "b": _DemoSettings})
+    with qtbot.waitSignal(af.valueChanged):
+        af.method.setCurrentText("b")
