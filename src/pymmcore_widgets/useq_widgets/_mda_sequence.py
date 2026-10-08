@@ -91,6 +91,8 @@ AF_DISABLED_TOOLTIP = (
     "Switch the Z plan to a relative mode (RANGE_AROUND or ABOVE_BELOW) to use it."
 )
 AF_ENABLE_TOOLTIP = "Run an autofocus routine during the acquisition."
+# Filled in when a search range is first asked for; MMStudio's own default.
+DEFAULT_AF_SEARCH_STEP_UM = 5.0
 AF_ON_AXIS_TOOLTIP = (
     "When to autofocus: every time one of these axes changes.\n"
     "\n"
@@ -298,6 +300,19 @@ class MDATabs(CheckableTabWidget):
             ch_table.setColumnHidden(ch_table.indexOf(_map[idx]), not checked)
 
 
+def _installed_software_methods() -> dict[str, type]:
+    """The software autofocus routines the acquisition engine can run.
+
+    Taken from `pymmcore_plus` so the widget works out of the box; pass something
+    else to `AutofocusAxis.setSoftwareMethods` to offer a different set.
+    """
+    try:
+        from pymmcore_plus.autofocus import available_methods, settings_model
+    except ImportError:  # pragma: no cover  (an older pymmcore-plus)
+        return {}
+    return {name: settings_model(name) for name in available_methods()}
+
+
 class AutofocusAxis(QWidget):
     """Autofocus settings: whether to use it, which kind, when, and how it searches.
 
@@ -346,13 +361,10 @@ class AutofocusAxis(QWidget):
         # --- hardware only: search for a lock if autofocus fails where it starts ---
         self._search_label = QLabel("Search:")
         self._search_label.setToolTip(AF_SEARCH_TOOLTIP)
-        self.search_below_um = self._search_spin(
-            "below ", 10.0, AF_SEARCH_BELOW_TOOLTIP
-        )
-        self.search_above_um = self._search_spin(
-            "above ", 10.0, AF_SEARCH_ABOVE_TOOLTIP
-        )
-        self.search_step_um = self._search_spin("step ", 5.0, AF_SEARCH_STEP_TOOLTIP)
+        # all zero: autofocus is only attempted where it starts, until asked for more
+        self.search_below_um = self._search_spin("below ", 0.0, AF_SEARCH_BELOW_TOOLTIP)
+        self.search_above_um = self._search_spin("above ", 0.0, AF_SEARCH_ABOVE_TOOLTIP)
+        self.search_step_um = self._search_spin("step ", 0.0, AF_SEARCH_STEP_TOOLTIP)
 
         # --- software only: which routine, and its settings ---
         self._method_label = QLabel("Method:")
@@ -451,8 +463,8 @@ class AutofocusAxis(QWidget):
         self.use_af_g.toggled.connect(self.valueChanged)
         self.every_n_timepoints.valueChanged.connect(self.valueChanged)
         self.use_hardware.toggled.connect(self._on_kind_toggled)
-        self.search_below_um.valueChanged.connect(self.valueChanged)
-        self.search_above_um.valueChanged.connect(self.valueChanged)
+        self.search_below_um.valueChanged.connect(self._on_search_range_changed)
+        self.search_above_um.valueChanged.connect(self._on_search_range_changed)
         self.search_step_um.valueChanged.connect(self.valueChanged)
         self.method.currentTextChanged.connect(self._on_method_changed)
         self.settings_button.clicked.connect(self._edit_settings)
@@ -472,6 +484,7 @@ class AutofocusAxis(QWidget):
         self.setToolTip(AF_AXIS_TOOLTIP)
         self._body.setEnabled(False)
         self._update_kind_widgets()
+        self.setSoftwareMethods(_installed_software_methods())
 
     def _search_spin(self, prefix: str, default: float, tooltip: str) -> QDoubleSpinBox:
         spin = QDoubleSpinBox()
@@ -484,6 +497,21 @@ class AutofocusAxis(QWidget):
         spin.setToolTip(tooltip)
         disable_wheel_scroll(spin)
         return spin
+
+    def _on_search_range_changed(self) -> None:
+        """Give the search a step as soon as a range asks for one.
+
+        A range with no step is not a search anyone meant to configure, and the
+        schema rejects it, so asking for one fills in a usable step rather than
+        leaving the section in a state that cannot be turned into a plan.
+        """
+        wants_search = bool(
+            self.search_below_um.value() or self.search_above_um.value()
+        )
+        if wants_search and not self.search_step_um.value():
+            with signals_blocked(self.search_step_um):
+                self.search_step_um.setValue(DEFAULT_AF_SEARCH_STEP_UM)
+        self.valueChanged.emit()
 
     # -------------------------------- kind --------------------------------
 

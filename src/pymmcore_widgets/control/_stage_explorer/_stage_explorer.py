@@ -4,7 +4,7 @@ import errno
 import logging
 import time
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from threading import Lock
 from typing import TYPE_CHECKING, cast
@@ -289,7 +289,7 @@ class _StagePoller(QThread):
 
 
 # this might belong in _stage_position_marker.py
-class PositionIndicator(str, Enum):
+class PositionIndicator(StrEnum):
     """Way in which the stage position is indicated."""
 
     RECTANGLE = "FOV Rectangle"

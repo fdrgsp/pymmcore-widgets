@@ -56,10 +56,20 @@ def test_kinds_are_mutually_exclusive(qtbot: QtBot) -> None:
     assert af.kind() is None
 
 
+def test_methods_are_offered_out_of_the_box(qtbot: QtBot) -> None:
+    """The routines the acquisition engine can run, without any wiring."""
+    af = AutofocusAxis()
+    qtbot.addWidget(af)
+    af.enabled.setChecked(True)
+    assert af.method.count() > 0
+    assert af.use_software.isEnabled()
+
+
 def test_software_disabled_until_methods_exist(qtbot: QtBot) -> None:
     af = AutofocusAxis()
     qtbot.addWidget(af)
     af.enabled.setChecked(True)
+    af.setSoftwareMethods({})  # as if none were installed
     assert not af.use_software.isEnabled()
 
     af.setSoftwareMethods(["oughtafocus", "jaf_hp"])
@@ -113,8 +123,8 @@ def test_enabling_emits_value_changed(qtbot: QtBot) -> None:
 # --------------------------------- Z search ---------------------------------
 
 
-def test_widget_defaults_enable_search(qtbot: QtBot) -> None:
-    """The GUI pre-fills 10 µm either way; the schema default is 0 (no search)."""
+def test_no_search_by_default(qtbot: QtBot) -> None:
+    """Autofocus is only attempted where it starts until a search is asked for."""
     wdg = _wdg(qtbot)
     wdg.af_axis.enabled.setChecked(True)
     wdg.af_axis.use_af_p.setChecked(True)
@@ -122,12 +132,33 @@ def test_widget_defaults_enable_search(qtbot: QtBot) -> None:
     plan = wdg.value().autofocus_plan
     assert isinstance(plan, useq.AxesBasedAF)
     assert plan.axes == ("p",)
-    assert plan.search_below_um == 10.0
-    assert plan.search_above_um == 10.0
-    assert plan.search_step_um == 5.0
+    assert plan.search_below_um == 0.0
+    assert plan.search_above_um == 0.0
     assert plan.every_n_timepoints == 1
-    # ... while a plan built in code searches nothing
-    assert useq.AxesBasedAF(axes=("p",)).search_below_um == 0.0
+
+
+def test_asking_for_a_range_fills_in_a_step(qtbot: QtBot) -> None:
+    """A range with no step is not a search, and the schema refuses to build one."""
+    wdg = _wdg(qtbot)
+    wdg.af_axis.enabled.setChecked(True)
+    wdg.af_axis.use_af_p.setChecked(True)
+    assert wdg.af_axis.search_step_um.value() == 0.0
+
+    wdg.af_axis.search_below_um.setValue(20.0)
+    assert wdg.af_axis.search_step_um.value() > 0.0
+
+    plan = wdg.value().autofocus_plan
+    assert plan is not None
+    assert plan.search_below_um == 20.0
+    assert plan.search_step_um == wdg.af_axis.search_step_um.value()
+
+
+def test_a_step_already_set_is_left_alone(qtbot: QtBot) -> None:
+    wdg = _wdg(qtbot)
+    wdg.af_axis.enabled.setChecked(True)
+    wdg.af_axis.search_step_um.setValue(1.5)
+    wdg.af_axis.search_above_um.setValue(8.0)
+    assert wdg.af_axis.search_step_um.value() == 1.5
 
 
 def test_search_values_round_trip(qtbot: QtBot) -> None:
@@ -147,13 +178,15 @@ def test_search_is_editable(qtbot: QtBot) -> None:
     wdg = _wdg(qtbot)
     wdg.af_axis.enabled.setChecked(True)
     wdg.af_axis.use_af_p.setChecked(True)
-    wdg.af_axis.search_below_um.setValue(0.0)
-    wdg.af_axis.search_above_um.setValue(0.0)
+    wdg.af_axis.search_below_um.setValue(12.0)
+    wdg.af_axis.search_above_um.setValue(4.0)
+    wdg.af_axis.search_step_um.setValue(2.0)
 
     plan = wdg.value().autofocus_plan
     assert plan is not None
-    assert plan.search_below_um == 0.0
-    assert plan.search_above_um == 0.0
+    assert plan.search_below_um == 12.0
+    assert plan.search_above_um == 4.0
+    assert plan.search_step_um == 2.0
 
 
 # ----------------------------- every N timepoints -----------------------------
@@ -259,6 +292,7 @@ def test_mode_tooltips_describe_the_trade_off(qtbot: QtBot) -> None:
 def test_software_tooltip_says_why_it_is_unavailable(qtbot: QtBot) -> None:
     af = AutofocusAxis()
     qtbot.addWidget(af)
+    af.setSoftwareMethods({})  # as if none were installed
     assert "No software autofocus methods" in af.use_software.toolTip()
     af.setSoftwareMethods(["oughtafocus"])
     assert "No software autofocus methods" not in af.use_software.toolTip()

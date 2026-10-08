@@ -316,8 +316,10 @@ def test_pixel_config_wdg_px_table(qtbot: QtBot, global_mmcore: CMMCorePlus):
 
     wdg._px_table._table.selectRow(1)
     qtbot.waitUntil(
-        lambda: wdg._px_table._table.selectedItems()
-        and wdg._px_table._table.selectedItems()[0].text() == "Res20x"
+        lambda: (
+            wdg._px_table._table.selectedItems()
+            and wdg._px_table._table.selectedItems()[0].text() == "Res20x"
+        )
     )
     qtbot.waitUntil(
         lambda: _displayed(wdg) == [("Objective", "Label", "Nikon 20X Plan Fluor ELWD")]
@@ -386,8 +388,10 @@ def test_delete_resID(qtbot: QtBot, global_mmcore: CMMCorePlus):
 
     wdg._px_table._table.selectRow(1)
     qtbot.waitUntil(
-        lambda: wdg._px_table._table.selectedItems()
-        and wdg._px_table._table.selectedItems()[0].text() == "Res20x"
+        lambda: (
+            wdg._px_table._table.selectedItems()
+            and wdg._px_table._table.selectedItems()[0].text() == "Res20x"
+        )
     )
 
     wdg._px_table._remove_selected()

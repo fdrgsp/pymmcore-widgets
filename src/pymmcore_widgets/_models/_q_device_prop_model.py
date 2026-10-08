@@ -16,9 +16,9 @@ from ._py_config_model import Device, DevicePropertySetting
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+    from typing import Self
 
     from pymmcore_plus import CMMCorePlus
-    from typing_extensions import Self
 
 NULL_INDEX = QModelIndex()
 

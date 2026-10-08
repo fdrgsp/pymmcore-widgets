@@ -455,7 +455,6 @@ class MDAWidget(MDASequenceWidget):
     def _on_sys_config_loaded(self) -> None:
         self.stage_positions._update_xy_enablement()
         self.stage_positions._update_z_enablement()
-        self._update_software_autofocus_methods()
         self._update_autofocus_enablement()
 
     @Slot(str, str, object)
@@ -471,16 +470,6 @@ class MDAWidget(MDASequenceWidget):
         if prop in props:
             props[prop]()
             self.valueChanged.emit()
-
-    def _update_software_autofocus_methods(self) -> None:
-        """Offer the image-based autofocus routines the engine knows about."""
-        try:
-            from pymmcore_plus.autofocus import available_methods, settings_model
-        except ImportError:  # pragma: no cover  (older pymmcore-plus)
-            return
-        self.af_axis.setSoftwareMethods(
-            {name: settings_model(name) for name in available_methods()}
-        )
 
     def _update_autofocus_enablement(self) -> None:
         """Enable or disable the autofocus widgets.

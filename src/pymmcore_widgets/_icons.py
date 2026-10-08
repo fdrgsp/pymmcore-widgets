@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pymmcore_plus import CMMCorePlus, DeviceType, PropertyType
 from superqt import QIconifyIcon
 
 
-class StandardIcon(str, Enum):
+class StandardIcon(StrEnum):
     READ_ONLY = "fluent:edit-off-20-regular"
     PRE_INIT = "mynaui:letter-p-diamond"
     EXPAND = "mdi:expand-horizontal"

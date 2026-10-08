@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import itertools
-from typing import overload
+from typing import Self, overload
 
 from qtpy.QtCore import QAbstractItemModel, QModelIndex, QObject, Qt
-from typing_extensions import Self
 
 from ._py_config_model import ConfigGroup, ConfigPreset, Device, DevicePropertySetting
 
