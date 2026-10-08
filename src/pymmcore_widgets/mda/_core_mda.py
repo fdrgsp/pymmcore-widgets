@@ -25,7 +25,6 @@ from pymmcore_widgets.useq_widgets import MDASequenceWidget
 from pymmcore_widgets.useq_widgets._mda_sequence import (
     AF_AXIS_TOOLTIP,
     AF_DISABLED_TOOLTIP,
-    AF_HARDWARE_TOOLTIP,
     PYMMCW_METADATA_KEY,
     MDATabs,
 )
@@ -405,23 +404,28 @@ class MDAWidget(MDASequenceWidget):
         # in case the user does not press enter after editing the save name.
         self.save_info.save_name.editingFinished.emit()
 
-        # if autofocus has been requested, but the autofocus device is not engaged,
-        # and position-specific offsets haven't been set, show a warning
+        # If *hardware* autofocus has been requested but its device is not engaged,
+        # and position-specific offsets haven't been set, show a warning. A software
+        # routine drives the focus stage from images and needs no autofocus device,
+        # so none of this applies to it.
         pos = self.stage_positions
+        uses_hardware_af = bool(
+            self.af_axis.kind() == "hardware" and self.af_axis.value()
+        )
         if (
-            self.af_axis.value()
+            uses_hardware_af
             and not self._mmc.isContinuousFocusLocked()
             and (not self.tab_wdg.isChecked(pos) or not self._use_af_per_position())
             and not self._confirm_af_intentions()
         ):
             return False
 
-        # conversely, if the autofocus device is engaged but the sequence does not
-        # use it, offer to switch it off so that the GUI describes the whole run.
-        # NOTE: this is mutually exclusive with the check above, which requires an
-        # autofocus axis to be selected.
+        # Conversely, if the autofocus device is engaged but the run will not use it
+        # -- autofocus unchecked, no axis selected, or a software routine chosen --
+        # offer to switch it off so that the GUI describes the whole run.
+        # NOTE: mutually exclusive with the check above, which needs the opposite.
         self._disable_af_on_run = False
-        if not self.af_axis.value() and self._mmc.isContinuousFocusLocked():
+        if not uses_hardware_af and self._mmc.isContinuousFocusLocked():
             if not self._confirm_af_disable():
                 return False
             self._disable_af_on_run = True
@@ -487,6 +491,11 @@ class MDAWidget(MDASequenceWidget):
         absolute z plan rules out both, since autofocus adjusts the focus position
         that such a plan would then override.
         """
+        # This runs on every change, so it must not fight the run: during an
+        # acquisition every editor is disabled on purpose and stays that way.
+        if self._mmc.mda.is_running():
+            return
+
         # With nothing loaded there is nothing to decide from, and this widget may be
         # built before the configuration arrives (or queried mid-construction, when
         # the core still reports no devices). Deciding then would disable autofocus
@@ -523,9 +532,8 @@ class MDAWidget(MDASequenceWidget):
 
         self.af_axis.setEnabled(not absolute_z and (has_hardware or has_software))
         self.af_axis.setToolTip(self._get_tooltip(self.af_axis))
-        self.af_axis.use_hardware.setEnabled(has_hardware)
-        self.af_axis.use_hardware.setToolTip(
-            AF_HARDWARE_TOOLTIP if has_hardware else AF_UNAVAILABLE
+        self.af_axis.setHardwareAvailable(
+            has_hardware, "" if has_hardware else AF_UNAVAILABLE
         )
         # NOTE: the mode is deliberately not switched for the user. A sequence that
         # asks for one kind must not quietly run the other; with its mode disabled,

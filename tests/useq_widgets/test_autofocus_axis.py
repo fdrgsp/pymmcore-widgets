@@ -30,12 +30,39 @@ def test_autofocus_is_off_until_enabled(qtbot: QtBot) -> None:
     qtbot.addWidget(af)
     assert not af.isChecked()
     assert af.kind() is None
-    # ... and its controls are not editable while it is off
-    assert not af.isChecked()
+    # ... and no mode can be picked while there is no autofocus to configure
+    assert not af.use_hardware.isEnabled()
+    assert not af.use_software.isEnabled()
+    assert not af.every_n_timepoints.isEnabled()
 
     af.setChecked(True)
     assert af.kind() == "hardware"  # the default kind
     assert af.isChecked()
+    assert af.use_hardware.isEnabled()
+
+    # Qt re-enables a checkable group box's children wholesale, so the modes
+    # have to go back to being disabled when it is switched off again.
+    af.setChecked(False)
+    assert not af.use_hardware.isEnabled()
+    assert not af.use_software.isEnabled()
+
+
+def test_hardware_option_follows_the_available_devices(qtbot: QtBot) -> None:
+    af = AutofocusAxis()
+    qtbot.addWidget(af)
+    af.setChecked(True)
+    assert af.isHardwareAvailable()
+    assert af.use_hardware.isEnabled()
+
+    af.setHardwareAvailable(False, "No autofocus device loaded.")
+    assert not af.isHardwareAvailable()
+    assert not af.use_hardware.isEnabled()
+    assert af.use_hardware.toolTip() == "No autofocus device loaded."
+    # ... but a software routine needs no autofocus device, so it stays offered
+    assert af.use_software.isEnabled()
+
+    af.setHardwareAvailable(True)
+    assert af.use_hardware.isEnabled()
 
 
 def test_kinds_are_mutually_exclusive(qtbot: QtBot) -> None:

@@ -645,6 +645,59 @@ def test_run_mda_af_engaged_but_unused(qtbot: QtBot):
     assert not messages
 
 
+def test_run_mda_software_af_does_not_want_an_autofocus_device(qtbot: QtBot):
+    """A software routine drives the focus stage itself, so the AF device is moot."""
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    wdg.show()
+
+    wdg.setValue(useq.MDASequence(stage_positions=[useq.Position(x=0, y=0, z=0)]))
+    wdg.af_axis.setChecked(True)
+    wdg.af_axis.use_software.setChecked(True)
+    wdg.af_axis.use_af_p.setChecked(True)
+    assert wdg.af_axis.kind() == "software"
+
+    messages: list[str] = []
+
+    def _capture(_self, _title, msg, *args, **kwargs):
+        messages.append(msg)
+        return QMessageBox.StandardButton.Ok
+
+    # the autofocus device is not engaged -- which is of no concern here
+    with patch.object(wdg._mmc, "isContinuousFocusLocked", return_value=False):
+        with patch.object(QMessageBox, "warning", _capture):
+            with qtbot.waitSignal(wdg._mmc.mda.events.sequenceFinished):
+                wdg.control_btns.run_btn.click()
+    assert not messages
+
+    # engaged, though, it would fight the routine for the focus drive, so the
+    # offer to switch it off for the run still applies.
+    with patch.object(wdg._mmc, "isContinuousFocusLocked", return_value=True):
+        with patch.object(QMessageBox, "warning", _capture):
+            with qtbot.waitSignal(wdg._mmc.mda.events.sequenceFinished):
+                wdg.control_btns.run_btn.click()
+    assert len(messages) == 1
+    assert "autofocus" in messages[0].lower()
+
+
+def test_autofocus_section_is_left_disabled_during_a_run(qtbot: QtBot):
+    """Every editor is disabled while acquiring; autofocus must not re-enable itself."""
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+
+    wdg._update_autofocus_enablement()
+    assert wdg.af_axis.isEnabled()
+
+    with patch.object(wdg._mmc.mda, "is_running", return_value=True):
+        wdg.af_axis.setEnabled(False)
+        # a value change mid-run (ours or the engine's) must not undo that
+        wdg._update_autofocus_enablement()
+        assert not wdg.af_axis.isEnabled()
+
+    wdg._update_autofocus_enablement()
+    assert wdg.af_axis.isEnabled()
+
+
 def test_run_mda_af_engaged_with_absolute_z(qtbot: QtBot):
     """With an absolute z plan there is no axis to select, so say so instead."""
     wdg = MDAWidget()

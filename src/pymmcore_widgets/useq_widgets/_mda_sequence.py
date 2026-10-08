@@ -392,6 +392,8 @@ class AutofocusAxis(QGroupBox):
         # set by the core-aware widget, which knows what devices are loaded
         self._software_devices_ok = True
         self._software_unavailable_reason = ""
+        self._hardware_devices_ok = True
+        self._hardware_unavailable_reason = ""
 
         # --- software only: skipping time points, since each run costs many images ---
         self._every_n_label = QLabel("Run every:")
@@ -560,13 +562,26 @@ class AutofocusAxis(QGroupBox):
                 self.method.setCurrentText(current)
         self._update_settings_button()
         self._update_method_tooltip()
-        self._refresh_software_enabled()
+        self._update_kind_widgets()
 
     def _update_method_tooltip(self) -> None:
         """Describe the selected routine on the closed combo, not just in the list."""
         doc = self._method_descriptions.get(self.softwareMethod(), "")
         self.method.setToolTip(doc or AF_METHOD_TOOLTIP)
         self._method_label.setToolTip(self.method.toolTip())
+
+    def setHardwareAvailable(self, available: bool, reason: str = "") -> None:
+        """Say whether the microscope has an autofocus device to drive.
+
+        `reason` is shown as the tooltip when it does not.
+        """
+        self._hardware_devices_ok = available
+        self._hardware_unavailable_reason = reason
+        self._update_kind_widgets()
+
+    def isHardwareAvailable(self) -> bool:
+        """Whether a hardware autofocus device is there to drive."""
+        return self._hardware_devices_ok
 
     def setSoftwareAvailable(self, available: bool, reason: str = "") -> None:
         """Say whether the microscope can run a software routine at all.
@@ -577,7 +592,7 @@ class AutofocusAxis(QGroupBox):
         """
         self._software_devices_ok = available
         self._software_unavailable_reason = reason
-        self._refresh_software_enabled()
+        self._update_kind_widgets()
 
     def isSoftwareAvailable(self) -> bool:
         """Whether a software routine could run: one exists and the devices are there.
@@ -587,18 +602,6 @@ class AutofocusAxis(QGroupBox):
         widget whether it is enabled, which also depends on this widget being enabled.
         """
         return self.method.count() > 0 and self._software_devices_ok
-
-    def _refresh_software_enabled(self) -> None:
-        has_methods = self.method.count() > 0
-        available = self.isSoftwareAvailable()
-        self.use_software.setEnabled(available)
-        if available:
-            tooltip = AF_SOFTWARE_TOOLTIP
-        elif not has_methods:
-            tooltip = AF_NO_SOFTWARE_TOOLTIP
-        else:
-            tooltip = self._software_unavailable_reason or AF_NO_SOFTWARE_TOOLTIP
-        self.use_software.setToolTip(tooltip)
 
     def softwareMethod(self) -> str:
         """The selected software autofocus routine."""
@@ -651,11 +654,39 @@ class AutofocusAxis(QGroupBox):
         self.valueChanged.emit()
 
     def _update_kind_widgets(self) -> None:
-        """Show only the options that apply to the selected kind.
+        """Apply every enabled and visible state in one place.
+
+        A control is enabled only if the microscope can actually use it *and*
+        autofocus is switched on: Qt re-enables a checkable group box's children
+        wholesale when it is checked, so each control's own state has to be
+        reapplied on top of that -- and nothing may re-enable a control while the
+        group is off.
 
         The Z search is a hardware-autofocus recovery; skipping time points matters
         for software autofocus, where each run costs many images.
         """
+        on = self.isChecked()
+        self.settings_button.setEnabled(
+            on and self.softwareMethod() in self._method_models
+        )
+
+        # --- which modes the microscope can run ---
+        self.use_hardware.setEnabled(on and self._hardware_devices_ok)
+        self.use_hardware.setToolTip(
+            AF_HARDWARE_TOOLTIP
+            if self._hardware_devices_ok
+            else (self._hardware_unavailable_reason or AF_HARDWARE_TOOLTIP)
+        )
+        software = self.isSoftwareAvailable()
+        self.use_software.setEnabled(on and software)
+        if software:
+            tooltip = AF_SOFTWARE_TOOLTIP
+        elif self.method.count() == 0:
+            tooltip = AF_NO_SOFTWARE_TOOLTIP
+        else:
+            tooltip = self._software_unavailable_reason or AF_NO_SOFTWARE_TOOLTIP
+        self.use_software.setToolTip(tooltip)
+
         hardware = self.use_hardware.isChecked()
         hardware_only: tuple[QWidget, ...] = (
             self._search_label,
@@ -678,7 +709,7 @@ class AutofocusAxis(QGroupBox):
         # autofocus is actually set to run on the t axis
         on_t = self.use_af_t.isChecked()
         for wdg in (self._every_n_label, self.every_n_timepoints):
-            wdg.setEnabled(on_t)
+            wdg.setEnabled(on and on_t)
             wdg.setToolTip(AF_EVERY_N_TOOLTIP if on_t else AF_EVERY_N_NO_T_TOOLTIP)
 
     # ------------------------------- value --------------------------------
