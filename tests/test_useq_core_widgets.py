@@ -636,7 +636,7 @@ def test_run_mda_af_engaged_but_unused(qtbot: QtBot):
 
     # turning autofocus on and selecting an axis makes the dialog go away for good
     messages.clear()
-    wdg.af_axis.enabled.setChecked(True)
+    wdg.af_axis.setChecked(True)
     wdg.af_axis.use_af_p.setChecked(True)
     with patch.object(wdg._mmc, "isContinuousFocusLocked", return_value=True):
         with patch.object(QMessageBox, "warning", _capture):

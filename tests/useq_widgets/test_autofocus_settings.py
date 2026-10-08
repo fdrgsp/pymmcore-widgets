@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from qtpy.QtCore import Qt
-from qtpy.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QLineEdit, QSpinBox
+from qtpy.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
+    QLineEdit,
+    QSpinBox,
+)
 
 from pymmcore_widgets.useq_widgets._autofocus_settings import (
     UNCHANGED,
@@ -17,6 +22,8 @@ from pymmcore_widgets.useq_widgets._autofocus_settings import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from pytestqt.qtbot import QtBot
 
 
@@ -382,3 +389,24 @@ def test_without_choices_it_falls_back_to_free_text(qtbot: QtBot) -> None:
     form = SettingsForm(Channelled, choices=lambda *_: None)
     qtbot.addWidget(form)
     assert isinstance(form._controls["channel"], QLineEdit)
+
+
+def test_settings_buttons_are_gear_icons(qtbot: QtBot) -> None:
+    """Icon-only, matching the MDA sections -- so they still need an accessible name."""
+    form = _chained_form(qtbot)
+    button = form._controls["first"].settings_button
+    assert not button.text()
+    assert not button.icon().isNull()
+    assert button.accessibleName() == "Settings"
+    assert button.toolTip()
+
+
+def test_labels_share_one_left_aligned_column(qtbot: QtBot) -> None:
+    """So every control starts at the same x, whatever its label says."""
+    form = _form(qtbot)
+    labels = form._field_labels
+    assert len(labels) > 1
+    widths = {label.width() for label in labels}
+    assert len(widths) == 1, {label.text(): label.width() for label in labels}
+    # and the column is wide enough for the longest of them
+    assert widths.pop() == max(label.sizeHint().width() for label in labels)

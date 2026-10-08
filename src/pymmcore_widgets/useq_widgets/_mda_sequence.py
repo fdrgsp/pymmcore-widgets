@@ -14,6 +14,7 @@ from qtpy.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -31,6 +32,7 @@ from pymmcore_widgets._humanize import humanize_time
 from pymmcore_widgets._util import disable_wheel_scroll
 from pymmcore_widgets.useq_widgets._autofocus_settings import (
     AutofocusSettingsDialog,
+    _settings_button,
 )
 from pymmcore_widgets.useq_widgets._channels import ChannelTable
 from pymmcore_widgets.useq_widgets._checkable_tabwidget_widget import CheckableTabWidget
@@ -321,13 +323,17 @@ def _installed_software_methods() -> tuple[dict[str, type], dict[str, str]]:
     )
 
 
-class AutofocusAxis(QWidget):
+class AutofocusAxis(QGroupBox):
     """Autofocus settings: whether to use it, which kind, when, and how it searches.
 
-    The group as a whole is switched on and off by `enabled`.  `Hardware` and
-    `Software` are exclusive: an acquisition carries a single autofocus plan.
-    `Software` stays disabled until software autofocus methods are available
-    (see `setSoftwareMethods`).
+    A checkable group box, so Qt's own semantics switch the whole thing on and off:
+    `isChecked()` says whether autofocus will run, and unchecking it disables the
+    controls inside. `Hardware` and `Software` are exclusive, since an acquisition
+    carries a single autofocus plan; `Software` stays disabled until software
+    autofocus methods are available (see `setSoftwareMethods`).
+
+    It is drawn flat: the MDA widgets already wrap it in a card, and a group box's
+    own frame renders inconsistently across platforms.
     """
 
     valueChanged = Signal()
@@ -335,14 +341,11 @@ class AutofocusAxis(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        # the group's own on/off switch, like a checkable QGroupBox -- but drawn as a
-        # plain checkbox, since a QGroupBox renders no frame on macOS (see the
-        # MDA tab widgets' `_wrap_in_card`).
-        self.enabled = QCheckBox("Autofocus")
-        font = self.enabled.font()
-        font.setBold(True)
-        self.enabled.setFont(font)
-        self.enabled.setToolTip(AF_ENABLE_TOOLTIP)
+        self.setTitle("Autofocus")
+        self.setCheckable(True)
+        self.setChecked(False)
+        self.setFlat(True)
+        self.setToolTip(AF_ENABLE_TOOLTIP)
 
         self.label = QLabel("On Axis:")
         self.label.setToolTip(AF_ON_AXIS_TOOLTIP)
@@ -379,8 +382,7 @@ class AutofocusAxis(QWidget):
         self._method_label.setToolTip(AF_METHOD_TOOLTIP)
         self.method = QComboBox()
         self.method.setToolTip(AF_METHOD_TOOLTIP)
-        self.settings_button = QPushButton("Settings...")
-        self.settings_button.setToolTip(AF_SETTINGS_TOOLTIP)
+        self.settings_button = _settings_button(AF_SETTINGS_TOOLTIP)
         self.settings_button.setEnabled(False)
         # each method keeps its own settings, so switching back and forth does not
         # discard what was configured
@@ -444,22 +446,14 @@ class AutofocusAxis(QWidget):
         software_row.addWidget(self._every_n_label)
         software_row.addWidget(self.every_n_timepoints)
 
-        self._body = QWidget()
-        body_layout = QVBoxLayout(self._body)
-        body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(5)
-        body_layout.addLayout(axis_row)
-        body_layout.addLayout(mode_row)
-        body_layout.addLayout(search_row)
-        body_layout.addLayout(software_row)
-
         layout = QVBoxLayout(self)
         layout.setSpacing(5)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.enabled)
-        layout.addWidget(self._body)
+        layout.addLayout(axis_row)
+        layout.addLayout(mode_row)
+        layout.addLayout(search_row)
+        layout.addLayout(software_row)
 
-        self.enabled.toggled.connect(self._on_enabled_toggled)
+        self.toggled.connect(self._on_enabled_toggled)
         self.use_af_p.toggled.connect(self.valueChanged)
         self.use_af_t.toggled.connect(self._on_t_axis_toggled)
         self.use_af_g.toggled.connect(self.valueChanged)
@@ -482,8 +476,6 @@ class AutofocusAxis(QWidget):
         for w in _labels:
             w.setFixedWidth(label_width)
 
-        self.setToolTip(AF_AXIS_TOOLTIP)
-        self._body.setEnabled(False)
         self._update_kind_widgets()
         self.setSoftwareMethods(*_installed_software_methods())
 
@@ -523,7 +515,7 @@ class AutofocusAxis(QWidget):
         autofocus device, or no software routines -- yields `None`, so no plan is
         built for something that could not run.
         """
-        if not self.isEnabled() or not self.enabled.isChecked():
+        if not self.isEnabled() or not self.isChecked():
             return None
         if self.use_software.isChecked():
             return "software" if self.use_software.isEnabled() else None
@@ -531,13 +523,12 @@ class AutofocusAxis(QWidget):
 
     def setKind(self, kind: str | None) -> None:
         """Select the kind of autofocus, or switch autofocus off with `None`."""
-        with signals_blocked(self.enabled), signals_blocked(self.use_hardware):
-            self.enabled.setChecked(kind is not None)
+        with signals_blocked(self), signals_blocked(self.use_hardware):
+            self.setChecked(kind is not None)
             if kind == "software":
                 self.use_software.setChecked(True)
             elif kind == "hardware":
                 self.use_hardware.setChecked(True)
-        self._body.setEnabled(self.enabled.isChecked())
         self._update_kind_widgets()
 
     def setSoftwareMethods(
@@ -642,11 +633,9 @@ class AutofocusAxis(QWidget):
             self._method_settings[method] = dialog.value()
             self.valueChanged.emit()
 
-    def _on_enabled_toggled(self, checked: bool) -> None:
-        self._body.setEnabled(checked)
-        # the per-mode controls carry their own enabled state, which has to be
-        # reapplied here: enabling the body does not restore a control that was
-        # disabled while the group was off
+    def _on_enabled_toggled(self) -> None:
+        # Qt re-enables the children, but each mode's own controls carry an enabled
+        # state of their own that has to be reapplied on top of that
         self._update_kind_widgets()
         self.valueChanged.emit()
 
@@ -712,7 +701,7 @@ class AutofocusAxis(QWidget):
         self.use_af_t.setChecked("t" in value)
         self.use_af_g.setChecked("g" in value)
         self._update_kind_widgets()
-        if value and not self.enabled.isChecked():
+        if value and not self.isChecked():
             self.setKind(self.kind() or "hardware")
 
     def plan(self, axes: tuple[str, ...], **kwargs: object) -> useq.AnyAutofocusPlan:
@@ -1147,7 +1136,7 @@ class MDASequenceWidget(QWidget):
         # if the 'af_per_position' checkbox in the PositionTable is checked, turn
         # autofocus on and set checked also the autofocus p axis checkbox.
         if self._use_af_per_position() and self.tab_wdg.isChecked(self.stage_positions):
-            self.af_axis.enabled.setChecked(True)
+            self.af_axis.setChecked(True)
             self.af_axis.use_af_p.setChecked(True)
 
     def _update_available_axis_orders(self) -> None:

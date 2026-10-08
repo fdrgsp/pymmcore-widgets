@@ -20,14 +20,13 @@ from typing import (
     get_type_hints,
 )
 
-from qtpy.QtCore import Qt, Signal
+from qtpy.QtCore import QSize, Qt, Signal
 from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
-    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -38,12 +37,15 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
+from pymmcore_widgets._icons import StandardIcon
 from pymmcore_widgets._util import disable_wheel_scroll
 
 __all__ = ["AutofocusSettingsDialog", "SettingsForm"]
 
 UNCHANGED = "unchanged"
 _MAX = 1_000_000.0
+# same size as the icons beside the MDA section titles
+_ICON_SIZE = 18
 
 
 class _Unset:
@@ -105,6 +107,17 @@ def _humanize(name: str) -> str:
     return f"{text} ({unit})" if unit else text
 
 
+def _settings_button(tooltip: str) -> QPushButton:
+    """A compact gear button, matching the icons the MDA sections use."""
+    button = QPushButton()
+    button.setIcon(StandardIcon.SETTINGS.icon())
+    button.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
+    button.setToolTip(tooltip)
+    # an icon-only button still needs a name for a screen reader
+    button.setAccessibleName("Settings")
+    return button
+
+
 class _StepEditor(QWidget):
     """Pick one routine and edit its settings: one step of a routine built of others.
 
@@ -132,8 +145,7 @@ class _StepEditor(QWidget):
         for i, name in enumerate(self._methods):
             if doc := self._descriptions.get(name):
                 self.method.setItemData(i, doc, Qt.ItemDataRole.ToolTipRole)
-        self.settings_button = QPushButton("Settings...")
-        self.settings_button.setToolTip("Edit this routine's own settings.")
+        self.settings_button = _settings_button("Edit this routine's own settings.")
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -218,11 +230,14 @@ class SettingsForm(QWidget):
         self._model: type | None = None
         self._controls: dict[str, QWidget] = {}
         self._unsupported: dict[str, Any] = {}
-        self._layout = QFormLayout(self)
+        # Rows of "label, control", rather than a QFormLayout: the labels read better
+        # left-aligned in one fixed-width column, which also lines every control up
+        # at the same x whatever its label says.
+        self._rows: list[QWidget] = []
+        self._field_labels: list[QLabel] = []
+        self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
-        self._layout.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
-        )
+        self._layout.setSpacing(5)
         self.valueChanged.connect(self._refresh_dynamic_choices)
         self.setModel(model)
 
@@ -232,11 +247,10 @@ class SettingsForm(QWidget):
 
     def setModel(self, model: type | None) -> None:
         """Rebuild the form for `model`'s fields."""
-        while self._layout.count():
-            if (item := self._layout.takeAt(0)) is None:  # pragma: no cover
-                break
-            if (w := item.widget()) is not None:
-                w.deleteLater()
+        for row in self._rows:
+            self._layout.removeWidget(row)
+            row.deleteLater()
+        self._rows.clear()
         self._controls.clear()
         self._unsupported.clear()
         self._dynamic.clear()
@@ -244,6 +258,8 @@ class SettingsForm(QWidget):
         if model is None:
             return
 
+        self._field_labels.clear()
+        labels = self._field_labels
         hints = get_type_hints(model)
         for field in dataclasses.fields(model):
             control = self._make_control(hints[field.name], field)
@@ -254,8 +270,15 @@ class SettingsForm(QWidget):
                 control.setToolTip(doc)
             label = QLabel(_humanize(field.name))
             label.setToolTip(control.toolTip())
-            self._layout.addRow(label, control)
+            labels.append(label)
+            self._add_row(label, control)
             self._controls[field.name] = control
+
+        # one column as wide as the longest label, so the controls all start together
+        if labels:
+            width = max(label.sizeHint().width() for label in labels)
+            for label in labels:
+                label.setFixedWidth(width)
 
         if self._unsupported:
             note = QLabel(
@@ -263,7 +286,18 @@ class SettingsForm(QWidget):
             )
             note.setWordWrap(True)
             note.setEnabled(False)
-            self._layout.addRow(note)
+            self._add_row(note)
+
+    def _add_row(self, label: QLabel, control: QWidget | None = None) -> None:
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(label)
+        if control is not None:
+            layout.addWidget(control, 1)
+        self._layout.addWidget(row)
+        self._rows.append(row)
 
     def _make_control(self, hint: Any, field: Any) -> QWidget | None:
         optional, inner = _is_optional(hint)

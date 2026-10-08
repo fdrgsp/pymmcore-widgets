@@ -28,21 +28,21 @@ def _wdg(qtbot: QtBot) -> MDASequenceWidget:
 def test_autofocus_is_off_until_enabled(qtbot: QtBot) -> None:
     af = AutofocusAxis()
     qtbot.addWidget(af)
-    assert not af.enabled.isChecked()
+    assert not af.isChecked()
     assert af.kind() is None
     # ... and its controls are not editable while it is off
-    assert not af._body.isEnabled()
+    assert not af.isChecked()
 
-    af.enabled.setChecked(True)
+    af.setChecked(True)
     assert af.kind() == "hardware"  # the default kind
-    assert af._body.isEnabled()
+    assert af.isChecked()
 
 
 def test_kinds_are_mutually_exclusive(qtbot: QtBot) -> None:
     """An acquisition carries one autofocus plan, so only one kind can be chosen."""
     af = AutofocusAxis()
     qtbot.addWidget(af)
-    af.enabled.setChecked(True)
+    af.setChecked(True)
     af.setSoftwareMethods(["oughtafocus"])  # otherwise the option is disabled
 
     af.use_software.setChecked(True)
@@ -54,7 +54,7 @@ def test_kinds_are_mutually_exclusive(qtbot: QtBot) -> None:
     assert af.kind() == "hardware"
 
     # switching the group off leaves no autofocus at all
-    af.enabled.setChecked(False)
+    af.setChecked(False)
     assert af.kind() is None
 
 
@@ -62,7 +62,7 @@ def test_methods_are_offered_out_of_the_box(qtbot: QtBot) -> None:
     """The routines the acquisition engine can run, without any wiring."""
     af = AutofocusAxis()
     qtbot.addWidget(af)
-    af.enabled.setChecked(True)
+    af.setChecked(True)
     assert af.method.count() > 0
     assert af.use_software.isEnabled()
 
@@ -70,7 +70,7 @@ def test_methods_are_offered_out_of_the_box(qtbot: QtBot) -> None:
 def test_software_disabled_until_methods_exist(qtbot: QtBot) -> None:
     af = AutofocusAxis()
     qtbot.addWidget(af)
-    af.enabled.setChecked(True)
+    af.setChecked(True)
     af.setSoftwareMethods({})  # as if none were installed
     assert not af.use_software.isEnabled()
 
@@ -89,7 +89,7 @@ def test_each_kind_shows_only_its_own_options(qtbot: QtBot) -> None:
     """The Z search recovers a hardware lock; skipping time points saves images."""
     af = AutofocusAxis()
     qtbot.addWidget(af)
-    af.enabled.setChecked(True)
+    af.setChecked(True)
     af.setSoftwareMethods(["oughtafocus"])
 
     assert not af.search_below_um.isHidden()
@@ -109,7 +109,7 @@ def test_each_kind_shows_only_its_own_options(qtbot: QtBot) -> None:
 def test_kind_change_emits_value_changed(qtbot: QtBot) -> None:
     af = AutofocusAxis()
     qtbot.addWidget(af)
-    af.enabled.setChecked(True)
+    af.setChecked(True)
     af.setSoftwareMethods(["oughtafocus"])
     with qtbot.waitSignal(af.valueChanged):
         af.use_software.setChecked(True)
@@ -119,7 +119,7 @@ def test_enabling_emits_value_changed(qtbot: QtBot) -> None:
     af = AutofocusAxis()
     qtbot.addWidget(af)
     with qtbot.waitSignal(af.valueChanged):
-        af.enabled.setChecked(True)
+        af.setChecked(True)
 
 
 # --------------------------------- Z search ---------------------------------
@@ -128,7 +128,7 @@ def test_enabling_emits_value_changed(qtbot: QtBot) -> None:
 def test_no_search_by_default(qtbot: QtBot) -> None:
     """Autofocus is only attempted where it starts until a search is asked for."""
     wdg = _wdg(qtbot)
-    wdg.af_axis.enabled.setChecked(True)
+    wdg.af_axis.setChecked(True)
     wdg.af_axis.use_af_p.setChecked(True)
 
     plan = wdg.value().autofocus_plan
@@ -142,7 +142,7 @@ def test_no_search_by_default(qtbot: QtBot) -> None:
 def test_asking_for_a_range_fills_in_a_step(qtbot: QtBot) -> None:
     """A range with no step is not a search, and the schema refuses to build one."""
     wdg = _wdg(qtbot)
-    wdg.af_axis.enabled.setChecked(True)
+    wdg.af_axis.setChecked(True)
     wdg.af_axis.use_af_p.setChecked(True)
     assert wdg.af_axis.search_step_um.value() == 0.0
 
@@ -157,7 +157,7 @@ def test_asking_for_a_range_fills_in_a_step(qtbot: QtBot) -> None:
 
 def test_a_step_already_set_is_left_alone(qtbot: QtBot) -> None:
     wdg = _wdg(qtbot)
-    wdg.af_axis.enabled.setChecked(True)
+    wdg.af_axis.setChecked(True)
     wdg.af_axis.search_step_um.setValue(1.5)
     wdg.af_axis.search_above_um.setValue(8.0)
     assert wdg.af_axis.search_step_um.value() == 1.5
@@ -178,7 +178,7 @@ def test_search_values_round_trip(qtbot: QtBot) -> None:
 
 def test_search_is_editable(qtbot: QtBot) -> None:
     wdg = _wdg(qtbot)
-    wdg.af_axis.enabled.setChecked(True)
+    wdg.af_axis.setChecked(True)
     wdg.af_axis.use_af_p.setChecked(True)
     wdg.af_axis.search_below_um.setValue(12.0)
     wdg.af_axis.search_above_um.setValue(4.0)
@@ -261,7 +261,7 @@ def test_every_control_explains_itself(qtbot: QtBot) -> None:
     af = AutofocusAxis()
     qtbot.addWidget(af)
     controls = (
-        af.enabled,
+        af,  # the group box itself carries the "what is autofocus for" tooltip
         af.label,
         af.use_af_p,
         af.use_af_t,
@@ -326,7 +326,7 @@ class _DemoSettings:
 def test_methods_populate_the_picker(qtbot: QtBot) -> None:
     af = AutofocusAxis()
     qtbot.addWidget(af)
-    af.enabled.setChecked(True)
+    af.setChecked(True)
     af.setSoftwareMethods({"oughtafocus": _DemoSettings, "jaf": _DemoSettings})
 
     assert [af.method.itemText(i) for i in range(af.method.count())] == [
@@ -340,7 +340,7 @@ def test_methods_populate_the_picker(qtbot: QtBot) -> None:
 def test_methods_without_a_model_offer_no_settings(qtbot: QtBot) -> None:
     af = AutofocusAxis()
     qtbot.addWidget(af)
-    af.enabled.setChecked(True)
+    af.setChecked(True)
     af.setSoftwareMethods(["mystery"])
     assert af.use_software.isEnabled()
     assert not af.settings_button.isEnabled()
@@ -350,7 +350,7 @@ def test_software_needs_the_right_devices(qtbot: QtBot) -> None:
     """A routine needs a camera and a focus drive, whatever methods are installed."""
     af = AutofocusAxis()
     qtbot.addWidget(af)
-    af.enabled.setChecked(True)
+    af.setChecked(True)
     af.setSoftwareMethods({"oughtafocus": _DemoSettings})
     assert af.use_software.isEnabled()
 
@@ -365,7 +365,7 @@ def test_software_needs_the_right_devices(qtbot: QtBot) -> None:
 def test_the_chosen_method_and_settings_reach_the_plan(qtbot: QtBot) -> None:
     af = AutofocusAxis()
     qtbot.addWidget(af)
-    af.enabled.setChecked(True)
+    af.setChecked(True)
     af.setSoftwareMethods({"oughtafocus": _DemoSettings, "jaf": _DemoSettings})
     af.use_software.setChecked(True)
     af.method.setCurrentText("jaf")
@@ -380,7 +380,7 @@ def test_the_chosen_method_and_settings_reach_the_plan(qtbot: QtBot) -> None:
 def test_each_method_keeps_its_own_settings(qtbot: QtBot) -> None:
     af = AutofocusAxis()
     qtbot.addWidget(af)
-    af.enabled.setChecked(True)
+    af.setChecked(True)
     af.setSoftwareMethods({"a": _DemoSettings, "b": _DemoSettings})
     af.use_software.setChecked(True)
     af._method_settings["a"] = {"span_um": 1.0}
@@ -423,7 +423,7 @@ def test_run_every_needs_the_t_axis(qtbot: QtBot) -> None:
     """It qualifies the time-point trigger, so it applies only when t is checked."""
     wdg = _wdg(qtbot)
     af = wdg.af_axis
-    af.enabled.setChecked(True)
+    af.setChecked(True)
     af.use_software.setChecked(True)
 
     assert not af.use_af_t.isChecked()
@@ -499,7 +499,7 @@ def test_run_every_enabled_whatever_the_order(qtbot: QtBot, t_first: bool) -> No
     af = wdg.af_axis
 
     def enable_group() -> None:
-        af.enabled.setChecked(True)
+        af.setChecked(True)
         af.use_software.setChecked(True)
 
     def check_t() -> None:

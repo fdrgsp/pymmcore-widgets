@@ -24,6 +24,9 @@ class StandardIcon(StrEnum):
     CONFIG_GROUP = "mdi:folder-settings-variant-outline"
     CONFIG_PRESET = "mdi:file-settings-cog-outline"
     HELP = "mdi:help-circle-outline"
+    # matches MDA_ICONS["settings"], so a settings button reads as the same thing
+    # as the MDA sections' own icons
+    SETTINGS = "mdi:cog-outline"
     CHANNEL_GROUP = "mynaui:letter-c-waves-solid"
     SYSTEM_GROUP = "mdi:power"
     STARTUP = "ic:baseline-power"
