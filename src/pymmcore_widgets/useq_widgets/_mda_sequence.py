@@ -448,7 +448,7 @@ class AutofocusAxis(QGroupBox):
 
         layout = QVBoxLayout(self)
         layout.setSpacing(5)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(5, 5, 5, 5)
         layout.addLayout(axis_row)
         layout.addLayout(mode_row)
         layout.addLayout(search_row)
