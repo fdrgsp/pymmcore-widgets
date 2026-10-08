@@ -10,8 +10,8 @@ from __future__ import annotations
 import dataclasses
 import enum
 import types
+from collections.abc import Callable, Mapping, Sequence
 from typing import (
-    TYPE_CHECKING,
     Any,
     Literal,
     Union,
@@ -28,22 +28,53 @@ from qtpy.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
+from superqt.utils import signals_blocked
 
 from pymmcore_widgets._util import disable_wheel_scroll
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
 
 __all__ = ["AutofocusSettingsDialog", "SettingsForm"]
 
 UNCHANGED = "unchanged"
 _MAX = 1_000_000.0
+
+
+class _Unset:
+    """Marker for a combo entry meaning "leave this setting alone"."""
+
+
+_UNSET = _Unset()
+
+
+def _config_choices(field: str, values: Mapping[str, Any]) -> list[str] | None:
+    """Offer the microscope's config groups and the chosen group's presets.
+
+    A channel setting is only useful as one of the presets actually loaded, and the
+    presets depend on which group is selected -- so the two are offered together and
+    the second follows the first.
+
+    Returns `None` for a field this does not handle, which is how a field is marked
+    as free text.  An *empty list* still means "choose one of these", so a preset
+    field stays a chooser before a group has been picked.
+    """
+    if not (field.endswith("channel_group") or field.endswith("channel")):
+        return None
+    try:
+        from pymmcore_plus import CMMCorePlus
+    except ImportError:  # pragma: no cover
+        return None
+    core = CMMCorePlus.instance()
+    if field.endswith("channel_group"):
+        return list(core.getAvailableConfigGroups())
+    group = values.get("channel_group") or core.getChannelGroup()
+    return list(core.getAvailableConfigs(group)) if group else []
 
 
 def _is_optional(hint: Any) -> tuple[bool, Any]:
@@ -74,6 +105,86 @@ def _humanize(name: str) -> str:
     return f"{text} ({unit})" if unit else text
 
 
+class _StepEditor(QWidget):
+    """Pick one routine and edit its settings: one step of a routine built of others.
+
+    Shown for a settings field that names another routine, so something like `duo`
+    can be set up here rather than only in code.
+    """
+
+    valueChanged = Signal()
+
+    def __init__(
+        self,
+        methods: Mapping[str, type],
+        descriptions: Mapping[str, str] | None = None,
+        exclude: str = "",
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        # a routine cannot be a step of itself
+        self._methods = {k: v for k, v in methods.items() if k != exclude}
+        self._descriptions = dict(descriptions or {})
+        self._settings: dict[str, dict[str, Any]] = {}
+
+        self.method = QComboBox()
+        self.method.addItems(list(self._methods))
+        for i, name in enumerate(self._methods):
+            if doc := self._descriptions.get(name):
+                self.method.setItemData(i, doc, Qt.ItemDataRole.ToolTipRole)
+        self.settings_button = QPushButton("Settings...")
+        self.settings_button.setToolTip("Edit this routine's own settings.")
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(5)
+        layout.addWidget(self.method, 1)
+        layout.addWidget(self.settings_button)
+
+        self.method.currentTextChanged.connect(self._on_method_changed)
+        self.settings_button.clicked.connect(self._edit)
+        self._on_method_changed()
+
+    def _on_method_changed(self) -> None:
+        name = self.method.currentText()
+        self.method.setToolTip(self._descriptions.get(name, ""))
+        self.settings_button.setEnabled(name in self._methods)
+        self.valueChanged.emit()
+
+    def _edit(self) -> None:
+        name = self.method.currentText()
+        if (model := self._methods.get(name)) is None:  # pragma: no cover
+            return
+        dialog = AutofocusSettingsDialog(
+            model,
+            self._settings.get(name, {}),
+            method=name,
+            parent=self,
+            methods=self._methods,
+            descriptions=self._descriptions,
+        )
+        if dialog.exec():
+            self._settings[name] = dialog.value()
+            self.valueChanged.emit()
+
+    def value(self) -> dict[str, Any]:
+        """Return `{"method": ..., "settings": {...}}` for the chosen routine."""
+        name = self.method.currentText()
+        return {"method": name, "settings": dict(self._settings.get(name, {}))}
+
+    def setValue(self, step: Any) -> None:
+        """Select the routine `step` names and remember its settings."""
+        if not isinstance(step, Mapping) or not (name := step.get("method")):
+            return
+        name = str(name)
+        if self.method.findText(name) < 0:
+            # a routine this installation does not have: keep it rather than
+            # silently running a different one
+            self.method.addItem(name)
+        self.method.setCurrentText(name)
+        self._settings[name] = dict(step.get("settings") or {})
+
+
 class SettingsForm(QWidget):
     """Edit the settings of one routine, as a form of plain controls.
 
@@ -86,9 +197,24 @@ class SettingsForm(QWidget):
     valueChanged = Signal()
 
     def __init__(
-        self, model: type | None = None, parent: QWidget | None = None
+        self,
+        model: type | None = None,
+        parent: QWidget | None = None,
+        *,
+        methods: Mapping[str, type] | None = None,
+        descriptions: Mapping[str, str] | None = None,
+        editing: str = "",
+        choices: Callable[[str, Mapping[str, Any]], Sequence[str] | None] | None = None,
     ) -> None:
         super().__init__(parent)
+        # what a string setting may be set to, asked for again whenever another
+        # setting changes, since one choice can depend on another
+        self._choices = choices or _config_choices
+        self._dynamic: set[str] = set()
+        # the other routines, for a field that names one (see `_StepEditor`)
+        self._methods = dict(methods or {})
+        self._descriptions = dict(descriptions or {})
+        self._editing = editing
         self._model: type | None = None
         self._controls: dict[str, QWidget] = {}
         self._unsupported: dict[str, Any] = {}
@@ -97,6 +223,7 @@ class SettingsForm(QWidget):
         self._layout.setFieldGrowthPolicy(
             QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
         )
+        self.valueChanged.connect(self._refresh_dynamic_choices)
         self.setModel(model)
 
     def model(self) -> type | None:
@@ -112,6 +239,7 @@ class SettingsForm(QWidget):
                 w.deleteLater()
         self._controls.clear()
         self._unsupported.clear()
+        self._dynamic.clear()
         self._model = model
         if model is None:
             return
@@ -186,6 +314,30 @@ class SettingsForm(QWidget):
             disable_wheel_scroll(spin)
             return spin
 
+        if (inner is dict or get_origin(inner) is dict) and isinstance(
+            default, Mapping
+        ):
+            # a field that names another routine: offer the choice, not a dead end
+            if not self._methods:  # pragma: no cover
+                return None
+            step = _StepEditor(self._methods, self._descriptions, exclude=self._editing)
+            step.setValue(default)
+            step.valueChanged.connect(self.valueChanged)
+            return step
+
+        if inner is str and (offered := self._choices(field.name, {})) is not None:
+            options = list(offered)
+            combo = QComboBox()
+            if optional:
+                combo.addItem(UNCHANGED, _UNSET)
+            for option in options:
+                combo.addItem(option, option)
+            if default:
+                _select(combo, str(default))
+            combo.currentTextChanged.connect(self.valueChanged)
+            self._dynamic.add(field.name)
+            return combo
+
         if inner is str:
             line = QLineEdit()
             if optional:
@@ -196,6 +348,32 @@ class SettingsForm(QWidget):
             return line
 
         return None
+
+    def _refresh_dynamic_choices(self) -> None:
+        """Re-offer the choices that depend on another setting (presets on a group)."""
+        if not self._dynamic:
+            return
+        current = self.value()
+        for name in self._dynamic:
+            combo = self._controls.get(name)
+            if not isinstance(combo, QComboBox):  # pragma: no cover
+                continue
+            options = list(self._choices(name, current) or ())
+            existing = [
+                combo.itemText(i)
+                for i in range(combo.count())
+                if combo.itemData(i) is not _UNSET
+            ]
+            if existing == options:
+                continue
+            keep = combo.currentText()
+            with signals_blocked(combo):
+                combo.clear()
+                if UNCHANGED not in options:
+                    combo.addItem(UNCHANGED, _UNSET)
+                for option in options:
+                    combo.addItem(option, option)
+                _select(combo, keep)
 
     def value(self) -> dict[str, Any]:
         """Return the settings, leaving out any left at their default.
@@ -233,6 +411,17 @@ class SettingsForm(QWidget):
         self.valueChanged.emit()
 
 
+def _select(combo: QComboBox, text: str) -> None:
+    """Select `text`, adding it if the microscope does not offer it.
+
+    A setting naming a preset this configuration lacks is kept rather than silently
+    replaced by whichever one happens to be first.
+    """
+    if combo.findText(text) < 0:
+        combo.addItem(text, text)
+    combo.setCurrentText(text)
+
+
 def _plain(value: Any) -> Any:
     """Reduce an enum member to its value, so it compares equal to a combo's."""
     return value.value if isinstance(value, enum.Enum) else value
@@ -262,8 +451,13 @@ def _field_doc(model: type, name: str) -> str:
 
 
 def _control_value(control: QWidget, optional: bool) -> Any:
+    if isinstance(control, _StepEditor):
+        return control.value()
     if isinstance(control, QComboBox):
-        return control.currentData() or control.currentText()
+        data = control.currentData()
+        if data is _UNSET:  # "leave this alone"
+            return None
+        return control.currentText() if data is None else data
     if isinstance(control, QCheckBox):
         return control.isChecked()
     if isinstance(control, (QSpinBox, QDoubleSpinBox)):
@@ -275,8 +469,13 @@ def _control_value(control: QWidget, optional: bool) -> Any:
 
 
 def _set_control_value(control: QWidget, value: Any) -> None:
-    if isinstance(control, QComboBox):
-        control.setCurrentText(str(getattr(value, "value", value)))
+    if isinstance(control, _StepEditor):
+        control.setValue(value)
+    elif isinstance(control, QComboBox):
+        if value is None and control.findData(_UNSET) >= 0:
+            control.setCurrentIndex(control.findData(_UNSET))
+        else:
+            _select(control, str(getattr(value, "value", value)))
     elif isinstance(control, QCheckBox):
         control.setChecked(bool(value))
     elif isinstance(control, QSpinBox):
@@ -297,10 +496,17 @@ class AutofocusSettingsDialog(QDialog):
         settings: Mapping[str, Any] | None = None,
         method: str = "",
         parent: QWidget | None = None,
+        *,
+        methods: Mapping[str, type] | None = None,
+        descriptions: Mapping[str, str] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"{method} settings" if method else "Autofocus settings")
-        self.form = SettingsForm(model)
+        # `methods` lets a routine built from others (such as `duo`) be configured
+        # here; `method` is excluded from those choices, so it cannot contain itself.
+        self.form = SettingsForm(
+            model, methods=methods, descriptions=descriptions, editing=method
+        )
         if settings:
             self.form.setValue(settings)
 

@@ -630,7 +630,13 @@ class AutofocusAxis(QWidget):
         if (model := self._method_models.get(method)) is None:  # pragma: no cover
             return
         dialog = AutofocusSettingsDialog(
-            model, self.softwareSettings(), method=method, parent=self
+            model,
+            self.softwareSettings(),
+            method=method,
+            parent=self,
+            # so a routine built from others can be pointed at them here
+            methods=self._method_models,
+            descriptions=self._method_descriptions,
         )
         if dialog.exec():
             self._method_settings[method] = dialog.value()
