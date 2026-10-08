@@ -268,7 +268,7 @@ class SettingsForm(QWidget):
                 continue
             if doc := _field_doc(model, field.name):
                 control.setToolTip(doc)
-            label = QLabel(_humanize(field.name))
+            label = QLabel(f"{_humanize(field.name)}:")
             label.setToolTip(control.toolTip())
             labels.append(label)
             self._add_row(label, control)
