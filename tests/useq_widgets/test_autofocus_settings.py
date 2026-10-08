@@ -191,11 +191,14 @@ def test_dialog_shows_the_routine_and_returns_its_settings(qtbot: QtBot) -> None
     assert dialog.value() == {"steps": 2, "loud": True}
 
 
-def test_dialog_summarises_the_routine(qtbot: QtBot) -> None:
-    dialog = AutofocusSettingsDialog(Demo, method="demo")
+def test_dialog_starts_with_the_settings(qtbot: QtBot) -> None:
+    """No blurb above them: what the routine does is on the picker that chose it."""
+    dialog = AutofocusSettingsDialog(Demo, method="demo", choices=lambda *_: None)
     qtbot.addWidget(dialog)
-    labels = dialog.findChildren(type(dialog.form))  # at least it built
-    assert labels is not None
+    layout = dialog.layout()
+    assert layout is not None
+    first = layout.itemAt(0)
+    assert first is not None and first.widget() is dialog.form
     assert dialog.value() == {}
 
 

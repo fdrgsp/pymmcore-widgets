@@ -533,13 +533,18 @@ class AutofocusSettingsDialog(QDialog):
         *,
         methods: Mapping[str, type] | None = None,
         descriptions: Mapping[str, str] | None = None,
+        choices: Callable[[str, Mapping[str, Any]], Sequence[str] | None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"{method} settings" if method else "Autofocus settings")
         # `methods` lets a routine built from others (such as `duo`) be configured
         # here; `method` is excluded from those choices, so it cannot contain itself.
         self.form = SettingsForm(
-            model, methods=methods, descriptions=descriptions, editing=method
+            model,
+            methods=methods,
+            descriptions=descriptions,
+            editing=method,
+            choices=choices,
         )
         if settings:
             self.form.setValue(settings)
@@ -550,25 +555,12 @@ class AutofocusSettingsDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
 
+        # No blurb at the top: what the routine does belongs on the method picker
+        # that chose it, and repeating it here only pushes the settings down.
         layout = QVBoxLayout(self)
-        if doc := _summary(model):
-            summary = QLabel(doc)
-            summary.setWordWrap(True)
-            summary.setTextFormat(Qt.TextFormat.PlainText)
-            layout.addWidget(summary)
         layout.addWidget(self.form)
         layout.addWidget(buttons)
 
     def value(self) -> dict[str, Any]:
         """Return the edited settings."""
         return self.form.value()
-
-
-def _summary(model: type) -> str:
-    """The first paragraph of the model's docstring."""
-    lines: list[str] = []
-    for line in (model.__doc__ or "").strip().splitlines():
-        if not line.strip():
-            break
-        lines.append(line.strip())
-    return " ".join(lines)
