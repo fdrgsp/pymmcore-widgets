@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import pytest
 import useq
+from qtpy.QtCore import Qt
 
 from pymmcore_widgets.useq_widgets import MDASequenceWidget
 from pymmcore_widgets.useq_widgets._mda_sequence import AutofocusAxis
@@ -415,3 +417,95 @@ def test_changing_method_emits_value_changed(qtbot: QtBot) -> None:
     af.setSoftwareMethods({"a": _DemoSettings, "b": _DemoSettings})
     with qtbot.waitSignal(af.valueChanged):
         af.method.setCurrentText("b")
+
+
+def test_run_every_needs_the_t_axis(qtbot: QtBot) -> None:
+    """It qualifies the time-point trigger, so it applies only when t is checked."""
+    wdg = _wdg(qtbot)
+    af = wdg.af_axis
+    af.enabled.setChecked(True)
+    af.use_software.setChecked(True)
+
+    assert not af.use_af_t.isChecked()
+    assert not af.every_n_timepoints.isEnabled()
+    assert 'check "t"' in af.every_n_timepoints.toolTip()
+
+    af.use_af_t.setChecked(True)
+    assert af.every_n_timepoints.isEnabled()
+    assert "every Nth time point" in af.every_n_timepoints.toolTip()
+
+    af.use_af_t.setChecked(False)
+    assert not af.every_n_timepoints.isEnabled()
+
+
+def test_run_every_follows_a_loaded_plan(qtbot: QtBot) -> None:
+    wdg = _wdg(qtbot)
+    wdg.setValue(
+        useq.MDASequence(
+            stage_positions=[(0, 0)],
+            time_plan={"interval": 1, "loops": 5},
+            autofocus_plan={"axes": ("t",), "method": "oughtafocus"},
+        )
+    )
+    assert wdg.af_axis.use_af_t.isChecked()
+    assert wdg.af_axis.every_n_timepoints.isEnabled()
+
+
+def test_each_method_says_how_it_finds_focus(qtbot: QtBot) -> None:
+    af = AutofocusAxis()
+    qtbot.addWidget(af)
+    af.setSoftwareMethods(
+        {"alpha": _DemoSettings, "beta": _DemoSettings},
+        {"alpha": "Walks toward the peak.", "beta": "Scans the whole range."},
+    )
+    # on the list items, so they can be compared before choosing
+    assert (
+        af.method.itemData(0, Qt.ItemDataRole.ToolTipRole) == "Walks toward the peak."
+    )
+    assert (
+        af.method.itemData(1, Qt.ItemDataRole.ToolTipRole) == "Scans the whole range."
+    )
+    # and on the closed combo, for whichever is selected
+    af.method.setCurrentText("beta")
+    assert af.method.toolTip() == "Scans the whole range."
+
+
+def test_installed_methods_describe_themselves(qtbot: QtBot) -> None:
+    """The descriptions come from the engine, so the picker explains itself.
+
+    What they say is the engine's business; that every routine has one is this
+    widget's, since it is all someone has to choose between them.
+    """
+    af = AutofocusAxis()
+    qtbot.addWidget(af)
+    assert af.method.count() > 0
+    for i in range(af.method.count()):
+        doc = af.method.itemData(i, Qt.ItemDataRole.ToolTipRole)
+        assert doc, af.method.itemText(i)
+    # and the selected one describes itself on the closed combo
+    assert af.method.toolTip() == af.method.itemData(
+        af.method.currentIndex(), Qt.ItemDataRole.ToolTipRole
+    )
+
+
+@pytest.mark.parametrize("t_first", [True, False])
+def test_run_every_enabled_whatever_the_order(qtbot: QtBot, t_first: bool) -> None:
+    """Per-mode controls keep their own enabled state, so it must be reapplied.
+
+    Enabling the group does not by itself restore a control that was disabled while
+    the group was off, which is how this came out wrong in both directions.
+    """
+    wdg = _wdg(qtbot)
+    af = wdg.af_axis
+
+    def enable_group() -> None:
+        af.enabled.setChecked(True)
+        af.use_software.setChecked(True)
+
+    def check_t() -> None:
+        af.use_af_t.setChecked(True)
+
+    for step in (check_t, enable_group) if t_first else (enable_group, check_t):
+        step()
+
+    assert af.every_n_timepoints.isEnabled()

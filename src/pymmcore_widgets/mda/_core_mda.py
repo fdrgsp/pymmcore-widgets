@@ -249,6 +249,11 @@ class MDAWidget(MDASequenceWidget):
         self._mmc.mda.events.sequenceFinished.connect(self._on_mda_finished)
         self._mmc.events.systemConfigurationLoaded.connect(self._on_sys_config_loaded)
         self._mmc.events.propertyChanged.connect(self._on_property_changed)
+        # Recompute what autofocus can do on any change, rather than only when the
+        # configuration loads: this widget may be built after the configuration was
+        # already loaded, in which case that signal never arrives. It reads a few
+        # cached device labels and emits nothing, so it cannot loop.
+        self.valueChanged.connect(self._update_autofocus_enablement)
 
         self.destroyed.connect(self._disconnect)
 
@@ -466,6 +471,9 @@ class MDAWidget(MDASequenceWidget):
             "XYStage": self.stage_positions._update_xy_enablement,
             "Focus": self.stage_positions._update_z_enablement,
             "AutoFocus": self._update_autofocus_enablement,
+            # a software routine needs a camera and a focus drive, so either
+            # appearing or going away changes what autofocus can do
+            "Camera": self._update_autofocus_enablement,
         }
         if prop in props:
             props[prop]()
@@ -479,6 +487,19 @@ class MDAWidget(MDASequenceWidget):
         absolute z plan rules out both, since autofocus adjusts the focus position
         that such a plan would then override.
         """
+        # With nothing loaded there is nothing to decide from, and this widget may be
+        # built before the configuration arrives (or queried mid-construction, when
+        # the core still reports no devices). Deciding then would disable autofocus
+        # for good, since the configuration-loaded signal has already been and gone.
+        if not any(
+            (
+                self._mmc.getCameraDevice(),
+                self._mmc.getFocusDevice(),
+                self._mmc.getAutoFocusDevice(),
+            )
+        ):
+            return
+
         af_device = self._get_autofocus_device()
         has_hardware = bool(af_device)
         # an image-based routine needs something to image with and something to move
@@ -494,7 +515,7 @@ class MDAWidget(MDASequenceWidget):
             not missing,
             f"Software autofocus needs {' and '.join(missing)}." if missing else "",
         )
-        has_software = self.af_axis.use_software.isEnabled()
+        has_software = self.af_axis.isSoftwareAvailable()
         absolute_z = (
             self.tab_wdg.isChecked(self.z_plan)
             and self.z_plan.mode() == Mode.TOP_BOTTOM
@@ -519,20 +540,19 @@ class MDAWidget(MDASequenceWidget):
 
     def _get_tooltip(self, wdg: QWidget) -> str:
         """Return the tooltip for the autofocus widgets."""
-        # if there is no autofocus device, return the unavailable tooltip -- unless a
-        # software routine is available, which needs no autofocus device
-        if not self._mmc.getAutoFocusDevice():
-            if wdg is self.af_axis and self.af_axis.use_software.isEnabled():
-                return AF_AXIS_TOOLTIP
-            return AF_UNAVAILABLE
-        # if autofocus device is available, but the z plan is in absolute mode, return
-        # the disabled tooltip
+        # An absolute z plan rules out autofocus of either kind, so say that first:
+        # it is the reason nothing here can be used, whatever devices exist.
         if (
             self.tab_wdg.isChecked(self.z_plan)
             and self.z_plan.mode() == Mode.TOP_BOTTOM
-            and self._mmc.getAutoFocusDevice()
         ):
             return AF_DISABLED_TOOLTIP
+        # Without an autofocus device only the hardware kind is out, and a software
+        # routine needs no such device -- so the section itself is still usable.
+        if not self._mmc.getAutoFocusDevice():
+            if wdg is self.af_axis and self.af_axis.isSoftwareAvailable():
+                return AF_AXIS_TOOLTIP
+            return AF_UNAVAILABLE
         # if the widget is the autofocus axis, return the autofocus axis tooltip
         if wdg is self.af_axis:
             return AF_AXIS_TOOLTIP

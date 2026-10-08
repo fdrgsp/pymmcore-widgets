@@ -1091,15 +1091,20 @@ def test_core_mda_autofocus_set_value(
 
     wdg.setValue(SEQ)
 
-    # even if autofocus_plans are in SEQ, the autofocus options should be disabled
-    # since the autofocus device is not loaded
+    # SEQ asks for hardware autofocus, which this microscope cannot do, so no plan
+    # comes out of it -- not even a software one, since the kind is never switched
+    # for the user
     assert not wdg.value().autofocus_plan
     assert not wdg.value().stage_positions[0].sequence
     assert not wdg.value().stage_positions[1].sequence
-    assert not wdg.af_axis.isEnabled()
+    assert not wdg.af_axis.use_hardware.isEnabled()
     assert wdg.af_axis.use_af_p.isChecked()
     assert wdg.af_axis.value() == ()
-    assert wdg.af_axis.toolTip() == AF_UNAVAILABLE
+    # the section itself stays usable: a software routine needs no autofocus device
+    assert wdg.af_axis.isEnabled()
+    assert wdg.af_axis.use_software.isEnabled()
+    assert wdg.af_axis.toolTip() == AF_AXIS_TOOLTIP
+    # ... but a per-position offset is a hardware-autofocus feature
     assert not wdg.stage_positions.af_per_position.isEnabled()
     assert wdg.stage_positions.af_per_position.isChecked()
     assert wdg.stage_positions.af_per_position.toolTip() == AF_UNAVAILABLE
@@ -1212,13 +1217,15 @@ def test_core_mda_autofocus_and_z_plan(
         with patch.object(QMessageBox, "warning", _qmsgbox):
             wdg.z_plan.setValue(useq.ZTopBottom(top=10, bottom=0, step=1))
             wdg.tab_wdg.setChecked(wdg.z_plan, True)
+        # both kinds are out: the absolute z plan rules them out regardless of
+        # which devices exist, so that is what the tooltip says
         assert not wdg.af_axis.isEnabled()
         assert wdg.af_axis.use_af_p.isChecked()
         assert not wdg.af_axis.value()
-        assert wdg.af_axis.toolTip() == AF_UNAVAILABLE
+        assert wdg.af_axis.toolTip() == AF_DISABLED_TOOLTIP
         assert not pos_table.af_per_position.isEnabled()
         assert pos_table.af_per_position.isChecked()
-        assert pos_table.af_per_position.toolTip() == AF_UNAVAILABLE
+        assert pos_table.af_per_position.toolTip() == AF_DISABLED_TOOLTIP
 
         # AF column should be hidden
         assert pos_table.table().isColumnHidden(af_col)
