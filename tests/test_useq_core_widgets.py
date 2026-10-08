@@ -698,6 +698,38 @@ def test_autofocus_section_is_left_disabled_during_a_run(qtbot: QtBot):
     assert wdg.af_axis.isEnabled()
 
 
+def test_a_software_routine_can_be_tried_out_from_its_settings(qtbot: QtBot):
+    """Settings are guesswork until tried, so the dialog can run the routine."""
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    runner = wdg.af_axis._test_runner
+    assert runner is not None  # the core-aware widget supplies the microscope
+
+    wdg._mmc.setZPosition(10.0)
+    result = runner(
+        "oughtafocus",
+        {"search_range_um": 20.0, "optimizer": "zstack", "tolerance_um": 4.0},
+        lambda: False,
+    )
+    assert result.succeeded, result.message
+    assert result.method == "oughtafocus"
+    assert result.n_images > 1
+    # the same path an acquisition takes: the drive is left at what it found
+    assert wdg._mmc.getZPosition() == pytest.approx(result.z_after)
+
+
+def test_a_routine_is_not_tried_out_during_an_acquisition(qtbot: QtBot):
+    """It would fight the run for the stage, and spoil the data besides."""
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    runner = wdg.af_axis._test_runner
+    assert runner is not None
+
+    with patch.object(wdg._mmc.mda, "is_running", return_value=True):
+        with pytest.raises(RuntimeError, match="acquisition is running"):
+            runner("oughtafocus", {}, lambda: False)
+
+
 def test_run_mda_af_engaged_with_absolute_z(qtbot: QtBot):
     """With an absolute z plan there is no axis to select, so say so instead."""
     wdg = MDAWidget()

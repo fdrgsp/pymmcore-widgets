@@ -22,7 +22,7 @@ from pymmcore_widgets.useq_widgets._autofocus_settings import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from pytestqt.qtbot import QtBot
 
@@ -413,3 +413,110 @@ def test_labels_share_one_left_aligned_column(qtbot: QtBot) -> None:
     assert len(widths) == 1, {label.text(): label.width() for label in labels}
     # and the column is wide enough for the longest of them
     assert widths.pop() == max(label.sizeHint().width() for label in labels)
+
+
+# ------------------------------ testing a routine ------------------------------
+
+
+@dataclass(frozen=True)
+class _Outcome:
+    """Stands in for `pymmcore_plus.autofocus.AutofocusResult`."""
+
+    succeeded: bool
+    focus_device: str = "Z"
+    z_before: float = 10.0
+    z_after: float = 12.4
+    delta_z: float = 2.4
+    n_images: int = 7
+    message: str = ""
+
+
+def test_a_routine_cannot_be_tested_without_a_microscope(qtbot: QtBot) -> None:
+    """The standalone widget edits settings; it has no stage to drive."""
+    dialog = AutofocusSettingsDialog(Demo, method="demo")
+    qtbot.addWidget(dialog)
+    assert not dialog.test_button.isVisibleTo(dialog)
+
+    dialog = AutofocusSettingsDialog(
+        Demo, method="demo", test_runner=lambda *_: _Outcome(succeeded=True)
+    )
+    qtbot.addWidget(dialog)
+    assert dialog.test_button.isVisibleTo(dialog)
+    # nothing is claimed about a test that has not been run
+    assert not dialog.test_result.isVisibleTo(dialog)
+
+
+def test_a_test_runs_the_edited_settings_and_says_where_focus_landed(
+    qtbot: QtBot,
+) -> None:
+    calls: list[tuple[str, Mapping[str, Any]]] = []
+
+    def runner(method: str, settings: Mapping[str, Any], _cancel: Any) -> _Outcome:
+        calls.append((method, settings))
+        return _Outcome(succeeded=True)
+
+    dialog = AutofocusSettingsDialog(Demo, {"steps": 2}, "demo", test_runner=runner)
+    qtbot.addWidget(dialog)
+    dialog.form._controls["loud"].setChecked(True)
+
+    dialog._run_test()
+    qtbot.waitUntil(dialog.test_button.isEnabled)
+
+    # what is tested is what the dialog would return, edits included
+    assert calls == [("demo", {"steps": 2, "loud": True})]
+    assert dialog.test_result.isVisibleTo(dialog)
+    text = dialog.test_result.text()
+    assert "Z 10.00 → 12.40 µm" in text
+    assert "+2.40" in text
+    assert "7 images" in text
+
+
+def test_a_test_that_finds_nothing_says_why(qtbot: QtBot) -> None:
+    dialog = AutofocusSettingsDialog(
+        Demo,
+        method="demo",
+        test_runner=lambda *_: _Outcome(succeeded=False, message="Too far out."),
+    )
+    qtbot.addWidget(dialog)
+
+    dialog._run_test()
+    qtbot.waitUntil(dialog.test_button.isEnabled)
+    assert dialog.test_result.text() == "No focus found: Too far out."
+
+
+def test_a_failing_test_is_reported_rather_than_lost(qtbot: QtBot) -> None:
+    """A test runs in a worker thread, where an exception would go unseen."""
+
+    def explode(*_: Any) -> _Outcome:
+        raise RuntimeError("An acquisition is running.")
+
+    dialog = AutofocusSettingsDialog(Demo, method="demo", test_runner=explode)
+    qtbot.addWidget(dialog)
+
+    dialog._run_test()
+    qtbot.waitUntil(dialog.test_button.isEnabled)
+    assert dialog.test_result.text() == "Test failed: An acquisition is running."
+
+
+def test_closing_the_dialog_abandons_a_search_still_running(qtbot: QtBot) -> None:
+    """Otherwise a routine would be left driving the stage with nobody watching."""
+    cancels: list[Callable[[], bool]] = []
+
+    def runner(_method: str, _settings: Mapping[str, Any], cancel: Any) -> _Outcome:
+        cancels.append(cancel)
+        return _Outcome(succeeded=True)
+
+    dialog = AutofocusSettingsDialog(Demo, method="demo", test_runner=runner)
+    qtbot.addWidget(dialog)
+
+    dialog._run_test()
+    qtbot.waitUntil(lambda: bool(cancels))
+    should_cancel = cancels[0]
+    assert not should_cancel()
+
+    dialog.reject()
+    assert should_cancel()
+
+    # ... and the outcome of a test nobody is waiting for says what happened
+    dialog._on_test_failed(RuntimeError("Autofocus cancelled after 3 image(s)."))
+    assert dialog.test_result.text() == "Test cancelled."

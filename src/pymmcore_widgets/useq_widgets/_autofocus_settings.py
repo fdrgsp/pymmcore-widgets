@@ -35,12 +35,22 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt.utils import signals_blocked
+from superqt.utils import create_worker, signals_blocked
 
 from pymmcore_widgets._icons import StandardIcon
 from pymmcore_widgets._util import disable_wheel_scroll
 
 __all__ = ["AutofocusSettingsDialog", "SettingsForm"]
+
+# (method, settings, should_cancel) -> an object describing where focus ended up;
+# supplied by a core-aware widget, which knows which microscope to drive.
+TestRunner = Callable[[str, Mapping[str, Any], Callable[[], bool]], Any]
+
+TEST_TOOLTIP = (
+    "Run this routine now, with these settings, and report where it lands.\n"
+    "This is the same path an acquisition takes: the focus drive is left at\n"
+    "the focus it finds, or put back where it started if it finds none."
+)
 
 UNCHANGED = "unchanged"
 _MAX = 1_000_000.0
@@ -534,9 +544,15 @@ class AutofocusSettingsDialog(QDialog):
         methods: Mapping[str, type] | None = None,
         descriptions: Mapping[str, str] | None = None,
         choices: Callable[[str, Mapping[str, Any]], Sequence[str] | None] | None = None,
+        test_runner: TestRunner | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"{method} settings" if method else "Autofocus settings")
+        self._method = method
+        self._test_runner = test_runner
+        # set when the dialog is closed, so a search still running is abandoned
+        # rather than left driving the stage on its own
+        self._test_cancelled = False
         # `methods` lets a routine built from others (such as `duo`) be configured
         # here; `method` is excluded from those choices, so it cannot contain itself.
         self.form = SettingsForm(
@@ -555,12 +571,79 @@ class AutofocusSettingsDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
 
+        # Settings are guesswork until they have been tried on the sample, so the
+        # routine can be run from here, on the current position, without having to
+        # start an acquisition.  Needs a microscope: the standalone widget has none.
+        self.test_button = QPushButton("Test")
+        self.test_button.setToolTip(TEST_TOOLTIP)
+        self.test_button.clicked.connect(self._run_test)
+        self.test_button.setVisible(test_runner is not None and bool(method))
+        self.test_result = QLabel()
+        self.test_result.setWordWrap(True)
+        self.test_result.setToolTip(TEST_TOOLTIP)
+        self.test_result.hide()
+
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 0, 0, 0)
+        footer.addWidget(self.test_button)
+        footer.addStretch()
+        footer.addWidget(buttons)
+
         # No blurb at the top: what the routine does belongs on the method picker
         # that chose it, and repeating it here only pushes the settings down.
         layout = QVBoxLayout(self)
         layout.addWidget(self.form)
-        layout.addWidget(buttons)
+        layout.addWidget(self.test_result)
+        layout.addLayout(footer)
 
     def value(self) -> dict[str, Any]:
         """Return the edited settings."""
         return self.form.value()
+
+    # ------------------------------- testing --------------------------------
+
+    def _run_test(self) -> None:
+        if (runner := self._test_runner) is None:  # pragma: no cover
+            return
+        self._test_cancelled = False
+        self.test_button.setEnabled(False)
+        self._show_test_result("Searching for focus\u2026")
+        # In a worker thread: a search can take hundreds of images, and blocking
+        # here would freeze the very preview a routine may be showing them in.
+        create_worker(
+            runner,
+            self._method,
+            self.value(),
+            lambda: self._test_cancelled,
+            _start_thread=True,
+            _connect={"returned": self._on_test_done, "errored": self._on_test_failed},
+        )
+
+    def _on_test_done(self, result: Any) -> None:
+        self.test_button.setEnabled(True)
+        if getattr(result, "succeeded", False):
+            self._show_test_result(
+                f"Focus found: {result.focus_device} "
+                f"{result.z_before:.2f} \u2192 {result.z_after:.2f} \u00b5m "
+                f"(\u0394 {result.delta_z:+.2f}), {result.n_images} images."
+            )
+        else:
+            message = getattr(result, "message", "") or "no reason given."
+            self._show_test_result(f"No focus found: {message}")
+
+    def _on_test_failed(self, exception: BaseException) -> None:
+        self.test_button.setEnabled(True)
+        if self._test_cancelled:
+            self._show_test_result("Test cancelled.")
+        else:
+            self._show_test_result(f"Test failed: {exception}")
+
+    def _show_test_result(self, text: str) -> None:
+        self.test_result.setText(text)
+        self.test_result.show()
+
+    def done(self, r: int) -> None:
+        # Closing the dialog abandons a search still in flight; the routine polls
+        # this and puts the focus drive back where it found it.
+        self._test_cancelled = True
+        super().done(r)

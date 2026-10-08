@@ -43,7 +43,7 @@ from ._core_z import CoreConnectedZPlanWidget
 from ._save_widget import SaveGroupBox
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
     # Everything CMMCorePlus.run_mda accepts as one MDA output: a path, a frame
     # handler, or ome-writers settings. Used for both prepare_mda and
@@ -193,6 +193,31 @@ class _ScrollableGridCoreMDATabs(CoreMDATabs):
         super()._on_tab_checkbox_toggled(checked, wdg)
 
 
+def _software_autofocus_runner(core: CMMCorePlus) -> Any:
+    """Return a callable that runs a software routine now, on `core`.
+
+    For the settings dialog's Test button: settings are guesswork until they have
+    been tried on the sample. It closes over the *core* rather than the widget --
+    the autofocus section would otherwise hold a strong reference back to its
+    parent, keeping it alive past the devices its own deferred work needs.
+    """
+
+    def run(
+        method: str, settings: Mapping[str, Any], should_cancel: Callable[[], bool]
+    ) -> Any:
+        # The same call the acquisition engine makes, so what is tested is what
+        # will run. Called from a worker thread.
+        from pymmcore_plus.autofocus import run_software_autofocus
+
+        if core.mda.is_running():
+            raise RuntimeError("An acquisition is running.")
+        return run_software_autofocus(
+            core, method, dict(settings), should_cancel=should_cancel
+        )
+
+    return run
+
+
 class MDAWidget(MDASequenceWidget):
     """Main MDA Widget connected to a [`pymmcore_plus.CMMCorePlus`][] instance.
 
@@ -253,6 +278,10 @@ class MDAWidget(MDASequenceWidget):
         # already loaded, in which case that signal never arrives. It reads a few
         # cached device labels and emits nothing, so it cannot loop.
         self.valueChanged.connect(self._update_autofocus_enablement)
+        # Settings for a software routine are guesswork until they have been tried
+        # on the sample, so the settings dialog can run one; it takes a core-aware
+        # widget to say which microscope.
+        self.af_axis.setTestRunner(_software_autofocus_runner(self._mmc))
 
         self.destroyed.connect(self._disconnect)
 

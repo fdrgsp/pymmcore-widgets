@@ -32,6 +32,7 @@ from pymmcore_widgets._humanize import humanize_time
 from pymmcore_widgets._util import disable_wheel_scroll
 from pymmcore_widgets.useq_widgets._autofocus_settings import (
     AutofocusSettingsDialog,
+    TestRunner,
     _settings_button,
 )
 from pymmcore_widgets.useq_widgets._channels import ChannelTable
@@ -389,6 +390,8 @@ class AutofocusAxis(QGroupBox):
         self._method_models: dict[str, type] = {}
         self._method_descriptions: dict[str, str] = {}
         self._method_settings: dict[str, dict[str, Any]] = {}
+        # set by the core-aware widget, which knows which microscope to drive
+        self._test_runner: TestRunner | None = None
         # set by the core-aware widget, which knows what devices are loaded
         self._software_devices_ok = True
         self._software_unavailable_reason = ""
@@ -570,6 +573,15 @@ class AutofocusAxis(QGroupBox):
         self.method.setToolTip(doc or AF_METHOD_TOOLTIP)
         self._method_label.setToolTip(self.method.toolTip())
 
+    def setTestRunner(self, runner: TestRunner | None) -> None:
+        """Supply a way to run a routine now, for the settings dialog's Test button.
+
+        Testing a routine drives the stage and the camera, so it takes a
+        core-aware widget to say *which* microscope. Without one the button is
+        not offered: the settings can still be edited, just not tried out.
+        """
+        self._test_runner = runner
+
     def setHardwareAvailable(self, available: bool, reason: str = "") -> None:
         """Say whether the microscope has an autofocus device to drive.
 
@@ -632,6 +644,7 @@ class AutofocusAxis(QGroupBox):
             # so a routine built from others can be pointed at them here
             methods=self._method_models,
             descriptions=self._method_descriptions,
+            test_runner=self._test_runner,
         )
         if dialog.exec():
             self._method_settings[method] = dialog.value()
