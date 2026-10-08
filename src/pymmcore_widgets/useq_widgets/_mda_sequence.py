@@ -585,7 +585,7 @@ class AutofocusAxis(QWidget):
 
     def softwareMethod(self) -> str:
         """The selected software autofocus routine."""
-        return self.method.currentText()
+        return str(self.method.currentText())
 
     def softwareSettings(self) -> dict[str, Any]:
         """The settings for the selected routine."""
@@ -1139,7 +1139,9 @@ class MDASequenceWidget(QWidget):
         af_offsets = {
             pos.sequence.autofocus_plan.autofocus_motor_offset
             for pos in seq.stage_positions
-            if pos.sequence is not None and pos.sequence.autofocus_plan
+            if pos.sequence is not None
+            # only a hardware plan has an offset to simplify
+            and isinstance(pos.sequence.autofocus_plan, useq.AxesBasedAF)
         }
 
         # if they aren't all the same, there's nothing we can do to simplify it.

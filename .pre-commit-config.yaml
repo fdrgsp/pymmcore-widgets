@@ -26,6 +26,9 @@ repos:
     hooks:
       - id: mypy
         files: "^src/"
+        # pymmcore-plus requires 3.11, and this hook installs it, so the hook's own
+        # environment has to be at least 3.11 or the dependencies cannot resolve.
+        language_version: python3.11
         additional_dependencies:
           # matches this project's own pin (see [tool.uv.sources]): the MDA
           # widgets' output annotations use pymmcore_plus.mda.SingleOutput,

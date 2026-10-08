@@ -326,7 +326,10 @@ class PositionTable(DataTableWidget):
 
         for v in value:
             _af = {}
-            if v.sequence is not None and v.sequence.autofocus_plan is not None:
+            # only a hardware autofocus plan carries a per-position motor offset
+            if v.sequence is not None and isinstance(
+                v.sequence.autofocus_plan, useq.AxesBasedAF
+            ):
                 # set sub-sequence to None if empty or we simply exclude the af plan
                 sub_seq: useq.MDASequence | None = useq.MDASequence(
                     **v.sequence.model_dump(exclude={"autofocus_plan"})
