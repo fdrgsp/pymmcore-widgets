@@ -93,6 +93,10 @@ AF_DISABLED_TOOLTIP = (
     "It corrects the focus position, which an absolute Z plan would then override.\n"
     "Switch the Z plan to a relative mode (RANGE_AROUND or ABOVE_BELOW) to use it."
 )
+AF_PER_POS_SOFTWARE_TOOLTIP = (
+    "Per-position offsets are for the hardware autofocus device.\n"
+    "A software routine finds focus from the images, so it has no offset to set."
+)
 AF_ENABLE_TOOLTIP = "Run an autofocus routine during the acquisition."
 # Filled in when a search range is first asked for; MMStudio's own default.
 DEFAULT_AF_SEARCH_STEP_UM = 5.0
@@ -942,6 +946,8 @@ class MDASequenceWidget(QWidget):
 
         self.keep_shutter_open.valueChanged.connect(self.valueChanged)
         self.af_axis.valueChanged.connect(self.valueChanged)
+        # the radios are exclusive, so any change of kind toggles `use_hardware`
+        self.af_axis.use_hardware.toggled.connect(self._on_af_kind_toggled)
         self.stage_positions.af_per_position.toggled.connect(self._on_af_toggled)
 
         with signals_blocked(self):
@@ -1036,6 +1042,8 @@ class MDASequenceWidget(QWidget):
             self.af_axis.setValue(tuple(axis))
             # restore the kind of autofocus and its per-kind settings
             self.af_axis.setPlan(af_plan)
+            # setPlan switches the kind with the radios' signals blocked
+            self._on_af_kind_toggled()
             axis_text = "".join(
                 x for x in value.axis_order if x in self.tab_wdg.usedAxes()
             )
@@ -1106,11 +1114,25 @@ class MDASequenceWidget(QWidget):
     def _enable_af(self, state: bool) -> None:
         """Enable or disable autofocus settings."""
         af_axis_tooltip = AF_AXIS_TOOLTIP if state else AF_DISABLED_TOOLTIP
-        af_per_pos_tooltip = AF_PER_POS_TOOLTIP if state else AF_DISABLED_TOOLTIP
         # enable autofocus axis widget
         self.af_axis.setEnabled(state)
         self.af_axis.setToolTip(af_axis_tooltip)
-        # enable autofocus per position checkbox
+        self._enable_af_per_position(state)
+
+    def _enable_af_per_position(self, state: bool) -> None:
+        """Enable or disable the autofocus per position checkbox.
+
+        Per-position offsets are hardware autofocus offsets, so a software routine
+        rules them out just as an absolute Z plan does.
+        """
+        software = self.af_axis.use_software.isChecked()
+        if not state:
+            af_per_pos_tooltip = AF_DISABLED_TOOLTIP
+        elif software:
+            af_per_pos_tooltip = AF_PER_POS_SOFTWARE_TOOLTIP
+        else:
+            af_per_pos_tooltip = AF_PER_POS_TOOLTIP
+        state = state and not software
         self.stage_positions.af_per_position.setEnabled(state)
         self.stage_positions.af_per_position.setToolTip(af_per_pos_tooltip)
         # hide the autofocus columns if autofocus per position is disabled
@@ -1183,6 +1205,14 @@ class MDASequenceWidget(QWidget):
         if self._use_af_per_position() and self.tab_wdg.isChecked(self.stage_positions):
             self.af_axis.setChecked(True)
             self.af_axis.use_af_p.setChecked(True)
+
+    def _on_af_kind_toggled(self) -> None:
+        """Per-position offsets only apply to hardware autofocus."""
+        absolute_z = (
+            self.tab_wdg.isChecked(self.z_plan)
+            and self.z_plan.mode() == Mode.TOP_BOTTOM
+        )
+        self._enable_af_per_position(not absolute_z)
 
     def _update_available_axis_orders(self) -> None:
         """Handle tabChecked signal.

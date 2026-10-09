@@ -33,6 +33,7 @@ from pymmcore_widgets.mda._xy_bounds import CoreXYBoundsControl
 from pymmcore_widgets.useq_widgets._mda_sequence import (
     AF_AXIS_TOOLTIP,
     AF_DISABLED_TOOLTIP,
+    AF_PER_POS_SOFTWARE_TOOLTIP,
     PYMMCW_METADATA_KEY,
     AutofocusAxis,
     KeepShutterOpen,
@@ -678,6 +679,44 @@ def test_run_mda_software_af_does_not_want_an_autofocus_device(qtbot: QtBot):
                 wdg.control_btns.run_btn.click()
     assert len(messages) == 1
     assert "autofocus" in messages[0].lower()
+
+
+def test_af_per_position_is_for_hardware_autofocus_only(qtbot: QtBot):
+    """A software routine has no offset motor, so per-position offsets are moot."""
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    wdg.show()
+
+    pos = wdg.stage_positions
+    af_col = pos.table().indexOf(pos.AF)
+    af_btn_col = pos.table().indexOf(pos._af_btn_col)
+    wdg.setValue(useq.MDASequence(stage_positions=[useq.Position(x=0, y=0, z=0)]))
+    pos.af_per_position.setChecked(True)
+    assert wdg.af_axis.kind() == "hardware"
+    assert pos.af_per_position.isEnabled()
+    assert not pos.table().isColumnHidden(af_col)
+    assert not pos.table().isColumnHidden(af_btn_col)
+
+    wdg.af_axis.use_software.setChecked(True)
+    assert not pos.af_per_position.isEnabled()
+    assert pos.af_per_position.isChecked()  # kept for when hardware comes back
+    assert pos.af_per_position.toolTip() == AF_PER_POS_SOFTWARE_TOOLTIP
+    assert pos.table().isColumnHidden(af_col)
+    assert pos.table().isColumnHidden(af_btn_col)
+    val = wdg.value()
+    assert isinstance(val.autofocus_plan, useq.SoftwareAxesBasedAF)
+    assert not val.stage_positions[0].sequence
+
+    # a change of the autofocus device must not bring the offsets back
+    wdg._mmc.setProperty("Core", "AutoFocus", "Autofocus")
+    assert not pos.af_per_position.isEnabled()
+    assert pos.table().isColumnHidden(af_col)
+
+    wdg.af_axis.use_hardware.setChecked(True)
+    assert pos.af_per_position.isEnabled()
+    assert pos.af_per_position.toolTip() == AF_PER_POS_TOOLTIP
+    assert not pos.table().isColumnHidden(af_col)
+    assert not pos.table().isColumnHidden(af_btn_col)
 
 
 def test_autofocus_section_is_left_disabled_during_a_run(qtbot: QtBot):

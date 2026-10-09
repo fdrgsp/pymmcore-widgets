@@ -25,6 +25,7 @@ from pymmcore_widgets.useq_widgets import MDASequenceWidget
 from pymmcore_widgets.useq_widgets._mda_sequence import (
     AF_AXIS_TOOLTIP,
     AF_DISABLED_TOOLTIP,
+    AF_PER_POS_SOFTWARE_TOOLTIP,
     PYMMCW_METADATA_KEY,
     MDATabs,
 )
@@ -569,11 +570,18 @@ class MDAWidget(MDASequenceWidget):
         # the section simply produces no plan.
 
         # per-position autofocus offsets are a hardware-autofocus feature
-        self.stage_positions.af_per_position.setEnabled(bool(af_device))
+        self.stage_positions.af_per_position.setEnabled(
+            bool(af_device) and not self.af_axis.use_software.isChecked()
+        )
         # set tooltip af_per_position
         self.stage_positions.af_per_position.setToolTip(
             self._get_tooltip(self.stage_positions.af_per_position)
         )
+
+    def _on_af_kind_toggled(self) -> None:
+        # the base class knows nothing of the autofocus device, so defer to the
+        # method that does
+        self._update_autofocus_enablement()
 
     def _get_tooltip(self, wdg: QWidget) -> str:
         """Return the tooltip for the autofocus widgets."""
@@ -595,6 +603,8 @@ class MDAWidget(MDASequenceWidget):
             return AF_AXIS_TOOLTIP
         # if the widget is the autofocus per position, return the autofocus per position
         if wdg is self.stage_positions.af_per_position:
+            if self.af_axis.use_software.isChecked():
+                return AF_PER_POS_SOFTWARE_TOOLTIP
             return AF_PER_POS_TOOLTIP
         return ""
 

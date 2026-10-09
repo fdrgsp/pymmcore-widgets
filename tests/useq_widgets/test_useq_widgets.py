@@ -32,6 +32,7 @@ from pymmcore_widgets.useq_widgets._column_info import (
     TextColumn,
     parse_timedelta,
 )
+from pymmcore_widgets.useq_widgets._mda_sequence import AF_PER_POS_SOFTWARE_TOOLTIP
 from pymmcore_widgets.useq_widgets._positions import MDAButton, QFileDialog, _MDAPopup
 
 if TYPE_CHECKING:
@@ -946,6 +947,46 @@ def test_autofocus_with_z_plans(qtbot: QtBot) -> None:
 
     assert wdg.af_axis.isEnabled()
     assert wdg.stage_positions.af_per_position.isEnabled()
+
+
+def test_af_per_position_is_for_hardware_autofocus_only(qtbot: QtBot) -> None:
+    wdg = MDASequenceWidget()
+    qtbot.addWidget(wdg)
+    wdg.show()
+    wdg.af_axis.setSoftwareMethods(["oughtafocus"])
+
+    pos = wdg.stage_positions
+    af_col = pos.table().indexOf(pos.AF)
+    wdg.tab_wdg.setChecked(pos, True)
+    pos.setValue([useq.Position(x=0, y=0, z=0)])
+    pos.af_per_position.setChecked(True)
+    assert pos.af_per_position.isEnabled()
+    assert not pos.table().isColumnHidden(af_col)
+
+    # a software routine has no offset motor, so the offsets have no meaning
+    wdg.af_axis.use_software.setChecked(True)
+    assert not pos.af_per_position.isEnabled()
+    assert pos.af_per_position.isChecked()  # kept for when hardware comes back
+    assert pos.af_per_position.toolTip() == AF_PER_POS_SOFTWARE_TOOLTIP
+    assert pos.table().isColumnHidden(af_col)
+    # ... and no hardware plan rides along in the positions of a software run
+    val = wdg.value()
+    assert isinstance(val.autofocus_plan, useq.SoftwareAxesBasedAF)
+    assert not val.stage_positions[0].sequence
+
+    wdg.af_axis.use_hardware.setChecked(True)
+    assert pos.af_per_position.isEnabled()
+    assert not pos.table().isColumnHidden(af_col)
+
+    # loading a software plan switches the kind without the radios' signals
+    wdg.setValue(
+        useq.MDASequence(
+            stage_positions=[useq.Position(x=0, y=0, z=0)],
+            autofocus_plan=useq.SoftwareAxesBasedAF(axes=("p",), method="oughtafocus"),
+        )
+    )
+    assert not pos.af_per_position.isEnabled()
+    assert pos.table().isColumnHidden(af_col)
 
 
 def test_mda_popup_with_polygon(qtbot: QtBot) -> None:
