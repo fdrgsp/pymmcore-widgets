@@ -240,6 +240,10 @@ class SettingsForm(QWidget):
         self._model: type | None = None
         self._controls: dict[str, QWidget] = {}
         self._unsupported: dict[str, Any] = {}
+        # per field, (value given to setValue, value its control then showed)
+        self._given: dict[str, tuple[Any, Any]] = {}
+        # settings given that the routine does not define
+        self._unknown: dict[str, Any] = {}
         # Rows of "label, control", rather than a QFormLayout: the labels read better
         # left-aligned in one fixed-width column, which also lines every control up
         # at the same x whatever its label says.
@@ -434,24 +438,44 @@ class SettingsForm(QWidget):
             if (control := self._controls.get(field.name)) is not None:
                 optional, _inner = _is_optional(hints[field.name])
                 value = _plain(_control_value(control, optional))
+                # A control left as it was shows the given value only as precisely
+                # as it can display it; returning *that* would quietly rewrite a
+                # saved setting -- 0.0125 as 0.013, or 10.0004 as the default 10.0,
+                # and then drop it as unchanged.
+                given = self._given.get(field.name)
+                if given is not None and value == given[1]:
+                    value = _plain(given[0])
             elif field.name in self._unsupported:
                 value = self._unsupported[field.name]
             else:  # pragma: no cover
                 continue
             if value != default:
                 out[field.name] = value
+        # Settings the routine does not define are kept, not dropped: they may come
+        # from a newer version, and it is the routine's place to reject them --
+        # which it does, by name -- not the form's to delete them unseen.
+        out.update(self._unknown)
         return out
 
     def setValue(self, settings: Mapping[str, Any]) -> None:
         """Apply `settings`; fields it does not mention go back to their defaults."""
         if self._model is None:
             return
+        hints = get_type_hints(self._model)
+        self._given = {}
+        names = set()
         for field in dataclasses.fields(self._model):
+            names.add(field.name)
             value = settings.get(field.name, _default_of(field))
             if (control := self._controls.get(field.name)) is not None:
                 _set_control_value(control, value)
+                optional, _inner = _is_optional(hints[field.name])
+                # what was given, and what the control made of it
+                shown = _plain(_control_value(control, optional))
+                self._given[field.name] = (value, shown)
             elif field.name in self._unsupported:
                 self._unsupported[field.name] = value
+        self._unknown = {k: v for k, v in settings.items() if k not in names}
         self.valueChanged.emit()
 
 
@@ -553,6 +577,9 @@ class AutofocusSettingsDialog(QDialog):
         # set when the dialog is closed, so a search still running is abandoned
         # rather than left driving the stage on its own
         self._test_cancelled = False
+        # the search in flight, if any; and how the dialog was closed meanwhile
+        self._test_worker: Any = None
+        self._pending_close: int | None = None
         # `methods` lets a routine built from others (such as `duo`) be configured
         # here; `method` is excluded from those choices, so it cannot contain itself.
         self.form = SettingsForm(
@@ -570,6 +597,7 @@ class AutofocusSettingsDialog(QDialog):
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        self._buttons = buttons
 
         # Settings are guesswork until they have been tried on the sample, so the
         # routine can be run from here, on the current position, without having to
@@ -610,13 +638,17 @@ class AutofocusSettingsDialog(QDialog):
         self._show_test_result("Searching for focus\u2026")
         # In a worker thread: a search can take hundreds of images, and blocking
         # here would freeze the very preview a routine may be showing them in.
-        create_worker(
+        self._test_worker = create_worker(
             runner,
             self._method,
             self.value(),
             lambda: self._test_cancelled,
             _start_thread=True,
-            _connect={"returned": self._on_test_done, "errored": self._on_test_failed},
+            _connect={
+                "returned": self._on_test_done,
+                "errored": self._on_test_failed,
+                "finished": self._on_test_finished,
+            },
         )
 
     def _on_test_done(self, result: Any) -> None:
@@ -642,8 +674,25 @@ class AutofocusSettingsDialog(QDialog):
         self.test_result.setText(text)
         self.test_result.show()
 
+    def _on_test_finished(self) -> None:
+        self._test_worker = None
+        if (r := self._pending_close) is not None:
+            self._pending_close = None
+            super().done(r)
+
+    def isTesting(self) -> bool:
+        """Whether a test still has the microscope."""
+        return self._test_worker is not None
+
     def done(self, r: int) -> None:
-        # Closing the dialog abandons a search still in flight; the routine polls
-        # this and puts the focus drive back where it found it.
+        # Closing abandons a search still in flight: the routine polls this, and
+        # puts the focus drive back where it found it. But until it has actually
+        # stopped it still has the stage and the camera -- so the dialog stays,
+        # and being modal, nothing else can start an acquisition meanwhile.
         self._test_cancelled = True
+        if self.isTesting():
+            self._pending_close = r
+            self._buttons.setEnabled(False)
+            self._show_test_result("Stopping the test\u2026")
+            return
         super().done(r)

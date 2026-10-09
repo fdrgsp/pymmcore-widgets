@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal
@@ -10,6 +12,7 @@ from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDialog,
     QDoubleSpinBox,
     QLineEdit,
     QSpinBox,
@@ -520,3 +523,81 @@ def test_closing_the_dialog_abandons_a_search_still_running(qtbot: QtBot) -> Non
     # ... and the outcome of a test nobody is waiting for says what happened
     dialog._on_test_failed(RuntimeError("Autofocus cancelled after 3 image(s)."))
     assert dialog.test_result.text() == "Test cancelled."
+
+
+def test_closing_mid_test_keeps_the_dialog_until_the_routine_has_stopped(
+    qtbot: QtBot,
+) -> None:
+    """Closing only *asks* a search to stop: until it has, it still has the stage,
+    and an acquisition started meanwhile would fight it for it."""
+    started = threading.Event()
+
+    def runner(_method: str, _settings: Mapping[str, Any], should_cancel: Any) -> Any:
+        started.set()
+        while not should_cancel():  # as a routine polls, before every image
+            time.sleep(0.005)
+        raise RuntimeError("Autofocus cancelled after 3 image(s).")
+
+    dialog = AutofocusSettingsDialog(Demo, method="demo", test_runner=runner)
+    qtbot.addWidget(dialog)
+    dialog.show()
+    dialog._run_test()
+    assert started.wait(5)
+
+    dialog.reject()
+    # asked to stop, but not stopped yet: the (modal) dialog stays up
+    assert dialog.isVisible()
+    assert dialog.isTesting()
+    assert dialog.test_result.text() == "Stopping the test…"
+
+    qtbot.waitUntil(lambda: not dialog.isVisible(), timeout=5000)
+    assert not dialog.isTesting()
+    assert dialog.result() == QDialog.DialogCode.Rejected
+
+
+# --------------------------- what was given comes back ---------------------------
+
+
+@dataclass(frozen=True)
+class Precise:
+    """A routine with settings finer than a control shows.
+
+    Attributes
+    ----------
+    threshold : float
+        A fraction.
+    range_um : float
+        A distance.
+    """
+
+    threshold: float = 0.02
+    range_um: float = 10.0
+
+
+def test_settings_left_alone_come_back_exactly_as_given(qtbot: QtBot) -> None:
+    """A control shows a value only as precisely as it can display it, and handing
+    *that* back quietly rewrote saved settings: 0.0125 came back as 0.013, and
+    10.0004 rounded to the default and was dropped altogether."""
+    form = SettingsForm(Precise)
+    qtbot.addWidget(form)
+    form.setValue({"threshold": 0.0125, "range_um": 10.0004})
+    assert form.value() == {"threshold": 0.0125, "range_um": 10.0004}
+
+
+def test_an_edited_setting_comes_back_as_edited(qtbot: QtBot) -> None:
+    form = SettingsForm(Precise)
+    qtbot.addWidget(form)
+    form.setValue({"threshold": 0.0125})
+    spin = form._controls["threshold"]
+    assert isinstance(spin, QDoubleSpinBox)
+    spin.setValue(0.5)
+    assert form.value() == {"threshold": 0.5}
+
+
+def test_a_setting_the_routine_does_not_define_is_kept(qtbot: QtBot) -> None:
+    """It may come from a newer version: the routine rejects it by name when run,
+    rather than the form deleting it unseen."""
+    form = SettingsForm(Precise)
+    qtbot.addWidget(form)
+    form.setValue({"threshold": 0.5, "from_a_newer_version": 7})
+    assert form.value() == {"threshold": 0.5, "from_a_newer_version": 7}
