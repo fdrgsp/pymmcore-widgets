@@ -16,6 +16,7 @@ from qtpy.QtGui import (
     QTransform,
 )
 from qtpy.QtWidgets import (
+    QWIDGETSIZE_MAX,
     QAbstractButton,
     QButtonGroup,
     QDoubleSpinBox,
@@ -281,6 +282,13 @@ class GridPlanWidget(QWidget):
                         fields.append(field)
         if not labels:
             return  # pragma: no cover
+        # Release the widths pinned by a previous alignment first: a QLabel's
+        # sizeHint() never reports less than its minimum width, so measuring
+        # them while still fixed could only ever grow the column -- after
+        # zooming out, the labels kept the previous (larger) zoom's width.
+        for wdg in (*labels, *fields):
+            wdg.setMinimumWidth(0)
+            wdg.setMaximumWidth(QWIDGETSIZE_MAX)
         # Measure with QFontMetrics rather than sizeHint(): it is correct even
         # before the labels are shown/polished (sizeHint() can still be 0 then).
         width = max(

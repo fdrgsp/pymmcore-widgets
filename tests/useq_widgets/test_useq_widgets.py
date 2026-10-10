@@ -10,7 +10,8 @@ import pint
 import pytest
 import useq
 from qtpy.QtCore import QPoint, Qt, QTimer
-from qtpy.QtWidgets import QMessageBox, QTableWidgetSelectionRange
+from qtpy.QtGui import QFont
+from qtpy.QtWidgets import QLabel, QMessageBox, QTableWidgetSelectionRange
 
 import pymmcore_widgets
 from pymmcore_widgets import _icons
@@ -725,6 +726,34 @@ def test_z_plan_widget(qtbot: QtBot) -> None:
     with pytest.raises(TypeError):
         plan = useq.ZAbsolutePositions(absolute=[1, 2, 3])
         wdg.setValue(plan)
+
+
+def test_grid_plan_label_column_shrinks_with_the_font(qtbot: QtBot) -> None:
+    """The aligned label column follows a smaller font, not only a larger one.
+
+    Regression test: a QLabel's sizeHint() never reports less than its
+    minimum width, so re-measuring labels still pinned by the previous
+    alignment could only ever widen the column -- after zooming out, the
+    labels kept the larger zoom's width.
+    """
+    wdg = GridPlanWidget()
+    qtbot.addWidget(wdg)
+    label = wdg.row_col_wdg.layout().labelForField(wdg.row_col_wdg.rows)
+    assert isinstance(label, QLabel)
+    labels = wdg.findChildren(QLabel)
+    small = QFont(label.font())
+    big = QFont(small)
+    big.setPointSizeF(small.pointSizeF() * 2)
+
+    # what changeEvent does on a font/style change (e.g. an app zoom), with
+    # the labels' fonts set directly: they don't inherit one set on `wdg`
+    for font in (big, small):
+        for lbl in labels:
+            lbl.setFont(font)
+        wdg._align_label_columns()
+        if font is big:
+            wide = label.minimumWidth()
+    assert label.minimumWidth() == label.maximumWidth() < wide * 0.75
 
 
 def test_grid_plan_widget(qtbot: QtBot) -> None:
