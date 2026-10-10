@@ -408,7 +408,7 @@ class AutofocusAxis(QGroupBox):
         self.every_n_timepoints = QSpinBox()
         self.every_n_timepoints.setRange(1, 10000)
         self.every_n_timepoints.setValue(1)
-        self.every_n_timepoints.setSuffix(" t")
+        self.every_n_timepoints.setSuffix(" timepoint(s)")
         self.every_n_timepoints.setToolTip(AF_EVERY_N_TOOLTIP)
         disable_wheel_scroll(self.every_n_timepoints)
 
