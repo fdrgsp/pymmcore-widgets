@@ -8,7 +8,7 @@ import numpy as np
 import vispy
 import vispy.scene
 import vispy.visuals
-from qtpy.QtCore import Qt
+from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import QLabel, QMenu, QVBoxLayout, QWidget
 from vispy import scene
 from vispy.scene.visuals import Image
@@ -21,6 +21,57 @@ if TYPE_CHECKING:
     from vispy.scene.widgets import ViewBox
 
     class VisualNode(vispy.scene.Node, vispy.visuals.Visual): ...
+
+
+# Coarsest downsampling factor; beyond this a tile is a few pixels on screen.
+MAX_DOWNSAMPLE = 64
+DOWNSAMPLE_DELAY_MS = 150
+
+
+Factor = tuple[int, int]  # (rows, columns)
+
+
+class _TileSource:
+    """An image's full-resolution data, placement, and displayed factor."""
+
+    __slots__ = ("data", "factor", "matrix")
+
+    def __init__(self, data: np.ndarray, matrix: np.ndarray, factor: Factor) -> None:
+        self.data = data
+        self.matrix = matrix  # vispy (row-vector) pixel -> world transform
+        self.factor = factor
+
+
+def _downsampled(data: np.ndarray, factor: Factor) -> np.ndarray:
+    """Block-mean `data` by `factor`, dropping any partial edge block.
+
+    Averaging rather than striding keeps small bright features (beads, puncta)
+    from vanishing or flickering between zoom levels.
+    """
+    fy, fx = factor
+    if fy == fx == 1:
+        return data
+    h, w = data.shape[0] // fy, data.shape[1] // fx
+    blocks = data[: h * fy, : w * fx].reshape(h, fy, w, fx, *data.shape[2:])
+    if np.issubdtype(data.dtype, np.integer):
+        total = blocks.sum(axis=3, dtype=np.int64).sum(axis=1)
+        return (total // (fy * fx)).astype(data.dtype)
+    return blocks.mean(axis=(1, 3)).astype(data.dtype)
+
+
+def _scaled(
+    matrix: np.ndarray, source_shape: tuple[int, ...], shown_shape: tuple[int, ...]
+) -> np.ndarray:
+    """Transform stretching a `shown_shape` image over the source's extent.
+
+    Scaling by the shape ratio rather than the integer factor keeps the tile's
+    world extent exact even when its size isn't a multiple of the factor.
+    """
+    sy = source_shape[0] / shown_shape[0]
+    sx = source_shape[1] / shown_shape[1]
+    if sx == sy == 1:
+        return matrix
+    return cast("np.ndarray", np.diag([sx, sy, 1.0, 1.0]) @ matrix)
 
 
 class StageViewer(QWidget):
@@ -50,6 +101,19 @@ class StageViewer(QWidget):
         # a large map costs the same zoomed in as zoomed out (measured: 400
         # tiles = 33ms either way, vs 3.5ms with only the 9 visible ones).
         self._cull_offscreen: bool = True
+        # Full-resolution source per image, so the texture can be swapped for a
+        # strided copy when zoomed out (see `apply_downsampling`). At level 1
+        # the node displays the source array itself, so this costs nothing.
+        self._sources: WeakKeyDictionary[Image, _TileSource] = WeakKeyDictionary()
+        self._downsample: bool = True
+        # Zooming emits a transform change per wheel step; re-uploading every
+        # visible texture on each one would stall the interaction, so wait
+        # until the view settles. Geometry stays correct meanwhile, since each
+        # node's transform carries its current downsampling factor.
+        self._downsample_timer = QTimer(self)
+        self._downsample_timer.setSingleShot(True)
+        self._downsample_timer.setInterval(DOWNSAMPLE_DELAY_MS)
+        self._downsample_timer.timeout.connect(self.apply_downsampling)
 
         self.canvas = vispy.scene.SceneCanvas(show=True)
 
@@ -121,8 +185,9 @@ class StageViewer(QWidget):
         # add the image to the scene with the transform
         # texture_format="auto" uses GPUScaledTexture2D so that clim changes
         # only update a shader uniform instead of re-uploading the texture.
+        shown, matrix, factor = self._display(img, transform)
         frame = Image(
-            img,
+            shown,
             cmap=self._cmap.to_vispy(),
             parent=self.view.scene,
             clim="auto" if self._clims is None else self._clims,
@@ -131,7 +196,8 @@ class StageViewer(QWidget):
         # keep the added image on top of the others
         self._next_order -= 1
         frame.order = self._next_order
-        frame.transform = scene.MatrixTransform(matrix=transform)
+        frame.transform = scene.MatrixTransform(matrix=matrix)
+        self._sources[frame] = _TileSource(img, transform, factor)
         self._set_world_rect(frame, img.shape, transform)
         self._apply_cull(frame)
         return frame
@@ -149,17 +215,21 @@ class StageViewer(QWidget):
         *distinct* locations on the map rather than by the number of frames
         acquired.
         """
-        frame.set_data(img)
         if transform is not None:
             transform = np.asarray(transform)
             if transform.shape != (4, 4):
                 raise ValueError("Transform must be a 4x4 matrix.")
             if np.allclose(transform[-1], (0, 0, 0, 1)):
                 transform = transform.T
-            frame.transform = scene.MatrixTransform(matrix=transform)
-            self._set_world_rect(frame, img.shape, transform)
-        else:
-            self._set_world_rect(frame, img.shape, np.array(frame.transform.matrix))
+        elif (source := self._sources.get(frame)) is not None:
+            transform = source.matrix
+        else:  # pragma: no cover - every node is added through add_image
+            transform = np.array(frame.transform.matrix)
+        shown, matrix, factor = self._display(img, transform)
+        frame.set_data(shown)
+        frame.transform = scene.MatrixTransform(matrix=matrix)
+        self._sources[frame] = _TileSource(img, transform, factor)
+        self._set_world_rect(frame, img.shape, transform)
         # Bring the refreshed tile back to the front, so a location re-imaged
         # after an overlapping neighbour isn't hidden underneath it.
         self._next_order -= 1
@@ -237,6 +307,70 @@ class StageViewer(QWidget):
     def _on_scene_transform_changed(self, event: Any = None) -> None:
         del event
         self.cull_to_view()
+        if self._downsample:
+            self._downsample_timer.start()
+
+    # --------------------DOWNSAMPLING--------------------
+
+    def set_downsample(self, enabled: bool) -> None:
+        """Show zoomed-out images at reduced resolution (or always at full)."""
+        self._downsample = enabled
+        self.apply_downsampling(include_hidden=not enabled)
+
+    def apply_downsampling(self, *, include_hidden: bool = False) -> None:
+        """Re-upload each visible image at the resolution the zoom level needs.
+
+        A zoomed-out map would otherwise keep a full-resolution texture per
+        tile, even though each tile covers only a few hundred screen pixels.
+        Off-screen (culled) images keep their current texture until they come
+        back into view, which restarts this pass.
+        """
+        for frame in self._get_images():
+            if not (include_hidden or frame.visible):
+                continue
+            if (source := self._sources.get(frame)) is None:
+                continue
+            if (
+                self._downsample_factor(source.matrix, source.data.shape)
+                == source.factor
+            ):
+                continue
+            shown, matrix, source.factor = self._display(source.data, source.matrix)
+            frame.set_data(shown)
+            frame.transform = scene.MatrixTransform(matrix=matrix)
+            frame.update()
+
+    def _display(
+        self, img: np.ndarray, matrix: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, Factor]:
+        """The array, node transform, and factor to show `img` at this zoom."""
+        factor = self._downsample_factor(matrix, img.shape)
+        shown = _downsampled(img, factor)
+        return shown, _scaled(matrix, img.shape, shown.shape), factor
+
+    def _downsample_factor(self, matrix: np.ndarray, shape: tuple[int, ...]) -> Factor:
+        """Per-axis power of two keeping >= 1 texture pixel per screen pixel.
+
+        Each axis uses the world length of one source pixel step along it, so
+        an anisotropic or sheared transform never loses detail along its more
+        magnified direction.
+        """
+        if not self._downsample:
+            return (1, 1)
+        rect = self._culling_rect()
+        screen_px = self.view.size[0] * self.canvas.pixel_scale
+        if screen_px < 2 or rect.width == 0:
+            return (1, 1)
+        world_per_screen_px = abs(rect.width) / screen_px  # camera aspect is 1
+
+        def _axis(step: np.ndarray, size: int) -> int:
+            step_len = float(np.hypot(*step))
+            if step_len == 0 or (ratio := world_per_screen_px / step_len) < 2:
+                return 1
+            return int(min(2 ** int(np.log2(ratio)), MAX_DOWNSAMPLE, size))
+
+        # row-vector transform: a step along x maps to row 0, along y to row 1
+        return (_axis(matrix[1, :2], shape[0]), _axis(matrix[0, :2], shape[1]))
 
     def cull_to_view(self) -> None:
         """Show only the images intersecting the current camera rect.

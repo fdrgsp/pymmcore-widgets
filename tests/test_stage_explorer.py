@@ -21,7 +21,10 @@ from pymmcore_widgets.control._stage_explorer._stage_explorer import (
     ScanMenu,
     StageExplorer,
 )
-from pymmcore_widgets.control._stage_explorer._stage_viewer import StageViewer
+from pymmcore_widgets.control._stage_explorer._stage_viewer import (
+    StageViewer,
+    get_vispy_scene_bounds,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -78,6 +81,101 @@ def test_stage_viewer_reset_view(qtbot: QtBot) -> None:
     cx, cy = stage_viewer.view.camera.rect.center
     assert round(cx) == 525  # image width is 50, center should be Tx + width/2
     assert round(cy) == 150  # image height is 100, center should be Ty + height/2
+
+
+def _shown_viewer_with_tile(
+    qtbot: QtBot, img: np.ndarray | None = None, transform: np.ndarray | None = None
+) -> tuple[StageViewer, Image, np.ndarray]:
+    stage_viewer = StageViewer()
+    qtbot.addWidget(stage_viewer)
+    stage_viewer.resize(400, 400)
+    stage_viewer.show()
+    qtbot.waitExposed(stage_viewer)
+    if img is None:
+        img = np.arange(256 * 256, dtype=np.uint16).reshape(256, 256)
+    if transform is None:
+        transform = _build_transform_matrix(500, 100).T
+    node = stage_viewer.add_image(img, transform)
+    return stage_viewer, node, img
+
+
+def _zoom_far_out(stage_viewer: StageViewer) -> None:
+    stage_viewer.view.camera.set_range(x=(0, 20000), y=(0, 20000), margin=0)
+    stage_viewer.apply_downsampling()
+
+
+def test_stage_viewer_downsamples_when_zoomed_out(qtbot: QtBot) -> None:
+    stage_viewer, node, img = _shown_viewer_with_tile(qtbot)
+
+    _zoom_far_out(stage_viewer)
+    fy, fx = stage_viewer._sources[node].factor
+    assert fy == fx > 1
+    blocks = img.reshape(256 // fy, fy, 256 // fx, fx).astype(np.int64)
+    expected = (blocks.sum(axis=(1, 3)) // (fy * fx)).astype(img.dtype)
+    np.testing.assert_array_equal(node._data, expected)
+    # the tile still covers the same world rect
+    (x0, x1), (y0, y1), _ = get_vispy_scene_bounds([node])
+    assert (x0, x1, y0, y1) == (500, 756, 100, 356)
+
+    stage_viewer.view.camera.set_range(x=(500, 600), y=(100, 200), margin=0)
+    stage_viewer.apply_downsampling()
+    assert node._data is img
+    assert stage_viewer._sources[node].factor == (1, 1)
+
+
+def test_stage_viewer_downsampling_keeps_extent_of_odd_sizes(qtbot: QtBot) -> None:
+    img = np.ones((257, 131), dtype=np.uint16)
+    stage_viewer, node, _ = _shown_viewer_with_tile(qtbot, img)
+
+    _zoom_far_out(stage_viewer)
+    assert stage_viewer._sources[node].factor != (1, 1)
+    (x0, x1), (y0, y1), _ = get_vispy_scene_bounds([node])
+    assert (x0, x1, y0, y1) == pytest.approx((500, 631, 100, 357))
+
+
+def test_stage_viewer_downsampling_keeps_single_bright_pixel(qtbot: QtBot) -> None:
+    img = np.zeros((256, 256), dtype=np.uint16)
+    img[77, 133] = 60000  # off every power-of-two stride
+    stage_viewer, node, _ = _shown_viewer_with_tile(qtbot, img)
+
+    _zoom_far_out(stage_viewer)
+    assert stage_viewer._sources[node].factor != (1, 1)
+    assert node._data.max() > 0
+
+
+def test_stage_viewer_downsampling_is_per_axis(qtbot: QtBot) -> None:
+    # each row is 8x taller in world units than each column is wide, so rows
+    # need 8x less reduction to keep one texture pixel per screen pixel
+    transform = np.diag([1.0, 8.0, 1.0, 1.0])
+    stage_viewer, node, _ = _shown_viewer_with_tile(qtbot, transform=transform)
+
+    _zoom_far_out(stage_viewer)
+    fy, fx = stage_viewer._sources[node].factor
+    assert fx == 8 * fy
+
+
+def test_stage_viewer_downsample_disabled_restores_full_resolution(
+    qtbot: QtBot,
+) -> None:
+    stage_viewer, node, img = _shown_viewer_with_tile(qtbot)
+    _zoom_far_out(stage_viewer)
+    assert node._data is not img
+
+    stage_viewer.set_downsample(False)
+    assert node._data is img
+
+
+def test_stage_viewer_update_image_keeps_downsampling(qtbot: QtBot) -> None:
+    stage_viewer, node, img = _shown_viewer_with_tile(qtbot)
+    _zoom_far_out(stage_viewer)
+    factor = stage_viewer._sources[node].factor
+
+    new = img[::-1].copy()
+    stage_viewer.update_image(node, new)
+    assert stage_viewer._sources[node].factor == factor
+    assert node._data.shape == (256 // factor[0], 256 // factor[1])
+    assert node._data[0, 0] > node._data[-1, 0]  # the flipped data was uploaded
+    assert tuple(node.transform.matrix[3, :2]) == (500, 100)
 
 
 def test_stage_explorer_initialization(qtbot: QtBot) -> None:
