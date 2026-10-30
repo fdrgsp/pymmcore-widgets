@@ -9,9 +9,16 @@ from qtpy.QtCore import Slot
 from qtpy.QtWidgets import QCheckBox, QHBoxLayout, QVBoxLayout, QWidget
 from superqt.utils import signals_blocked
 
+from pymmcore_widgets._light_sources import (
+    INTENSITY_KEY,
+    LIGHT_SOURCE_KEY,
+    NO_LIGHT_SOURCE,
+    IntensitySpinBox,
+    find_light_sources,
+    light_source_limits,
+)
 from pymmcore_widgets.useq_widgets import ChannelTable, ComboColumn
 from pymmcore_widgets.useq_widgets._column_info import (
-    TableDoubleSpinBox,
     WdgGetSet,
     WidgetColumn,
 )
@@ -23,51 +30,7 @@ if TYPE_CHECKING:
 
 DEFAULT_EXP = 100.0
 
-# keys of the columns that are *not* useq.Channel fields
-LIGHT_SOURCE_KEY = "light_source"
-INTENSITY_KEY = "intensity"
 _EXTRA_KEYS = frozenset({LIGHT_SOURCE_KEY, INTENSITY_KEY})
-
-# value of the light source combo meaning "this channel sets no property"
-NO_LIGHT_SOURCE = ""
-
-# joins device label and property name into a light source combo entry
-PROPERTY_SEPARATOR = " · "
-
-
-class IntensitySpinBox(TableDoubleSpinBox):
-    """Spin box for a light source value, ranged from the property's limits.
-
-    The property differs from row to row (and may be absent), so unlike the other
-    numeric columns the range/decimals are configured per cell rather than on the
-    column.
-    """
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        # the light source group this spin box is currently configured for, used to
-        # avoid needlessly re-ranging (which can clobber a value the user is editing)
-        self._group: str = NO_LIGHT_SOURCE
-        self.setEnabled(False)
-
-    def group(self) -> str:
-        """Return the light source group this spin box is configured for."""
-        return self._group
-
-    def setPropertyLimits(
-        self, group: str, limits: tuple[float, float] | None, is_integer: bool
-    ) -> None:
-        """Configure this spin box for `group`'s underlying device property."""
-        self._group = group
-        if limits is None:
-            self.setEnabled(False)
-            self.setRange(0, 0)
-            return
-
-        self.setEnabled(True)
-        self.setDecimals(0 if is_integer else 2)
-        self.setRange(*limits)
-
 
 TableIntensityWidget = WdgGetSet(
     IntensitySpinBox,
@@ -431,70 +394,8 @@ class CoreConnectedChannelTable(ChannelTable):
             self._group_combo.setCurrentText(ch_group)
 
     def _find_light_sources(self) -> dict[str, list[tuple[str, str]]]:
-        """Return writable numeric range properties and eligible config groups.
-
-        **Individual properties** — any writable, non-pre-init numeric (Integer
-        or Float) property that has limits.  Keyed as ``"<device> · <property>"``.
-
-        **Single-preset group sources** — a config group that has exactly one
-        preset where *every* property in that preset is a writable, non-pre-init
-        numeric property with limits.  Keyed by the group name.  Setting the
-        intensity for such a group broadcasts the same value to all properties
-        in the preset, so a multi-slider light source (e.g. Lumencor LIDA) can
-        be driven by a single spin box.
-
-        Micro-Manager gives no way to know ahead of time which property drives a
-        light source -- the name varies by adapter (`Intensity`, `White_Level`,
-        `Power`, ...) -- so any property that can be swept over a range is offered
-        and the user picks the right one. Pre-init properties are excluded: they
-        cannot be changed once the device is initialized.
-        """
-        # --- per-property sources ---
-        properties = self._mmc.iterProperties(
-            property_type=(PropertyType.Integer, PropertyType.Float),
-            has_limits=True,
-            is_read_only=False,
-            as_object=False,
-        )
-        pairs = sorted(
-            (
-                (str(device), str(prop))
-                for device, prop in properties
-                if not self._mmc.isPropertyPreInit(device, prop)
-            ),
-            key=lambda pair: (pair[0].casefold(), pair[1].casefold()),
-        )
-        sources: dict[str, list[tuple[str, str]]] = {
-            f"{dev}{PROPERTY_SEPARATOR}{prop}": [(dev, prop)] for dev, prop in pairs
-        }
-
-        # --- single-preset config-group sources ---
-        for group in self._mmc.getAvailableConfigGroups():
-            presets = self._mmc.getAvailableConfigs(group)
-            if len(presets) != 1:
-                continue
-            (preset,) = presets
-            dev_props: list[tuple[str, str]] = []
-            valid = True
-            try:
-                for device, prop, _value in self._mmc.getConfigData(group, preset):
-                    ptype = self._mmc.getPropertyType(device, prop)
-                    if (
-                        ptype not in (PropertyType.Integer, PropertyType.Float)
-                        or not self._mmc.hasPropertyLimits(device, prop)
-                        or self._mmc.isPropertyReadOnly(device, prop)
-                        or self._mmc.isPropertyPreInit(device, prop)
-                    ):
-                        valid = False
-                        break
-                    dev_props.append((str(device), str(prop)))
-            except RuntimeError:
-                # A device referenced by the group has been unloaded; skip.
-                valid = False
-            if valid and dev_props and group not in sources:
-                sources[group] = dev_props
-
-        return dict(sorted(sources.items(), key=lambda kv: kv[0].casefold()))
+        """Return writable numeric range properties and eligible config groups."""
+        return find_light_sources(self._mmc)
 
     def _apply_light_source_visibility(self) -> None:
         table = self.table()
@@ -545,18 +446,7 @@ class CoreConnectedChannelTable(ChannelTable):
         if (dev_props := self._light_sources.get(group)) is None:
             wdg.setPropertyLimits(NO_LIGHT_SOURCE, None, False)
             return
-        # For a multi-property group, use the intersection of all limits so the
-        # single spin-box value is always valid for every underlying property.
-        lower = max(
-            self._mmc.getPropertyLowerLimit(dev, prop) for dev, prop in dev_props
-        )
-        upper = min(
-            self._mmc.getPropertyUpperLimit(dev, prop) for dev, prop in dev_props
-        )
-        is_int = all(
-            self._mmc.getPropertyType(dev, prop) is PropertyType.Integer
-            for dev, prop in dev_props
-        )
+        lower, upper, is_int = light_source_limits(self._mmc, dev_props)
         wdg.setPropertyLimits(group, (lower, upper), is_int)
 
     @Slot()

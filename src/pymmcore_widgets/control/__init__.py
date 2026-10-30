@@ -2,6 +2,7 @@
 
 from ._camera_roi_widget import CameraRoiValue, CameraRoiWidget
 from ._channel_group_widget import ChannelGroupWidget
+from ._channel_settings_table import ChannelSettings, ChannelSettingsTable
 from ._channel_widget import ChannelWidget
 from ._exposure_widget import DefaultCameraExposureWidget, ExposureWidget
 from ._live_button_widget import LiveButton
@@ -18,6 +19,8 @@ __all__ = [
     "CameraRoiValue",
     "CameraRoiWidget",
     "ChannelGroupWidget",
+    "ChannelSettings",
+    "ChannelSettingsTable",
     "ChannelWidget",
     "ConfigurationWidget",
     "DefaultCameraExposureWidget",

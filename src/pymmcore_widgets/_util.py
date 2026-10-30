@@ -225,9 +225,10 @@ def disable_wheel_scroll_recursive(widget: QWidget) -> None:
         disable_wheel_scroll(target)
 
 
-# matches pymmcore-gui's dark-theme status_green/status_red accents
+# matches pymmcore-gui's status_green/status_red/status_yellow accents
 GREEN = "#4caf50"
 RED = "#ef5350"
+YELLOW = "#ffff00"
 
 
 class SeparatorWidget(QWidget):
