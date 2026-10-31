@@ -234,7 +234,7 @@ class _TableSpinboxMixin:
         self.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         self.setKeyboardTracking(False)
         self.setMinimumWidth(70)
-        self.setStyleSheet("QAbstractSpinBox { border: none; }")
+        self.setFrame(False)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
     def wheelEvent(self, event: Any) -> None:

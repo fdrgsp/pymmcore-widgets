@@ -30,6 +30,8 @@ from pymmcore_widgets.useq_widgets import (
 from pymmcore_widgets.useq_widgets._column_info import (
     FloatColumn,
     QTimeLineEdit,
+    TableDoubleSpinBox,
+    TableSpinBox,
     TextColumn,
     parse_timedelta,
 )
@@ -1155,3 +1157,16 @@ def test_position_subsequence_axes_refresh_main_axis_order(
 
     wdg.stage_positions.setValue([useq.Position()])
     assert child_axis not in wdg.tab_wdg.usedAxes()
+
+
+@pytest.mark.parametrize("cls", [TableSpinBox, TableDoubleSpinBox])
+def test_table_spinbox_shows_its_value(
+    qtbot: QtBot, cls: type[TableSpinBox | TableDoubleSpinBox]
+) -> None:
+    # a "border: none" style sheet used to collapse the edit field to 1px
+    spin = cls()
+    qtbot.addWidget(spin)
+    spin.show()
+    qtbot.waitExposed(spin)
+    line_edit = spin.lineEdit()
+    assert line_edit.width() >= line_edit.fontMetrics().horizontalAdvance(spin.text())
