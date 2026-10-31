@@ -674,6 +674,7 @@ def test_z_plan_widget(qtbot: QtBot) -> None:
     assert wdg.step.mapTo(wdg, QPoint()).y() < separator_y
     assert wdg.top.mapTo(wdg, QPoint()).y() > separator_y
     wdg.setMode(_z.Mode.ABOVE_BELOW)
+    assert wdg.above.mapTo(wdg, QPoint()).y() < wdg.below.mapTo(wdg, QPoint()).y()
 
     # Primary controls share the same grid column in every mode.
     step_x = wdg.step.mapTo(wdg, QPoint()).x()

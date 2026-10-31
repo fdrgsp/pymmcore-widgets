@@ -279,8 +279,8 @@ class ZPlanWidget(QWidget):
         self._bottom_widgets = self._add_bound_row(
             ROW_SECOND_BOUND, "Bottom", self.bottom
         )
-        self._below_widgets = self._add_bound_row(ROW_FIRST_BOUND, "Below", self.below)
-        self._above_widgets = self._add_bound_row(ROW_SECOND_BOUND, "Above", self.above)
+        self._above_widgets = self._add_bound_row(ROW_FIRST_BOUND, "Above", self.above)
+        self._below_widgets = self._add_bound_row(ROW_SECOND_BOUND, "Below", self.below)
 
         # Keep both bound rows participating in the layout when their controls
         # are hidden.  Otherwise QGridLayout removes the inter-row spacing and

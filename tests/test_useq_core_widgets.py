@@ -438,6 +438,120 @@ def test_z_suggestion_updates_with_objective(
         assert wdg._use_suggested_btn.isHidden()
 
 
+@pytest.mark.parametrize(
+    ("mode", "targets"),
+    [
+        ("top_bottom", (32, 8, 20)),
+        ("range_around", (112, 88, 100)),
+        ("above_below", (108, 84, 96)),
+    ],
+)
+def test_z_visit_bounds(
+    global_mmcore: CMMCorePlus,
+    qtbot: QtBot,
+    mode: str,
+    targets: tuple[float, float, float],
+) -> None:
+    wdg = CoreConnectedZPlanWidget(global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.show()
+    wdg.top.setValue(32)
+    wdg.bottom.setValue(8)
+    wdg.range.setValue(24)
+    wdg.above.setValue(8)
+    wdg.below.setValue(16)
+    wdg.setMode(mode)
+    global_mmcore.setZPosition(100)
+    global_mmcore.waitForSystem()
+
+    if mode == "above_below":
+        wdg.reference_btn.click()
+        global_mmcore.waitForSystem()
+        assert global_mmcore.getZPosition() == pytest.approx(100)
+
+    # Visiting another bound must not shift the reference of a relative plan.
+    for _ in range(2):
+        for button, target in zip(
+            (wdg.top_btn.visit, wdg.bottom_btn.visit, wdg.center_btn),
+            targets,
+            strict=False,
+        ):
+            qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
+            global_mmcore.waitForSystem()
+            assert global_mmcore.getZPosition() == pytest.approx(target)
+        if mode == "above_below":
+            qtbot.mouseClick(wdg.reference_btn, Qt.MouseButton.LeftButton)
+            global_mmcore.waitForSystem()
+            assert global_mmcore.getZPosition() == pytest.approx(100)
+
+    if mode != "top_bottom":
+        # An external stage move establishes a fresh reference.
+        global_mmcore.setZPosition(200)
+        global_mmcore.waitForSystem()
+        wdg.top_btn.visit.click()
+        global_mmcore.waitForSystem()
+        assert global_mmcore.getZPosition() == pytest.approx(targets[0] + 100)
+        if mode == "above_below":
+            wdg.reference_btn.click()
+            global_mmcore.waitForSystem()
+            assert global_mmcore.getZPosition() == pytest.approx(200)
+
+
+def test_z_move_button_layout(qtbot: QtBot) -> None:
+    wdg = CoreConnectedZPlanWidget()
+    qtbot.addWidget(wdg)
+    wdg.show()
+
+    for mode in wdg.Mode:
+        wdg.setMode(mode)
+        qtbot.wait(10)
+        top = wdg.top_btn.visit
+        bottom = wdg.bottom_btn.visit
+        center = wdg.center_btn
+        assert all(button.isVisible() for button in (top, bottom, center))
+        assert wdg.top_btn.mark.isVisible() == (mode is wdg.Mode.TOP_BOTTOM)
+        assert wdg.bottom_btn.mark.isVisible() == (mode is wdg.Mode.TOP_BOTTOM)
+        assert not center.icon().isNull()
+        assert wdg.reference_btn.isVisible() == (mode is wdg.Mode.ABOVE_BELOW)
+
+        if mode is not wdg.Mode.RANGE_AROUND:
+            assert center.mapTo(wdg, QPoint()).x() > top.mapTo(wdg, QPoint()).x()
+            assert top.mapTo(wdg, QPoint()).x() == bottom.mapTo(wdg, QPoint()).x()
+            assert top.mapTo(wdg, QPoint()).y() < bottom.mapTo(wdg, QPoint()).y()
+            assert center.mapTo(wdg, QPoint()).y() == top.mapTo(wdg, QPoint()).y()
+            assert center.height() == (
+                bottom.mapTo(wdg, QPoint()).y()
+                + bottom.height()
+                - top.mapTo(wdg, QPoint()).y()
+            )
+            if mode is wdg.Mode.ABOVE_BELOW:
+                reference = wdg.reference_btn
+                assert (
+                    reference.mapTo(wdg, QPoint()).x() > center.mapTo(wdg, QPoint()).x()
+                )
+                assert (
+                    reference.mapTo(wdg, QPoint()).y()
+                    == center.mapTo(wdg, QPoint()).y()
+                )
+                assert reference.height() == center.height()
+                assert (
+                    wdg.above.mapTo(wdg, QPoint()).y()
+                    < wdg.below.mapTo(wdg, QPoint()).y()
+                )
+                assert center.height() >= (
+                    wdg.below.mapTo(wdg, QPoint()).y()
+                    + wdg.below.height()
+                    - wdg.above.mapTo(wdg, QPoint()).y()
+                )
+        else:
+            assert (
+                top.mapTo(wdg, QPoint()).x()
+                < bottom.mapTo(wdg, QPoint()).x()
+                < center.mapTo(wdg, QPoint()).x()
+            )
+            assert top.height() == bottom.height() == center.height()
+
+
 def test_core_position_table_checkboxes_toggled(qtbot: QtBot):
     wdg = MDAWidget()
     qtbot.addWidget(wdg)
