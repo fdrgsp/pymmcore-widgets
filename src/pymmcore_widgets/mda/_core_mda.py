@@ -127,12 +127,18 @@ class CoreMDATabs(MDATabs):
         # disable tab checkboxes
         for cbox in self._cboxes:
             cbox.setEnabled(enable)
-        # disable tabs contents
-        self.time_plan.setEnabled(enable)
-        self.stage_positions.setEnabled(enable)
-        self.z_plan.setEnabled(enable)
-        self.grid_plan.setEnabled(enable)
-        self.channels.setEnabled(enable)
+        # disable tabs contents (the content of an unchecked tab stays disabled).
+        # Toggle the editors, not the tab pages: a page may wrap its editor (e.g. a
+        # scroll area or a card), and a disabled page would keep the editor disabled
+        # after its tab is checked again.
+        for wdg in (
+            self.time_plan,
+            self.stage_positions,
+            self.z_plan,
+            self.grid_plan,
+            self.channels,
+        ):
+            wdg.setEnabled(enable and self.isChecked(wdg) is not False)
 
 
 class _ScrollableGridCoreMDATabs(CoreMDATabs):
@@ -741,6 +747,9 @@ class MDAWidget(MDASequenceWidget):
     @Slot(object)
     def _on_mda_finished(self, sequence: MDASequence) -> None:
         self._enable_widgets(True)
+        # _enable_widgets enables all autofocus widgets: disable them again if
+        # autofocus cannot be used (e.g. the z plan is absolute)
+        self._update_autofocus_enablement()
         # sequenceFinished is emitted on cancellation too, so this covers both paths
         self._restore_continuous_focus()
         # update the save name in the gui with the next available path

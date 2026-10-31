@@ -13,7 +13,7 @@ from qtpy.QtWidgets import QMessageBox
 from pymmcore_widgets import HCSWizard
 from pymmcore_widgets._models._core_functions import block_core
 from pymmcore_widgets._util import get_next_available_path
-from pymmcore_widgets.mda import MDAWidget
+from pymmcore_widgets.mda import MDAWidget, MDAWidgetTopbar
 from pymmcore_widgets.mda._channel_properties import (
     CHANNEL_PROPERTIES_KEY,
     ChannelPropertiesSequence,
@@ -916,6 +916,120 @@ def test_run_mda_af_engaged_with_absolute_z(qtbot: QtBot):
     assert "cannot be used with a Z Plan with Absolute Z Positions" in messages[0]
 
 
+def test_af_per_position_enabled_after_run(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """'Set AF Offset per Position' is enabled again after an MDA run.
+
+    The MDA widget disables its tabs while an MDA runs. When the run ends, the
+    checkbox, its checked state and the AF column must come back.
+    """
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    wdg.setValue(useq.MDASequence(stage_positions=[(0, 0, 0)]))
+    pos_table = wdg.stage_positions
+    af = pos_table.af_per_position
+    af.setChecked(True)
+    af_col = pos_table.table().indexOf(pos_table.AF)
+    assert af.isEnabled()
+    assert not pos_table.table().isColumnHidden(af_col)
+
+    with qtbot.waitSignal(global_mmcore.mda.events.sequenceFinished):
+        wdg.execute_mda(None)
+
+    qtbot.waitUntil(af.isEnabled, timeout=2000)
+    assert af.isChecked()
+    assert not pos_table.table().isColumnHidden(af_col)
+
+
+def test_af_axes_kept_after_run_with_unchecked_positions(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """The AF axes stay in the sequence after a run with an unchecked Positions tab.
+
+    The content of an unchecked tab must stay disabled after a run. Else 'Set AF
+    Offset per Position' is active, and value() leaves out the AF axes.
+    """
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    wdg.stage_positions.af_per_position.setChecked(True)
+    wdg.tab_wdg.setChecked(wdg.stage_positions, False)
+    wdg.af_axis.setValue(("t",))
+    assert wdg.value().autofocus_plan.axes == ("t",)
+
+    with qtbot.waitSignal(global_mmcore.mda.events.sequenceFinished):
+        wdg.execute_mda(None)
+
+    qtbot.waitUntil(wdg.save_info.isEnabled, timeout=2000)
+    assert not wdg.stage_positions.isEnabled()
+    assert wdg.value().autofocus_plan.axes == ("t",)
+    # also if the content of the unchecked tab is enabled in another way
+    wdg.stage_positions.setEnabled(True)
+    assert wdg.value().autofocus_plan.axes == ("t",)
+
+
+@pytest.mark.parametrize("widget_cls", [MDAWidget, MDAWidgetTopbar])
+def test_unchecked_tab_usable_after_run(
+    qtbot: QtBot, global_mmcore: CMMCorePlus, widget_cls: type[MDAWidget]
+) -> None:
+    """A tab unchecked during a run can be checked and used after the run."""
+    wdg = widget_cls()
+    qtbot.addWidget(wdg)
+    for editor in (wdg.grid_plan, wdg.z_plan):
+        wdg.tab_wdg.setChecked(editor, False)
+
+    wdg._enable_widgets(False)
+    wdg._enable_widgets(True)
+
+    for editor in (wdg.grid_plan, wdg.z_plan):
+        assert not editor.isEnabled()
+        wdg.tab_wdg.setChecked(editor, True)
+        assert editor.isEnabled()
+
+
+def test_af_stays_disabled_after_run_with_absolute_z(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """The autofocus stays disabled after a run with an absolute (TOP_BOTTOM) z plan."""
+    mmc = global_mmcore
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    wdg.af_axis.setValue(("t",))
+    with patch.object(QMessageBox, "warning", lambda *args, **kwargs: True):
+        wdg.tab_wdg.setChecked(wdg.z_plan, True)
+        wdg.z_plan.setMode(wdg.z_plan.Mode.TOP_BOTTOM)
+    assert not wdg.af_axis.isEnabled()
+    assert not wdg.value().autofocus_plan
+
+    with qtbot.waitSignal(mmc.mda.events.sequenceFinished):
+        wdg.execute_mda(None)
+
+    qtbot.waitUntil(wdg.save_info.isEnabled, timeout=2000)
+    assert not wdg.af_axis.isEnabled()
+    assert not wdg.value().autofocus_plan
+
+
+def test_af_per_position_stays_disabled_after_run_without_af_device(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Per-position AF offsets stay disabled after a run with no autofocus device.
+
+    (Software autofocus needs no device, so the autofocus section itself stays usable.)
+    """
+    mmc = global_mmcore
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    with qtbot.waitSignal(mmc.events.propertyChanged):
+        mmc.setProperty("Core", "AutoFocus", "")
+    assert not wdg.stage_positions.af_per_position.isEnabled()
+
+    with qtbot.waitSignal(mmc.mda.events.sequenceFinished):
+        wdg.execute_mda(None)
+
+    qtbot.waitUntil(wdg.save_info.isEnabled, timeout=2000)
+    assert not wdg.stage_positions.af_per_position.isEnabled()
+
+
 def test_core_connected_channel_wdg(qtbot: QtBot):
     wdg = CoreConnectedChannelTable()
     qtbot.addWidget(wdg)
@@ -963,10 +1077,13 @@ def test_enable_core_tab(qtbot: QtBot):
         )
 
     mda_tabs = cast("CoreMDATabs", wdg.tab_wdg)
+    for t in range(mda_tabs.count()):
+        mda_tabs.setChecked(t, True)
+    mda_tabs._enable_tabs(False)
 
     mda_tabs._enable_tabs(True)
     # all tabs are enabled (you can switch between them)
-    assert [mda_tabs.tabBar().isTabEnabled(t) for t in range(mda_tabs.count())]
+    assert all(mda_tabs.tabBar().isTabEnabled(t) for t in range(mda_tabs.count()))
     # the tabs checkboxes are enabled
     assert all(cbox.isEnabled() for cbox in mda_tabs._cboxes)
     # the the tabs content is enabled
@@ -975,11 +1092,26 @@ def test_enable_core_tab(qtbot: QtBot):
     mda_tabs._enable_tabs(False)
 
     # all tabs are still enabled (you can still switch between them)
-    assert [mda_tabs.tabBar().isTabEnabled(t) for t in range(mda_tabs.count())]
+    assert all(mda_tabs.tabBar().isTabEnabled(t) for t in range(mda_tabs.count()))
     # the tab checkboxes are disabled
-    assert not all(cbox.isEnabled() for cbox in mda_tabs._cboxes)
-    # the the tabs content is enabled
-    assert not wdgs_enabled(mda_tabs)
+    assert not any(cbox.isEnabled() for cbox in mda_tabs._cboxes)
+    # the the tabs content is disabled
+    assert not any(
+        wdg.isEnabled()
+        for wdg in (
+            mda_tabs.time_plan,
+            mda_tabs.stage_positions,
+            mda_tabs.z_plan,
+            mda_tabs.grid_plan,
+            mda_tabs.channels,
+        )
+    )
+
+    # the content of an unchecked tab stays disabled
+    mda_tabs.setChecked(mda_tabs.time_plan, False)
+    mda_tabs._enable_tabs(True)
+    assert not mda_tabs.time_plan.isEnabled()
+    assert mda_tabs.stage_positions.isEnabled()
 
 
 def test_relative_z_with_no_include_z(global_mmcore: CMMCorePlus, qtbot: QtBot):
