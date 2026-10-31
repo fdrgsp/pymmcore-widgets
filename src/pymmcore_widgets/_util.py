@@ -225,6 +225,10 @@ def disable_wheel_scroll_recursive(widget: QWidget) -> None:
         disable_wheel_scroll(target)
 
 
+# Qt's default (i.e. unset) maximum widget width/height. A C++ macro: PyQt exposes
+# it as QtWidgets.QWIDGETSIZE_MAX, but PySide does not
+QWIDGETSIZE_MAX = (1 << 24) - 1
+
 # matches pymmcore-gui's status_green/status_red/status_yellow accents
 GREEN = "#4caf50"
 RED = "#ef5350"

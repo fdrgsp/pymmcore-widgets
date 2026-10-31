@@ -16,7 +16,6 @@ from qtpy.QtGui import (
     QTransform,
 )
 from qtpy.QtWidgets import (
-    QWIDGETSIZE_MAX,
     QAbstractButton,
     QButtonGroup,
     QDoubleSpinBox,
@@ -37,7 +36,11 @@ from qtpy.QtWidgets import (
 from superqt import QEnumComboBox
 from superqt.utils import signals_blocked
 
-from pymmcore_widgets._util import SeparatorWidget, disable_wheel_scroll_recursive
+from pymmcore_widgets._util import (
+    QWIDGETSIZE_MAX,
+    SeparatorWidget,
+    disable_wheel_scroll_recursive,
+)
 
 if TYPE_CHECKING:
     from typing import Literal, TypeAlias

@@ -24,7 +24,6 @@ from typing import TYPE_CHECKING, cast
 from qtpy.QtCore import QEvent, QSize, Qt, Signal
 from qtpy.QtGui import QColor, QHoverEvent, QIcon, QPainter, QPaintEvent, QPalette
 from qtpy.QtWidgets import (
-    QWIDGETSIZE_MAX,
     QCheckBox,
     QFrame,
     QHBoxLayout,
@@ -36,6 +35,8 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 from superqt.iconify import QIconifyIcon
+
+from pymmcore_widgets._util import QWIDGETSIZE_MAX
 
 from ._collapsible_mda import MDA_ICONS, _CardFrame, _clear_layout
 from ._core_mda import CoreMDATabs, MDAWidget
