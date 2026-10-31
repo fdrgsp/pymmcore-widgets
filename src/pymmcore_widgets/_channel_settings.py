@@ -203,7 +203,7 @@ def write_camera_cell(
     table: QTableWidget, row: int, column: ColumnInfo, value: CameraValue | None
 ) -> None:
     """Set a camera property cell; `None` unsets it."""
-    col = table.indexOf(column)  # type: ignore[attr-defined]
+    col = table.indexOf(column)
     if isinstance(column, ComboColumn):
         column.set_cell_data(table, row, col, "" if value is None else str(value))
     else:

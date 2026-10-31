@@ -301,7 +301,7 @@ class ChannelSettingsTable(DataTableWidget):
 
     def channelGroup(self) -> str:
         """Return the group whose presets are shown."""
-        return self._group_combo.currentText()
+        return str(self._group_combo.currentText())
 
     def setChannelGroup(self, group: str) -> None:
         """Show the presets of `group`."""
@@ -486,8 +486,8 @@ class ChannelSettingsTable(DataTableWidget):
         for info in (self._light_source_column, self.INTENSITY):
             if (col := table.indexOf(info)) >= 0:
                 table.setColumnHidden(col, not self._light_sources_visible)
-        for info in self._camera_columns.values():
-            if (col := table.indexOf(info)) >= 0:
+        for cam_info in self._camera_columns.values():
+            if (col := table.indexOf(cam_info)) >= 0:
                 table.setColumnHidden(col, not self._camera_visible)
 
     def _default_settings(self) -> ChannelSettings:

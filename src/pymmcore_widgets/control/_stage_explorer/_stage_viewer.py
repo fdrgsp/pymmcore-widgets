@@ -55,8 +55,10 @@ def _downsampled(data: np.ndarray, factor: Factor) -> np.ndarray:
     blocks = data[: h * fy, : w * fx].reshape(h, fy, w, fx, *data.shape[2:])
     if np.issubdtype(data.dtype, np.integer):
         total = blocks.sum(axis=3, dtype=np.int64).sum(axis=1)
-        return (total // (fy * fx)).astype(data.dtype)
-    return blocks.mean(axis=(1, 3)).astype(data.dtype)
+        out: np.ndarray = (total // (fy * fx)).astype(data.dtype)
+    else:
+        out = blocks.mean(axis=(1, 3)).astype(data.dtype)
+    return out
 
 
 def _scaled(

@@ -115,7 +115,7 @@ class ColumnFitter(QObject):
         hint = max(
             self._table.sizeHintForColumn(col), self._header().sectionSizeHint(col)
         )
-        return min(hint, self._max_fit_width)
+        return int(min(hint, self._max_fit_width))
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
         if (
