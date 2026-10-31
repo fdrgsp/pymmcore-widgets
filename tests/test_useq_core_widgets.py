@@ -17,6 +17,7 @@ from pymmcore_widgets.mda import MDAWidget
 from pymmcore_widgets.mda._channel_properties import (
     CHANNEL_PROPERTIES_KEY,
     ChannelPropertiesSequence,
+    to_channel_properties_sequence,
 )
 from pymmcore_widgets.mda._core_channels import CoreConnectedChannelTable
 from pymmcore_widgets.mda._core_grid import CoreConnectedGridPlanWidget
@@ -1929,10 +1930,12 @@ def test_light_source_columns_positioned_after_exposure(
         "exposure",
         "light_source",
         "intensity",
+        *(f"camera:{prop}" for prop in tbl.cameraProperties()),
         "acquire_every",
         "do_stack",
         "z_offset",
     ]
+    assert tbl.cameraProperties()  # DemoCamera has Gain, Offset, ScanMode
     assert order() == expected
 
     # the light source column is rebuilt whenever the config changes; that must
@@ -2191,3 +2194,116 @@ def test_group_light_source_single_preset_all_ranged(
     # Clean up.
     global_mmcore.deleteConfigGroup("FakeLIDA")
     global_mmcore.deleteConfigGroup("MixedGroup")
+
+
+def test_camera_property_columns_under_camera_checkbox(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    tbl = CoreConnectedChannelTable(rows=2, mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+    table = tbl.table()
+    props = tbl.cameraProperties()
+    assert {"Gain", "Offset", "ScanMode"} <= set(props)
+    assert "Binning" not in props
+    cols = [table.indexOf(f"{prop}") for prop in props]
+
+    assert not tbl.cameraVisible()
+    assert all(table.isColumnHidden(c) for c in cols)
+    # Advanced is about the other columns
+    tbl.setAdvancedVisible(True)
+    assert all(table.isColumnHidden(c) for c in cols)
+    tbl.camera.setChecked(True)
+    assert tbl.cameraVisible()
+    assert not any(table.isColumnHidden(c) for c in cols)
+
+
+def test_camera_properties_reach_the_sequence(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+    tbl.setValue([useq.Channel(config="DAPI"), useq.Channel(config="FITC")])
+    table = tbl.table()
+    gain = table.cellWidget(1, table.indexOf("Gain"))
+    scan = table.cellWidget(1, table.indexOf("ScanMode"))
+
+    # unset cells ("—") set nothing
+    assert not [p for p in tbl.channelProperties() if p["group"].startswith("camera:")]
+    assert "camera:Gain" not in tbl.value()[0].model_dump()
+
+    gain.setOptionalValue(4)
+    scan.setCurrentText("3")
+    props = [p for p in tbl.channelProperties() if p["group"].startswith("camera:")]
+    assert {(p["channel_index"], p["property"], p["value"]) for p in props} == {
+        (1, "Gain", 4),
+        (1, "ScanMode", "3"),
+    }
+    assert all(p["device"] == "Camera" for p in props)
+
+    # applied when the channel is acquired...
+    seq = to_channel_properties_sequence(
+        useq.MDASequence(
+            channels=tbl.value(),
+            metadata={PYMMCW_METADATA_KEY: {"channel_properties": props}},
+        )
+    )
+    events = list(seq)
+    assert ("Camera", "Gain", 4) in [tuple(p) for p in events[1].properties or ()]
+    assert not [p for p in events[0].properties or () if p.property_name == "Gain"]
+
+    # ...and restored from the sequence
+    other = CoreConnectedChannelTable(mmcore=global_mmcore)
+    qtbot.addWidget(other)
+    other.setValue(tbl.value())
+    other.setChannelProperties(tbl.channelProperties())
+    assert other.rowSettings(1)["camera_properties"] == {"Gain": 4, "ScanMode": "3"}
+    assert other.rowSettings(0)["camera_properties"] == {}
+
+
+def test_row_settings_round_trip(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
+    tbl = CoreConnectedChannelTable(rows=1, mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+    settings = {
+        "exposure": 12.5,
+        "light_source": LS_FLOAT,
+        "intensity": 0.5,
+        "camera_properties": {"Gain": 2},
+    }
+    tbl.setRowSettings(0, settings)  # type: ignore[arg-type]
+    assert tbl.rowSettings(0) == settings
+
+    # an unknown light source is left alone; unlisted camera properties are unset
+    tbl.setRowSettings(
+        0,
+        {
+            "exposure": 20,
+            "light_source": "Nope · Nothing",
+            "intensity": 1,
+            "camera_properties": {},
+        },
+    )
+    assert tbl.rowSettings(0)["light_source"] == LS_FLOAT
+    assert tbl.rowSettings(0)["camera_properties"] == {}
+
+
+def test_channel_columns_fill_width(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
+    tbl = CoreConnectedChannelTable(rows=1, mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+    tbl.resize(900, 300)
+    tbl.show()
+    qtbot.waitExposed(tbl)
+    table = tbl.table()
+    fitter = tbl._fitter
+
+    def check() -> None:
+        assert fitter.usedWidth() == table.viewport().width()
+
+    qtbot.waitUntil(check)
+    tbl.setAdvancedVisible(True)
+    tbl.setCameraVisible(True)
+    qtbot.waitUntil(check)
+    header = table.horizontalHeader()
+    exp_col = table.indexOf(tbl.EXPOSURE)
+    assert header.sectionResizeMode(exp_col) == header.ResizeMode.Interactive
+    header.resizeSection(exp_col, table.columnWidth(exp_col) - 20)
+    check()

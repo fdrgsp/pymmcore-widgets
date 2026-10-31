@@ -6,12 +6,11 @@ from qtpy.QtCore import Qt
 from qtpy.QtWidgets import QHeaderView
 
 from pymmcore_widgets import ChannelSettingsTable
+from pymmcore_widgets._light_sources import IntensitySpinBox
 
 if TYPE_CHECKING:
     from pymmcore_plus import CMMCorePlus
     from pytestqt.qtbot import QtBot
-
-    from pymmcore_widgets.control._channel_settings_table import IntensitySlider
 
 LS_FLOAT = "Camera · TestProperty2"
 
@@ -94,24 +93,23 @@ def test_camera_property_columns(global_mmcore: CMMCorePlus, qtbot: QtBot) -> No
     assert settings["camera_properties"]["ScanMode"] == "2"
 
 
-def test_intensity_slider_tracks_spinbox(
+def test_intensity_is_ranged_by_the_light_source(
     global_mmcore: CMMCorePlus, qtbot: QtBot
 ) -> None:
     tbl = ChannelSettingsTable(mmcore=global_mmcore)
     qtbot.addWidget(tbl)
-    wdg = cast("IntensitySlider", _cell(tbl, 0, "intensity"))
-    assert not wdg._slider.isEnabled()
+    wdg = cast("IntensitySpinBox", _cell(tbl, 0, "intensity"))
+    assert isinstance(wdg, IntensitySpinBox)
+    assert not wdg.isEnabled()
 
     _cell(tbl, 0, "light_source").setCurrentText(LS_FLOAT)
     assert wdg.group() == LS_FLOAT
-    assert wdg._slider.isEnabled()
+    assert wdg.isEnabled()
+    assert wdg.maximum() == global_mmcore.getPropertyUpperLimit(
+        "Camera", "TestProperty2"
+    )
     # starts at the property's current value
     assert wdg.value() == float(global_mmcore.getProperty("Camera", "TestProperty2"))
-
-    wdg._slider.setValue(wdg._slider.maximum())
-    assert wdg.value() == global_mmcore.getPropertyUpperLimit("Camera", "TestProperty2")
-    wdg.setValue(0)
-    assert wdg._slider.value() == 0
 
 
 def test_apply_channel(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
@@ -130,33 +128,49 @@ def test_apply_channel(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
     assert global_mmcore.getProperty("Camera", "Gain") == "2"
 
 
-def test_camera_columns_hidden_until_advanced(
+def test_light_source_and_camera_checkboxes(
     global_mmcore: CMMCorePlus, qtbot: QtBot
 ) -> None:
     tbl = ChannelSettingsTable(mmcore=global_mmcore)
     qtbot.addWidget(tbl)
     table = tbl.table()
 
-    def hidden() -> list[bool]:
+    def camera_hidden() -> list[bool]:
         return [
             table.isColumnHidden(table.indexOf(f"{prop}"))
             for prop in tbl.cameraProperties()
         ]
 
-    assert not tbl.advancedVisible()
-    assert all(hidden())
-    assert not table.isColumnHidden(table.indexOf("Exposure [ms]"))
+    def light_hidden() -> list[bool]:
+        return [
+            table.isColumnHidden(table.indexOf(header))
+            for header in ("Light Source", "Intensity")
+        ]
 
-    tbl.advanced.setChecked(True)
-    assert tbl.advancedVisible()
-    assert not any(hidden())
+    # the exposure is always shown; light sources by default, camera ones not
+    assert not table.isColumnHidden(table.indexOf("Exposure [ms]"))
+    assert tbl.lightSourcesVisible()
+    assert not any(light_hidden())
+    assert not tbl.cameraVisible()
+    assert all(camera_hidden())
+
+    tbl.camera.setChecked(True)
+    assert tbl.cameraVisible()
+    assert not any(camera_hidden())
+    tbl.light_sources.setChecked(False)
+    assert not tbl.lightSourcesVisible()
+    assert all(light_hidden())
 
     # still applied after the columns are rebuilt
     tbl.refresh()
-    assert not any(hidden())
-    tbl.setAdvancedVisible(False)
-    assert not tbl.advanced.isChecked()
-    assert all(hidden())
+    assert not any(camera_hidden())
+    assert all(light_hidden())
+    tbl.setCameraVisible(False)
+    tbl.setLightSourcesVisible(True)
+    assert not tbl.camera.isChecked()
+    assert tbl.light_sources.isChecked()
+    assert all(camera_hidden())
+    assert not any(light_hidden())
 
 
 def test_current_column_tracks_core(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
@@ -240,5 +254,44 @@ def test_columns_fill_width_and_absorb_resizes(
     # widening one past the room left stops before the last one gets cut off
     header.resizeSection(ls_col, table.columnWidth(ls_col) + 5000)
     assert used() == vp_width
-    assert table.columnWidth(last) == tbl._content_width(last)
+    assert table.columnWidth(last) == tbl._fitter.contentWidth(last)
     assert table.columnWidth(current_col) == 30
+
+
+def test_unset_camera_properties_are_left_unchanged(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    tbl = ChannelSettingsTable(mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+    global_mmcore.setProperty("Camera", "Gain", "5")
+    preset = _cell(tbl, 0, "config").text()
+    settings = tbl.channelSettings(preset)
+    assert settings is not None
+    assert settings["camera_properties"] == {}  # every cell starts at "—"
+
+    tbl.applyChannel(preset)
+    assert global_mmcore.getProperty("Camera", "Gain") == "5"
+
+    # setting a value and clearing it again leaves nothing stored
+    gain = _cell(tbl, 0, "camera:Gain")
+    gain.setOptionalValue(2)
+    assert tbl.channelSettings(preset)["camera_properties"] == {"Gain": 2}
+    gain.setOptionalValue(None)
+    assert tbl.channelSettings(preset)["camera_properties"] == {}
+
+
+def test_table_fits_its_rows(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
+    tbl = ChannelSettingsTable(mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+    tbl.show()
+    qtbot.waitExposed(tbl)
+    table = tbl.table()
+    assert not tbl._resize_grip.isVisible()
+    assert table.verticalScrollBar().maximum() == 0
+
+    def rows_fit() -> None:
+        rows = sum(table.rowHeight(r) for r in range(table.rowCount()))
+        assert table.viewport().height() >= rows
+
+    qtbot.waitUntil(rows_fit)
+    assert table.minimumHeight() == table.maximumHeight()

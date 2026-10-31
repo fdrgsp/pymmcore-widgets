@@ -43,13 +43,14 @@ class ChannelProperty(TypedDict):
         is matched against at iteration time.
     group : str
         Label the property was selected under in the widget, e.g.
-        `"LumencorSola · White_Level"`. Used to restore the widget state, not to
-        execute; `device`/`property` are what get applied.
+        `"LumencorSola · White_Level"` for a light source, or `"camera:Gain"` for a
+        camera property. Used to restore the widget state, not to execute;
+        `device`/`property` are what get applied.
     device : str
         Device label, e.g. `"LumencorSola"`.
     property : str
         Property name, e.g. `"White_Level"`.
-    value : float | int
+    value : float | int | str
         The value to set.
     """
 
@@ -58,7 +59,7 @@ class ChannelProperty(TypedDict):
     group: str
     device: str
     property: str
-    value: float | int
+    value: float | int | str
 
 
 def channel_properties(sequence: useq.MDASequence) -> list[ChannelProperty]:

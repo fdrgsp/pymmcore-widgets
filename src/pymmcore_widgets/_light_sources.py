@@ -5,11 +5,16 @@ Shared by the MDA channel table and the channel settings table.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from pymmcore_plus import PropertyType
 
-from pymmcore_widgets.useq_widgets._column_info import TableDoubleSpinBox
+from pymmcore_widgets.useq_widgets._column_info import (
+    TableDoubleSpinBox,
+    WdgGetSet,
+    WidgetColumn,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -145,3 +150,18 @@ class IntensitySpinBox(TableDoubleSpinBox):
         self.setEnabled(True)
         self.setDecimals(0 if is_integer else 2)
         self.setRange(*limits)
+
+
+TableIntensityWidget = WdgGetSet(
+    IntensitySpinBox,
+    IntensitySpinBox.value,
+    IntensitySpinBox.setValue,
+    lambda w, cb: w.valueChanged.connect(cb),
+)
+
+
+@dataclass(frozen=True)
+class IntensityColumn(WidgetColumn):
+    """Column of intensity spin boxes, ranged per row by the row's light source."""
+
+    data_type: WdgGetSet = TableIntensityWidget
