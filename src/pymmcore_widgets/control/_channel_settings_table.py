@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtCore import QEvent, QPointF, Qt, QTimer
+from qtpy.QtCore import QEvent, QItemSelectionModel, QPointF, Qt, QTimer
 from qtpy.QtGui import QBrush, QColor, QPainter, QPen, QShowEvent
 from qtpy.QtWidgets import (
     QCheckBox,
@@ -54,7 +54,7 @@ from pymmcore_widgets.useq_widgets._data_table import DataTableWidget
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-    from qtpy.QtCore import QModelIndex, SignalInstance
+    from qtpy.QtCore import QAbstractItemModel, QModelIndex, SignalInstance
     from qtpy.QtWidgets import QStyleOptionViewItem
 
 DEFAULT_EXP = 100.0
@@ -72,6 +72,7 @@ class _PresetColumn(TextColumn):
     ) -> None:
         item = QTableWidgetItem()
         item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        item.setToolTip("Click to apply this preset to the microscope")
         table.setItem(row, col, item)
 
 
@@ -172,8 +173,9 @@ class ChannelSettingsTable(DataTableWidget):
     and `allChannelSettings` / `setAllChannelSettings` to persist them.
 
     The first column marks the preset currently active on the microscope with a
-    filled dot (kept in sync with the core); clicking another row's ring applies
-    that preset and its settings with `applyChannel`.
+    filled dot (kept in sync with the core), and its row is highlighted; clicking
+    another row's ring or preset name applies that preset and its settings with
+    `applyChannel`. Clicking the other columns' cells only edits them.
 
     Parameters
     ----------
@@ -276,10 +278,10 @@ class ChannelSettingsTable(DataTableWidget):
 
         self._current_delegate = CurrentPresetDelegate(self._table)
         self._table.cellClicked.connect(self._on_cell_clicked)
-        # Qt makes a row "current" when one of its editors gains focus; keep the
-        # row highlight on the active preset instead
-        if (sel_model := self._table.selectionModel()) is not None:
-            sel_model.currentRowChanged.connect(self._on_current_row_changed)
+        # the row highlight marks the active preset (see _set_active_row), so
+        # clicking a cell or focusing its editor never selects anything; this
+        # leaves every click to Qt, which the cell widgets need to take focus
+        self._table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
 
         # columns are fitted to their contents, resizable (except the current
         # column) and span the table's width
@@ -651,13 +653,17 @@ class ChannelSettingsTable(DataTableWidget):
         with signals_blocked(table):
             for r in range(table.rowCount()):
                 self.CURRENT.set_cell_data(table, r, col, r == row)
-        if row < 0:
-            table.clearSelection()
-            if (sel_model := table.selectionModel()) is not None:
-                sel_model.clearCurrentIndex()
+        if (sel_model := table.selectionModel()) is None:  # pragma: no cover
             return
-        table.setCurrentCell(row, col)
-        table.selectRow(row)
+        if row < 0:
+            sel_model.clearSelection()
+            return
+        # selected through the model: the view's NoSelection mode ignores selectRow
+        sel_model.select(
+            cast("QAbstractItemModel", table.model()).index(row, col),
+            QItemSelectionModel.SelectionFlag.ClearAndSelect
+            | QItemSelectionModel.SelectionFlag.Rows,
+        )
 
     def _update_active_row(self) -> None:
         """Mark the row of the preset the core reports as current."""
@@ -672,13 +678,13 @@ class ChannelSettingsTable(DataTableWidget):
             self._set_active_row(row)
 
     def _on_cell_clicked(self, row: int, col: int) -> None:
-        if col == self._table.indexOf(self.CURRENT):
+        if col in self._selector_columns():
             self.applyChannel(self._preset_at(row))
             self._update_active_row()
 
-    def _on_current_row_changed(self, current: QModelIndex, *_: Any) -> None:
-        if current.row() != self._active_row:
-            self._set_active_row(self._active_row)
+    def _selector_columns(self) -> tuple[int, int]:
+        """Return the columns whose cells apply their row's preset when clicked."""
+        return self._table.indexOf(self.CURRENT), self._table.indexOf(self.PRESET)
 
     def _on_config_set(self, group: str, preset: str) -> None:
         if group == self.channelGroup():

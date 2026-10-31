@@ -199,27 +199,82 @@ def test_current_column_tracks_core(global_mmcore: CMMCorePlus, qtbot: QtBot) ->
     assert tbl.activePreset() == global_mmcore.getCurrentConfig("Objective")
 
 
-def test_clicking_current_column_applies_preset(
+def test_clicking_selector_columns_applies_preset(
     global_mmcore: CMMCorePlus, qtbot: QtBot
 ) -> None:
     tbl = ChannelSettingsTable(mmcore=global_mmcore)
     qtbot.addWidget(tbl)
+    table = tbl.table()
     global_mmcore.setConfig("Channel", "DAPI")
-    row = next(
-        r
-        for r in range(tbl.table().rowCount())
-        if _cell(tbl, r, "config").text() == "Rhodamine"
-    )
+    rows = range(table.rowCount())
+    row = next(r for r in rows if _cell(tbl, r, "config").text() == "Rhodamine")
     _cell(tbl, row, "exposure").setValue(55)
 
-    tbl.table().cellClicked.emit(row, 0)
+    # the current column...
+    table.cellClicked.emit(row, table.indexOf(tbl.CURRENT))
     assert global_mmcore.getCurrentConfig("Channel") == "Rhodamine"
     assert global_mmcore.getExposure() == 55
     assert tbl.activePreset() == "Rhodamine"
 
+    # ...and the preset name apply the row's preset
+    row = next(r for r in rows if _cell(tbl, r, "config").text() == "FITC")
+    table.cellClicked.emit(row, table.indexOf(tbl.PRESET))
+    assert global_mmcore.getCurrentConfig("Channel") == "FITC"
+
     # clicking any other column applies nothing
-    tbl.table().cellClicked.emit(0, 1)
-    assert global_mmcore.getCurrentConfig("Channel") == "Rhodamine"
+    table.cellClicked.emit(0, table.indexOf(tbl.EXPOSURE))
+    assert global_mmcore.getCurrentConfig("Channel") == "FITC"
+
+
+def test_only_selector_columns_select(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
+    tbl = ChannelSettingsTable(mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+    tbl.show()
+    qtbot.waitExposed(tbl)
+    table = tbl.table()
+    sel = table.selectionModel()
+    global_mmcore.setConfig("Channel", "DAPI")
+    rows = range(table.rowCount())
+    dapi = next(r for r in rows if _cell(tbl, r, "config").text() == "DAPI")
+    other, third = [r for r in rows if r != dapi][:2]
+
+    def click(row: int, key: str) -> None:
+        # clicked through the viewport, so the event goes to whatever is under
+        # the cursor (e.g. a cell widget) and propagates as from a real click
+        col = next(
+            c for c in range(table.columnCount()) if table.columnInfo(c).key == key
+        )
+        center = table.visualRect(table.model().index(row, col)).center()
+        qtbot.mouseClick(table.viewport(), Qt.MouseButton.LeftButton, pos=center)
+
+    # another row's widgets take the focus and stay editable, without selecting
+    # or applying that row
+    spin = _cell(tbl, other, "exposure")
+    click(other, "exposure")
+    # the window's focus widget: unlike QApplication.focusWidget(), this does not
+    # need the window to be active, which CI cannot always make it
+    assert tbl.focusWidget() is spin
+    qtbot.keyClick(spin, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+    qtbot.keyClicks(spin, "42")
+    qtbot.keyClick(spin, Qt.Key.Key_Return)
+    assert spin.value() == 42
+    assert tbl.channelSettings(_cell(tbl, other, "config").text())["exposure"] == 42
+    assert tbl.activePreset() == "DAPI"
+    assert sel.isRowSelected(dapi)
+    assert not sel.isRowSelected(other)
+
+    # clicking its preset name selects and applies it
+    click(other, "config")
+    assert tbl.activePreset() == _cell(tbl, other, "config").text()
+    assert global_mmcore.getExposure() == 42
+    assert sel.isRowSelected(other)
+    assert not sel.isRowSelected(dapi)
+
+    # and so does clicking a row's current-column ring
+    click(third, "_current")
+    assert tbl.activePreset() == _cell(tbl, third, "config").text()
+    assert sel.isRowSelected(third)
+    assert not sel.isRowSelected(other)
 
 
 def test_columns_fill_width_and_absorb_resizes(
