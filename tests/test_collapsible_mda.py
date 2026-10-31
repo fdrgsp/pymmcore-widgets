@@ -201,7 +201,8 @@ def test_collapsible_position_subsequence_popup_only_exposes_grid(
 ) -> None:
     wdg = MDAWidgetCollapsible()
     qtbot.addWidget(wdg)
-    assert wdg.tabs.section("c").expanded
+    # every axis starts off, and the Channels section starts collapsed
+    assert not wdg.tabs.section("c").expanded
     # the table starts empty: add the position whose sub-sequence button we need
     wdg.stage_positions.setValue([useq.Position(x=1, y=2)])
     table = wdg.stage_positions.table()
@@ -238,7 +239,8 @@ def test_collapsible_disables_editors_during_run(qtbot: QtBot) -> None:
     wdg = MDAWidgetCollapsible()
     qtbot.addWidget(wdg)
     tabs = wdg.tabs
-    for axis in "pgzt":
+    # every axis starts off: turn them all on, so disabling them is visible
+    for axis in "cpgzt":
         tabs.setChecked(axis, True)
 
     wdg._enable_widgets(False)

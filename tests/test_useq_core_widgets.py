@@ -13,7 +13,7 @@ from qtpy.QtWidgets import QMessageBox
 from pymmcore_widgets import HCSWizard
 from pymmcore_widgets._models._core_functions import block_core
 from pymmcore_widgets._util import get_next_available_path
-from pymmcore_widgets.mda import MDAWidget, MDAWidgetTopbar
+from pymmcore_widgets.mda import MDAWidget, MDAWidgetCollapsible, MDAWidgetTopbar
 from pymmcore_widgets.mda._channel_properties import (
     CHANNEL_PROPERTIES_KEY,
     ChannelPropertiesSequence,
@@ -293,14 +293,25 @@ def mock_getAutoFocusOffset(global_mmcore: CMMCorePlus):
         yield
 
 
-@pytest.mark.parametrize("cls", [MDASequenceWidget, MDAWidget])
-def test_position_and_channel_tables_start_empty(
+@pytest.mark.parametrize(
+    "cls", [MDASequenceWidget, MDAWidget, MDAWidgetCollapsible, MDAWidgetTopbar]
+)
+def test_mda_starts_empty_with_every_axis_off(
     qtbot: QtBot, cls: type[MDASequenceWidget]
 ) -> None:
+    """Nothing is set up in advance: the user turns on the axes they want."""
     wdg = cls()
     qtbot.addWidget(wdg)
-    assert wdg.stage_positions.table().rowCount() == 0
-    assert wdg.channels.table().rowCount() == 0
+    for table in (wdg.stage_positions, wdg.channels, wdg.time_plan):
+        assert table.table().rowCount() == 0
+    for axis in (
+        wdg.channels,
+        wdg.stage_positions,
+        wdg.grid_plan,
+        wdg.z_plan,
+        wdg.time_plan,
+    ):
+        assert not wdg.tab_wdg.isChecked(axis)
 
 
 def test_core_position_table_add_position(

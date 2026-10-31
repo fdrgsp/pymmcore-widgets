@@ -208,7 +208,7 @@ class MDATabs(CheckableTabWidget):
 
     def create_subwidgets(self) -> None:
         """Create the Tabs of the widget."""
-        self.time_plan = TimePlanWidget(1)
+        self.time_plan = TimePlanWidget(0)
         self.stage_positions = PositionTable(0)
         self.grid_plan = GridPlanWidget()
         self.z_plan = ZPlanWidget()
@@ -949,9 +949,6 @@ class MDASequenceWidget(QWidget):
         # the radios are exclusive, so any change of kind toggles `use_hardware`
         self.af_axis.use_hardware.toggled.connect(self._on_af_kind_toggled)
         self.stage_positions.af_per_position.toggled.connect(self._on_af_toggled)
-
-        with signals_blocked(self):
-            self.tab_wdg.setChecked(self.channels, True)
 
     # ----------- Aliases for tab_wdg widgets -----------
 

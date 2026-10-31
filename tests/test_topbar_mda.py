@@ -231,11 +231,13 @@ def test_topbar_disables_editors_during_run(qtbot: QtBot) -> None:
     qtbot.addWidget(wdg)
     tabs = wdg.tabs
     axis_widgets = {
+        "c": wdg.channels,
         "p": wdg.stage_positions,
         "g": wdg.grid_plan,
         "z": wdg.z_plan,
         "t": wdg.time_plan,
     }
+    # every axis starts off: turn them all on, so disabling them is visible
     for widget in axis_widgets.values():
         tabs.setChecked(widget, True)
 

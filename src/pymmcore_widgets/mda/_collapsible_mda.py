@@ -441,7 +441,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
     """
 
     _AXES = (
-        ("c", "Channels", "channels", 4, True),
+        ("c", "Channels", "channels", 4, False),
         ("p", "Positions", "stage_positions", 1, False),
         ("g", "Grid/Tiles", "grid_plan", 2, False),
         ("z", "Z Stack", "z_plan", 3, False),
