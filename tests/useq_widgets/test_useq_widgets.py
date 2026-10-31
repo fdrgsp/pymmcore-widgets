@@ -710,7 +710,7 @@ def test_z_plan_widget(qtbot: QtBot) -> None:
     assert abs(slices_pos.y() - step_pos.y()) <= 12
     assert slices_pos.x() > step_pos.x() + wdg.step.width()
 
-    assert wdg._viz.height() == wdg._controls_widget.sizeHint().height()
+    assert wdg._viz.height() == wdg._controls_box.sizeHint().height()
     assert all(
         not button.icon().isNull()
         for button in (

@@ -11,6 +11,7 @@ from qtpy.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QGridLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -364,17 +365,20 @@ class ZPlanWidget(QWidget):
         self._reserved_controls_height = self._controls_widget.sizeHint().height()
         self._controls_widget.setMinimumHeight(self._reserved_controls_height)
 
-        body_layout = QHBoxLayout()
-        body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(8)
-        body_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._viz_layout = QVBoxLayout()
         self._viz_layout.setContentsMargins(0, 0, 0, 0)
         self._viz_layout.setSpacing(4)
         self._viz_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._viz_layout.addWidget(self._viz)
+
+        self._controls_box = QGroupBox()
+        QVBoxLayout(self._controls_box).addWidget(self._controls_widget)
+
+        body_layout = QHBoxLayout()
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(8)
         body_layout.addLayout(self._viz_layout)
-        body_layout.addWidget(self._controls_widget, 1, Qt.AlignmentFlag.AlignTop)
+        body_layout.addWidget(self._controls_box, 1)
 
         layout = QVBoxLayout(self)
         layout.addLayout(mode_layout)
@@ -553,7 +557,21 @@ class ZPlanWidget(QWidget):
         )
         self._reserved_controls_height = height
         self._controls_widget.setMinimumHeight(height)
-        self._viz.setFixedHeight(height)
+        # The viz column spans the controls box border to border, and widgets
+        # added under the viz (e.g. a poll checkbox) take their share of it.
+        box_layout = self._controls_box.layout()
+        assert box_layout is not None
+        for margins in (
+            self._controls_box.contentsMargins(),
+            box_layout.contentsMargins(),
+        ):
+            height += margins.top() + margins.bottom()
+        below = 0
+        for i in range(self._viz_layout.count()):
+            widget = self._viz_layout.itemAt(i).widget()
+            if widget is not None and widget is not self._viz:
+                below += widget.sizeHint().height() + self._viz_layout.spacing()
+        self._viz.setFixedHeight(height - below)
 
     def _on_change(self, update_steps: bool = True) -> None:
         value = self.value()
