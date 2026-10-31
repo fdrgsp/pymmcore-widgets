@@ -22,7 +22,6 @@ from pymmcore_widgets._light_sources import (
     INTENSITY_KEY,
     LIGHT_SOURCE_KEY,
     NO_LIGHT_SOURCE,
-    PROPERTY_SEPARATOR,  # noqa: F401  (re-exported: imported from here elsewhere)
     IntensityColumn,
     IntensitySpinBox,
     find_light_sources,
