@@ -102,10 +102,10 @@ class CoreMDATabs(MDATabs):
 
     def create_subwidgets(self) -> None:
         self.time_plan = TimePlanWidget(1)
-        self.stage_positions = _CoreConnectedPositionTable(1, self._mmc)
+        self.stage_positions = _CoreConnectedPositionTable(0, self._mmc)
         self.z_plan = CoreConnectedZPlanWidget(self._mmc)
         self.grid_plan = CoreConnectedGridPlanWidget(self._mmc)
-        self.channels = CoreConnectedChannelTable(1, self._mmc)
+        self.channels = CoreConnectedChannelTable(0, self._mmc)
 
     def _on_tab_checked(self, idx: int, checked: bool) -> None:
         # The base class shows/hides Do Stack and Acquire Every purely on their

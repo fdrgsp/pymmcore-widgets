@@ -209,10 +209,10 @@ class MDATabs(CheckableTabWidget):
     def create_subwidgets(self) -> None:
         """Create the Tabs of the widget."""
         self.time_plan = TimePlanWidget(1)
-        self.stage_positions = PositionTable(1)
+        self.stage_positions = PositionTable(0)
         self.grid_plan = GridPlanWidget()
         self.z_plan = ZPlanWidget()
-        self.channels = ChannelTable(1)
+        self.channels = ChannelTable(0)
 
     def isAxisUsed(self, key: str | QWidget) -> bool:
         """Return True if the given axis is used in the sequence.

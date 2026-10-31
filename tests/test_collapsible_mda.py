@@ -129,7 +129,8 @@ def test_collapsible_hcs_positions_refresh_summary(qtbot: QtBot) -> None:
     qtbot.addWidget(wdg)
     wdg.tabs.setChecked("p", True)
     section = wdg.tabs.section("p")
-    assert section.summary == "On · 1 position"
+    # the table starts empty
+    assert section.summary == "On · 0 positions"
 
     plan = useq.WellPlatePlan(
         plate="96-well",
@@ -201,6 +202,8 @@ def test_collapsible_position_subsequence_popup_only_exposes_grid(
     wdg = MDAWidgetCollapsible()
     qtbot.addWidget(wdg)
     assert wdg.tabs.section("c").expanded
+    # the table starts empty: add the position whose sub-sequence button we need
+    wdg.stage_positions.setValue([useq.Position(x=1, y=2)])
     table = wdg.stage_positions.table()
     button = table.cellWidget(0, table.indexOf(wdg.stage_positions.SEQ))
     assert isinstance(button, MDAButton)

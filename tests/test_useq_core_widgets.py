@@ -38,6 +38,7 @@ from pymmcore_widgets.useq_widgets._mda_sequence import (
     PYMMCW_METADATA_KEY,
     AutofocusAxis,
     KeepShutterOpen,
+    MDASequenceWidget,
     QFileDialog,
 )
 from pymmcore_widgets.useq_widgets._positions import (
@@ -292,6 +293,16 @@ def mock_getAutoFocusOffset(global_mmcore: CMMCorePlus):
         yield
 
 
+@pytest.mark.parametrize("cls", [MDASequenceWidget, MDAWidget])
+def test_position_and_channel_tables_start_empty(
+    qtbot: QtBot, cls: type[MDASequenceWidget]
+) -> None:
+    wdg = cls()
+    qtbot.addWidget(wdg)
+    assert wdg.stage_positions.table().rowCount() == 0
+    assert wdg.channels.table().rowCount() == 0
+
+
 def test_core_position_table_add_position(
     qtbot: QtBot, mock_getAutoFocusOffset: None
 ) -> None:
@@ -308,7 +319,8 @@ def test_core_position_table_add_position(
 
     wdg.stage_positions.af_per_position.setChecked(True)
 
-    assert pos_table.table().rowCount() == 1
+    # the table starts empty
+    assert pos_table.table().rowCount() == 0
 
     # test when autofocus is not engaged and af_per_position is checked
     with patch.object(
@@ -318,7 +330,7 @@ def test_core_position_table_add_position(
             pos_table.act_add_row.trigger()
 
     # a new position has NOT been added
-    assert pos_table.table().rowCount() == 1
+    assert pos_table.table().rowCount() == 0
 
     # test when autofocus is engaged and af_per_position is checked
     with patch.object(wdg._mmc, "isContinuousFocusLocked", return_value=True):
@@ -333,7 +345,7 @@ def test_core_position_table_add_position(
     assert val.sequence.autofocus_plan.autofocus_motor_offset == 10
 
     # a new position has been added
-    assert pos_table.table().rowCount() == 2
+    assert pos_table.table().rowCount() == 1
 
 
 def test_core_connected_relative_z_plan(qtbot: QtBot):
