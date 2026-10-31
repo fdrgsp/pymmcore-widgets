@@ -463,6 +463,13 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         self._editor_enabled = True
         super().__init__(parent, core)
 
+        # a child timer, rather than QTimer.singleShot, so a pending re-run dies
+        # with this widget: PySide would otherwise still call it once deleted
+        self._min_heights_timer = QTimer(self)
+        self._min_heights_timer.setSingleShot(True)
+        self._min_heights_timer.setInterval(0)
+        self._min_heights_timer.timeout.connect(self._apply_editor_min_heights)
+
         # ``_sections_ready`` is still False, so ``self.isChecked`` routes to the
         # base ``CheckableTabWidget`` implementation (see the override below).
         # A zero-arg ``super()`` here would resolve ``__class__`` in the
@@ -545,7 +552,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         # run now and again one event-loop cycle later, so a just-switched grid
         # mode has settled its layout before we measure the content height.
         self._apply_editor_min_heights()
-        QTimer.singleShot(0, self._apply_editor_min_heights)
+        self._min_heights_timer.start()
 
     @staticmethod
     def _wrap_in_card(widget: QWidget, margin: int = 5) -> _CardFrame:
