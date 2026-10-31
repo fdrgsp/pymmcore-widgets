@@ -5,7 +5,7 @@ from typing import Final, Literal
 
 import useq
 from qtpy.QtCore import QPointF, QRectF, QSize, Qt, Signal
-from qtpy.QtGui import QColor, QPainter, QPen
+from qtpy.QtGui import QColor, QPainter, QPen, QPolygonF
 from qtpy.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -51,6 +51,7 @@ class ZStackViz(QWidget):
         self._bottom = 0.0
         self._center_fraction = 0.5
         self._slices = 1
+        self._stage_position: float | None = None
         self.setFixedWidth(130)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
@@ -72,6 +73,13 @@ class ZStackViz(QWidget):
         self._center_fraction = max(0.0, min(1.0, center_fraction))
         self._slices = max(1, slices)
         self.update()
+
+    def setStagePosition(self, position: float | None) -> None:
+        """Set the live position in the plan's coordinate system, or hide it."""
+        self.setToolTip("" if position is None else f"Live Z: {position:.3f} {UM}")
+        if position != self._stage_position:
+            self._stage_position = position
+            self.update()
 
     def paintEvent(self, event: object) -> None:
         """Paint the axis, stack planes, and reference plane."""
@@ -134,6 +142,27 @@ class ZStackViz(QWidget):
         marker = QColor(accent).darker(125)
         painter.setPen(QPen(marker, 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         painter.drawLine(QPointF(axis_x - 12, marker_y), QPointF(axis_x + 12, marker_y))
+
+        if self._stage_position is not None:
+            span = self._top - self._bottom
+            fraction = 0.5
+            if span:
+                fraction = (self._top - self._stage_position) / span
+            elif self._stage_position != self._top:
+                fraction = 0.0 if self._stage_position > self._top else 1.0
+            live_y = axis_top + max(0.0, min(1.0, fraction)) * track_height
+            # A separate arrow keeps the reference visible even at the same Z.
+            painter.setPen(QPen(QColor("#806000"), 1))
+            painter.setBrush(QColor("#ffd600"))
+            painter.drawPolygon(
+                QPolygonF(
+                    [
+                        QPointF(bar_right + 2, live_y),
+                        QPointF(bar_right + 13, live_y - 6),
+                        QPointF(bar_right + 13, live_y + 6),
+                    ]
+                )
+            )
 
         painter.setPen(text_color)
         painter.drawText(
@@ -226,7 +255,7 @@ class ZPlanWidget(QWidget):
         disable_wheel_scroll(self.steps)
 
         self.range = self._new_double_spinbox(0, 10_000, 0.5)
-        self._range_div2_lbl = QLabel()
+        self._on_range_changed(self.range.value())
 
         self.above = self._new_double_spinbox(0, 10_000, 0.5)
         self.above.setPrefix("+")
@@ -272,7 +301,6 @@ class ZPlanWidget(QWidget):
             ROW_FIRST_BOUND,
             "Range",
             self.range,
-            self._range_div2_lbl,
             row_span=2,
         )
         self._top_widgets = self._add_bound_row(ROW_FIRST_BOUND, "Top", self.top)
@@ -340,7 +368,12 @@ class ZPlanWidget(QWidget):
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(8)
         body_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        body_layout.addWidget(self._viz, 0, Qt.AlignmentFlag.AlignTop)
+        self._viz_layout = QVBoxLayout()
+        self._viz_layout.setContentsMargins(0, 0, 0, 0)
+        self._viz_layout.setSpacing(4)
+        self._viz_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._viz_layout.addWidget(self._viz)
+        body_layout.addLayout(self._viz_layout)
         body_layout.addWidget(self._controls_widget, 1, Qt.AlignmentFlag.AlignTop)
 
         layout = QVBoxLayout(self)
@@ -561,4 +594,5 @@ class ZPlanWidget(QWidget):
         self._on_change(update_steps=False)
 
     def _on_range_changed(self, z_range: float) -> None:
-        self._range_div2_lbl.setText(f"\u00b1 {z_range / 2:.2f} {UM} from center")
+        half_range = f"{z_range / 2:.4f}".rstrip("0").rstrip(".")
+        self.range.setSuffix(f" {UM} (\u00b1{half_range})")

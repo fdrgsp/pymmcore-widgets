@@ -98,6 +98,7 @@ class CoreMDATabs(MDATabs):
     ) -> None:
         self._mmc = core or CMMCorePlus.instance()
         super().__init__(parent)
+        self.z_plan.setStackActive(bool(self.isChecked(self.z_plan)))
 
     def create_subwidgets(self) -> None:
         self.time_plan = TimePlanWidget(1)
@@ -113,6 +114,7 @@ class CoreMDATabs(MDATabs):
         # table (which recomputes visibility from both inputs).
         super()._on_tab_checked(idx, checked)
         if idx == self.indexOf(self.z_plan):
+            self.z_plan.setStackActive(checked)
             self.channels.setZStackActive(checked)
         elif idx == self.indexOf(self.time_plan):
             self.channels.setTimePlanActive(checked)
