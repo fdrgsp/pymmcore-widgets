@@ -196,13 +196,19 @@ class GridPlanWidget(QWidget):
         mode_layout = QHBoxLayout()
         mode_layout.setContentsMargins(0, 0, 0, 0)
         mode_layout.addWidget(QLabel("Mode:"))
-        mode_layout.addSpacing(24)
-        # spacing rather than spacers, so the hidden Polygon radio takes none
-        radios = QHBoxLayout()
-        radios.setSpacing(32)
-        for radio in self._mode_radios.values():
-            radios.addWidget(radio)
-        mode_layout.addLayout(radios)
+        mode_layout.setSpacing(10)
+        for mode in (Mode.NUMBER, Mode.AREA, Mode.BOUNDS):
+            if mode is not Mode.NUMBER:
+                mode_layout.addSpacing(25)
+            mode_layout.addWidget(self._mode_radios[mode])
+        # Polygon carries its spacing in a container shown and hidden with it,
+        # so while hidden it leaves no gap at the end of the row
+        self._polygon_slot = QWidget()
+        slot_layout = QHBoxLayout(self._polygon_slot)
+        slot_layout.setContentsMargins(25, 0, 0, 0)
+        slot_layout.addWidget(self._mode_radios[Mode.POLYGON])
+        self._polygon_slot.hide()
+        mode_layout.addWidget(self._polygon_slot)
         mode_layout.addStretch()
 
         # left: what every mode shares
@@ -366,6 +372,7 @@ class GridPlanWidget(QWidget):
 
         if mode is Mode.POLYGON:
             self._mode_radios[Mode.POLYGON].show()
+            self._polygon_slot.show()
         with signals_blocked(self._mode_btn_group):
             self._mode_radios[mode].setChecked(True)
 
