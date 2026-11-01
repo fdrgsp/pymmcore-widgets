@@ -121,6 +121,10 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         self._read_generation = 0
         self.poll_z = QCheckBox("Poll")
         self.poll_z.setToolTip("Poll the Z-stage position and show it with a marker.")
+        # Lay it out by its real size: some styles (e.g. macOS) report a
+        # smaller layout rect, and its column then grows by the difference,
+        # leaving a gap between the Z graphic above and the divider beside it.
+        self.poll_z.setAttribute(Qt.WidgetAttribute.WA_LayoutUsesWidgetRect)
 
         self._move_layout = QGridLayout(self._move_buttons)
         self._move_layout.setContentsMargins(0, 0, 0, 0)

@@ -54,12 +54,17 @@ class ZStackViz(QWidget):
         self._center_fraction = 0.5
         self._slices = 1
         self._stage_position: float | None = None
-        self.setFixedWidth(130)
+        self.setFixedWidth(self._WIDTH)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+    # Just wide enough for what is drawn around the centered axis -- the live
+    # position arrow reaches furthest, 43 px right of it (see paintEvent) -- so
+    # no blank strip separates the graphic from what sits beside it.
+    _WIDTH = 96
 
     def sizeHint(self) -> QSize:
         """Return a compact preferred size."""
-        return QSize(130, 230)
+        return QSize(self._WIDTH, 230)
 
     def setPlan(
         self,
