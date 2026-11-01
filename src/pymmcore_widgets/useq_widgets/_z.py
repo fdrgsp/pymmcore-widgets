@@ -396,6 +396,8 @@ class ZPlanWidget(QWidget):
         body_layout.addLayout(self._viz_layout)
         # the same divider GridPlanWidget draws between its two parts
         body_layout.addWidget(SeparatorWidget(orientation=Qt.Orientation.Vertical))
+        # extra room between the divider and the box, as in GridPlanWidget
+        body_layout.addSpacing(8)
         # Fit the box to its controls rather than stretching it across the
         # widget, which only leaves empty space at its right edge. Every mode
         # keeps the same controls width, so the box does not resize on a switch.
