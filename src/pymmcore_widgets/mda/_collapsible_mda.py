@@ -37,8 +37,14 @@ from qtpy.QtWidgets import (
 )
 from superqt.iconify import QIconifyIcon
 
+from pymmcore_widgets.useq_widgets._axis_tabs import (
+    MDA_ICONS,
+    _CardFrame,
+    _wrap_in_card,
+)
+
 from ._core_mda import MDAWidget
-from ._core_tabs import MDA_ICONS, CoreMDATabs, _CardFrame, _wrap_in_card
+from ._core_tabs import CoreMDATabs
 
 _ICON_SIZE = 18
 
@@ -380,16 +386,18 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
 
     This remains a ``CoreMDATabs`` subclass so upstream ``MDAWidget`` logic
     continues to use its established API.  The five widgets created by
-    ``CoreMDATabs.create_subwidgets`` are moved intact from their temporary tabs
-    into section bodies.
+    ``CoreMDATabs.create_subwidgets`` are put in section bodies instead of tabs
+    (see ``_build_tabs``); each axis keeps its ``MDATabs`` tab index as a logical
+    index (``indexOf``, ``tabChecked``).
     """
 
-    _AXES = (
-        ("c", "Channels", "channels", 4, False),
-        ("p", "Positions", "stage_positions", 1, False),
-        ("g", "Grid/Tiles", "grid_plan", 2, False),
-        ("z", "Z Stack", "z_plan", 3, False),
-        ("t", "Time Series", "time_plan", 0, False),
+    # (axis key, attribute, expanded) of every section, in ``MDATabs._AXES`` order
+    _SECTIONS = (
+        ("c", "channels", False),
+        ("p", "stage_positions", False),
+        ("g", "grid_plan", False),
+        ("z", "z_plan", False),
+        ("t", "time_plan", False),
     )
     # minimum number of table rows kept visible for the row-based editors
     _MIN_TABLE_ROWS = 3
@@ -414,31 +422,35 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         self._min_heights_timer.setInterval(0)
         self._min_heights_timer.timeout.connect(self._apply_editor_min_heights)
 
-        # ``_sections_ready`` is still False, so ``self.isChecked`` routes to the
-        # base ``CheckableTabWidget`` implementation (see the override below).
-        # A zero-arg ``super()`` here would resolve ``__class__`` in the
-        # comprehension's own scope and fail, so go through ``self``.
-        initial_states = {
-            widget: bool(self.isChecked(widget)) for widget in self._axis_widgets()
-        }
+        for widget, section in self._section_by_widget.items():
+            section.checkedChanged.connect(
+                lambda checked, axis_widget=widget: self._on_section_checked(
+                    axis_widget, checked
+                )
+            )
+            value_changed = getattr(widget, "valueChanged", None)
+            if value_changed is not None:
+                value_changed.connect(
+                    lambda *_args, axis_widget=widget: self._update_axis_summary(
+                        axis_widget
+                    )
+                )
+        self.refresh_summaries()
 
-        while QTabWidget.count(self):
-            QTabWidget.removeTab(self, 0)
-        for checkbox in self._cboxes:
-            checkbox.deleteLater()
-        self._cboxes.clear()
-
+    def _build_tabs(self) -> None:
+        """Put each axis editor, unchecked, in a collapsible section."""
         self._content = QWidget()
         self._content.setObjectName("mdaSectionsContent")
         self._content_layout = QVBoxLayout(self._content)
         self._content_layout.setContentsMargins(0, 0, 0, 0)
         self._content_layout.setSpacing(self._metrics.content_spacing)
 
-        for axis, title, attr, logical_index, expanded in self._AXES:
+        titles = {attr: title for title, attr in self._AXES}
+        for logical_index, (axis, attr, expanded) in enumerate(self._SECTIONS):
             widget = cast("QWidget", getattr(self, attr))
             section = CollapsibleAcquisitionSection(
-                title,
-                checked=initial_states[widget],
+                titles[attr],
+                checked=False,
                 expanded=expanded,
                 metrics=self._metrics,
                 icon=MDA_ICONS.get(attr),
@@ -449,7 +461,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
                 section.set_content_widget(_wrap_in_card(widget))
             else:
                 section.set_content_widget(widget)
-            widget.setEnabled(initial_states[widget])
+            widget.setEnabled(False)
             self._section_by_axis[axis] = section
             self._section_by_widget[widget] = section
             self._logical_index_by_widget[widget] = logical_index
@@ -468,22 +480,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         if tab_bar := self.tabBar():
             tab_bar.hide()
         self.setDocumentMode(True)
-
         self._sections_ready = True
-        for widget, section in self._section_by_widget.items():
-            section.checkedChanged.connect(
-                lambda checked, axis_widget=widget: self._on_section_checked(
-                    axis_widget, checked
-                )
-            )
-            value_changed = getattr(widget, "valueChanged", None)
-            if value_changed is not None:
-                value_changed.connect(
-                    lambda *_args, axis_widget=widget: self._update_axis_summary(
-                        axis_widget
-                    )
-                )
-        self.refresh_summaries()
 
     def showEvent(self, a0: QShowEvent | None) -> None:
         # size hints are only fully reliable once the widget is realized, so
@@ -683,15 +680,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
     def _enable_tabs(self, enable: bool) -> None:
         """Implement the upstream acquisition enable/disable contract."""
         self.set_editor_enabled(enable)
-
-    def _axis_widgets(self) -> tuple[QWidget, ...]:
-        return (
-            self.time_plan,
-            self.stage_positions,
-            self.grid_plan,
-            self.z_plan,
-            self.channels,
-        )
 
     def _resolve_widget(self, key: str | int | QWidget) -> QWidget | None:
         if isinstance(key, str):

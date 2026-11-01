@@ -7,7 +7,7 @@ from qtpy.QtGui import QIcon
 from qtpy.QtWidgets import QWidget
 
 from pymmcore_widgets import MDAWidget
-from pymmcore_widgets.mda import TopbarMDATabs
+from pymmcore_widgets.mda._core_tabs import CoreMDATabs
 
 if TYPE_CHECKING:
     from pytestqt.qtbot import QtBot
@@ -42,7 +42,7 @@ MDA = useq.MDASequence(
 def test_mda_widget_uses_top_tabs(qtbot: QtBot) -> None:
     wdg = MDAWidget()
     qtbot.addWidget(wdg)
-    assert isinstance(wdg.tab_wdg, TopbarMDATabs)
+    assert type(wdg.tab_wdg) is CoreMDATabs
     assert wdg.tabs is wdg.tab_wdg
 
     tabs = wdg.tabs

@@ -9,7 +9,7 @@ import useq
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import QObject, QTimer
 
-from pymmcore_widgets.mda import CollapsibleCoreMDATabs, TopbarMDATabs
+from pymmcore_widgets.mda import CollapsibleCoreMDATabs
 from pymmcore_widgets.mda._core_tabs import CoreMDATabs
 from pymmcore_widgets.mda._core_z import CoreConnectedZPlanWidget
 
@@ -282,9 +282,7 @@ def test_events_from_other_threads_are_handled_on_the_gui_thread(
     assert all(thread == gui_thread for thread in handler_threads)
 
 
-@pytest.mark.parametrize(
-    "tabs_type", [CoreMDATabs, CollapsibleCoreMDATabs, TopbarMDATabs]
-)
+@pytest.mark.parametrize("tabs_type", [CoreMDATabs, CollapsibleCoreMDATabs])
 def test_polling_requires_checked_and_visible_z_axis(
     global_mmcore: CMMCorePlus, qtbot: QtBot, tabs_type: type[CoreMDATabs]
 ) -> None:

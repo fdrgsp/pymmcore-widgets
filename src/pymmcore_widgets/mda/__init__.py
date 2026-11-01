@@ -15,7 +15,7 @@ from ._collapsible_mda import (
 )
 from ._core_channels import CoreConnectedChannelTable
 from ._core_mda import MDAWidget
-from ._core_tabs import TopbarMDATabs
+from ._core_tabs import CoreMDATabs
 
 __all__ = [
     "CHANNEL_PROPERTIES_KEY",
@@ -24,10 +24,10 @@ __all__ = [
     "CollapsibleAcquisitionSection",
     "CollapsibleCoreMDATabs",
     "CoreConnectedChannelTable",
+    "CoreMDATabs",
     "MDAWidget",
     "MDAWidgetCollapsible",
     "SectionMetrics",
-    "TopbarMDATabs",
     "channel_properties",
     "to_channel_properties_sequence",
 ]

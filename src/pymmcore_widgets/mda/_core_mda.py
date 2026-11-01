@@ -9,12 +9,9 @@ from pymmcore_plus._logger import logger
 from pymmcore_plus.core import SequencedEvent
 from qtpy.QtCore import QSize, Qt, Slot
 from qtpy.QtWidgets import (
-    QFrame,
     QHBoxLayout,
-    QLayout,
     QMessageBox,
     QPushButton,
-    QVBoxLayout,
     QWidget,
 )
 from superqt.iconify import QIconifyIcon
@@ -36,7 +33,7 @@ from ._channel_properties import (
     to_channel_properties_sequence,
 )
 from ._core_positions import AF_UNAVAILABLE, CoreConnectedPositionTable
-from ._core_tabs import CoreMDATabs, TopbarMDATabs, _wrap_in_card
+from ._core_tabs import CoreMDATabs
 from ._save_widget import SaveGroupBox
 
 if TYPE_CHECKING:
@@ -106,13 +103,9 @@ class MDAWidget(MDASequenceWidget):
     widget is connected to a [`pymmcore_plus.CMMCorePlus`][] instance, enabling
     awareness and control of the current state of the microscope.
 
-    The acquisition axes and Saving are laid out as checkable tabs (checkbox and
-    icon on top, name below; see
-    [`TopbarMDATabs`][pymmcore_widgets.mda.TopbarMDATabs]). Settings (axis order,
-    keep shutter open) and Autofocus are not tabs: they have no on/off state and
-    always apply, so each gets a card of its own between the tabs and the footer,
-    staying visible whichever tab is showing. The footer holds the time estimate,
-    the Save/Load Settings buttons and the Run/Pause/Cancel controls.
+    It keeps the `MDASequenceWidget` layout (axis tabs, Settings and Autofocus
+    cards, footer) and adds a Saving tab after the axes and the Run/Pause/Cancel
+    controls to the footer.
     [`MDAWidgetCollapsible`][pymmcore_widgets.MDAWidgetCollapsible] keeps this
     layout and swaps only the axis container.
 
@@ -150,7 +143,10 @@ class MDAWidget(MDASequenceWidget):
 
         # ------------ layout ------------
 
-        self._install_layout()
+        # Saving is a tab like the axes; Run/Pause/Cancel close the footer's
+        # actions row, after Save/Load Settings.
+        self.tabs.add_supporting_sections(save_info=self.save_info)
+        self._actions_row.addWidget(self.control_btns)
 
         # ------------ connect signals ------------
 
@@ -178,94 +174,15 @@ class MDAWidget(MDASequenceWidget):
 
         Subclasses may override this to inject an alternate presentation of the
         MDA axes (for example a collapsible-sections container) without
-        otherwise changing the widget's behavior. The container must implement
-        ``add_supporting_sections`` to host the Saving editor.
+        otherwise changing the widget's behavior. The container's
+        ``add_supporting_sections`` decides where the Saving editor goes.
         """
-        return TopbarMDATabs(None, self._mmc)
+        return CoreMDATabs(None, self._mmc)
 
     @property
     def tabs(self) -> CoreMDATabs:
         """Return the axis container."""
         return cast("CoreMDATabs", self.tab_wdg)
-
-    def _install_layout(self) -> None:
-        """Lay out the axis container, the Settings/Autofocus cards and the footer.
-
-        Replaces the layout ``MDASequenceWidget`` built, moving (not
-        duplicating) its widgets into this one.
-        """
-        tabs = self.tabs
-        layout = cast("QVBoxLayout", self.layout())
-        _clear_layout(layout)
-
-        tabs.add_supporting_sections(save_info=self.save_info)
-
-        # Global settings are not a tab: they have no on/off state and always
-        # apply, so they sit in a card of their own between the tabs and the
-        # footer -- always visible, whichever tab is showing.
-        self._settings_widget = settings_widget = QWidget()
-        settings_layout = QVBoxLayout(settings_widget)
-        settings_layout.setContentsMargins(5, 5, 5, 5)
-        settings_layout.setSpacing(5)
-        axis_row = QWidget()
-        axis_layout = QHBoxLayout(axis_row)
-        axis_layout.setContentsMargins(0, 0, 0, 0)
-        axis_layout.addWidget(self._axis_order_label)
-        self.axis_order.setMaximumWidth(100)
-        axis_layout.addWidget(self.axis_order)
-        axis_layout.addStretch()
-        settings_layout.addWidget(axis_row)
-        settings_layout.addWidget(self.keep_shutter_open)
-        self._settings_box = _wrap_in_card(settings_widget)
-        # Autofocus gets a card of its own below: it has more controls than the
-        # settings above it, and which ones apply depends on the kind selected.
-        af_widget = QWidget()
-        af_layout = QVBoxLayout(af_widget)
-        # same inner inset as the settings card above, so the two line up
-        af_layout.setContentsMargins(5, 5, 5, 5)
-        af_layout.setSpacing(5)
-        af_layout.addWidget(self.af_axis)
-        self._af_box = _wrap_in_card(af_widget)
-
-        footer = QFrame()
-        footer.setObjectName("mdaExecutionFooter")
-        self._footer_layout = footer_layout = QVBoxLayout(footer)
-
-        estimate_row = QHBoxLayout()
-        estimate_row.addWidget(self._time_warning)
-        estimate_row.addWidget(self._duration_label, 1)
-        footer_layout.addLayout(estimate_row)
-
-        actions_row = QHBoxLayout()
-        actions_row.addWidget(self._save_button)
-        actions_row.addWidget(self._load_button)
-        actions_row.addStretch()
-        actions_row.addWidget(self.control_btns)
-        footer_layout.addLayout(actions_row)
-
-        self._settings_row = settings_row = QHBoxLayout()
-        settings_col = QVBoxLayout()
-        settings_col.setContentsMargins(0, 0, 0, 0)
-        settings_col.setSpacing(5)
-        settings_col.addWidget(self._settings_box)
-        settings_col.addWidget(self._af_box)
-        settings_row.addLayout(settings_col)
-
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(tabs, 1)
-        layout.addLayout(settings_row)
-        layout.addWidget(footer)
-        self._apply_layout_metrics()
-
-    def _apply_layout_metrics(self) -> None:
-        """Set the spacing and insets of the cards and footer around the tabs."""
-        margin = TopbarMDATabs._PAGE_MARGIN
-        # Left/right line up with the tab pages' own inset; the gap above is
-        # already there (the page's bottom margin), so only the bottom needs
-        # adding, to keep the card off the footer.
-        self._settings_row.setContentsMargins(margin, 0, margin, margin // 2)
-        self._footer_layout.setContentsMargins(8, 4, 8, 8)
-        cast("QVBoxLayout", self.layout()).setSpacing(7)
 
     # ----------- Override type hints in superclass -----------
 
@@ -839,10 +756,3 @@ class _MDAControlButtons(QWidget):
             self._mmc.mda.events.sequenceStarted.disconnect(self._on_mda_started)
             self._mmc.mda.events.sequenceFinished.disconnect(self._on_mda_finished)
             self._mmc.mda.events.eventStarted.disconnect(self._on_event_started)
-
-
-def _clear_layout(layout: QLayout) -> None:
-    while layout.count():
-        item = layout.takeAt(0)
-        if item is not None and (child_layout := item.layout()) is not None:
-            _clear_layout(child_layout)

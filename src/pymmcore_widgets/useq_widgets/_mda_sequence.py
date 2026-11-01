@@ -8,32 +8,44 @@ from typing import TYPE_CHECKING, Any, cast
 
 import useq
 from qtpy.QtCore import Qt, Signal
+from qtpy.QtGui import QIcon
 from qtpy.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QTabBar,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
+from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
 import pymmcore_widgets
 from pymmcore_widgets._humanize import humanize_time
-from pymmcore_widgets._util import disable_wheel_scroll
+from pymmcore_widgets._util import QWIDGETSIZE_MAX, disable_wheel_scroll
 from pymmcore_widgets.useq_widgets._autofocus_settings import (
     AutofocusSettingsDialog,
     TestRunner,
     _settings_button,
+)
+from pymmcore_widgets.useq_widgets._axis_tabs import (
+    MDA_ICONS,
+    _AxisTabBar,
+    _AxisTabButton,
+    _wrap_in_card,
 )
 from pymmcore_widgets.useq_widgets._channels import ChannelTable
 from pymmcore_widgets.useq_widgets._checkable_tabwidget_widget import CheckableTabWidget
@@ -178,6 +190,10 @@ class MDATabs(CheckableTabWidget):
     """Checkable QTabWidget for editing a useq.MDASequence.
 
     It contains a Tab for each of the MDASequence, axis (channels, positions, etc...).
+    Each tab shows a checkbox and icon on top and its name below (see `_add_tab`,
+    `_AxisTabButton`), rather than the default side-by-side checkbox/text. Grid and
+    Z Stack are each wrapped in a bordered card; the table editors
+    (channels/positions/time) already carry their own frame.
     """
 
     time_plan: TimePlanWidget
@@ -186,25 +202,179 @@ class MDATabs(CheckableTabWidget):
     z_plan: ZPlanWidget
     channels: ChannelTable
 
+    # (title, attribute) of every axis, in tab order
+    _AXES = (
+        ("Channels", "channels"),
+        ("Positions", "stage_positions"),
+        ("Grid/Tiles", "grid_plan"),
+        ("Z Stack", "z_plan"),
+        ("Time Series", "time_plan"),
+    )
+    # Inset every page's content so no editor sits flush against the tab's
+    # edges (see `_add_tab`).
+    _PAGE_MARGIN = 9
+
     def __init__(self, parent: QWidget | None = None) -> None:
+        # An editor -> the page actually registered with the tab widget (see
+        # `_add_tab`). `indexOf` and `setCurrentWidget` translate through this so
+        # every other method -- including `CheckableTabWidget.isChecked`/
+        # `setChecked`, which call `self.indexOf` internally -- can keep referring
+        # to the editor itself (e.g. `self.z_plan`) without knowing it is wrapped.
+        self._page_for: dict[QWidget, QWidget] = {}
+        # page -> the plain (undyed) icon its tab was given, so a theme sweep can
+        # re-tint from a stable source instead of compounding tints.
+        self._tab_icons: dict[QWidget, QIcon] = {}
         super().__init__(parent)
-        # self.setMovable(True)
         self.tabChecked.connect(self._on_tab_checked)
 
         self.create_subwidgets()
-
-        self.addTab(self.time_plan, "Time", checked=False)
-        self.addTab(self.stage_positions, "Positions", checked=False)
-        self.addTab(self.grid_plan, "Grid/Tiles", checked=False)
-        self.addTab(self.z_plan, "Z Stack", checked=False)
-        self.addTab(self.channels, "Channels", checked=False)
-        self.setCurrentIndex(self.indexOf(self.channels))
+        self._build_tabs()
 
         # we only show the DO_STACK and ACQUIRE_EVERY columns when the
         # corresponding tab is checked
         ch_table = self.channels.table()
         ch_table.hideColumn(ch_table.indexOf(self.channels.DO_STACK))
         ch_table.hideColumn(ch_table.indexOf(self.channels.ACQUIRE_EVERY))
+
+    def _build_tabs(self) -> None:
+        """Add a tab for each axis editor, all unchecked, with Channels selected.
+
+        Subclasses may override this to present the editors differently (e.g. as
+        collapsible sections).
+        """
+        # Every tab's real content is a custom button widget (see _add_tab), not
+        # native icon/text -- only _AxisTabBar sizes and paints tabs correctly
+        # for that (see its docstring). Document mode drops the native frame the
+        # tab widget would otherwise draw around the page, which _AxisTabBar's
+        # own flat border replaces.
+        self.setTabBar(_AxisTabBar(self))
+        self.setDocumentMode(True)
+        for title, attr in self._AXES:
+            widget = cast("QWidget", getattr(self, attr))
+            card = attr in ("grid_plan", "z_plan")
+            self._add_tab(widget, title, attr, checked=False, card=card)
+            # The grip lets a table trade vertical space with its neighbours
+            # in the collapsible presentation's shared scroll area. Here each
+            # table gets its own full-height tab page instead, so there are no
+            # neighbours to negotiate with and the grip is just clutter.
+            if (grip := getattr(widget, "_resize_grip", None)) is not None:
+                grip.hide()
+        self.setCurrentWidget(self.channels)
+        if tab_bar := self.tabBar():
+            tab_bar.setExpanding(False)
+
+    def _add_tab(
+        self,
+        widget: QWidget,
+        title: str,
+        icon_key: str,
+        *,
+        checked: bool | None,
+        card: bool = False,
+    ) -> int:
+        """Add a tab with an icon-on-top / title-below button widget.
+
+        Every page is a container holding ``widget`` inset by ``_PAGE_MARGIN``,
+        so no editor sits flush against the tab's edges; ``card=True`` puts a
+        bordered card inside a scroll area in between. ``widget`` is stored in
+        ``_page_for`` either way, so all other methods address the real widget
+        rather than whichever container it ended up in. ``checked=None`` gives
+        the tab no checkbox.
+        """
+        icon = QIconifyIcon(MDA_ICONS[icon_key])
+        index = int(self.count())
+
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(
+            self._PAGE_MARGIN, self._PAGE_MARGIN, self._PAGE_MARGIN, self._PAGE_MARGIN
+        )
+        if card:
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setWidget(_wrap_in_card(widget, stretch=True))
+            page_layout.addWidget(scroll)
+        else:
+            page_layout.addWidget(widget)
+            # An editor that caps its own height (SaveGroupBox does) cannot
+            # fill the page, and a lone item in a box layout is centered in
+            # the space it does not take -- leaving the form floating
+            # mid-tab. Absorb the remainder below it instead.
+            if widget.maximumHeight() < QWIDGETSIZE_MAX:
+                page_layout.addStretch()
+        self._page_for[widget] = page
+        self._tab_icons[page] = icon
+        # reparenting into the page can leave the editor hidden
+        widget.show()
+
+        QTabWidget.addTab(self, page, "")
+
+        btn = _AxisTabButton(title, icon, checked=checked)
+        if checked is not None:
+            # `_cboxes` is typed for QCheckBox by the base class, but every
+            # consumer (`CheckableTabWidget.isChecked`/`setChecked`,
+            # `CoreMDATabs._enable_tabs`) only ever calls `.isChecked()`/
+            # `.setChecked()`/`.setEnabled()` on its contents -- all of which
+            # `_AxisTabButton` supports.
+            self._cboxes.append(cast("QCheckBox", btn))
+            # Disable the editor itself rather than its page: `_enable_tabs`
+            # re-enables editors by name, which a disabled *parent* would
+            # silently override. `indexOf` resolves the widget back to its page,
+            # so the inherited handler still finds the right tab.
+            btn.toggled.connect(lambda c, w=widget: self._on_tab_checkbox_toggled(c, w))
+            if not checked:
+                widget.setEnabled(False)
+        if tab_bar := self.tabBar():
+            tab_bar.setTabButton(index, QTabBar.ButtonPosition.LeftSide, btn)
+            tab_bar.setTabToolTip(index, title)
+
+        return index
+
+    def indexOf(self, widget: QWidget | None) -> int:
+        """Return the tab index for ``widget``, resolving through its page."""
+        if widget is not None and widget in self._page_for:
+            widget = self._page_for[widget]
+        return int(QTabWidget.indexOf(self, widget))
+
+    def setCurrentWidget(self, widget: QWidget | None) -> None:
+        """Select the tab for ``widget``, resolving through its page."""
+        if widget is None:
+            return
+        QTabWidget.setCurrentWidget(self, self._page_for.get(widget, widget))
+
+    def currentWidget(self) -> QWidget | None:
+        """Return the axis/section widget, not its wrapping page container."""
+        page = QTabWidget.currentWidget(self)
+        for widget, p in self._page_for.items():
+            if p is page:
+                return widget
+        return page
+
+    def tabIcon(self, index: int) -> QIcon:
+        """Return the stored icon; icons live in the button widget, not the tab."""
+        return self.tab_icon(index) or QIcon()
+
+    def tab_icon(self, index: int) -> QIcon | None:
+        """Return the plain (undyed) icon a tab was created with, if any."""
+        page = QTabWidget.widget(self, index)
+        return self._tab_icons.get(page) if page is not None else None
+
+    def set_tab_icon(self, index: int, icon: QIcon) -> None:
+        """Replace a tab's rendered icon (its button widget's, not the native tab's).
+
+        A downstream theme sweep uses this to re-tint from the stable source
+        `tab_icon` returns, rather than `QTabWidget.setTabIcon`: the native
+        tab icon is deliberately left empty (see `_add_tab`), so setting one
+        would add an icon nothing in this presentation displays -- and native
+        tab styles are free to decorate a tab that suddenly has both an icon
+        and a corner button in ways this presentation never asked for.
+        """
+        if tab_bar := self.tabBar():
+            btn = tab_bar.tabButton(index, QTabBar.ButtonPosition.LeftSide)
+            if isinstance(btn, _AxisTabButton):
+                btn.set_icon(icon)
 
     def create_subwidgets(self) -> None:
         """Create the Tabs of the widget."""
@@ -280,10 +450,18 @@ class MDATabs(CheckableTabWidget):
         )
 
     def setValue(self, value: useq.MDASequence) -> None:
-        """Set widget value from a [`useq.MDASequence`][]."""
+        """Set widget value from a [`useq.MDASequence`][].
+
+        The current tab is kept: every axis the sequence uses is checked in turn,
+        and a tab checkbox selects its own tab (``change_tab_on_check``, meant
+        for an *interactive* click). Restoring saved state is not navigation
+        though, so whichever axis happened to be checked last would otherwise
+        decide what the user is looking at.
+        """
         if not isinstance(value, useq.MDASequence):  # pragma: no cover
             raise TypeError(f"Expected useq.MDASequence, got {type(value)}")
 
+        current = self.currentIndex()
         widget: (
             ChannelTable | TimePlanWidget | ZPlanWidget | PositionTable | GridPlanWidget
         )
@@ -295,6 +473,7 @@ class MDATabs(CheckableTabWidget):
             else:
                 # widget.setValue(None)
                 self.setChecked(widget, False)
+        self.setCurrentIndex(current)
 
     def _on_tab_checked(self, idx: int, checked: bool) -> None:
         """Handle tabChecked signal.
@@ -848,6 +1027,13 @@ class MDASequenceWidget(QWidget):
 
     This widget requires no connection to a microscope or core instance.  It strictly
     deals with loading and creating `useq-schema` [`useq.MDASequence`][] objects.
+
+    The acquisition axes are laid out as checkable tabs (checkbox and icon on top,
+    name below; see `MDATabs`). Settings (axis order, keep shutter open) and
+    Autofocus are not tabs: they have no on/off state and always apply, so each
+    gets a card of its own between the tabs and the footer, staying visible
+    whichever tab is showing. The footer holds the time estimate and the Save/Load
+    Settings buttons.
     """
 
     valueChanged = Signal()
@@ -896,42 +1082,67 @@ class MDASequenceWidget(QWidget):
 
         # -------------- Main Layout --------------
 
-        # Stored on self (rather than an anonymous QLabel) so a subclass that
-        # rebuilds this layout from scratch (e.g. MDAWidget) can move -- not
-        # duplicate -- it into its own
-        # layout. A layout only manages widgets added to it; one dropped by
-        # clearing a layout without also being re-added elsewhere is not
-        # deleted or hidden, just orphaned at its last position, silently
-        # overlapping whatever is drawn there now.
         self._axis_order_label = QLabel("Axis Order:")
-        top_row = QHBoxLayout()
-        top_row.addWidget(self._axis_order_label)
-        top_row.addWidget(self.axis_order)
-        top_row.addStretch()
-
         self.keep_shutter_open = KeepShutterOpen()
         self.af_axis = AutofocusAxis()
-        # Autofocus aligns its own rows internally (it has several), so its label is
-        # left to size itself -- padding it to match the one above would push its
-        # checkboxes far to the right of it.
-        cbox_row = QVBoxLayout()
-        cbox_row.setContentsMargins(0, 0, 0, 0)
-        cbox_row.setSpacing(5)
-        cbox_row.addWidget(self.keep_shutter_open)
-        cbox_row.addWidget(self.af_axis)
-        cbox_row.addStretch()
 
-        bot_row = QHBoxLayout()
-        bot_row.addWidget(self._time_warning)
-        bot_row.addWidget(self._duration_label)
-        bot_row.addWidget(self._save_button)
-        bot_row.addWidget(self._load_button)
+        # Global settings are not a tab: they have no on/off state and always
+        # apply, so they sit in a card of their own between the tabs and the
+        # footer -- always visible, whichever tab is showing.
+        self._settings_widget = settings_widget = QWidget()
+        settings_layout = QVBoxLayout(settings_widget)
+        settings_layout.setContentsMargins(5, 5, 5, 5)
+        settings_layout.setSpacing(5)
+        axis_row = QWidget()
+        axis_layout = QHBoxLayout(axis_row)
+        axis_layout.setContentsMargins(0, 0, 0, 0)
+        axis_layout.addWidget(self._axis_order_label)
+        self.axis_order.setMaximumWidth(100)
+        axis_layout.addWidget(self.axis_order)
+        axis_layout.addStretch()
+        settings_layout.addWidget(axis_row)
+        settings_layout.addWidget(self.keep_shutter_open)
+        self._settings_box = _wrap_in_card(settings_widget)
+        # Autofocus gets a card of its own below: it has more controls than the
+        # settings above it, and which ones apply depends on the kind selected.
+        af_widget = QWidget()
+        af_layout = QVBoxLayout(af_widget)
+        # same inner inset as the settings card above, so the two line up
+        af_layout.setContentsMargins(5, 5, 5, 5)
+        af_layout.setSpacing(5)
+        af_layout.addWidget(self.af_axis)
+        self._af_box = _wrap_in_card(af_widget)
+
+        self._settings_row = settings_row = QHBoxLayout()
+        settings_col = QVBoxLayout()
+        settings_col.setContentsMargins(0, 0, 0, 0)
+        settings_col.setSpacing(5)
+        settings_col.addWidget(self._settings_box)
+        settings_col.addWidget(self._af_box)
+        settings_row.addLayout(settings_col)
+
+        footer = QFrame()
+        footer.setObjectName("mdaExecutionFooter")
+        self._footer_layout = footer_layout = QVBoxLayout(footer)
+
+        estimate_row = QHBoxLayout()
+        estimate_row.addWidget(self._time_warning)
+        estimate_row.addWidget(self._duration_label, 1)
+        footer_layout.addLayout(estimate_row)
+
+        # a subclass appends its own actions (e.g. Run) after the stretch
+        self._actions_row = actions_row = QHBoxLayout()
+        actions_row.addWidget(self._save_button)
+        actions_row.addWidget(self._load_button)
+        actions_row.addStretch()
+        footer_layout.addLayout(actions_row)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(top_row)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.tab_wdg, 1)
-        layout.addLayout(cbox_row)
-        layout.addLayout(bot_row)
+        layout.addLayout(settings_row)
+        layout.addWidget(footer)
+        self._apply_layout_metrics()
 
         # -------------- Connections --------------
 
@@ -949,6 +1160,16 @@ class MDASequenceWidget(QWidget):
         # the radios are exclusive, so any change of kind toggles `use_hardware`
         self.af_axis.use_hardware.toggled.connect(self._on_af_kind_toggled)
         self.stage_positions.af_per_position.toggled.connect(self._on_af_toggled)
+
+    def _apply_layout_metrics(self) -> None:
+        """Set the spacing and insets of the cards and footer around the tabs."""
+        margin = MDATabs._PAGE_MARGIN
+        # Left/right line up with the tab pages' own inset; the gap above is
+        # already there (the page's bottom margin), so only the bottom needs
+        # adding, to keep the card off the footer.
+        self._settings_row.setContentsMargins(margin, 0, margin, margin // 2)
+        self._footer_layout.setContentsMargins(8, 4, 8, 8)
+        cast("QVBoxLayout", self.layout()).setSpacing(7)
 
     # ----------- Aliases for tab_wdg widgets -----------
 
