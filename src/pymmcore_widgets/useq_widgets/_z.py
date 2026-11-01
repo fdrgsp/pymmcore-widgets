@@ -10,7 +10,6 @@ from qtpy.QtWidgets import (
     QButtonGroup,
     QComboBox,
     QDoubleSpinBox,
-    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -396,10 +395,7 @@ class ZPlanWidget(QWidget):
         body_layout.setSpacing(8)
         body_layout.addLayout(self._viz_layout)
         # the same divider GridPlanWidget draws between its two parts
-        divider = QFrame()
-        divider.setFrameShape(QFrame.Shape.VLine)
-        divider.setFrameShadow(QFrame.Shadow.Sunken)
-        body_layout.addWidget(divider)
+        body_layout.addWidget(SeparatorWidget(orientation=Qt.Orientation.Vertical))
         # Fit the box to its controls rather than stretching it across the
         # widget, which only leaves empty space at its right edge. Every mode
         # keeps the same controls width, so the box does not resize on a switch.

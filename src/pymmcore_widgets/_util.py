@@ -236,14 +236,30 @@ YELLOW = "#ffff00"
 
 
 class SeparatorWidget(QWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    """A 1 px gray line, horizontal by default."""
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        orientation: Qt.Orientation = Qt.Orientation.Horizontal,
+    ) -> None:
         super().__init__(parent)
-        self.setFixedHeight(1)
+        self._orientation = orientation
+        if orientation == Qt.Orientation.Horizontal:
+            self.setFixedHeight(1)
+        else:
+            self.setFixedWidth(1)
 
     def paintEvent(self, a0: QPaintEvent | None) -> None:
         painter = QPainter(self)
         painter.setPen(QPen(Qt.GlobalColor.gray, 1, Qt.PenStyle.SolidLine))
-        painter.drawLine(self.rect().topLeft(), self.rect().topRight())
+        rect = self.rect()
+        end = (
+            rect.topRight()
+            if self._orientation == Qt.Orientation.Horizontal
+            else rect.bottomLeft()
+        )
+        painter.drawLine(rect.topLeft(), end)
 
 
 class ResizingGraphicsView(QGraphicsView):

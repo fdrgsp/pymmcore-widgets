@@ -25,7 +25,6 @@ from qtpy.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
-    QFrame,
     QGraphicsPathItem,
     QGraphicsRectItem,
     QGraphicsScene,
@@ -46,6 +45,7 @@ from superqt.utils import signals_blocked
 
 from pymmcore_widgets._util import (
     QWIDGETSIZE_MAX,
+    SeparatorWidget,
     disable_wheel_scroll_recursive,
 )
 
@@ -205,9 +205,7 @@ class GridPlanWidget(QWidget):
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred
         )
 
-        divider = QFrame()
-        divider.setFrameShape(QFrame.Shape.VLine)
-        divider.setFrameShadow(QFrame.Shadow.Sunken)
+        divider = SeparatorWidget(orientation=Qt.Orientation.Vertical)
 
         # right: the current mode's own settings
         self._stack = _ResizableStackedWidget(self)
