@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import useq
-from qtpy.QtCore import Signal
+from qtpy.QtCore import QSize, Signal
 from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -15,6 +15,7 @@ from qtpy.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -27,6 +28,8 @@ from ._data_table import DataTableWidget
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from qtpy.QtGui import QShowEvent
 
     from ._column_info import TableDoubleSpinBox
 
@@ -117,6 +120,31 @@ class _MDAPopup(QDialog):
         layout.addWidget(self._btns)
 
         self.resize(600, 350)
+        self._fitted = False
+
+    def showEvent(self, event: QShowEvent | None) -> None:
+        super().showEvent(event)
+        # Fit the editor on the first show: only then does it report its full
+        # size (e.g. with the Polygon option a polygon plan adds).
+        if not self._fitted:
+            self._fitted = True
+            self.resize(self.size().expandedTo(self._fitting_size()))
+
+    def _fitting_size(self) -> QSize:
+        """Return a size that shows the whole grid editor, e.g. its Polygon option.
+
+        The editor sits in a scroll area, whose size hint Qt caps (and its
+        horizontal scroll bar is off), so the dialog's own size hint can be
+        too small for it. Add back what the cap cut off.
+        """
+        hint = self.sizeHint()
+        page = self.mda_tabs._page_for.get(self.mda_tabs.grid_plan)
+        scroll = page.findChild(QScrollArea) if page is not None else None
+        if scroll is None or (content := scroll.widget()) is None:
+            return hint  # pragma: no cover
+        frame = 2 * scroll.frameWidth()
+        cut = content.sizeHint() + QSize(frame, frame) - scroll.sizeHint()
+        return hint + QSize(max(0, cut.width()), max(0, cut.height()))
 
 
 class MDAButton(QWidget):

@@ -15,6 +15,7 @@ from qtpy.QtWidgets import (
     QApplication,
     QLabel,
     QMessageBox,
+    QScrollArea,
     QTableWidgetSelectionRange,
 )
 
@@ -956,6 +957,37 @@ def test_proper_checked_index(qtbot) -> None:
     qtbot.addWidget(pop)
     assert pop.mda_tabs.grid_plan.isEnabled()
     assert pop.mda_tabs.isChecked(pop.mda_tabs.grid_plan)
+
+
+@pytest.mark.parametrize(
+    "grid_plan",
+    [
+        useq.GridRowsColumns(rows=2, columns=3),
+        useq.GridFromPolygon(
+            vertices=[(-4, 0), (5, -5), (5, 9), (0, 10)], fov_height=1, fov_width=1
+        ),
+    ],
+)
+def test_mda_popup_fits_grid_editor(
+    qtbot: QtBot, grid_plan: useq.GridRowsColumns | useq.GridFromPolygon
+) -> None:
+    """The grid popup opens wide enough for the whole editor (e.g. Polygon)."""
+    pop = _MDAPopup(useq.MDASequence(grid_plan=grid_plan))
+    qtbot.addWidget(pop)
+    pop.show()
+    qtbot.waitExposed(pop)
+    grid = pop.mda_tabs.grid_plan
+    # the editor sits in a scroll area with no horizontal scroll bar, which
+    # gives it its minimum width regardless and clips it: check what shows
+    scroll = pop.mda_tabs._page_for[grid].findChild(QScrollArea)
+    viewport = scroll.viewport()
+    right = grid.mapTo(viewport, QPoint()).x() + grid.minimumSizeHint().width()
+    assert right <= viewport.width()
+    if isinstance(grid_plan, useq.GridFromPolygon):
+        polygon = grid._mode_radios[_grid.Mode.POLYGON]
+        assert polygon.isVisible()
+        right = polygon.mapTo(viewport, QPoint()).x() + polygon.width()
+        assert right <= viewport.width()
 
 
 MDA = useq.MDASequence(axis_order="p", stage_positions=[(0, 1, 2)])
