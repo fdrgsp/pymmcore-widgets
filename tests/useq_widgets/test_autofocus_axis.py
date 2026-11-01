@@ -22,6 +22,16 @@ def _wdg(qtbot: QtBot) -> MDASequenceWidget:
     return wdg
 
 
+@pytest.mark.parametrize("kind", ["hardware", "software"])
+def test_plan_keyword_overrides(qtbot: QtBot, kind: str) -> None:
+    af = AutofocusAxis()
+    qtbot.addWidget(af)
+    af.setKind(kind)
+    field = "every_n_timepoints" if kind == "software" else "search_step_um"
+    plan = af.plan(("p",), **{field: 2})
+    assert getattr(plan, field) == 2
+
+
 # ------------------------------- kind selection -------------------------------
 
 

@@ -52,26 +52,18 @@ def find_light_sources(core: CMMCorePlus) -> dict[str, list[tuple[str, str]]]:
     and the user picks the right one. Pre-init properties are excluded: they
     cannot be changed once the device is initialized.
     """
-    # --- per-property sources ---
     properties = core.iterProperties(
         property_type=(PropertyType.Integer, PropertyType.Float),
         has_limits=True,
         is_read_only=False,
         as_object=False,
     )
-    pairs = sorted(
-        (
-            (str(device), str(prop))
-            for device, prop in properties
-            if not core.isPropertyPreInit(device, prop)
-        ),
-        key=lambda pair: (pair[0].casefold(), pair[1].casefold()),
-    )
     sources: dict[str, list[tuple[str, str]]] = {
-        f"{dev}{PROPERTY_SEPARATOR}{prop}": [(dev, prop)] for dev, prop in pairs
+        f"{dev}{PROPERTY_SEPARATOR}{prop}": [(str(dev), str(prop))]
+        for dev, prop in properties
+        if not core.isPropertyPreInit(dev, prop)
     }
 
-    # --- single-preset config-group sources ---
     for group in core.getAvailableConfigGroups():
         presets = core.getAvailableConfigs(group)
         if len(presets) != 1:

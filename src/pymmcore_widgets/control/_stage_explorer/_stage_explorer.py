@@ -23,7 +23,7 @@ from qtpy.QtCore import (
     Signal,
     Slot,
 )
-from qtpy.QtGui import QIcon
+from qtpy.QtGui import QAction, QActionGroup, QIcon
 from qtpy.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
@@ -52,12 +52,9 @@ if TYPE_CHECKING:
     from collections.abc import Hashable
     from typing import Any
 
-    from PyQt6.QtGui import QAction, QActionGroup, QKeyEvent
-    from qtpy.QtGui import QCloseEvent, QHideEvent, QShowEvent
+    from qtpy.QtGui import QCloseEvent, QHideEvent, QKeyEvent, QShowEvent
     from vispy.app.canvas import MouseEvent
     from vispy.scene.visuals import Image
-else:
-    from qtpy.QtWidgets import QAction, QActionGroup
 
 # suppress scientific notation when printing numpy arrays
 np.set_printoptions(suppress=True)
@@ -67,61 +64,29 @@ logger = logging.getLogger(__name__)
 STAGE_POLL_INTERVAL_MS = 100
 STAGE_POS_TOLERANCE_UM_SQ = 0.01  # 0.1 µm squared
 
-# Minimum gap between scene repaints while frames are streaming in. Frames
-# arriving faster than this are still stored (newest wins) -- only the repaint
-# is coalesced, since anything drawn in between would be overwritten before a
-# single screen refresh could show it.
+# Coalesce streaming updates to about 30 fps, keeping the newest frame.
 REDRAW_INTERVAL_MS = 33  # ~30 fps
 
-# Two images are treated as "the same place on the map" -- and therefore share
-# one scene node -- when their centers are closer than this fraction of the
-# FOV. Only used for snaps: MDA frames are keyed by their position/grid index
-# instead, which is exact. Small enough that deliberately stepping the stage
-# always makes a new tile, large enough to absorb stage repeatability error
-# when returning to a position.
+# Spatial tolerance for reusing a tile when the stage returns to a location.
 SNAP_DEDUP_FOV_FRACTION = 0.01
 
 # An Image node costs roughly twice its array size in RSS: the array itself
 # (vispy holds a reference, it does not copy) plus the GL-side copy.
 TILE_MEMORY_FACTOR = 2
 
-# Fraction of *available* RAM reserved for the map by default. The pymmcore-gui
-# acquisition scratch store uses 60%, leaving 20% for the application, Qt, and
-# the operating system. These are ceilings rather than eager reservations, but
-# keeping their defaults complementary prevents both consumers independently
-# targeting most of the same memory.
+# Leave room for the acquisition store and the rest of the application.
 MAP_MEMORY_DEFAULT_FRACTION = 0.2
 
-# Floor for the default above: under everyday, moderate memory pressure
-# (a browser, an IDE, ... -- not a genuine shortage, just normal load) the
-# fraction alone can round to an impractically small default. This keeps
-# the *default* usable; it never overrides the user's own choice, and it's
-# separate from LOW_SYSTEM_MEMORY_FLOOR_MB below, which is about genuine
-# live shortage, not about picking a reasonable starting value.
+# Minimum default budget; an explicit user choice may be smaller.
 MAP_MEMORY_DEFAULT_FLOOR_GB = 0.5
 
-# Independent of the map's own limit above (a static number, whether set by
-# the user or defaulted from available RAM at construction): a floor on
-# *live* system memory, re-checked on every new location. Something else on
-# the machine can claim RAM at any time after that default was computed --
-# the map's own bookkeeping alone would stay well under its limit and keep
-# growing regardless, right up to a real allocation failure. Raising the
-# map's limit can't fix that case (the machine, not the map, is what's out
-# of room), so this blocks new locations even when the static limit above
-# says there's room left.
+# Recheck free system RAM before adding each new location, regardless of budget.
 LOW_SYSTEM_MEMORY_FLOOR_MB = 512.0
 _GL_OUT_OF_MEMORY = 0x0505
 
 
 def _map_memory_defaults() -> tuple[float, float, float]:
-    """(min, max, default) for the map-memory-limit spinbox, in GB.
-
-    The range is bounded by total physical RAM -- there is no point letting
-    the limit exceed what the machine could ever hold. The default is
-    MAP_MEMORY_DEFAULT_FRACTION of RAM available right now, floored at
-    MAP_MEMORY_DEFAULT_FLOOR_GB so everyday memory pressure doesn't round it
-    down to something impractically small.
-    """
+    """Return (min, max, default) map-memory limits in GB, bounded by physical RAM."""
     vm = psutil.virtual_memory()
     total_gb = round(vm.total / 1024**3, 1)
     available_gb = vm.available / 1024**3
@@ -153,17 +118,9 @@ def _is_allocation_error(exc: BaseException) -> bool:
 class _LatestFrameRelay(QObject):
     """Keep only the newest MDA frame per map location before GUI dispatch.
 
-    ``frameReady`` is emitted from the acquisition thread. A normal Qt queued
-    connection would therefore put one event containing a full image array onto
-    the GUI queue for every acquired frame. If acquisition outruns rendering,
-    those events and arrays accumulate before Stage Explorer's existing redraw
-    throttle gets a chance to see them.
-
-    ``submit`` is connected directly and only mutates data protected by ``_lock``.
-    The first pending frame emits one lightweight wake-up; subsequent frames
-    replace the pending value for their location until the GUI drains the batch.
-    ``_notification_pending`` stays armed for one redraw interval after a drain,
-    which caps GUI wake-ups as well as GPU uploads.
+    ``submit`` runs in the acquisition thread under a lock, avoiding an image per
+    queued Qt event. One lightweight notification wakes the GUI; keeping it armed
+    between drains also limits wake-ups to the redraw cadence.
     """
 
     framesPending = Signal()
@@ -260,14 +217,7 @@ class _StagePoller(QThread):
                 try:
                     x, y = self._mmc.getXYPosition()
                 except Exception:
-                    # A transient hardware/communication error here must not
-                    # kill this thread -- an uncaught exception ends run(), and
-                    # nothing ever restarts it, permanently freezing the
-                    # explorer's position display for the rest of the session
-                    # even after the device recovers and manual moves keep
-                    # working fine. Log once per failure streak, not every
-                    # poll, so a persistent fault doesn't spam the log every
-                    # STAGE_POLL_INTERVAL_MS.
+                    # Keep polling after transient failures; log once per streak.
                     if not was_erroring:
                         logger.exception("Failed to poll XY stage position")
                         was_erroring = True
@@ -381,27 +331,17 @@ class StageExplorer(QWidget):
         self._mda_tile_keys: dict[Hashable, Hashable] = {}
         # Frames waiting to be pushed to the GPU, newest-per-location wins.
         self._pending_tiles: dict[Hashable, tuple[np.ndarray, float, float]] = {}
-        # monotonic() of each location's last actual GPU upload, so throttling
-        # is per-location rather than a single gate shared by the whole map --
-        # a location untouched in the last REDRAW_INTERVAL_MS always applies
-        # immediately (no added latency for a snap, a slow acquisition, or a
-        # multi-position scan visiting a fresh location every time), and only
-        # a location being re-hit faster than the redraw interval gets its
-        # updates coalesced.
+        # Throttle per location so a fresh location is displayed immediately.
         self._tile_last_applied: dict[Hashable, float] = {}
         self._redraw_timer = QTimer(self)
         self._redraw_timer.setInterval(REDRAW_INTERVAL_MS)
         self._redraw_timer.timeout.connect(self._flush_pending_tiles)
-        # MDA frames first pass through a worker-thread relay so full image
-        # arrays cannot accumulate as queued Qt events when acquisition is
-        # faster than the GUI. This timer keeps that relay armed between
-        # drains, limiting GUI wake-ups to the same cadence as redraws.
         self._frame_relay = _LatestFrameRelay(self)
         self._frame_relay.framesPending.connect(self._on_frames_pending)
         self._frame_relay_timer = QTimer(self)
         self._frame_relay_timer.setSingleShot(True)
         self._frame_relay_timer.setInterval(REDRAW_INTERVAL_MS)
-        self._frame_relay_timer.timeout.connect(self._on_frame_relay_timer)
+        self._frame_relay_timer.timeout.connect(self._on_frames_pending)
         self._max_map_memory_mb: float = _map_memory_defaults()[2] * 1000.0
         self._map_memory_exceeded: bool = False
         # Whether the poller was running when hideEvent last paused it, so
@@ -508,13 +448,7 @@ class StageExplorer(QWidget):
         super().closeEvent(a0)
 
     def hideEvent(self, a0: QHideEvent | None) -> None:
-        """Pause hardware polling while nothing can see this widget.
-
-        Covers a closed dock as well as a background tab in a tabbed dock
-        area -- either way, the stage poller would otherwise keep querying
-        hardware (and _on_image_snapped/_on_frame_ready keep redrawing the
-        scene, guarded separately below) for a view nobody is looking at.
-        """
+        """Pause polling and frame delivery while hidden."""
         super().hideEvent(a0)
         self._frame_relay.set_enabled(False)
         self._frame_relay_timer.stop()
@@ -592,14 +526,7 @@ class StageExplorer(QWidget):
     def add_image(
         self, image: np.ndarray, stage_x_um: float, stage_y_um: float
     ) -> None:
-        """Add an image to the scene at a give (x, y) stage position in microns.
-
-        Routed through the same location-keyed tile registry as snaps and MDA
-        frames: a call that lands close to an existing tile (see
-        `_snap_tile_key`) refreshes it in place instead of stacking another
-        node on top, so external callers get the same bounded-growth
-        guarantee as the built-in snap/MDA paths.
-        """
+        """Add or refresh an image at the given stage position in microns."""
         self._queue_tile(
             self._snap_tile_key(stage_x_um, stage_y_um), image, stage_x_um, stage_y_um
         )
@@ -738,14 +665,9 @@ class StageExplorer(QWidget):
     def _on_sequence_finished(self) -> None:
         """Reset scan state when the MDA sequence finishes."""
         self._our_mda_running = False
-        # sequenceFinished may reach the GUI while the relay's redraw timer is
-        # still holding the newest frame. Drain it before flushing the lower
-        # level tile throttle so the final acquired image is always displayed.
+        # Drain both throttles so the final acquired frame is displayed.
         self._frame_relay_timer.stop()
         self._deliver_frame_batch(self._frame_relay.take_and_disarm())
-        # The throttle may be holding the final frame of the run; without this
-        # the map would be missing the last image until something else
-        # happened to trigger a flush.
         self._flush_pending_tiles()
         self._redraw_timer.stop()
         self._mda_tile_keys.clear()
@@ -816,9 +738,7 @@ class StageExplorer(QWidget):
     @Slot()
     def _on_sys_config_loaded(self) -> None:
         """Clear the scene and reinitialize when the system configuration is loaded."""
-        self._stage_viewer.clear()
-        self._contrast_slider.reset_data_range()
-        self._contrast_slider.setVisible(False)
+        self._on_clear_action()
         self._set_stage_controller()
         self._affine_state.refresh()
 
@@ -954,15 +874,6 @@ class StageExplorer(QWidget):
         self._deliver_frame_batch(batch)
         self._frame_relay_timer.start()
 
-    @Slot()
-    def _on_frame_relay_timer(self) -> None:
-        """Drain frames accumulated during the previous redraw interval."""
-        batch = self._frame_relay.take_or_disarm()
-        if not batch:
-            return
-        self._deliver_frame_batch(batch)
-        self._frame_relay_timer.start()
-
     def _deliver_frame_batch(
         self, batch: tuple[tuple[np.ndarray, useq.MDAEvent], ...]
     ) -> None:
@@ -1000,12 +911,7 @@ class StageExplorer(QWidget):
     def _sync_stage_pos_marker(self) -> None:
         """Synchronously move the marker to the current stage position.
 
-        The background `_StagePoller` reports position changes via a queued,
-        cross-thread signal, so its first update can't be delivered until the
-        Qt event loop runs again -- e.g. only *after* __init__ returns. Any
-        `zoom_to_fit()` called before that would fit around the marker's
-        stale/default position rather than the real one, so this is used to
-        get an up-to-date position immediately beforehand.
+        Read before zoom_to_fit rather than waiting for a queued poller update.
         """
         if self._stage_pos_marker is None or not self._mmc.getXYStageDevice():
             return
@@ -1160,23 +1066,13 @@ class StageExplorer(QWidget):
             except Exception as exc:
                 if not _is_allocation_error(exc):
                     raise
-                # The checks above only see *system* RAM; GPU texture memory
-                # is a separate pool on most non-unified-memory hardware, so
-                # a genuine allocation failure here is a distinct resource
-                # this widget has no other way to anticipate. Degrade the
-                # same way as running low on system memory (refuse further
-                # new locations, nothing already drawn is touched) rather
-                # than letting it crash the whole app over one tile.
+                # GPU memory can run out independently of the system RAM checks.
                 logger.exception("Failed to add stage-map tile at (%.1f, %.1f)", x, y)
                 self._set_memory_exceeded(True, system_low=True)
                 return
             self._tiles[key] = node
             self._tile_bytes[key] = cost
             self._map_memory_bytes += cost
-            # A location just went through -- whatever condition previously
-            # blocked one (the map's own limit, or the machine running low)
-            # must no longer hold, so the "paused" banner would otherwise be
-            # left showing stale even as new locations keep being added.
             self._set_memory_exceeded(False)
         self._tile_centers[key] = (x, y)
         self._update_contrast_range(image)
@@ -1300,12 +1196,7 @@ QRangeSlider { qproperty-barColor: qlineargradient(
 
 
 class _MapMemoryBanner(QWidget):
-    """Shown when the map's memory budget is hit; offers Clear to recover.
-
-    Nothing already drawn is ever discarded by the budget itself (see
-    `StageExplorer._apply_tile`) -- this is the recovery path for a user who
-    wants to keep going anyway, by explicitly discarding the map so far.
-    """
+    """Offer to clear the map when new locations exceed its memory budget."""
 
     clearRequested = Signal()
 

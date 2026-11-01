@@ -97,15 +97,7 @@ class SectionMetrics:
 
 
 class _ClickableLabel(QLabel):
-    """A label that emits ``clicked`` on left-click.
-
-    Used for every part of a section's header text (icon, title, summary) so
-    the whole header -- not just the disclosure arrow -- expands/collapses the
-    section. A ``QToolButton`` would need it instead, but even with
-    ``setAutoRaise(True)`` some native styles (e.g. macOS) still paint a
-    visible bezel around text (unlike icon-only autoRaise buttons, which do
-    flatten), so it would look like a stray button next to plain text.
-    """
+    """A clickable header label without native button decoration."""
 
     clicked = Signal()
 
@@ -116,21 +108,14 @@ class _ClickableLabel(QLabel):
     def mousePressEvent(self, ev: QMouseEvent | None) -> None:
         if ev is not None and ev.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
-            # Qt propagates an unaccepted mouse press up to the parent widget
-            # (here, the header) -- accept it so the header's own click handler
-            # doesn't ALSO fire and immediately undo this toggle.
+            # Stop propagation to the header, which would toggle again.
             ev.accept()
         else:
             super().mousePressEvent(ev)
 
 
 class _ClickableFrame(QFrame):
-    """A frame that emits ``clicked`` on left-click.
-
-    Used for the section header itself, so clicking anywhere in the header's
-    background (the space between/around its child widgets) still
-    expands/collapses the section, rather than only the disclosure arrow.
-    """
+    """Make the section header's background clickable too."""
 
     clicked = Signal()
 
@@ -182,12 +167,7 @@ class CollapsibleAcquisitionSection(QWidget):
         self._disclosure.clicked.connect(self.toggle)
         self._header_layout.addWidget(self._disclosure)
 
-        # The disclosure button is the only header widget with a Fixed size
-        # policy; every other widget here (checkbox, icon, title) must be
-        # pinned Fixed explicitly too, or once the summary hides on expand (the
-        # only Expanding widget), Qt's box layout splits the freed-up width
-        # among them instead of leaving it as trailing blank space -- pushing
-        # the icon and title away from the left edge instead of collapsing.
+        # Fixed policies keep the header aligned when its summary is hidden.
         self._checkbox: QCheckBox | None
         if checked is None:
             self._checkbox = None
@@ -198,10 +178,7 @@ class CollapsibleAcquisitionSection(QWidget):
             checkbox.toggled.connect(self._on_checkbox_toggled)
             checkbox.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             self._header_layout.addWidget(checkbox)
-            # Some native styles (e.g. macOS) size a QCheckBox tightly around its
-            # indicator with no built-in right-hand padding, so the layout's
-            # regular inter-widget spacing alone reads as no gap at all next to
-            # the icon/title. Add an explicit spacer so there's always room.
+            # Native checkbox styles may omit right-hand padding.
             self._header_layout.addSpacing(self._metrics.header_spacing)
 
         if icon:
@@ -234,9 +211,6 @@ class CollapsibleAcquisitionSection(QWidget):
         self._body.setObjectName("mdaSectionBody")
         self._body_layout = QVBoxLayout(self._body)
 
-        # Wrap header + body in a bordered "card" so sections read as distinct
-        # groups (see _CardFrame for why the border is painted rather than
-        # styled via a stylesheet or palette role).
         self._card = _CardFrame()
         self._card.setObjectName("mdaSectionCard")
         self._card_layout = QVBoxLayout(self._card)
@@ -294,9 +268,7 @@ class CollapsibleAcquisitionSection(QWidget):
             raise RuntimeError(f"{self._title!r} already has a content widget")
         self._content_widget = widget
         self._body_layout.addWidget(widget)
-        # QTabWidget explicitly hides pages as they are removed.  Reparenting
-        # alone does not clear that state, so mark the original editor visible
-        # inside its new (possibly collapsed) parent.
+        # Reparenting does not clear a removed tab page's hidden state.
         widget.show()
 
     def add_widget(self, widget: QWidget, stretch: int = 0) -> None:
@@ -322,9 +294,6 @@ class CollapsibleAcquisitionSection(QWidget):
         self._checkbox.setChecked(checked)
 
     def _on_checkbox_toggled(self, checked: bool) -> None:
-        # Turning a dimension off also collapses it, since its body is no
-        # longer relevant; turning it on leaves the disclosure state alone
-        # (the user may just be re-enabling a dimension they left collapsed).
         if not checked:
             self.set_expanded(False)
         self.checkedChanged.emit(checked)
@@ -391,14 +360,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
     index (``indexOf``, ``tabChecked``).
     """
 
-    # (axis key, attribute, expanded) of every section, in ``MDATabs._AXES`` order
-    _SECTIONS = (
-        ("c", "channels", False),
-        ("p", "stage_positions", False),
-        ("g", "grid_plan", False),
-        ("z", "z_plan", False),
-        ("t", "time_plan", False),
-    )
     # minimum number of table rows kept visible for the row-based editors
     _MIN_TABLE_ROWS = 3
 
@@ -407,7 +368,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
     ) -> None:
         self._sections_ready = False
         self._metrics = SectionMetrics()
-        self._section_by_axis: dict[str, CollapsibleAcquisitionSection] = {}
         self._section_by_widget: dict[QWidget, CollapsibleAcquisitionSection] = {}
         self._logical_index_by_widget: dict[QWidget, int] = {}
         self._widget_by_logical_index: dict[int, QWidget] = {}
@@ -445,13 +405,11 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         self._content_layout.setContentsMargins(0, 0, 0, 0)
         self._content_layout.setSpacing(self._metrics.content_spacing)
 
-        titles = {attr: title for title, attr in self._AXES}
-        for logical_index, (axis, attr, expanded) in enumerate(self._SECTIONS):
+        for logical_index, (title, attr) in enumerate(self._AXES):
             widget = cast("QWidget", getattr(self, attr))
             section = CollapsibleAcquisitionSection(
-                titles[attr],
+                title,
                 checked=False,
-                expanded=expanded,
                 metrics=self._metrics,
                 icon=MDA_ICONS.get(attr),
                 parent=self._content,
@@ -462,7 +420,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             else:
                 section.set_content_widget(widget)
             widget.setEnabled(False)
-            self._section_by_axis[axis] = section
             self._section_by_widget[widget] = section
             self._logical_index_by_widget[widget] = logical_index
             self._widget_by_logical_index[logical_index] = widget
@@ -571,14 +528,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         self.refresh_summaries()
 
     def add_supporting_sections(self, *, save_info: SaveGroupBox) -> None:
-        """Append the Saving section after the five axes.
-
-        Global settings (axis order, keep shutter open, autofocus axis) are
-        not a section: they have no on/off state and always apply, so there is
-        nothing for a disclosure affordance to reveal. ``MDAWidgetCollapsible``
-        keeps them in a card below the sections instead (see
-        ``MDAWidget._install_layout``).
-        """
+        """Append the Saving section after the five axes."""
         if self._supporting_sections_added:
             return
 
@@ -604,26 +554,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         self._update_save_summary()
         self.apply_save_body_style()
 
-    def apply_save_body_style(self) -> None:
-        """Hide the duplicated native QGroupBox header inside Saving."""
-        if not self._supporting_sections_added:
-            return
-        self._save_info.setTitle("")
-        self._save_info.setFlat(True)
-        self._save_info.setObjectName("mdaSaveInfoBody")
-        self._save_info.setStyleSheet(
-            "QGroupBox#mdaSaveInfoBody {"
-            " border: 0px; margin-top: 0px; padding-top: 0px;"
-            "}"
-            "QGroupBox#mdaSaveInfoBody::title {"
-            " width: 0px; height: 0px; padding: 0px; margin: 0px;"
-            "}"
-            "QGroupBox#mdaSaveInfoBody::indicator {"
-            " image: none; border: 0px; background: transparent;"
-            " width: 0px; height: 0px;"
-            "}"
-        )
-
     def refresh_summaries(self) -> None:
         """Refresh every summary from the original source widgets."""
         for widget in self._section_by_widget:
@@ -642,15 +572,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         self._apply_editor_min_heights()
 
     def _apply_editor_min_heights(self) -> None:
-        """Keep editors tall enough to remain usable when several are open.
-
-        The sections live in a scroll area, so an editor with an Expanding
-        height would otherwise be squeezed when its neighbors are also expanded:
-        the channel/position/time tables collapse to a single row, and the
-        grid editor (itself a scroll area) collapses to just its mode selector.
-        Give each a sensible minimum; the outer scroll area then scrolls instead
-        of collapsing the editors.
-        """
+        """Keep tables usable while the outer scroll area handles overflow."""
         for widget in self._section_by_widget:
             table_getter = getattr(widget, "table", None)
             if callable(table_getter) and isinstance(

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from pymmcore_plus import DeviceType
-from qtpy.QtCore import QSize, Qt
+from qtpy.QtCore import QSize, Qt, Signal
 from qtpy.QtWidgets import QSizePolicy, QToolBar, QWidget
 
 from pymmcore_widgets._icons import StandardIcon
@@ -11,10 +11,7 @@ from pymmcore_widgets._icons import StandardIcon
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from PyQt6.QtGui import QAction
-    from qtpy.QtCore import Signal
-else:
-    from qtpy.QtCore import Signal
+    from qtpy.QtGui import QAction
 
 
 class DeviceButtonToolbar(QToolBar):
@@ -95,12 +92,14 @@ class DeviceButtonToolbar(QToolBar):
 
     def setVisibleDeviceTypes(self, device_types: Iterable[DeviceType]) -> None:
         """Set the visibility of the device type buttons."""
+        device_types = set(device_types)
         for action in self.actions():
             if isinstance(data := action.data(), DeviceType):
                 action.setVisible(data in device_types)
 
     def setCheckedDeviceTypes(self, device_types: Iterable[DeviceType]) -> None:
         """Set the checked state of the device type buttons."""
+        device_types = set(device_types)
         checked = self.checkedDeviceTypes()
         for action in self.actions():
             if isinstance(data := action.data(), DeviceType):

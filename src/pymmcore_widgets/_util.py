@@ -144,6 +144,7 @@ def get_next_available_path(requested_path: Path | str, min_digits: int = 3) -> 
         extension = ".ome" + extension
         stem = stem[:-4]
 
+    bare_path = directory / stem
     # remove any existing counter from the stem to get the base name
     requested_num = None
     if match := NUM_SPLIT.match(stem):
@@ -157,23 +158,23 @@ def get_next_available_path(requested_path: Path | str, min_digits: int = 3) -> 
     # "<stem><extension>" file into a bare "<stem>" directory holding one file
     # per position, so also match directories that dropped the extension.
     current_max = 0
-    exists = requested_path.exists() or (
-        bool(extension) and (directory / stem).exists()
-    )
-    for existing in directory.glob(f"{stem}*"):
+    exists = requested_path.exists() or (bool(extension) and bare_path.is_dir())
+    for existing in directory.glob("*"):
         name = existing.name
         if not extension:
-            # cannot use existing.stem because of the ome (2-part-extension)
-            # special case
             base = name
         elif name.endswith(extension):
-            base = name.replace(extension, "")
+            base = name[: -len(extension)]
         elif existing.is_dir():
             base = name
         else:
             continue
         # if the base name ends with a number, increase the current_max
-        if (match := NUM_SPLIT.match(base)) and (num := match.group(2)):
+        if (
+            (match := NUM_SPLIT.match(base))
+            and match.group(1) == stem
+            and (num := match.group(2))
+        ):
             current_max = max(int(num), current_max)
             # if it has more digits than expected, update the ndigits
             if len(num) > min_digits:

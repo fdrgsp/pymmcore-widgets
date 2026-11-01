@@ -461,8 +461,6 @@ class CameraRoiWidget(QWidget):
         # set the roi values in the spinboxes
         self._update_roi_values()
 
-        # update the info label
-
     @Slot(str, str, object)
     def _on_property_changed(self, device: str, prop: str, value: str) -> None:
         """Handle the property changed event."""

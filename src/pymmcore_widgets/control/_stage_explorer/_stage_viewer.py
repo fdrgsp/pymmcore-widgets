@@ -16,7 +16,7 @@ from vispy.scene.visuals import Image
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
-    from PyQt6.QtGui import QMouseEvent
+    from qtpy.QtGui import QMouseEvent
     from vispy.app.canvas import MouseEvent
     from vispy.scene.widgets import ViewBox
 
@@ -87,31 +87,17 @@ class StageViewer(QWidget):
         self._clims: tuple[float, float] | None = None
         self._cmap: cmap.Colormap = cmap.Colormap("gray")
 
-        # Monotonic draw-order counter. Each new image must sit on top of the
-        # previous ones; deriving that from min(child.order) is an O(N) scan of
-        # the whole scene on every single added frame, so keep a running value.
+        # Keep newer images on top without scanning the scene for its lowest order.
         self._next_order: int = 0
-        # World-space bounding box per image, used by culling below.
-        # A WeakKeyDictionary rather than an attribute on the node: Image
-        # is a vispy Frozen class and rejects new attributes after
-        # construction, and this way an entry disappears on its own once
-        # the node it describes is garbage collected.
+        # Image nodes are frozen; weak mappings hold caches without retaining nodes.
         _WorldRect = tuple[float, float, float, float]
         self._world_rects: WeakKeyDictionary[Image, _WorldRect] = WeakKeyDictionary()
-        # Whether off-screen images are hidden. vispy issues a draw call for
-        # every Image node regardless of whether it intersects the viewport, so
-        # a large map costs the same zoomed in as zoomed out (measured: 400
-        # tiles = 33ms either way, vs 3.5ms with only the 9 visible ones).
+        # Vispy does not cull off-screen images itself.
         self._cull_offscreen: bool = True
-        # Full-resolution source per image, so the texture can be swapped for a
-        # strided copy when zoomed out (see `apply_downsampling`). At level 1
-        # the node displays the source array itself, so this costs nothing.
+        # Retain full-resolution sources while displaying downsampled textures.
         self._sources: WeakKeyDictionary[Image, _TileSource] = WeakKeyDictionary()
         self._downsample: bool = True
-        # Zooming emits a transform change per wheel step; re-uploading every
-        # visible texture on each one would stall the interaction, so wait
-        # until the view settles. Geometry stays correct meanwhile, since each
-        # node's transform carries its current downsampling factor.
+        # Wait until zooming settles before uploading textures at a new resolution.
         self._downsample_timer = QTimer(self)
         self._downsample_timer.setSingleShot(True)
         self._downsample_timer.setInterval(DOWNSAMPLE_DELAY_MS)
@@ -207,16 +193,7 @@ class StageViewer(QWidget):
     def update_image(
         self, frame: Image, img: np.ndarray, transform: np.ndarray | None = None
     ) -> None:
-        """Replace the contents (and placement) of an image already in the scene.
-
-        This is the counterpart to `add_image` for a location that is imaged
-        more than once -- a timelapse at a fixed stage position, or a snap
-        repeated at the same spot. Re-using the node uploads into the existing
-        texture instead of building a whole new scene-graph node, which keeps
-        both the node count and the memory footprint bounded by the number of
-        *distinct* locations on the map rather than by the number of frames
-        acquired.
-        """
+        """Refresh an existing image's data and placement, reusing its scene node."""
         if transform is not None:
             transform = np.asarray(transform)
             if transform.shape != (4, 4):
@@ -377,10 +354,7 @@ class StageViewer(QWidget):
     def cull_to_view(self) -> None:
         """Show only the images intersecting the current camera rect.
 
-        vispy performs no viewport culling of its own, so every Image node in
-        the scene is drawn on every frame even when it is far outside the
-        view. Toggling `visible` is enough to skip the draw call, and it does
-        not affect `bounds()`, so `zoom_to_fit` still sees the whole map.
+        Visibility skips draw calls without changing the bounds used by zoom_to_fit.
         """
         if not self._cull_offscreen:
             for child in self._get_images():
@@ -398,18 +372,8 @@ class StageViewer(QWidget):
     def _culling_rect(self) -> Any:
         """The world-space extent actually rendered on screen.
 
-        `camera.rect` is only the range the camera was explicitly asked to
-        show. This widget's camera enforces ``aspect=1`` (square pixels), so
-        whenever the viewbox itself isn't square -- which is virtually always
-        true for a real dock or window -- PanZoomCamera pads that range on
-        one axis to preserve 1:1 pixel aspect (letterboxing/pillarboxing).
-        What's actually drawn on screen is `camera._real_rect`, computed by
-        `PanZoomCamera._update_transform` and confirmed (empirically) to be
-        updated synchronously whenever `rect` changes, i.e. always fresh here
-        -- using the unpadded `camera.rect` instead would hide tiles that are
-        still genuinely on screen. `_real_rect` isn't public API, so this
-        falls back to the unpadded rect (the old, more-aggressive behavior)
-        if a future vispy version removes or renames it, rather than raising.
+        With aspect=1, PanZoomCamera pads camera.rect to fit the viewport. Its
+        private _real_rect includes that padding; fall back if unavailable.
         """
         cam = self.view.camera
         return getattr(cam, "_real_rect", None) or cam.rect
@@ -417,15 +381,7 @@ class StageViewer(QWidget):
     def _set_world_rect(
         self, frame: Image, shape: tuple[int, ...], matrix: np.ndarray
     ) -> None:
-        """Cache an image's world-space bounding box.
-
-        Culling runs on every pan/zoom, so recomputing each node's bounds
-        from its transform every time would put an O(N) matrix loop in the
-        middle of interaction. The box only changes when the image is added
-        or moved, so it is computed there and cached instead. (Cached in a
-        WeakKeyDictionary rather than as a node attribute -- vispy's Image is
-        a Frozen class and rejects new attributes post-construction.)
-        """
+        """Cache bounds when an image moves, avoiding matrix work during pan/zoom."""
         h, w = shape[0], shape[1]
         corners = np.array(
             [[0, 0, 0, 1], [w, 0, 0, 1], [0, h, 0, 1], [w, h, 0, 1]], dtype=float
@@ -445,8 +401,7 @@ class StageViewer(QWidget):
         if cached is None:  # pragma: no cover - defensive
             return True
         x0, x1, y0, y1 = cached
-        # camera rect is normalized (left < right, bottom < top) even when
-        # the camera is flipped, which this widget's camera is on both axes.
+        # Camera bounds remain normalized when flipped.
         return not (
             x1 < rect.left or x0 > rect.right or y1 < rect.bottom or y0 > rect.top
         )

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar, cast
 
 from qtpy.QtCore import QItemSelectionModel, QSize, Qt, Signal
-from qtpy.QtGui import QPainter
+from qtpy.QtGui import QAction, QPainter
 from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -31,11 +31,8 @@ if TYPE_CHECKING:
     from qtpy.QtGui import QMouseEvent, QPaintEvent
 
     ValueWidget = type[QCheckBox | QSpinBox | QDoubleSpinBox | QComboBox]
-    from PyQt6.QtGui import QAction
 
     Record = dict[str, Any]
-else:
-    from qtpy.QtGui import QAction
 
 
 class DataTable(QTableWidget):
@@ -413,10 +410,7 @@ class DataTableWidget(QWidget):
 
         with signals_blocked(self._table):
             for row in rows:
-                new_row = row + offset
-                data, new_data = self._table.rowData(row), self._table.rowData(new_row)
-                self._table.setRowData(row, new_data)
-                self._table.setRowData(new_row, data)
+                self._swap_rows(row, row + offset)
 
         selection_model = self._table.selectionModel()
         selection_model.clearSelection()
@@ -429,6 +423,11 @@ class DataTableWidget(QWidget):
                 self._table.model().index(row + offset, 0), select_flags
             )
         self.valueChanged.emit()
+
+    def _swap_rows(self, row: int, other: int) -> None:
+        data, other_data = self._table.rowData(row), self._table.rowData(other)
+        self._table.setRowData(row, other_data)
+        self._table.setRowData(other, data)
 
     def _remove_selected(self) -> None:
         """Remove selected row(s)."""

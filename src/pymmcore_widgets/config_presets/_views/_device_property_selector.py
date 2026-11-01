@@ -4,7 +4,14 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, ClassVar, cast
 
 from pymmcore_plus import DeviceType
-from qtpy.QtCore import QAbstractProxyModel, QModelIndex, QSignalBlocker, QSize, Qt
+from qtpy.QtCore import (
+    QAbstractProxyModel,
+    QModelIndex,
+    QSignalBlocker,
+    QSize,
+    Qt,
+    Signal,
+)
 from qtpy.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -29,10 +36,7 @@ from ._device_type_filter_proxy import DeviceTypeFilter
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from PyQt6.QtCore import pyqtSignal as Signal
-    from PyQt6.QtGui import QAction, QKeyEvent
-else:
-    from qtpy.QtCore import Signal
+    from qtpy.QtGui import QAction, QKeyEvent
 
 
 class _PropertySearchToolbar(QToolBar):

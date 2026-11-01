@@ -12,6 +12,7 @@ from qtpy.QtCore import (
     Qt,
     QTransposeProxyModel,
 )
+from qtpy.QtGui import QAction
 from qtpy.QtWidgets import (
     QHeaderView,
     QMenu,
@@ -43,13 +44,10 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from pymmcore_plus import CMMCorePlus
-    from PyQt6.QtGui import QAction
     from qtpy.QtGui import QUndoStack
 
     from pymmcore_widgets._models import Device
 
-else:
-    from qtpy.QtGui import QAction
 
 NOT_TESTING = "PYTEST_VERSION" not in os.environ
 

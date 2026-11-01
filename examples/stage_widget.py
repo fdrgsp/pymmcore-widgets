@@ -5,12 +5,7 @@ in micromanager are displayed with a 'StageWidget'.
 """
 
 from pymmcore_plus import CMMCorePlus, DeviceType
-from qtpy.QtWidgets import (
-    QApplication,
-    QGroupBox,
-    QHBoxLayout,
-    QWidget,
-)
+from qtpy.QtWidgets import QApplication, QGroupBox, QHBoxLayout, QWidget
 
 from pymmcore_widgets import StageWidget
 

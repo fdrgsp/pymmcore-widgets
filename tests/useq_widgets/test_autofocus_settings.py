@@ -110,6 +110,14 @@ def test_defaults_are_left_out(qtbot: QtBot) -> None:
     assert _form(qtbot).value() == {}
 
 
+def test_rebuilding_model_clears_saved_settings(qtbot: QtBot) -> None:
+    form = _form(qtbot)
+    form.setValue({"distance_um": 10.0004, "future_setting": 42})
+    assert form.value() == {"distance_um": 10.0004, "future_setting": 42}
+    form.setModel(Demo)
+    assert form.value() == {}
+
+
 def test_changed_values_are_reported(qtbot: QtBot) -> None:
     form = _form(qtbot)
     form._controls["distance_um"].setValue(25.0)

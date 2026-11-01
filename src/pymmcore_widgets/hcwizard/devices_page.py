@@ -530,10 +530,8 @@ class DevicesPage(ConfigWizardPage):
             else:
                 other_devs.append(device)
 
-        # --- Initialize phase ---
-
-        # Phase 1a: Initialize serial ports
-        for device in serial_devs:
+        # Serial ports and hubs must be initialized before their dependents.
+        for device in (*serial_devs, *hub_devs, *other_devs):
             try:
                 for prop in device.properties:
                     if prop.is_pre_init:
@@ -543,32 +541,8 @@ class DevicesPage(ConfigWizardPage):
                 device.apply_to_core(self._core)
             except Exception as e:
                 err[device.name] = str(e)
-
-        # Phase 1b: Initialize hub devices, discover peripherals after each
-        for device in hub_devs:
-            try:
-                for prop in device.properties:
-                    if prop.is_pre_init:
-                        prop.apply_to_core(self._core, then_update=False)
-                self._core.initializeDevice(device.name)
-                device.initialized = True
-                device.apply_to_core(self._core)
-            except Exception as e:
-                err[device.name] = str(e)
-            # Reload available devices so hub children become discoverable
-            self._model.load_available_devices(self._core)
-
-        # Phase 2: Initialize remaining devices
-        for device in other_devs:
-            try:
-                for prop in device.properties:
-                    if prop.is_pre_init:
-                        prop.apply_to_core(self._core, then_update=False)
-                self._core.initializeDevice(device.name)
-                device.initialized = True
-                device.apply_to_core(self._core)
-            except Exception as e:
-                err[device.name] = str(e)
+            if device.device_type == DeviceType.Hub:
+                self._model.load_available_devices(self._core)
 
         return err
 
@@ -578,8 +552,9 @@ class DevicesPage(ConfigWizardPage):
         Refreshes parent hub references from core for devices that may have had
         their parent set during hub initialization but not in the config file.
         """
+        loaded = set(self._core.getLoadedDevices())
         for dev in self._model.devices:
-            if dev.name not in self._core.getLoadedDevices():
+            if dev.name not in loaded:
                 continue
             try:
                 parent = self._core.getParentLabel(dev.name)

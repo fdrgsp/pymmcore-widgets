@@ -161,9 +161,10 @@ class ConfigWizard(QWizard):
         device_names = {d.name for d in self._model.devices}
         device_names.add(Keyword.CoreDevice.value)
 
-        # --- config groups ---
-        groups_to_remove: list[str] = []
-        for group in self._model.config_groups.values():
+        for group in (
+            *self._model.config_groups.values(),
+            self._model.pixel_size_group,
+        ):
             presets_to_remove: list[str] = []
             for preset in group.presets.values():
                 preset.settings = [
@@ -173,22 +174,9 @@ class ConfigWizard(QWizard):
                     presets_to_remove.append(preset.name)
             for name in presets_to_remove:
                 del group.presets[name]
+        for name, group in list(self._model.config_groups.items()):
             if not group.presets:
-                groups_to_remove.append(group.name)
-        for name in groups_to_remove:
-            del self._model.config_groups[name]
-
-        # --- pixel size presets ---
-        px = self._model.pixel_size_group
-        px_presets_to_remove: list[str] = []
-        for preset in px.presets.values():
-            preset.settings = [
-                s for s in preset.settings if s.device_name in device_names
-            ]
-            if not preset.settings:
-                px_presets_to_remove.append(preset.name)
-        for name in px_presets_to_remove:
-            del px.presets[name]
+                del self._model.config_groups[name]
 
     def _update_step(self, current_index: int) -> None:
         """Change text on the left when the page changes."""

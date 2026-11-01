@@ -268,11 +268,13 @@ class SettingsForm(QWidget):
         self._controls.clear()
         self._unsupported.clear()
         self._dynamic.clear()
+        self._given.clear()
+        self._unknown.clear()
+        self._field_labels.clear()
         self._model = model
         if model is None:
             return
 
-        self._field_labels.clear()
         labels = self._field_labels
         hints = get_type_hints(model)
         for field in dataclasses.fields(model):

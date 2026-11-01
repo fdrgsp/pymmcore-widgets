@@ -29,9 +29,7 @@ class _CoreConnectedPositionTable(CoreConnectedPositionTable):
     ):
         super().__init__(rows, mmcore, parent)
 
-        # subclassing to disconnect the signals from this widget so we use the ones
-        # we will implement in the MDAWidget that take into account both the autofocus
-        # device mand the z plan
+        # MDAWidget handles these events with autofocus and Z-plan awareness.
         ev = self._mmc.events
         ev.systemConfigurationLoaded.disconnect(self._on_sys_config_loaded)
         ev.propertyChanged.disconnect(self._on_property_changed)
@@ -77,7 +75,7 @@ class CoreMDATabs(MDATabs):
     def _enable_tabs(self, enable: bool) -> None:
         """Enable or disable the tab checkboxes and their contents.
 
-        However, we can still mover through the tabs and see their contents.
+        Keep tab navigation available during an acquisition.
         """
         # disable tab checkboxes
         for cbox in self._cboxes:
@@ -100,12 +98,7 @@ class CoreMDATabs(MDATabs):
     def add_supporting_sections(self, *, save_info: SaveGroupBox) -> None:
         """Append the Saving tab after the five axes.
 
-        ``MDAWidget`` calls this once while building its layout; another
-        presentation (e.g. ``CollapsibleCoreMDATabs``) puts Saving elsewhere.
-        Saving's tab checkbox is synced with ``SaveGroupBox``'s own checkable
-        state (``_on_saving_tab_checked`` / ``_on_save_info_toggled``), and the
-        native title is then hidden (``apply_save_body_style``) so the tab
-        checkbox is the only enable control shown, not two redundant ones.
+        Sync the tab checkbox with SaveGroupBox and hide its duplicated header.
         """
         if self._supporting_sections_added:
             return
@@ -127,22 +120,11 @@ class CoreMDATabs(MDATabs):
         self._save_info.setChecked(checked)
 
     def _on_save_info_toggled(self, checked: bool) -> None:
-        """The reverse direction of `_on_saving_tab_checked`.
-
-        `QCheckBox.setChecked` only emits `toggled` on an actual change, so
-        the two directions naturally settle after one bounce rather than
-        looping.
-        """
+        """Sync the tab checkbox; setChecked emits only when its state changes."""
         self.setChecked(self._save_info, checked)
 
     def apply_save_body_style(self) -> None:
-        """Hide the duplicated native QGroupBox header inside Saving.
-
-        The Saving tab's own checkbox is the enable control (kept in sync by
-        `_on_saving_tab_checked`/`_on_save_info_toggled`), so the native
-        checkable title `SaveGroupBox` draws by default would just be a
-        second, redundant toggle.
-        """
+        """Hide the native header; the containing tab or section supplies a toggle."""
         if not self._supporting_sections_added:
             return
         self._save_info.setTitle("")

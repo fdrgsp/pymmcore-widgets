@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 import useq
-from pymmcore_plus import CMMCorePlus, PropertyType
+from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import Slot
 from qtpy.QtWidgets import QCheckBox, QHBoxLayout, QVBoxLayout, QWidget
 from superqt.utils import signals_blocked
@@ -13,9 +13,9 @@ from pymmcore_widgets._channel_settings import (
     CAMERA_PROPERTIES,
     UNSET_TOOLTIP,
     ChannelSettings,
-    camera_key,
     camera_property_columns,
     read_camera_cell,
+    settings_properties,
     write_camera_cell,
 )
 from pymmcore_widgets._light_sources import (
@@ -287,7 +287,9 @@ class CoreConnectedChannelTable(ChannelTable):
 
     def rowSettings(self, row: int) -> ChannelSettings:
         """Return the exposure, light source and camera properties of `row`."""
-        rec = self.table().rowData(row)
+        return self._record_settings(self.table().rowData(row))
+
+    def _record_settings(self, rec: Mapping[str, Any]) -> ChannelSettings:
         return ChannelSettings(
             exposure=float(rec.get("exposure") or DEFAULT_EXP),
             light_source=str(rec.get(LIGHT_SOURCE_KEY) or NO_LIGHT_SOURCE),
@@ -362,45 +364,22 @@ class CoreConnectedChannelTable(ChannelTable):
         records = self.table().iterRecords(exclude_unchecked=exclude_unchecked)
         for idx, rec in enumerate(records):
             config = str(rec.get("config", ""))
-            if self._light_source_visible:
-                props.extend(self._light_source_properties(idx, config, rec))
+            settings = self._record_settings(rec)
+            if not self._light_source_visible:
+                settings["light_source"] = NO_LIGHT_SOURCE
             props.extend(
                 ChannelProperty(
                     channel_index=idx,
                     config=config,
-                    group=camera_key(prop),
-                    device=self._camera,
+                    group=group,
+                    device=device,
                     property=prop,
                     value=value,
                 )
-                for prop, value in self._row_camera_values(rec).items()
+                for group, device, prop, value in settings_properties(
+                    self._mmc, settings, self._light_sources
+                )
             )
-        return props
-
-    def _light_source_properties(
-        self, idx: int, config: str, rec: Mapping[str, Any]
-    ) -> list[ChannelProperty]:
-        props: list[ChannelProperty] = []
-        group = rec.get(LIGHT_SOURCE_KEY) or NO_LIGHT_SOURCE
-        if group in self._light_sources:
-            dev_props = self._light_sources[group]
-            value = float(rec.get(INTENSITY_KEY) or 0.0)
-            for device, prop in dev_props:
-                cast_value: float | int = (
-                    int(value)
-                    if self._mmc.getPropertyType(device, prop) is PropertyType.Integer
-                    else value
-                )
-                props.append(
-                    ChannelProperty(
-                        channel_index=idx,
-                        config=config,
-                        group=group,
-                        device=device,
-                        property=prop,
-                        value=cast_value,
-                    )
-                )
         return props
 
     def setChannelProperties(self, value: Iterable[ChannelProperty]) -> None:
@@ -435,19 +414,8 @@ class CoreConnectedChannelTable(ChannelTable):
                     if info is not None and entry["device"] == self._camera:
                         write_camera_cell(table, row, info, entry["value"])
                     continue
-                # Prefer the saved `group` when it is still a light source that
-                # actually offers this (device, property): a single (device,
-                # property) can be reachable under more than one label -- e.g. a
-                # single-preset config group *and* the synthesized "Device ·
-                # Property" entry both wrap it -- and `labels` is a plain dict,
-                # so it silently keeps whichever of them `_light_sources`
-                # happens to yield last. Resolving on `group` first makes the
-                # round trip lossless and independent of that ordering.
-                #
-                # Otherwise fall back to (device, property), which is what
-                # actually gets applied, so a sequence saved under a group that
-                # no longer exists still restores its property rather than
-                # being silently dropped.
+                # Preserve the saved label when several sources share a property;
+                # otherwise resolve by device/property if the group was removed.
                 dev_prop = (entry["device"], entry["property"])
                 group = entry["group"]
                 if dev_prop in self._light_sources.get(group, ()):
@@ -474,6 +442,13 @@ class CoreConnectedChannelTable(ChannelTable):
         return dict(self._light_sources)
 
     # ------------------- Private API -------------------
+
+    def _swap_rows(self, row: int, other: int) -> None:
+        settings, other_settings = self.rowSettings(row), self.rowSettings(other)
+        super()._swap_rows(row, other)
+        # Restore intensity after configuring the destination row's range.
+        self.setRowSettings(row, other_settings)
+        self.setRowSettings(other, settings)
 
     def _position_extra_columns(self) -> None:
         """Move the light source/intensity columns to just after Exposure.
@@ -566,10 +541,6 @@ class CoreConnectedChannelTable(ChannelTable):
         if ch_group and ch_group in self.channelGroups():
             self._group_combo.setCurrentText(ch_group)
 
-    def _find_light_sources(self) -> dict[str, list[tuple[str, str]]]:
-        """Return writable numeric range properties and eligible config groups."""
-        return find_light_sources(self._mmc)
-
     def _apply_light_source_visibility(self) -> None:
         table = self.table()
         for info in (self._light_source_column, self.INTENSITY):
@@ -592,7 +563,7 @@ class CoreConnectedChannelTable(ChannelTable):
 
     def _update_light_sources(self) -> None:
         """Rebuild the light source column's choices from the current configuration."""
-        self._light_sources = self._find_light_sources()
+        self._light_sources = find_light_sources(self._mmc)
 
         table = self.table()
         ls_col = table.indexOf(self._light_source_column)

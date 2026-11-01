@@ -152,16 +152,7 @@ class CoreConnectedPositionTable(PositionTable):
     # ----------------------- private methods -----------------------
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
-        # An ancestor (e.g. this whole table, disabled while an MDA runs) being
-        # enabled/disabled also delivers EnabledChange events to af_per_position,
-        # even though its *own* enabled state was never touched -- reacting to
-        # those was hiding the AF column (and emitting valueChanged) as a side
-        # effect of disabling the table, not of anything the user did to the
-        # checkbox itself. WA_ForceDisabled is Qt's own bookkeeping for "this
-        # widget was explicitly setEnabled(False)'d, independent of its
-        # ancestors" (as opposed to merely inheriting a disabled ancestor), so
-        # comparing it against the last-seen value isolates exactly the
-        # explicit toggles this handler is meant for.
+        # React only to explicit enablement changes, not a disabled ancestor.
         if obj is self.af_per_position and event.type() == QEvent.Type.EnabledChange:
             force_disabled = obj.testAttribute(Qt.WidgetAttribute.WA_ForceDisabled)
             if force_disabled != self._af_per_position_force_disabled:

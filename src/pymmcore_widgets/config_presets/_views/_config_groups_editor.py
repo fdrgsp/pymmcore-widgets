@@ -10,7 +10,7 @@ from qtpy.QtCore import (
     Qt,
     Signal,
 )
-from qtpy.QtGui import QKeySequence, QUndoStack
+from qtpy.QtGui import QAction, QActionGroup, QKeySequence, QUndoStack
 from qtpy.QtWidgets import (
     QButtonGroup,
     QDialog,
@@ -61,10 +61,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
     from pymmcore_plus import CMMCorePlus
-    from PyQt6.QtGui import QAction, QActionGroup
-
-else:
-    from qtpy.QtGui import QAction, QActionGroup
 
 
 # -----------------------------------------------------------------------------

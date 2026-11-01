@@ -215,14 +215,9 @@ class MDATabs(CheckableTabWidget):
     _PAGE_MARGIN = 9
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        # An editor -> the page actually registered with the tab widget (see
-        # `_add_tab`). `indexOf` and `setCurrentWidget` translate through this so
-        # every other method -- including `CheckableTabWidget.isChecked`/
-        # `setChecked`, which call `self.indexOf` internally -- can keep referring
-        # to the editor itself (e.g. `self.z_plan`) without knowing it is wrapped.
+        # Resolve editor widgets to their wrapping tab pages.
         self._page_for: dict[QWidget, QWidget] = {}
-        # page -> the plain (undyed) icon its tab was given, so a theme sweep can
-        # re-tint from a stable source instead of compounding tints.
+        # Preserve untinted icons for theme changes.
         self._tab_icons: dict[QWidget, QIcon] = {}
         super().__init__(parent)
         self.tabChecked.connect(self._on_tab_checked)
@@ -242,21 +237,13 @@ class MDATabs(CheckableTabWidget):
         Subclasses may override this to present the editors differently (e.g. as
         collapsible sections).
         """
-        # Every tab's real content is a custom button widget (see _add_tab), not
-        # native icon/text -- only _AxisTabBar sizes and paints tabs correctly
-        # for that (see its docstring). Document mode drops the native frame the
-        # tab widget would otherwise draw around the page, which _AxisTabBar's
-        # own flat border replaces.
         self.setTabBar(_AxisTabBar(self))
         self.setDocumentMode(True)
         for title, attr in self._AXES:
             widget = cast("QWidget", getattr(self, attr))
             card = attr in ("grid_plan", "z_plan")
             self._add_tab(widget, title, attr, checked=False, card=card)
-            # The grip lets a table trade vertical space with its neighbours
-            # in the collapsible presentation's shared scroll area. Here each
-            # table gets its own full-height tab page instead, so there are no
-            # neighbours to negotiate with and the grip is just clutter.
+            # Each tab fills its page, so tables do not need resize grips.
             if (grip := getattr(widget, "_resize_grip", None)) is not None:
                 grip.hide()
         self.setCurrentWidget(self.channels)
@@ -298,10 +285,7 @@ class MDATabs(CheckableTabWidget):
             page_layout.addWidget(scroll)
         else:
             page_layout.addWidget(widget)
-            # An editor that caps its own height (SaveGroupBox does) cannot
-            # fill the page, and a lone item in a box layout is centered in
-            # the space it does not take -- leaving the form floating
-            # mid-tab. Absorb the remainder below it instead.
+            # Keep editors with a maximum height at the top of the page.
             if widget.maximumHeight() < QWIDGETSIZE_MAX:
                 page_layout.addStretch()
         self._page_for[widget] = page
@@ -313,16 +297,9 @@ class MDATabs(CheckableTabWidget):
 
         btn = _AxisTabButton(title, icon, checked=checked)
         if checked is not None:
-            # `_cboxes` is typed for QCheckBox by the base class, but every
-            # consumer (`CheckableTabWidget.isChecked`/`setChecked`,
-            # `CoreMDATabs._enable_tabs`) only ever calls `.isChecked()`/
-            # `.setChecked()`/`.setEnabled()` on its contents -- all of which
-            # `_AxisTabButton` supports.
+            # _AxisTabButton implements the checkbox API used by the base class.
             self._cboxes.append(cast("QCheckBox", btn))
-            # Disable the editor itself rather than its page: `_enable_tabs`
-            # re-enables editors by name, which a disabled *parent* would
-            # silently override. `indexOf` resolves the widget back to its page,
-            # so the inherited handler still finds the right tab.
+            # A disabled page would override later enablement of its editor.
             btn.toggled.connect(lambda c, w=widget: self._on_tab_checkbox_toggled(c, w))
             if not checked:
                 widget.setEnabled(False)
@@ -362,15 +339,7 @@ class MDATabs(CheckableTabWidget):
         return self._tab_icons.get(page) if page is not None else None
 
     def set_tab_icon(self, index: int, icon: QIcon) -> None:
-        """Replace a tab's rendered icon (its button widget's, not the native tab's).
-
-        A downstream theme sweep uses this to re-tint from the stable source
-        `tab_icon` returns, rather than `QTabWidget.setTabIcon`: the native
-        tab icon is deliberately left empty (see `_add_tab`), so setting one
-        would add an icon nothing in this presentation displays -- and native
-        tab styles are free to decorate a tab that suddenly has both an icon
-        and a corner button in ways this presentation never asked for.
-        """
+        """Replace the displayed button icon, preserving the source in `tab_icon`."""
         if tab_bar := self.tabBar():
             btn = tab_bar.tabButton(index, QTabBar.ButtonPosition.LeftSide)
             if isinstance(btn, _AxisTabButton):
@@ -452,11 +421,7 @@ class MDATabs(CheckableTabWidget):
     def setValue(self, value: useq.MDASequence) -> None:
         """Set widget value from a [`useq.MDASequence`][].
 
-        The current tab is kept: every axis the sequence uses is checked in turn,
-        and a tab checkbox selects its own tab (``change_tab_on_check``, meant
-        for an *interactive* click). Restoring saved state is not navigation
-        though, so whichever axis happened to be checked last would otherwise
-        decide what the user is looking at.
+        Preserve the current tab while checking the restored sequence's axes.
         """
         if not isinstance(value, useq.MDASequence):  # pragma: no cover
             raise TypeError(f"Expected useq.MDASequence, got {type(value)}")
@@ -591,11 +556,7 @@ class AutofocusAxis(QGroupBox):
         self.every_n_timepoints.setToolTip(AF_EVERY_N_TOOLTIP)
         disable_wheel_scroll(self.every_n_timepoints)
 
-        # The last plan of each kind seen by setPlan(), used as the base that value()
-        # edits.  It carries the fields this widget cannot edit (the motor offset,
-        # retries, and a software plan's method and settings), so a
-        # setValue()/value() round trip never drops them -- and never silently turns a
-        # software autofocus plan into a hardware one.
+        # Preserve plan fields this widget cannot edit, such as offsets and retries.
         self._hardware_plan: useq.AxesBasedAF | None = None
         self._software_plan: useq.SoftwareAxesBasedAF | None = None
 
@@ -940,19 +901,17 @@ class AutofocusAxis(QGroupBox):
         """
         updates: dict = {"axes": axes}
         if self.kind() == "software":
-            # a software plan needs a `method`, which this widget cannot choose: it can
-            # only edit one it was given.
             updates["every_n_timepoints"] = self.every_n_timepoints.value()
             if method := self.softwareMethod():
                 updates["method"] = method
                 updates["settings"] = self.softwareSettings()
             soft = self._software_plan or useq.SoftwareAxesBasedAF(axes=axes, method="")
-            return soft.replace(**updates, **kwargs)
+            return soft.replace(**(updates | kwargs))
         updates["search_below_um"] = self.search_below_um.value()
         updates["search_above_um"] = self.search_above_um.value()
         updates["search_step_um"] = self.search_step_um.value()
         hard = self._hardware_plan or useq.AxesBasedAF(axes=axes)
-        return hard.replace(**updates, **kwargs)
+        return hard.replace(**(updates | kwargs))
 
     def setPlan(self, plan: useq.AnyAutofocusPlan | None) -> None:
         """Restore the kind and per-kind settings from `plan`."""
@@ -971,10 +930,6 @@ class AutofocusAxis(QGroupBox):
                     self.method.setCurrentText(plan.method)
                     self._method_settings[plan.method] = dict(plan.settings)
                     self._update_settings_button()
-                # make sure the option can be chosen, so value() round-trips the plan
-                # even before a method picker exists.
-                self.use_software.setEnabled(True)
-                self.use_software.setToolTip(AF_SOFTWARE_TOOLTIP)
                 self.setKind("software")
             else:
                 self._hardware_plan = plan
@@ -1030,8 +985,7 @@ class MDASequenceWidget(QWidget):
 
     The acquisition axes are laid out as checkable tabs (checkbox and icon on top,
     name below; see `MDATabs`). Settings (axis order, keep shutter open) and
-    Autofocus are not tabs: they have no on/off state and always apply, so each
-    gets a card of its own between the tabs and the footer, staying visible
+    Autofocus each get a card between the tabs and the footer, staying visible
     whichever tab is showing. The footer holds the time estimate and the Save/Load
     Settings buttons.
     """
@@ -1234,11 +1188,7 @@ class MDASequenceWidget(QWidget):
         value : useq.MDASequence
             The [`useq.MDASequence`][] to set.
         """
-        # Restoring a whole sequence touches several axis widgets, each wired to
-        # `valueChanged` both directly and via `_update_available_axis_orders`
-        # (itself triggered a second time by the tab-checked cascade from
-        # `tab_wdg.setValue`'s `setChecked` calls) -- block the fan-out here and
-        # emit once at the end so setValue() looks atomic to observers.
+        # Restore atomically: observers should see only the completed sequence.
         with signals_blocked(self):
             self.tab_wdg.setValue(value)
 

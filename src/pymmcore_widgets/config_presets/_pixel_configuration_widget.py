@@ -18,6 +18,7 @@ from qtpy.QtCore import (
     Signal,
     Slot,
 )
+from qtpy.QtGui import QAction
 from qtpy.QtWidgets import (
     QAbstractSpinBox,
     QDialog,
@@ -52,9 +53,6 @@ from ._views._property_setting_delegate import PropertySettingDelegate
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
-    from PyQt6.QtGui import QAction
-else:
-    from qtpy.QtGui import QAction
 
 FIXED = QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 PX = "px"
@@ -255,7 +253,7 @@ class PixelConfigurationWidget(QWidget):
             return
 
         for row, rec in enumerate(value):
-            self._resID_map[row] = value[row]
+            self._resID_map[row] = rec
             self._px_table._add_row()
             data = {
                 self._px_table.ID.key: rec.name,
@@ -298,9 +296,6 @@ class PixelConfigurationWidget(QWidget):
 
     @Slot()
     def _on_sys_config_loaded(self) -> None:
-        self._px_table._remove_all()
-        self._resID_map.clear()
-
         # (re)collect device/property metadata for the picker and the value table
         self._loaded_devices = tuple(get_loaded_devices(self._mmc))
         self._prop_meta = {
@@ -308,26 +303,7 @@ class PixelConfigurationWidget(QWidget):
         }
 
         px_groups = PixelSizeGroup.create_from_core(self._mmc)
-        if not px_groups.presets:
-            self._clear_property_view()
-            self.setClean()
-            return
-
-        for row, px_preset in enumerate(px_groups.presets.values()):
-            self._resID_map[row] = px_preset
-            data = {
-                self._px_table.ID.key: px_preset.name,
-                self._px_table.VALUE.key: px_preset.pixel_size_um,
-            }
-            self._px_table._add_row()
-            self._px_table.table().setRowData(row, data)
-            self._connect_px_spinbox(row)
-
-        # select first row of px_table corresponding to the first resolutionID
-        self._px_table._table.selectRow(0)
-
-        # freshly loaded from the core: this is the new clean baseline
-        self.setClean()
+        self.setValue(list(px_groups.presets.values()))
 
     def _connect_px_spinbox(self, row: int) -> None:
         """Connect the pixel-size spinbox of `row` to `_on_px_value_changed`."""
@@ -679,9 +655,17 @@ class _PixelTable(DataTableWidget):
     def __init__(self, rows: int = 0, parent: QWidget | None = None):
         super().__init__(rows, parent)
 
-        self._toolbar.removeAction(self.act_check_all)
-        self._toolbar.removeAction(self.act_check_none)
-        self._toolbar.actions()[2].setVisible(False)  # separator
+        # Pixel presets are keyed by name; row reordering has no meaning here.
+        for action in (
+            self.act_check_all,
+            self.act_check_none,
+            self.act_move_up,
+            self.act_move_down,
+        ):
+            self._toolbar.removeAction(action)
+        for action in self._toolbar.actions():
+            if action.isSeparator():
+                self._toolbar.removeAction(action)
 
         # the table already grows with the layout here, so the drag-to-resize
         # grip would only add a stray handle above the affine table

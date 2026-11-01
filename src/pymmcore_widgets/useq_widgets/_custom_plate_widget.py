@@ -190,10 +190,7 @@ class CustomPlateWidget(QDialog):
 
         # LAYOUT ---------------------------------------------------------------
 
-        # unlike the label + field rows, this one has no label to line up
-        # with, so it spans the panel's full width (flush with where the
-        # labels start), giving the buttons more room instead of being
-        # confined to (and clipped by) the narrower field column
+        # Let the buttons span the panel instead of just the field column.
         btn_row = QWidget()
         btn_row_layout = QHBoxLayout(btn_row)
         btn_row_layout.setContentsMargins(0, 0, 0, 0)
@@ -296,10 +293,7 @@ class CustomPlateWidget(QDialog):
 
     def _clear_form(self) -> None:
         with signals_blocked(self._plate_list):
-            # clearSelection() alone only removes the highlight; it leaves the
-            # list's "current" item in place, so re-clicking that same item
-            # afterwards wouldn't re-fire currentTextChanged. setCurrentRow(-1)
-            # actually clears it, so any later click is seen as a real change.
+            # Clear the current item too so clicking it again emits a change.
             self._plate_list.setCurrentRow(-1)
         self._editing_key = None
         self._delete_btn.setEnabled(False)
@@ -315,10 +309,6 @@ class CustomPlateWidget(QDialog):
         # imported lazily to avoid a circular import with `_well_plate_widget`
         from ._well_plate_widget import _sort_plate
 
-        # one flat, sorted list of everything useq knows about - built-ins and
-        # custom plates alike are equally editable/deletable here, so there's
-        # no need to separate them; a newly saved plate lands wherever it
-        # naturally sorts (usually near the bottom) and gets focused below.
         names = sorted(useq.registered_well_plate_keys(), key=_sort_plate)
 
         with signals_blocked(self._plate_list):
@@ -335,31 +325,16 @@ class CustomPlateWidget(QDialog):
                 # the list is short and sorted, so a newly saved plate can land
                 # below the fold; make sure it's actually in view
                 self._plate_list.scrollToItem(items[0])
-                # give the list keyboard focus so the new selection renders with
-                # the "active" highlight color; otherwise (e.g. on macOS) an
-                # unfocused selection can render as a pale highlight with white
-                # text, making the newly-saved item look like it isn't there
+                # Use the active selection highlight for the newly saved plate.
                 self._plate_list.setFocus()
                 return
         self._delete_btn.setEnabled(self._plate_list.currentItem() is not None)
 
     def _schedule_repaint(self) -> None:
-        """Repaint the whole dialog once the current button handler has unwound.
+        """Repaint after the button handler and its signal cascade settle.
 
-        Rewriting the list and the form synchronously inside a Save/Delete/New
-        handler -- which also fans a large signal cascade out through whatever
-        embeds this dialog -- leaves a stale frame on screen: the list shows
-        repeated rows and drops the new one, and the form keeps the *previous*
-        plate's name and numbers. The widgets' actual state is correct
-        throughout; only the painted pixels lag, until some later event
-        (clicking another row) happens to force a redraw.
-
-        Repainting on the next event loop pass, after the cascade has settled,
-        is what fixes it; update()/repaint() called at any point *during* the
-        handler is not enough. Every descendant has to be invalidated
-        individually, too: updating only this dialog leaves the list stale,
-        since Qt skips opaque child widgets (here the list's viewport) when
-        just their parent is marked dirty.
+        Invalidate descendants too: updating the dialog skips opaque children
+        such as the list viewport, which can otherwise retain stale pixels.
         """
         QTimer.singleShot(0, self._repaint)
 

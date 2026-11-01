@@ -536,6 +536,7 @@ class ChannelSettingsTable(DataTableWidget):
         stored = self._settings.get(group, {})
         table = self._table
         with signals_blocked(table):
+            self._active_row = -1
             table.setRowCount(0)
             table.setRowCount(len(presets))
             for row, preset in enumerate(presets):

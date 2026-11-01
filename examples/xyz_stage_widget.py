@@ -13,7 +13,7 @@ from pymmcore_widgets import XYZStageWidget
 
 app = QApplication([])
 
-mmc = CMMCorePlus().instance()
+mmc = CMMCorePlus.instance()
 mmc.loadSystemConfiguration()
 
 wdg = XYZStageWidget()

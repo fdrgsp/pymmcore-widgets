@@ -75,9 +75,7 @@ class XYZStageWidget(QWidget):
         # WIDGETS ------------------------------------------------
 
         self._xy_move_btns = StageMovementButtons(show_x=True)
-        # X and Y have independent step values (self._x_step / self._y_step
-        # below), so the grid's own built-in step scaling is left at 1.0 (a
-        # no-op multiplier) and never shown; see _on_xy_move_requested.
+        # Apply the independent X/Y steps in _on_xy_move_requested.
         self._xy_move_btns.step_size.setValue(1.0)
         self._xy_halt = HaltButton("", self._mmc, self)
         xy_grid = cast("QGridLayout", self._xy_move_btns.layout())
@@ -104,9 +102,6 @@ class XYZStageWidget(QWidget):
         for lbl in (self._xy_no_device_lbl, self._z_no_device_lbl):
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl.setWordWrap(True)
-            # wide enough that the wrapped text is fully readable (the button
-            # grids alone -- especially the single-column Z one -- are too
-            # narrow for "No core Focus Device" etc. not to be clipped)
             lbl.setFixedWidth(110)
 
         self._xy_stack = QStackedWidget()
@@ -142,13 +137,9 @@ class XYZStageWidget(QWidget):
 
         # LAYOUT ------------------------------------------------
 
-        # constrain the movement grids to their natural (sizeHint) size in both
-        # directions, matching StageWidget's own `addWidget(..., AlignCenter)`
-        # pattern, so they never stretch/spread their rows or columns apart
+        # Keep the arrow grids at their natural size.
         grid_fixed = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
 
-        # invert checkboxes sit directly under the arrows, left-aligned to
-        # them; Snap/Poll ride along on the same row, after X/Y/Z
         invert_row = QHBoxLayout()
         invert_row.setSpacing(10)
         invert_row.addWidget(self.snap_checkbox)
@@ -178,10 +169,7 @@ class XYZStageWidget(QWidget):
         pos_col.setRowStretch(1, 1)
         pos_col.setRowStretch(2, 1)
 
-        # top_row: arrows are pinned to their natural size (grid_fixed);
-        # pos_col is deliberately left unaligned so it stretches to match
-        # *just* the arrows' height (not the invert row below), letting its
-        # row stretch spread its fields evenly across that same vertical span
+        # Let the position fields stretch to the arrows' height.
         self._top_row = QHBoxLayout()
         self._top_row.setSpacing(6)
         self._top_row.addWidget(self._xy_stack, 0, grid_fixed)
@@ -195,11 +183,6 @@ class XYZStageWidget(QWidget):
         move_box_layout.addLayout(self._top_row)
         move_box_layout.addLayout(invert_row)
 
-        # a plain nested QLayout only grows if its *contents* ask for more
-        # space, but a QGroupBox is a real QWidget whose own (Preferred,
-        # Preferred) size policy actively requests extra space from its
-        # parent layout. Pin it to its natural sizeHint in both directions so
-        # it never stretches/spreads its contents apart on window resize.
         move_box.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         main_layout = QVBoxLayout(self)
@@ -219,6 +202,7 @@ class XYZStageWidget(QWidget):
         self._poll_cb.toggled.connect(self._toggle_poll_timer)
         self._mmc.events.systemConfigurationLoaded.connect(self._on_devices_changed)
         self._mmc.events.propertyChanged.connect(self._on_property_changed)
+        self.destroyed.connect(self._disconnect)
 
         # INITIALIZATION ------------------------------------------
 
@@ -286,12 +270,9 @@ class XYZStageWidget(QWidget):
         self._xy_halt.setDevice(device)
         xy_page = self._xy_move_btns if device else self._xy_no_device_lbl
         self._xy_stack.setCurrentWidget(xy_page)
-        # a QStackedWidget normally sizes itself to fit its *largest* page; size
-        # it to just the current page instead, so the compact button grid isn't
-        # stretched to accommodate the (much wider) "no device" placeholder text
+        # Size to the current page rather than the stack's largest page.
         self._xy_stack.setFixedSize(xy_page.sizeHint())
-        # the grid must stay top-aligned so its rows match X/Y/Z in pos_col,
-        # but the (shorter) placeholder should be centered in that same span
+        # Align arrow rows with the fields; center the shorter placeholder.
         v_align = Qt.AlignmentFlag.AlignTop if device else Qt.AlignmentFlag.AlignVCenter
         self._top_row.setAlignment(self._xy_stack, Qt.AlignmentFlag.AlignLeft | v_align)
         self._x_step.setEnabled(bool(device))
@@ -351,9 +332,6 @@ class XYZStageWidget(QWidget):
     def _on_xy_move_requested(self, xmag: float, ymag: float) -> None:
         if self._xy_controller is None:
             return
-        # xmag/ymag are the raw (-1, 0, 1) direction multipliers here, since
-        # the grid's own step scaling is fixed at 1.0 -- apply the
-        # independent X/Y step values ourselves
         xmag *= self._x_step.value()
         ymag *= self._y_step.value()
         if self._invert_x.isChecked():

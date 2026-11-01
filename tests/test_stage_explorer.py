@@ -719,6 +719,23 @@ def test_stage_explorer_sys_config_loaded_stops_poller_when_no_xy(
     assert not explorer._stage_poller.isRunning()
 
 
+def test_stage_explorer_config_reload_clears_map(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    explorer = StageExplorer(mmcore=global_mmcore)
+    qtbot.addWidget(explorer)
+    explorer.add_image(IMG, 100, 100)
+    assert explorer.map_memory_bytes() > 0
+
+    explorer._on_sys_config_loaded()
+    assert explorer.map_memory_bytes() == 0
+    assert not explorer._tiles
+    assert not explorer._pending_tiles
+
+    explorer.add_image(IMG, 100, 100)
+    assert len(list(explorer._stage_viewer._get_images())) == 1
+
+
 # ---------------------------------------------------------------------------
 # StageExplorer - _create_stage_pos_marker replaces existing marker
 # ---------------------------------------------------------------------------

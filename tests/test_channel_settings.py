@@ -194,6 +194,11 @@ def test_current_column_tracks_core(global_mmcore: CMMCorePlus, qtbot: QtBot) ->
         == 1
     )
 
+    tbl.refresh()
+    assert tbl.activePreset() == "FITC"
+    assert table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+    assert table.selectionModel().isRowSelected(row)
+
     # a different group shows that group's active preset
     tbl.setChannelGroup("Objective")
     assert tbl.activePreset() == global_mmcore.getCurrentConfig("Objective")

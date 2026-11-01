@@ -47,6 +47,10 @@ def _displayed(wdg: PixelConfigurationWidget) -> list[tuple[str, str, str]]:
 def test_pixel_config_wdg(qtbot: QtBot, global_mmcore: CMMCorePlus):
     wdg = PixelConfigurationWidget()
     qtbot.addWidget(wdg)
+    assert wdg._px_table.act_add_row.isVisible()
+    assert wdg._px_table.act_add_row in wdg._px_table._toolbar.actions()
+    assert wdg._px_table.act_move_up not in wdg._px_table._toolbar.actions()
+    assert wdg._px_table.act_move_down not in wdg._px_table._toolbar.actions()
 
     assert wdg.value() == [
         PixelSizePreset(

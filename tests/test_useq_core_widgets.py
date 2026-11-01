@@ -1314,6 +1314,39 @@ def test_get_next_available_paths_multi_position_directory(tmp_path: Path) -> No
     assert get_next_available_path(requested) == tmp_path / "sample_002.ome.tiff"
 
 
+def test_available_path_ignores_other_stems(tmp_path: Path) -> None:
+    (tmp_path / "sample_other_999.ome.tiff").touch()
+    (tmp_path / "sample_other_999").mkdir()
+    requested = tmp_path / "sample.ome.tiff"
+    assert get_next_available_path(requested) == requested
+
+
+def test_available_path_detects_zero_counter_directory(tmp_path: Path) -> None:
+    (tmp_path / "sample_000").mkdir()
+    assert get_next_available_path(tmp_path / "sample_000.ome.tiff") == (
+        tmp_path / "sample_001.ome.tiff"
+    )
+
+
+def test_moving_channel_preserves_intensity(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = CoreConnectedChannelTable(2, global_mmcore)
+    qtbot.addWidget(wdg)
+    settings = {
+        "exposure": 25.0,
+        "light_source": "Camera · TestProperty2",
+        "intensity": 0.5,
+        "camera_properties": {"Gain": 3},
+    }
+    wdg.setRowSettings(1, settings)
+    other = wdg.rowSettings(0)
+    wdg.table().selectRow(1)
+    wdg.act_move_up.trigger()
+    assert wdg.rowSettings(0) == settings
+    assert wdg.rowSettings(1) == other
+
+
 def test_core_mda_with_hcs_value(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
     wdg = MDAWidget()
     qtbot.addWidget(wdg)

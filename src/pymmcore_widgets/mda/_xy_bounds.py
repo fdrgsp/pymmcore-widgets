@@ -395,40 +395,20 @@ class CoreXYBoundsControl(XYBoundsControl):
     ) -> None:
         """Record *raw* for *key* and push both ends of this axis outward.
 
-        useq.GridFromEdges expects each bound to be the *outer* edge of the
-        image at that position (i.e. including the field of view), not the
-        camera-center stage position marked here -- and it only ever reads a
-        pair of bounds via ``max(top, bottom)`` / ``min(left, right)``, never
-        by trusting which field is "top" and which is "bottom" (see its
-        ``_offset_x``/``_offset_y``). So rather than assuming stage position
-        increases toward "top" or "right" -- an axis-orientation convention
-        that not every XY stage shares -- the outward direction is derived by
-        comparing the two raw marked centers directly: whichever is
-        numerically larger gets pushed further out that way, whichever is
-        smaller gets pushed the other way. This self-corrects even if the
-        first of the pair had nothing to compare against yet (see below).
+        GridFromEdges uses outer image edges. Compare the marked centers to find
+        the outward direction, independently of the stage's axis orientation.
         """
         self._raw_marks[key] = raw
         exact_other_raw = self._raw_marks.get(other_key)
         if exact_other_raw is None:
-            # Nothing marked yet this session to compare against. Falling
-            # back to the other field's *current* displayed value still
-            # gives the right direction whenever it holds a real bound (e.g.
-            # restored from a saved plan) -- it's off by half an extent from
-            # that bound's own raw center, which only matters if the two
-            # ends are implausibly close together. If it's still at its
-            # untouched default, this is a best-effort guess for a single,
-            # brand-new mark with no reference at all; marking the opposite
-            # end afterward re-derives both from their exact raw values below.
+            # Until both centers are marked, infer direction from the other field.
             reference = other_wdg.value()
         else:
             reference = exact_other_raw
         outward = extent / 2 if raw >= reference else -extent / 2
         wdg.setValue(raw + outward)
         if exact_other_raw is not None:
-            # Both raw centers are known exactly -- recompute the opposite
-            # bound too, in case its own earlier mark had only the fallback
-            # reference above to go on.
+            # Correct the first mark's direction now that both centers are known.
             other_wdg.setValue(exact_other_raw - outward)
 
     def _visit(self, top: bool | None = None, left: bool | None = None) -> None:

@@ -1,9 +1,4 @@
-"""Presentation pieces shared by the MDA axis containers.
-
-The bordered card the editors sit in, the icon each axis is shown with, and the
-tab button and tab bar ``MDATabs`` uses to show a checkbox and icon on top of
-each tab's name.
-"""
+"""Cards, icons and tab controls shared by the MDA axis containers."""
 
 from __future__ import annotations
 
@@ -29,9 +24,6 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-# Icon (iconify string) shown on each tab (MDATabs) or before each section's
-# title (CollapsibleCoreMDATabs). Edit freely to change an axis' icon; keys are
-# the axis attribute names plus "saving"/"settings".
 MDA_ICONS: dict[str, str] = {
     "channels": "mdi:palette-outline",
     "stage_positions": "mdi:map-marker-multiple-outline",
@@ -44,23 +36,9 @@ MDA_ICONS: dict[str, str] = {
 
 
 class _CardFrame(QFrame):
-    """A frame that paints a subtle rounded border around a section.
+    """Paint a rounded border that remains visible when the section is disabled.
 
-    The border color is derived from the palette's ``Text`` role at a low alpha
-    so it reads in both light and dark themes. It is painted (rather than set
-    via a stylesheet or a border palette role) so it survives a downstream
-    application that clears stylesheets or overrides widget palettes.
-
-    Always reads the palette's ``Active`` group, regardless of this widget's
-    own enabled state: the card is a structural outline around a section, not
-    content, and should not fade the way ``Text`` does automatically when a
-    widget is disabled (``Active`` still resolves correctly for an enabled
-    card -- there is only a visible difference when the card itself has been
-    disabled). This matters for a presentation that disables the *card* itself
-    as the enable control for its content (e.g. `MDATabs`'s checkable
-    tabs, whose auto-wiring disables the tab's page widget directly) --
-    without it, the border would fade to near-invisible right when it matters
-    most, on an unchecked-but-still-viewable tab.
+    Use the active text color so the outline follows the theme without fading.
     """
 
     _RADIUS = 6
@@ -85,16 +63,9 @@ class _CardFrame(QFrame):
 def _wrap_in_card(
     widget: QWidget, margin: int = 5, *, stretch: bool = False
 ) -> _CardFrame:
-    """Wrap ``widget`` in the bordered card used for sections, tabs and settings.
+    """Wrap ``widget`` in a card; ``stretch`` keeps it aligned to the top.
 
-    A ``QGroupBox`` won't do here: on macOS's native style it draws only a
-    title and a thin separator line, never a surrounding rectangle -- even
-    with no title it draws nothing at all. ``_CardFrame`` is painted rather
-    than relying on native/stylesheet chrome, so it renders the same
-    rectangle across styles and themes.
-
-    ``stretch`` keeps ``widget`` at the top of a card that is taller than it
-    (e.g. one filling a scroll area's viewport).
+    Painted borders also work with native styles that omit a QGroupBox's frame.
     """
     card = _CardFrame()
     layout = QVBoxLayout(card)
@@ -102,9 +73,7 @@ def _wrap_in_card(
     layout.addWidget(widget)
     if stretch:
         layout.addStretch()
-    # `widget` may still carry QTabWidget's "explicitly hidden" state from
-    # before it was moved out of its original tab page -- reparenting into
-    # this card doesn't clear that on its own.
+    # Reparenting does not clear a removed tab page's explicitly hidden state.
     widget.show()
     return card
 
@@ -144,14 +113,11 @@ class _AxisTabButton(QWidget):
             top.addWidget(icon_label)
             top.addStretch()
             layout.addLayout(top)
-            lbl = QLabel(title)
-            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(lbl)
         else:
             layout.addWidget(icon_label)
-            lbl = QLabel(title)
-            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(lbl)
+        lbl = QLabel(title)
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(lbl)
 
     def isChecked(self) -> bool | None:
         if self._checkbox is None:
@@ -168,42 +134,17 @@ class _AxisTabButton(QWidget):
 
 
 class _AxisTabBar(QTabBar):
-    """Flat, self-painted tab bar sized from each tab's custom button widget.
+    """Flat tab bar sized from its custom buttons instead of native icon/text.
 
-    Every tab here has empty native icon/text (see ``MDATabs._add_tab``): the whole
-    visible tab content is a ``_AxisTabButton`` set as the tab's ``LeftSide``
-    button instead. That breaks both halves of the native tab machinery, so
-    this bar replaces both:
-
-    *Sizing* -- the base ``QTabBar`` computes ``tabSizeHint`` from the native
-    icon/text alone, so with both empty it reserves a tiny nominal rect, far
-    smaller than a checkbox-icon-label button needs, and the button overflows
-    into its neighbors. ``tabSizeHint`` returns the button's own hint instead.
-
-    *Painting* -- a native tab shape drawn behind a button that already fills
-    the tab is chrome this presentation never asked for; the macOS style, for
-    one, draws its segmented-control look and tints the selected segment with
-    the system accent, which reads as a colored pill sitting behind (and
-    clashing with) the button. Painting the bar here keeps it flat and
-    palette-driven, so it looks the same on every style and theme.
+    Painting the background here avoids native tab shapes behind those buttons.
     """
 
-    # The style reserves a fixed left inset before a LeftSide tab button (on
-    # top of the button's own width) that isn't reflected in the button's
-    # sizeHint -- measured empirically at ~15px on this style/platform, so
-    # padding generously here keeps the button from overflowing into the
-    # next tab regardless of small per-platform variation.
+    # Reserve space for the native style's inset before a LeftSide tab button.
     _BUTTON_LEFT_INSET = 26
     _UNDERLINE = 2
     _BORDER_ALPHA = 50
     _HOVER_ALPHA = 20
-    # Both washes are the palette's own text color at low alpha rather than a
-    # concrete role like Base: a tab's label is painted by a child QLabel in
-    # WindowText, and a role picked independently of it can land arbitrarily
-    # close to that (macOS hands out Window #323232 with WindowText #111111
-    # and Base #171717, where a Base fill leaves the selected tab's label
-    # near-invisible). Tinting toward the text color instead always moves
-    # *away* from it, so the label keeps its contrast in any palette.
+    # Tint with the text color to keep the fill subtle across themes.
     _SELECTED_ALPHA = 38
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -234,12 +175,7 @@ class _AxisTabBar(QTabBar):
         return bool(super().event(a0))
 
     def paintEvent(self, a0: QPaintEvent | None) -> None:
-        """Paint a flat bar: selected tab filled + underlined, nothing else.
-
-        Deliberately does not call ``super().paintEvent`` -- that is what
-        would draw the native tab shapes this presentation replaces. The tab
-        buttons are real child widgets, so they still paint themselves.
-        """
+        """Paint the background and underline; child widgets paint the buttons."""
         painter = QPainter(self)
         text = self.palette().color(QPalette.ColorGroup.Active, QPalette.ColorRole.Text)
         current = self.currentIndex()
