@@ -320,10 +320,11 @@ class ZPlanWidget(QWidget):
             placeholder = QWidget()
             placeholder.setFixedSize(1, bound_height)
             self._bound_row_placeholders.append(placeholder)
-            grid.addWidget(placeholder, row, 5)
+            # in the (non-interactive) label column, so no extra column is needed
+            grid.addWidget(placeholder, row, 0)
 
         self._bounds_separator = SeparatorWidget()
-        grid.addWidget(self._bounds_separator, 2, 0, 1, 6)
+        grid.addWidget(self._bounds_separator, 2, 0, 1, 3)
 
         self._step_label = self._form_label("Step size")
         grid.addWidget(self._step_label, ROW_STEPS, 0)
@@ -335,20 +336,30 @@ class ZPlanWidget(QWidget):
         step_extras.addWidget(QLabel("Slices"))
         step_extras.addWidget(self.steps)
         step_extras.addStretch()
-        grid.addLayout(step_extras, ROW_STEPS, 2, 1, 4)
+        grid.addLayout(step_extras, ROW_STEPS, 2)
 
         self._direction_label = self._form_label("Direction")
         grid.addWidget(self._direction_label, ROW_DIRECTION, 0)
         grid.addWidget(self._direction, ROW_DIRECTION, 1)
-        grid.addWidget(self._summary_label, ROW_DIRECTION, 2, 1, 4)
+        grid.addWidget(self._summary_label, ROW_DIRECTION, 2)
 
         label_width = self._step_label.sizeHint().width()
         for label in self._form_labels:
             label.setFixedWidth(label_width)
         grid.setColumnMinimumWidth(0, label_width)
         grid.setColumnMinimumWidth(1, 175)
-        grid.setColumnMinimumWidth(2, 150)
-        grid.setColumnStretch(3, 1)
+        # The last column is as wide as its widest content, with room reserved
+        # for what can appear later -- the suggested-step button, and the range
+        # summary up to 999.999 um -- so the box does not resize as they do.
+        # Only a range of a millimetre or more widens it.
+        suggested_width = (
+            step_extras.sizeHint().width()
+            + self._use_suggested_btn.sizeHint().width()
+            + step_extras.spacing()
+        )
+        summary_metrics = self._summary_label.fontMetrics()
+        summary_width = summary_metrics.horizontalAdvance(f"Range: 999.999 {UM}")
+        grid.setColumnMinimumWidth(2, max(suggested_width, summary_width))
         grid.setRowMinimumHeight(ROW_FIRST_BOUND, self.bottom.sizeHint().height())
         grid.setRowMinimumHeight(ROW_SECOND_BOUND, self.top.sizeHint().height())
         # When mode-specific controls are hidden, keep the height reserved for
@@ -378,7 +389,11 @@ class ZPlanWidget(QWidget):
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(8)
         body_layout.addLayout(self._viz_layout)
-        body_layout.addWidget(self._controls_box, 1)
+        # Fit the box to its controls rather than stretching it across the
+        # widget, which only leaves empty space at its right edge. Every mode
+        # keeps the same controls width, so the box does not resize on a switch.
+        body_layout.addWidget(self._controls_box)
+        body_layout.addStretch()
 
         layout = QVBoxLayout(self)
         layout.addLayout(mode_layout)
@@ -420,7 +435,7 @@ class ZPlanWidget(QWidget):
         self._grid_layout.addWidget(field, row, 1, row_span, 1, alignment)
         widgets: list[QWidget] = [label, field]
         if trailing is not None:
-            self._grid_layout.addWidget(trailing, row, 2, row_span, 2, alignment)
+            self._grid_layout.addWidget(trailing, row, 2, row_span, 1, alignment)
             widgets.append(trailing)
         return widgets
 
