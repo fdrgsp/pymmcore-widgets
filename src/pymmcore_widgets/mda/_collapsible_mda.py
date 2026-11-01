@@ -2,10 +2,10 @@
 
 ``MDAWidgetCollapsible`` is a drop-in [`MDAWidget`][pymmcore_widgets.MDAWidget]
 that presents the acquisition axes as compact, collapsible sections in a
-scrollable body with a fixed execution footer, rather than as a checkable tab
-widget.  It subclasses ``MDAWidget`` and reuses all of its behavior
-(``value``/``setValue``, ``prepare_mda``/``run_mda``, ``save``/``load``, editor
-enablement, and core awareness); only the presentation differs.
+scrollable body, rather than as checkable tabs.  It subclasses ``MDAWidget`` and
+reuses all of its behavior (``value``/``setValue``, ``prepare_mda``/``run_mda``,
+``save``/``load``, editor enablement, core awareness) and its Settings/Autofocus
+cards and execution footer; only the axis container differs.
 
 The widget is theme-agnostic: sizes come from a :class:`SectionMetrics` value
 (sensible defaults, overridable with :meth:`MDAWidgetCollapsible.set_section_metrics`)
@@ -20,22 +20,12 @@ from html import escape
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from qtpy.QtCore import QEvent, QRectF, Qt, QTimer, Signal
-from qtpy.QtGui import (
-    QColor,
-    QMouseEvent,
-    QPainter,
-    QPaintEvent,
-    QPalette,
-    QPen,
-    QShowEvent,
-)
+from qtpy.QtCore import QEvent, Qt, QTimer, Signal
 from qtpy.QtWidgets import (
     QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLayout,
     QScrollArea,
     QSizePolicy,
     QTabBar,
@@ -47,25 +37,18 @@ from qtpy.QtWidgets import (
 )
 from superqt.iconify import QIconifyIcon
 
-from ._core_mda import CoreMDATabs, MDAWidget
+from ._core_mda import MDAWidget
+from ._core_tabs import MDA_ICONS, CoreMDATabs, _CardFrame, _wrap_in_card
 
-# Icon (iconify string) shown before each section's title. Edit freely to
-# change a section's icon; keys match the CollapsibleAcquisitionSection
-# instances created below (the five axes plus "saving"/"settings").
-MDA_ICONS: dict[str, str] = {
-    "channels": "mdi:palette-outline",
-    "stage_positions": "mdi:map-marker-multiple-outline",
-    "grid_plan": "mdi:grid",
-    "z_plan": "mdi:arrow-up-down",
-    "time_plan": "mdi:clock-time-four-outline",
-    "saving": "mdi:content-save-outline",
-    "settings": "mdi:cog-outline",
-}
 _ICON_SIZE = 18
 
 if TYPE_CHECKING:
     import useq
     from pymmcore_plus import CMMCorePlus
+    from qtpy.QtGui import (
+        QMouseEvent,
+        QShowEvent,
+    )
 
     from ._save_widget import SaveGroupBox
 
@@ -155,45 +138,6 @@ class _ClickableFrame(QFrame):
             ev.accept()
         else:
             super().mousePressEvent(ev)
-
-
-class _CardFrame(QFrame):
-    """A frame that paints a subtle rounded border around a section.
-
-    The border color is derived from the palette's ``Text`` role at a low alpha
-    so it reads in both light and dark themes. It is painted (rather than set
-    via a stylesheet or a border palette role) so it survives a downstream
-    application that clears stylesheets or overrides widget palettes.
-
-    Always reads the palette's ``Active`` group, regardless of this widget's
-    own enabled state: the card is a structural outline around a section, not
-    content, and should not fade the way ``Text`` does automatically when a
-    widget is disabled (``Active`` still resolves correctly for an enabled
-    card -- there is only a visible difference when the card itself has been
-    disabled). This matters for a presentation that disables the *card* itself
-    as the enable control for its content (e.g. `TopbarMDATabs`'s checkable
-    tabs, whose auto-wiring disables the tab's page widget directly) --
-    without it, the border would fade to near-invisible right when it matters
-    most, on an unchecked-but-still-viewable tab.
-    """
-
-    _RADIUS = 6
-    _BORDER_ALPHA = 140
-    _FILL_ALPHA = 14
-    _BORDER_WIDTH = 1.5
-
-    def paintEvent(self, a0: QPaintEvent | None) -> None:
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        text = self.palette().color(QPalette.ColorGroup.Active, QPalette.ColorRole.Text)
-        border = QColor(text)
-        border.setAlpha(self._BORDER_ALPHA)
-        fill = QColor(text)
-        fill.setAlpha(self._FILL_ALPHA)
-        painter.setPen(QPen(border, self._BORDER_WIDTH))
-        painter.setBrush(fill)
-        rect = QRectF(self.rect()).adjusted(0.75, 0.75, -0.75, -0.75)
-        painter.drawRoundedRect(rect, self._RADIUS, self._RADIUS)
 
 
 class CollapsibleAcquisitionSection(QWidget):
@@ -502,7 +446,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             )
             section.setObjectName(f"mda{attr.title().replace('_', '')}Section")
             if attr in ("grid_plan", "z_plan"):
-                section.set_content_widget(self._wrap_in_card(widget))
+                section.set_content_widget(_wrap_in_card(widget))
             else:
                 section.set_content_widget(widget)
             widget.setEnabled(initial_states[widget])
@@ -553,27 +497,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         # mode has settled its layout before we measure the content height.
         self._apply_editor_min_heights()
         self._min_heights_timer.start()
-
-    @staticmethod
-    def _wrap_in_card(widget: QWidget, margin: int = 5) -> _CardFrame:
-        """Wrap ``widget`` in the same bordered card style as a section itself.
-
-        A ``QGroupBox`` won't do here: on macOS's native style it draws only a
-        title and a thin separator line, never a surrounding rectangle -- even
-        with no title it draws nothing at all. ``_CardFrame`` is painted rather
-        than relying on native/stylesheet chrome, so it renders the same
-        rectangle across styles and themes.
-        """
-        card = _CardFrame()
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(margin, margin, margin, margin)
-        layout.addWidget(widget)
-        # set_content_widget() will show() the card, but widget itself may
-        # still carry QTabWidget's "explicitly hidden" state from before it
-        # was moved out of its original tab page (see set_content_widget) --
-        # reparenting into this card doesn't clear that on its own.
-        widget.show()
-        return card
 
     @property
     def sections(self) -> tuple[CollapsibleAcquisitionSection, ...]:
@@ -657,7 +580,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         not a section: they have no on/off state and always apply, so there is
         nothing for a disclosure affordance to reveal. ``MDAWidgetCollapsible``
         keeps them in a card below the sections instead (see
-        ``MDAWidgetCollapsible._install_layout``).
+        ``MDAWidget._install_layout``).
         """
         if self._supporting_sections_added:
             return
@@ -671,7 +594,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             parent=self._content,
         )
         self.saving_section.setObjectName("mdaSavingSection")
-        self.saving_section.set_content_widget(self._wrap_in_card(save_info, margin=7))
+        self.saving_section.set_content_widget(_wrap_in_card(save_info, margin=7))
         self.saving_section.checkedChanged.connect(save_info.setChecked)
         save_info.toggled.connect(self.saving_section.set_checked)
         save_info.valueChanged.connect(self._update_save_summary)
@@ -865,18 +788,10 @@ class MDAWidgetCollapsible(MDAWidget):
     """`MDAWidget` that presents the acquisition axes as collapsible sections.
 
     Behaves exactly like [`MDAWidget`][pymmcore_widgets.MDAWidget] — same
-    ``value``/``setValue``, ``prepare_mda``/``run_mda``, ``save``/``load``, and
-    core awareness — but lays the axes out as a scrollable stack of collapsible
-    sections with a fixed execution footer instead of a checkable tab widget.
+    ``value``/``setValue``, ``prepare_mda``/``run_mda``, ``save``/``load``, core
+    awareness, Settings/Autofocus cards and execution footer — but lays the axes
+    and Saving out as a scrollable stack of collapsible sections instead of tabs.
     """
-
-    def __init__(
-        self, *, parent: QWidget | None = None, mmcore: CMMCorePlus | None = None
-    ) -> None:
-        super().__init__(parent=parent, mmcore=mmcore)
-        self._footer_layout: QVBoxLayout | None = None
-        self._settings_row: QHBoxLayout | None = None
-        self._install_layout()
 
     def _create_tab_widget(self) -> CoreMDATabs:
         return CollapsibleCoreMDATabs(None, self._mmc)
@@ -892,121 +807,21 @@ class MDAWidgetCollapsible(MDAWidget):
     def set_section_metrics(self, metrics: SectionMetrics) -> None:
         """Adopt new pixel sizes for every section, the settings card and footer."""
         self.tabs.set_section_metrics(metrics)
-        if self._footer_layout is not None:
-            self._footer_layout.setContentsMargins(
-                metrics.footer_margin_h,
-                metrics.footer_margin_top,
-                metrics.footer_margin_h,
-                metrics.footer_margin_bottom,
-            )
-        if self._settings_row is not None:
-            self._apply_settings_row_metrics(metrics)
+        self._apply_layout_metrics()
 
-    def _apply_settings_row_metrics(self, metrics: SectionMetrics) -> None:
-        """Inset the settings card to match the sections above it."""
-        if self._settings_row is not None:
-            self._settings_row.setContentsMargins(3, 10, 3, 10)
-
-    def _enable_widgets(self, enable: bool) -> None:
-        """Disable editors during an acquisition while keeping controls usable."""
-        self.tabs.set_editor_enabled(enable)
-        # The settings card lives outside `tabs` (see `_install_layout`), and
-        # this override replaces the base sweep that would otherwise reach it.
-        self._settings_box.setEnabled(enable)
-        self._af_box.setEnabled(enable)
-        self._save_button.setEnabled(enable)
-        self._load_button.setEnabled(enable)
-
-    def _install_layout(self) -> None:
-        """Move the global/save/footer controls into the sectioned presentation."""
-        tabs = self.tabs
-        layout = self.layout()
-        if layout is None:  # pragma: no cover
-            raise RuntimeError("MDAWidget has no layout")
-        _clear_layout(layout)
-
-        tabs.add_supporting_sections(save_info=self.save_info)
-
-        # Global settings are not a section: they have no on/off state and
-        # always apply, so there is nothing for a disclosure affordance to
-        # reveal. They sit in a card of their own between the sections and the
-        # footer instead -- always visible, however the sections are scrolled.
-        # Same painted card the section bodies use, rather than a QGroupBox
-        # (see `CollapsibleCoreMDATabs._wrap_in_card` for why).
-        self._settings_widget = settings_widget = QWidget()
-        settings_layout = QVBoxLayout(settings_widget)
-        settings_layout.setContentsMargins(5, 5, 5, 5)
-        settings_layout.setSpacing(5)
-        axis_row = QWidget()
-        axis_layout = QHBoxLayout(axis_row)
-        axis_layout.setContentsMargins(0, 0, 0, 0)
-        axis_layout.addWidget(self._axis_order_label)
-        self.axis_order.setMaximumWidth(100)
-        axis_layout.addWidget(self.axis_order)
-        axis_layout.addStretch()
-        settings_layout.addWidget(axis_row)
-        settings_layout.addWidget(self.keep_shutter_open)
-        self._settings_box = tabs._wrap_in_card(settings_widget)
-        # Autofocus gets a card of its own below: it has more controls than the
-        # settings above it, and which ones apply depends on the kind selected.
-        af_widget = QWidget()
-        af_layout = QVBoxLayout(af_widget)
-        # same inner inset as the settings card above, so the two line up
-        af_layout.setContentsMargins(5, 5, 5, 5)
-        af_layout.setSpacing(5)
-        af_layout.addWidget(self.af_axis)
-        self._af_box = tabs._wrap_in_card(af_widget)
-
-        metrics = tabs._metrics
-        footer = QFrame()
-        footer.setObjectName("mdaExecutionFooter")
-        footer_layout = QVBoxLayout(footer)
-        footer_layout.setContentsMargins(
+    def _apply_layout_metrics(self) -> None:
+        """Inset the cards and footer from the sections' current metrics."""
+        metrics = self.tabs._metrics
+        # Line the cards up with the sections above them, and keep them clear of
+        # both the sections and the footer.
+        self._settings_row.setContentsMargins(3, 10, 3, 10)
+        self._footer_layout.setContentsMargins(
             metrics.footer_margin_h,
             metrics.footer_margin_top,
             metrics.footer_margin_h,
             metrics.footer_margin_bottom,
         )
-        self._footer_layout = footer_layout
-
-        estimate_row = QHBoxLayout()
-        estimate_row.addWidget(self._time_warning)
-        estimate_row.addWidget(self._duration_label, 1)
-        footer_layout.addLayout(estimate_row)
-
-        actions_row = QHBoxLayout()
-        actions_row.addWidget(self._save_button)
-        actions_row.addWidget(self._load_button)
-        actions_row.addStretch()
-        actions_row.addWidget(self.control_btns)
-        footer_layout.addLayout(actions_row)
-
-        # Line the card up with the sections above it, and keep it clear of
-        # both them and the footer. Kept on self so `set_section_metrics` can
-        # re-inset it -- otherwise it alone would keep the construction-time
-        # metrics while the sections moved to the caller's.
-        self._settings_row = settings_row = QHBoxLayout()
-        self._apply_settings_row_metrics(metrics)
-        settings_col = QVBoxLayout()
-        settings_col.setContentsMargins(0, 0, 0, 0)
-        settings_col.setSpacing(5)
-        settings_col.addWidget(self._settings_box)
-        settings_col.addWidget(self._af_box)
-        settings_row.addLayout(settings_col)
-
-        box = cast("QVBoxLayout", layout)
-        box.setContentsMargins(0, 0, 0, 0)
-        box.setSpacing(0)
-        box.addWidget(tabs, 1)
-        box.addLayout(settings_row)
-        box.addWidget(footer)
-
-
-def _clear_layout(layout: QLayout) -> None:
-    while layout.count():
-        item = layout.takeAt(0)
-        if item is not None and (child_layout := item.layout()) is not None:
-            _clear_layout(child_layout)
+        cast("QVBoxLayout", self.layout()).setSpacing(0)
 
 
 def _compact_items(items: list[str], noun: str) -> str:

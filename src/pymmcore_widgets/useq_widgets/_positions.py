@@ -61,13 +61,13 @@ class _MDAPopup(QDialog):
             wdg = wdg.parent()
 
         # Create a new MDA tab widget of the same type as the main one (if
-        # any), except the collapsible sections presentation
-        # (CollapsibleCoreMDATabs, used by MDAWidgetCollapsible): every axis
-        # but the grid is removed below, so its disclosure/expand affordance
-        # has nothing left to collapse against. Fall back to its
-        # non-collapsible, still core-connected base class instead.
+        # any), except a core-connected presentation (TopbarMDATabs, used by
+        # MDAWidget, or CollapsibleCoreMDATabs, used by MDAWidgetCollapsible):
+        # every axis but the grid is removed below, so their extra chrome has
+        # nothing left to organize. Fall back to their plain, still
+        # core-connected base class instead.
         try:
-            from pymmcore_widgets.mda._core_mda import CoreMDATabs
+            from pymmcore_widgets.mda._core_tabs import CoreMDATabs
         except ImportError:  # pragma: no cover
             CoreMDATabs = None  # type: ignore[assignment,misc]
 

@@ -9,12 +9,12 @@ from pymmcore_plus._logger import logger
 from pymmcore_plus.core import SequencedEvent
 from qtpy.QtCore import QSize, Qt, Slot
 from qtpy.QtWidgets import (
-    QBoxLayout,
     QFrame,
     QHBoxLayout,
+    QLayout,
     QMessageBox,
     QPushButton,
-    QScrollArea,
+    QVBoxLayout,
     QWidget,
 )
 from superqt.iconify import QIconifyIcon
@@ -27,20 +27,16 @@ from pymmcore_widgets.useq_widgets._mda_sequence import (
     AF_DISABLED_TOOLTIP,
     AF_PER_POS_SOFTWARE_TOOLTIP,
     PYMMCW_METADATA_KEY,
-    MDATabs,
 )
 from pymmcore_widgets.useq_widgets._positions import AF_PER_POS_TOOLTIP
-from pymmcore_widgets.useq_widgets._time import TimePlanWidget
 from pymmcore_widgets.useq_widgets._z import Mode
 
 from ._channel_properties import (
     CHANNEL_PROPERTIES_KEY,
     to_channel_properties_sequence,
 )
-from ._core_channels import CoreConnectedChannelTable
-from ._core_grid import CoreConnectedGridPlanWidget
 from ._core_positions import AF_UNAVAILABLE, CoreConnectedPositionTable
-from ._core_z import CoreConnectedZPlanWidget
+from ._core_tabs import CoreMDATabs, TopbarMDATabs, _wrap_in_card
 from ._save_widget import SaveGroupBox
 
 if TYPE_CHECKING:
@@ -50,6 +46,10 @@ if TYPE_CHECKING:
     # handler, or ome-writers settings. Used for both prepare_mda and
     # execute_mda below, so the two describe the same value.
     from pymmcore_plus.mda import SingleOutput
+
+    from ._core_channels import CoreConnectedChannelTable
+    from ._core_grid import CoreConnectedGridPlanWidget
+    from ._core_z import CoreConnectedZPlanWidget
 
 
 # shown when the autofocus device is engaged but the sequence does not use it.
@@ -71,135 +71,6 @@ PAUSE_UNAVAILABLE_HW_SEQUENCED = (
     "This part of the acquisition uses hardware-triggered sequencing.\nIt cannot "
     "be paused, only canceled."
 )
-
-
-class _CoreConnectedPositionTable(CoreConnectedPositionTable):
-    def __init__(
-        self,
-        rows: int = 0,
-        mmcore: CMMCorePlus | None = None,
-        parent: QWidget | None = None,
-    ):
-        super().__init__(rows, mmcore, parent)
-
-        # subclassing to disconnect the signals from this widget so we use the ones
-        # we will implement in the MDAWidget that take into account both the autofocus
-        # device mand the z plan
-        ev = self._mmc.events
-        ev.systemConfigurationLoaded.disconnect(self._on_sys_config_loaded)
-        ev.propertyChanged.disconnect(self._on_property_changed)
-
-
-class CoreMDATabs(MDATabs):
-    channels: CoreConnectedChannelTable
-
-    def __init__(
-        self, parent: QWidget | None = None, core: CMMCorePlus | None = None
-    ) -> None:
-        self._mmc = core or CMMCorePlus.instance()
-        super().__init__(parent)
-        self.z_plan.setStackActive(bool(self.isChecked(self.z_plan)))
-
-    def create_subwidgets(self) -> None:
-        self.time_plan = TimePlanWidget(0)
-        self.stage_positions = _CoreConnectedPositionTable(0, self._mmc)
-        self.z_plan = CoreConnectedZPlanWidget(self._mmc)
-        self.grid_plan = CoreConnectedGridPlanWidget(self._mmc)
-        self.channels = CoreConnectedChannelTable(0, self._mmc)
-
-    def _on_tab_checked(self, idx: int, checked: bool) -> None:
-        # The base class shows/hides Do Stack and Acquire Every purely on their
-        # own axis's state. Here both are further gated behind the channel
-        # table's "Advanced" toggle, so route each axis's state through the
-        # table (which recomputes visibility from both inputs).
-        super()._on_tab_checked(idx, checked)
-        if idx == self.indexOf(self.z_plan):
-            self.z_plan.setStackActive(checked)
-            self.channels.setZStackActive(checked)
-        elif idx == self.indexOf(self.time_plan):
-            self.channels.setTimePlanActive(checked)
-
-    def _enable_tabs(self, enable: bool) -> None:
-        """Enable or disable the tab checkboxes and their contents.
-
-        However, we can still mover through the tabs and see their contents.
-        """
-        # disable tab checkboxes
-        for cbox in self._cboxes:
-            cbox.setEnabled(enable)
-        # disable tabs contents (the content of an unchecked tab stays disabled).
-        # Toggle the editors, not the tab pages: a page may wrap its editor (e.g. a
-        # scroll area or a card), and a disabled page would keep the editor disabled
-        # after its tab is checked again.
-        for wdg in (
-            self.time_plan,
-            self.stage_positions,
-            self.z_plan,
-            self.grid_plan,
-            self.channels,
-        ):
-            wdg.setEnabled(enable and self.isChecked(wdg) is not False)
-
-
-class _ScrollableGridCoreMDATabs(CoreMDATabs):
-    """``CoreMDATabs`` whose Grid tab page is wrapped in a ``QScrollArea``.
-
-    Used only by the standard (non-collapsible) ``MDAWidget``: GridPlanWidget
-    does not scroll on its own (see its docstring), and a plain tab page is
-    the one presentation here where its height isn't otherwise constrained.
-    ``CollapsibleCoreMDATabs`` deliberately avoids this -- it wraps grid_plan
-    in its own bordered card instead, sized to its content.
-    """
-
-    _grid_scroll: QScrollArea | None = None
-
-    def addTab(self, widget: QWidget | None, *args: Any, **kwargs: Any) -> int:
-        # Intercept MDATabs.__init__'s `self.addTab(self.grid_plan, "Grid",
-        # checked=False)` and give grid_plan a scroll area right away.
-        # Wrapping it *after* the fact (removeTab + insertTab) would create a
-        # second tab checkbox while leaving the first one's now-deleted C++
-        # object dangling in CheckableTabWidget._cboxes -- a crash waiting to
-        # happen the next time something iterates that list.
-        if widget is not None and widget is getattr(self, "grid_plan", None):
-            scroll = QScrollArea()
-            scroll.setWidgetResizable(True)
-            scroll.setFrameShape(QFrame.Shape.NoFrame)
-            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            scroll.setWidget(widget)
-            self._grid_scroll = scroll
-            idx = super().addTab(scroll, *args, **kwargs)
-            # addTab() just disabled scroll (the tab page) rather than
-            # grid_plan (its actual content) -- undo that and disable the
-            # content instead, matching every other tab where content and
-            # page are the same widget. _on_tab_checkbox_toggled (below)
-            # keeps doing the right thing on every later checkbox toggle too.
-            scroll.setEnabled(True)
-            widget.setEnabled(False)
-            return idx
-        return super().addTab(widget, *args, **kwargs)
-
-    def indexOf(self, widget: QWidget | None) -> int:
-        """Return the tab index for ``widget``, or the tab page containing it.
-
-        grid_plan is the Grid tab's *content* here, not the page itself (see
-        __init__), so callers that key off ``grid_plan`` directly -- e.g.
-        ``isChecked``/``setChecked`` -- still resolve to the right tab.
-        """
-        idx = int(super().indexOf(widget))
-        parent = widget.parent() if idx == -1 and widget is not None else None
-        while idx == -1 and isinstance(parent, QWidget):
-            idx = int(super().indexOf(parent))
-            parent = parent.parent()
-        return idx
-
-    def _on_tab_checkbox_toggled(self, checked: bool, wdg: QWidget) -> None:
-        # CheckableTabWidget enables/disables whatever was passed to addTab --
-        # for Grid that's _grid_scroll (the tab page), not grid_plan (its
-        # content). Redirect so the actual editor is what gets enabled.
-        if wdg is self._grid_scroll:
-            wdg = self.grid_plan
-        super()._on_tab_checkbox_toggled(checked, wdg)
 
 
 def _software_autofocus_runner(core: CMMCorePlus) -> Any:
@@ -235,6 +106,16 @@ class MDAWidget(MDASequenceWidget):
     widget is connected to a [`pymmcore_plus.CMMCorePlus`][] instance, enabling
     awareness and control of the current state of the microscope.
 
+    The acquisition axes and Saving are laid out as checkable tabs (checkbox and
+    icon on top, name below; see
+    [`TopbarMDATabs`][pymmcore_widgets.mda.TopbarMDATabs]). Settings (axis order,
+    keep shutter open) and Autofocus are not tabs: they have no on/off state and
+    always apply, so each gets a card of its own between the tabs and the footer,
+    staying visible whichever tab is showing. The footer holds the time estimate,
+    the Save/Load Settings buttons and the Run/Pause/Cancel controls.
+    [`MDAWidgetCollapsible`][pymmcore_widgets.MDAWidgetCollapsible] keeps this
+    layout and swaps only the axis container.
+
     Parameters
     ----------
     parent : QWidget | None
@@ -269,9 +150,7 @@ class MDAWidget(MDASequenceWidget):
 
         # ------------ layout ------------
 
-        layout = cast("QBoxLayout", self.layout())
-        layout.insertWidget(0, self.save_info)
-        layout.addWidget(self.control_btns)
+        self._install_layout()
 
         # ------------ connect signals ------------
 
@@ -299,9 +178,94 @@ class MDAWidget(MDASequenceWidget):
 
         Subclasses may override this to inject an alternate presentation of the
         MDA axes (for example a collapsible-sections container) without
-        otherwise changing the widget's behavior.
+        otherwise changing the widget's behavior. The container must implement
+        ``add_supporting_sections`` to host the Saving editor.
         """
-        return _ScrollableGridCoreMDATabs(None, self._mmc)
+        return TopbarMDATabs(None, self._mmc)
+
+    @property
+    def tabs(self) -> CoreMDATabs:
+        """Return the axis container."""
+        return cast("CoreMDATabs", self.tab_wdg)
+
+    def _install_layout(self) -> None:
+        """Lay out the axis container, the Settings/Autofocus cards and the footer.
+
+        Replaces the layout ``MDASequenceWidget`` built, moving (not
+        duplicating) its widgets into this one.
+        """
+        tabs = self.tabs
+        layout = cast("QVBoxLayout", self.layout())
+        _clear_layout(layout)
+
+        tabs.add_supporting_sections(save_info=self.save_info)
+
+        # Global settings are not a tab: they have no on/off state and always
+        # apply, so they sit in a card of their own between the tabs and the
+        # footer -- always visible, whichever tab is showing.
+        self._settings_widget = settings_widget = QWidget()
+        settings_layout = QVBoxLayout(settings_widget)
+        settings_layout.setContentsMargins(5, 5, 5, 5)
+        settings_layout.setSpacing(5)
+        axis_row = QWidget()
+        axis_layout = QHBoxLayout(axis_row)
+        axis_layout.setContentsMargins(0, 0, 0, 0)
+        axis_layout.addWidget(self._axis_order_label)
+        self.axis_order.setMaximumWidth(100)
+        axis_layout.addWidget(self.axis_order)
+        axis_layout.addStretch()
+        settings_layout.addWidget(axis_row)
+        settings_layout.addWidget(self.keep_shutter_open)
+        self._settings_box = _wrap_in_card(settings_widget)
+        # Autofocus gets a card of its own below: it has more controls than the
+        # settings above it, and which ones apply depends on the kind selected.
+        af_widget = QWidget()
+        af_layout = QVBoxLayout(af_widget)
+        # same inner inset as the settings card above, so the two line up
+        af_layout.setContentsMargins(5, 5, 5, 5)
+        af_layout.setSpacing(5)
+        af_layout.addWidget(self.af_axis)
+        self._af_box = _wrap_in_card(af_widget)
+
+        footer = QFrame()
+        footer.setObjectName("mdaExecutionFooter")
+        self._footer_layout = footer_layout = QVBoxLayout(footer)
+
+        estimate_row = QHBoxLayout()
+        estimate_row.addWidget(self._time_warning)
+        estimate_row.addWidget(self._duration_label, 1)
+        footer_layout.addLayout(estimate_row)
+
+        actions_row = QHBoxLayout()
+        actions_row.addWidget(self._save_button)
+        actions_row.addWidget(self._load_button)
+        actions_row.addStretch()
+        actions_row.addWidget(self.control_btns)
+        footer_layout.addLayout(actions_row)
+
+        self._settings_row = settings_row = QHBoxLayout()
+        settings_col = QVBoxLayout()
+        settings_col.setContentsMargins(0, 0, 0, 0)
+        settings_col.setSpacing(5)
+        settings_col.addWidget(self._settings_box)
+        settings_col.addWidget(self._af_box)
+        settings_row.addLayout(settings_col)
+
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(tabs, 1)
+        layout.addLayout(settings_row)
+        layout.addWidget(footer)
+        self._apply_layout_metrics()
+
+    def _apply_layout_metrics(self) -> None:
+        """Set the spacing and insets of the cards and footer around the tabs."""
+        margin = TopbarMDATabs._PAGE_MARGIN
+        # Left/right line up with the tab pages' own inset; the gap above is
+        # already there (the page's bottom margin), so only the bottom needs
+        # adding, to keep the card off the footer.
+        self._settings_row.setContentsMargins(margin, 0, margin, margin // 2)
+        self._footer_layout.setContentsMargins(8, 4, 8, 8)
+        cast("QVBoxLayout", self.layout()).setSpacing(7)
 
     # ----------- Override type hints in superclass -----------
 
@@ -734,11 +698,17 @@ class MDAWidget(MDASequenceWidget):
             logger.warning("Failed to re-enable the hardware autofocus. %s", e)
 
     def _enable_widgets(self, enable: bool) -> None:
-        for child in self.children():
-            if isinstance(child, CoreMDATabs):
-                child._enable_tabs(enable)
-            elif child is not self.control_btns and hasattr(child, "setEnabled"):
-                child.setEnabled(enable)
+        """Disable editors during an acquisition while keeping controls usable.
+
+        Lists what to disable rather than sweeping this widget's children: the
+        footer holds Pause/Cancel too, and disabling it would disable them
+        through their ancestor.
+        """
+        self.tabs._enable_tabs(enable)
+        self._settings_box.setEnabled(enable)
+        self._af_box.setEnabled(enable)
+        self._save_button.setEnabled(enable)
+        self._load_button.setEnabled(enable)
 
     @Slot()
     def _on_mda_started(self) -> None:
@@ -869,3 +839,10 @@ class _MDAControlButtons(QWidget):
             self._mmc.mda.events.sequenceStarted.disconnect(self._on_mda_started)
             self._mmc.mda.events.sequenceFinished.disconnect(self._on_mda_finished)
             self._mmc.mda.events.eventStarted.disconnect(self._on_event_started)
+
+
+def _clear_layout(layout: QLayout) -> None:
+    while layout.count():
+        item = layout.takeAt(0)
+        if item is not None and (child_layout := item.layout()) is not None:
+            _clear_layout(child_layout)

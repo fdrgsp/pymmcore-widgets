@@ -1,28 +1,28 @@
-"""Top-tabs presentation of the core-connected MDA widget.
+"""Core-connected containers for the MDA axis editors.
 
-``MDAWidgetTopbar`` is a drop-in [`MDAWidget`][pymmcore_widgets.MDAWidget] that
-presents the acquisition axes as a native ``QTabWidget`` (the same
-checkbox-per-tab mechanism ``CoreMDATabs`` already provides for the five
-axes), with Saving added as a sixth tab. Each tab shows a
-checkbox and icon on top and its name below, rather than the default
-side-by-side icon/text. It subclasses ``MDAWidget`` and reuses all of its
-behavior (``value``/``setValue``, ``prepare_mda``/``run_mda``,
-``save``/``load``, editor enablement, and core awareness); only which tabs
-exist, and their layout, differs from the plain widget.
-
-Settings (axis order, keep shutter open, autofocus axis) is not a tab: it has
-no on/off state and always applies, so it gets a card of its own between the
-tabs and the footer, staying visible whichever tab is showing. The footer then
-holds only the always-reachable Save/Load Settings buttons and the
-Run/Pause/Cancel controls.
+``CoreMDATabs`` is the plain checkable tab widget of core-connected axis
+editors (the position sub-sequence popup uses it as is). ``TopbarMDATabs`` is
+the presentation [`MDAWidget`][pymmcore_widgets.MDAWidget] uses: the same
+checkable tabs, with an icon-on-top / title-below button per tab and Saving as
+a sixth tab. ``CollapsibleCoreMDATabs`` (in ``_collapsible_mda``) is the other
+presentation, used by ``MDAWidgetCollapsible``.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from qtpy.QtCore import QEvent, QSize, Qt, Signal
-from qtpy.QtGui import QColor, QHoverEvent, QIcon, QPainter, QPaintEvent, QPalette
+from pymmcore_plus import CMMCorePlus
+from qtpy.QtCore import QEvent, QRectF, QSize, Qt, Signal
+from qtpy.QtGui import (
+    QColor,
+    QHoverEvent,
+    QIcon,
+    QPainter,
+    QPaintEvent,
+    QPalette,
+    QPen,
+)
 from qtpy.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -37,15 +37,177 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 
 from pymmcore_widgets._util import QWIDGETSIZE_MAX
+from pymmcore_widgets.useq_widgets._mda_sequence import MDATabs
+from pymmcore_widgets.useq_widgets._time import TimePlanWidget
 
-from ._collapsible_mda import MDA_ICONS, _CardFrame, _clear_layout
-from ._core_mda import CoreMDATabs, MDAWidget
+from ._core_channels import CoreConnectedChannelTable
+from ._core_grid import CoreConnectedGridPlanWidget
+from ._core_positions import CoreConnectedPositionTable
+from ._core_z import CoreConnectedZPlanWidget
 
 if TYPE_CHECKING:
     import useq
-    from pymmcore_plus import CMMCorePlus
 
     from ._save_widget import SaveGroupBox
+
+
+# Icon (iconify string) shown on each tab (TopbarMDATabs) or before each section's
+# title (CollapsibleCoreMDATabs). Edit freely to change an axis' icon; keys are
+# the axis attribute names plus "saving"/"settings".
+MDA_ICONS: dict[str, str] = {
+    "channels": "mdi:palette-outline",
+    "stage_positions": "mdi:map-marker-multiple-outline",
+    "grid_plan": "mdi:grid",
+    "z_plan": "mdi:arrow-up-down",
+    "time_plan": "mdi:clock-time-four-outline",
+    "saving": "mdi:content-save-outline",
+    "settings": "mdi:cog-outline",
+}
+
+
+class _CoreConnectedPositionTable(CoreConnectedPositionTable):
+    def __init__(
+        self,
+        rows: int = 0,
+        mmcore: CMMCorePlus | None = None,
+        parent: QWidget | None = None,
+    ):
+        super().__init__(rows, mmcore, parent)
+
+        # subclassing to disconnect the signals from this widget so we use the ones
+        # we will implement in the MDAWidget that take into account both the autofocus
+        # device mand the z plan
+        ev = self._mmc.events
+        ev.systemConfigurationLoaded.disconnect(self._on_sys_config_loaded)
+        ev.propertyChanged.disconnect(self._on_property_changed)
+
+
+class CoreMDATabs(MDATabs):
+    channels: CoreConnectedChannelTable
+
+    def __init__(
+        self, parent: QWidget | None = None, core: CMMCorePlus | None = None
+    ) -> None:
+        self._mmc = core or CMMCorePlus.instance()
+        super().__init__(parent)
+        self.z_plan.setStackActive(bool(self.isChecked(self.z_plan)))
+
+    def create_subwidgets(self) -> None:
+        self.time_plan = TimePlanWidget(0)
+        self.stage_positions = _CoreConnectedPositionTable(0, self._mmc)
+        self.z_plan = CoreConnectedZPlanWidget(self._mmc)
+        self.grid_plan = CoreConnectedGridPlanWidget(self._mmc)
+        self.channels = CoreConnectedChannelTable(0, self._mmc)
+
+    def _on_tab_checked(self, idx: int, checked: bool) -> None:
+        # The base class shows/hides Do Stack and Acquire Every purely on their
+        # own axis's state. Here both are further gated behind the channel
+        # table's "Advanced" toggle, so route each axis's state through the
+        # table (which recomputes visibility from both inputs).
+        super()._on_tab_checked(idx, checked)
+        if idx == self.indexOf(self.z_plan):
+            self.z_plan.setStackActive(checked)
+            self.channels.setZStackActive(checked)
+        elif idx == self.indexOf(self.time_plan):
+            self.channels.setTimePlanActive(checked)
+
+    def _enable_tabs(self, enable: bool) -> None:
+        """Enable or disable the tab checkboxes and their contents.
+
+        However, we can still mover through the tabs and see their contents.
+        """
+        # disable tab checkboxes
+        for cbox in self._cboxes:
+            cbox.setEnabled(enable)
+        # disable tabs contents (the content of an unchecked tab stays disabled).
+        # Toggle the editors, not the tab pages: a page may wrap its editor (e.g. a
+        # scroll area or a card), and a disabled page would keep the editor disabled
+        # after its tab is checked again.
+        for wdg in (
+            self.time_plan,
+            self.stage_positions,
+            self.z_plan,
+            self.grid_plan,
+            self.channels,
+        ):
+            wdg.setEnabled(enable and self.isChecked(wdg) is not False)
+
+    def add_supporting_sections(self, *, save_info: SaveGroupBox) -> None:
+        """Take in the Saving editor, after the five axes.
+
+        ``MDAWidget`` calls this once while building its layout; each
+        presentation decides where Saving goes (a tab, a section, ...). The
+        plain tabs have no place for it, so they cannot back an ``MDAWidget``.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} cannot host the MDAWidget's Saving editor"
+        )
+
+
+class _CardFrame(QFrame):
+    """A frame that paints a subtle rounded border around a section.
+
+    The border color is derived from the palette's ``Text`` role at a low alpha
+    so it reads in both light and dark themes. It is painted (rather than set
+    via a stylesheet or a border palette role) so it survives a downstream
+    application that clears stylesheets or overrides widget palettes.
+
+    Always reads the palette's ``Active`` group, regardless of this widget's
+    own enabled state: the card is a structural outline around a section, not
+    content, and should not fade the way ``Text`` does automatically when a
+    widget is disabled (``Active`` still resolves correctly for an enabled
+    card -- there is only a visible difference when the card itself has been
+    disabled). This matters for a presentation that disables the *card* itself
+    as the enable control for its content (e.g. `TopbarMDATabs`'s checkable
+    tabs, whose auto-wiring disables the tab's page widget directly) --
+    without it, the border would fade to near-invisible right when it matters
+    most, on an unchecked-but-still-viewable tab.
+    """
+
+    _RADIUS = 6
+    _BORDER_ALPHA = 140
+    _FILL_ALPHA = 14
+    _BORDER_WIDTH = 1.5
+
+    def paintEvent(self, a0: QPaintEvent | None) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        text = self.palette().color(QPalette.ColorGroup.Active, QPalette.ColorRole.Text)
+        border = QColor(text)
+        border.setAlpha(self._BORDER_ALPHA)
+        fill = QColor(text)
+        fill.setAlpha(self._FILL_ALPHA)
+        painter.setPen(QPen(border, self._BORDER_WIDTH))
+        painter.setBrush(fill)
+        rect = QRectF(self.rect()).adjusted(0.75, 0.75, -0.75, -0.75)
+        painter.drawRoundedRect(rect, self._RADIUS, self._RADIUS)
+
+
+def _wrap_in_card(
+    widget: QWidget, margin: int = 5, *, stretch: bool = False
+) -> _CardFrame:
+    """Wrap ``widget`` in the bordered card used for sections, tabs and settings.
+
+    A ``QGroupBox`` won't do here: on macOS's native style it draws only a
+    title and a thin separator line, never a surrounding rectangle -- even
+    with no title it draws nothing at all. ``_CardFrame`` is painted rather
+    than relying on native/stylesheet chrome, so it renders the same
+    rectangle across styles and themes.
+
+    ``stretch`` keeps ``widget`` at the top of a card that is taller than it
+    (e.g. one filling a scroll area's viewport).
+    """
+    card = _CardFrame()
+    layout = QVBoxLayout(card)
+    layout.setContentsMargins(margin, margin, margin, margin)
+    layout.addWidget(widget)
+    if stretch:
+        layout.addStretch()
+    # `widget` may still carry QTabWidget's "explicitly hidden" state from
+    # before it was moved out of its original tab page -- reparenting into
+    # this card doesn't clear that on its own.
+    widget.show()
+    return card
 
 
 class _AxisTabButton(QWidget):
@@ -212,11 +374,12 @@ class _TopbarTabBar(QTabBar):
 class TopbarMDATabs(CoreMDATabs):
     """Core-aware MDA axis container presented as native tabs.
 
+    The default presentation of [`MDAWidget`][pymmcore_widgets.MDAWidget].
     Structurally much closer to the base ``CoreMDATabs`` than the collapsible
     presentation: this *is* a plain, themed ``QTabWidget``, using the
     checkbox-per-tab mechanism ``CheckableTabWidget.addTab`` already
     provides. The only differences from the base widget are the tab order
-    (matching this app's other presentation: channels, positions, grid, z,
+    (matching the collapsible presentation: channels, positions, grid, z,
     time), a checkbox-and-icon-on-top / title-below button on every tab (see
     `_add_tab`, `_AxisTabButton`), and one further tab after the axes --
     Saving, checkable the same as an axis.
@@ -258,7 +421,7 @@ class TopbarMDATabs(CoreMDATabs):
 
         # The base MDATabs.__init__ already added the five axis tabs, in its
         # own order/labels and with no icon. Undo that and re-add them the way
-        # this app's other two presentations order and label them.
+        # the collapsible presentation orders and labels them.
         initial_states = {
             widget: bool(self.isChecked(widget)) for widget in self._axis_widgets()
         }
@@ -298,24 +461,6 @@ class TopbarMDATabs(CoreMDATabs):
 
         self._sections_ready = True
 
-    @staticmethod
-    def _wrap_in_card(widget: QWidget, margin: int = 5) -> _CardFrame:
-        """Wrap ``widget`` in the same bordered card style used elsewhere.
-
-        A ``QGroupBox`` won't do here: on macOS's native style it draws only a
-        title and a thin separator line, never a surrounding rectangle -- even
-        with no title it draws nothing at all. ``_CardFrame`` is painted rather
-        than relying on native/stylesheet chrome, so it renders the same
-        rectangle across styles and themes.
-        """
-        card = _CardFrame()
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(margin, margin, margin, margin)
-        layout.addWidget(widget)
-        layout.addStretch()
-        widget.show()
-        return card
-
     def _add_tab(
         self,
         widget: QWidget,
@@ -349,7 +494,7 @@ class TopbarMDATabs(CoreMDATabs):
             scroll.setWidgetResizable(True)
             scroll.setFrameShape(QFrame.Shape.NoFrame)
             scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            scroll.setWidget(self._wrap_in_card(widget))
+            scroll.setWidget(_wrap_in_card(widget, stretch=True))
             page_layout.addWidget(scroll)
         else:
             page_layout.addWidget(widget)
@@ -479,8 +624,8 @@ class TopbarMDATabs(CoreMDATabs):
 
         Global settings (axis order, keep shutter open, autofocus axis) are
         not a tab: they have no on/off state of their own and always apply, so
-        ``MDAWidgetTopbar`` keeps them in a card below the tabs instead (see
-        ``MDAWidgetTopbar._install_layout``).
+        ``MDAWidget`` keeps them in a card below the tabs instead (see
+        ``MDAWidget._install_layout``).
         """
         if self._supporting_sections_added:
             return
@@ -544,8 +689,8 @@ class TopbarMDATabs(CoreMDATabs):
         """Enable or disable every tab's checkbox and content.
 
         Extends the base class's five axes with Saving, checkable like an
-        axis. The settings card is not a tab, so the base
-        ``MDAWidget._enable_widgets`` sweep reaches it on its own.
+        axis. The settings cards are not tabs; ``MDAWidget._enable_widgets``
+        handles them itself.
         """
         super()._enable_tabs(enable)
         if self._supporting_sections_added:
@@ -563,116 +708,4 @@ class TopbarMDATabs(CoreMDATabs):
         )
 
 
-class MDAWidgetTopbar(MDAWidget):
-    """`MDAWidget` that presents the acquisition axes as native top tabs.
-
-    Behaves exactly like [`MDAWidget`][pymmcore_widgets.MDAWidget] — same
-    ``value``/``setValue``, ``prepare_mda``/``run_mda``, ``save``/``load``, and
-    core awareness — but lays the axes and Saving out as tabs
-    (checkbox and icon on top, name below) instead of collapsible sections,
-    with Settings as a card between the tabs and the footer.
-    """
-
-    def __init__(
-        self, *, parent: QWidget | None = None, mmcore: CMMCorePlus | None = None
-    ) -> None:
-        super().__init__(parent=parent, mmcore=mmcore)
-        self._install_layout()
-
-    def _create_tab_widget(self) -> CoreMDATabs:
-        return TopbarMDATabs(None, self._mmc)
-
-    @property
-    def tabs(self) -> TopbarMDATabs:
-        """Return the top-tabs axis container."""
-        tabs = self.tab_wdg
-        if not isinstance(tabs, TopbarMDATabs):  # pragma: no cover
-            raise RuntimeError("MDAWidgetTopbar has the wrong axis container")
-        return tabs
-
-    # No `_enable_widgets` override needed: `_install_layout` below leaves
-    # every widget this presentation manages specially either inside `tabs`
-    # (the five axes, Saving) or as a direct child of this widget
-    # (the Settings card), and the base `MDAWidget._enable_widgets` --
-    # which calls `child._enable_tabs(enable)` for the `CoreMDATabs` child and
-    # plain `setEnabled` on everything else -- covers both.
-
-    def _install_layout(self) -> None:
-        """Build the tabs, the Settings card, and the execution footer."""
-        tabs = self.tabs
-        layout = self.layout()
-        if layout is None:  # pragma: no cover
-            raise RuntimeError("MDAWidget has no layout")
-        _clear_layout(layout)
-
-        # Global settings are not a tab: they have no on/off state and always
-        # apply, so they sit in a card of their own between the tabs and the
-        # footer -- always visible, whichever tab is showing. Same painted
-        # card the non-table editors use, rather than a QGroupBox (see
-        # `TopbarMDATabs._wrap_in_card` for why).
-        self._settings_widget = settings_widget = QWidget()
-        settings_layout = QVBoxLayout(settings_widget)
-        settings_layout.setContentsMargins(5, 5, 5, 5)
-        axis_row = QHBoxLayout()
-        axis_row.setContentsMargins(0, 0, 0, 0)
-        axis_row.addWidget(self._axis_order_label)
-        self.axis_order.setMaximumWidth(100)
-        axis_row.addWidget(self.axis_order)
-        axis_row.addStretch()
-        settings_layout.addLayout(axis_row)
-        settings_layout.addWidget(self.keep_shutter_open)
-        self._settings_box = TopbarMDATabs._wrap_in_card(settings_widget)
-        # Autofocus gets a card of its own below: it has more controls than the
-        # settings above it, and which ones apply depends on the kind selected.
-        af_widget = QWidget()
-        af_layout = QVBoxLayout(af_widget)
-        # same inner inset as the settings card above, so the two line up
-        af_layout.setContentsMargins(5, 5, 5, 5)
-        af_layout.setSpacing(5)
-        af_layout.addWidget(self.af_axis)
-        self._af_box = TopbarMDATabs._wrap_in_card(af_widget)
-
-        tabs.add_supporting_sections(save_info=self.save_info)
-
-        footer = QFrame()
-        footer.setObjectName("mdaExecutionFooter")
-        footer_layout = QVBoxLayout(footer)
-        footer_layout.setContentsMargins(8, 4, 8, 8)
-
-        estimate_row = QHBoxLayout()
-        estimate_row.addWidget(self._time_warning)
-        estimate_row.addWidget(self._duration_label, 1)
-        footer_layout.addLayout(estimate_row)
-
-        actions_row = QHBoxLayout()
-        actions_row.addWidget(self._save_button)
-        actions_row.addWidget(self._load_button)
-        actions_row.addStretch()
-        actions_row.addWidget(self.control_btns)
-        footer_layout.addLayout(actions_row)
-
-        margin = TopbarMDATabs._PAGE_MARGIN
-        # Left/right line up with the tab pages' own inset; the gap above is
-        # already there (the page's bottom margin), so only the bottom needs
-        # adding, to keep the card off the footer.
-        settings_row = QHBoxLayout()
-        settings_row.setContentsMargins(margin, 0, margin, margin // 2)
-        settings_col = QVBoxLayout()
-        settings_col.setContentsMargins(0, 0, 0, 0)
-        settings_col.setSpacing(5)
-        settings_col.addWidget(self._settings_box)
-        settings_col.addWidget(self._af_box)
-        settings_row.addLayout(settings_col)
-
-        box = cast("QVBoxLayout", layout)
-        box.setContentsMargins(0, 0, 0, 0)
-        box.setSpacing(7)
-        box.addWidget(tabs, 1)
-        box.addLayout(settings_row)
-        box.addWidget(footer)
-
-
-__all__ = [
-    "MDAWidgetTopbar",
-    "TopbarMDATabs",
-]
+__all__ = ["CoreMDATabs", "TopbarMDATabs"]

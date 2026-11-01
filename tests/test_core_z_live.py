@@ -10,7 +10,7 @@ from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import QObject, QTimer
 
 from pymmcore_widgets.mda import CollapsibleCoreMDATabs, TopbarMDATabs
-from pymmcore_widgets.mda._core_mda import CoreMDATabs
+from pymmcore_widgets.mda._core_tabs import CoreMDATabs
 from pymmcore_widgets.mda._core_z import CoreConnectedZPlanWidget
 
 if TYPE_CHECKING:

@@ -897,8 +897,8 @@ class MDASequenceWidget(QWidget):
         # -------------- Main Layout --------------
 
         # Stored on self (rather than an anonymous QLabel) so a subclass that
-        # rebuilds this layout from scratch (e.g. MDAWidgetCollapsible,
-        # MDAWidgetTopbar) can move -- not duplicate -- it into its own
+        # rebuilds this layout from scratch (e.g. MDAWidget) can move -- not
+        # duplicate -- it into its own
         # layout. A layout only manages widgets added to it; one dropped by
         # clearing a layout without also being re-added elsewhere is not
         # deleted or hidden, just orphaned at its last position, silently

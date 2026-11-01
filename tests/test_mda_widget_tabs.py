@@ -6,7 +6,7 @@ import useq
 from qtpy.QtGui import QIcon
 from qtpy.QtWidgets import QWidget
 
-from pymmcore_widgets import MDAWidget, MDAWidgetTopbar
+from pymmcore_widgets import MDAWidget
 from pymmcore_widgets.mda import TopbarMDATabs
 
 if TYPE_CHECKING:
@@ -39,17 +39,15 @@ MDA = useq.MDASequence(
 )
 
 
-def test_topbar_is_mda_widget(qtbot: QtBot) -> None:
-    wdg = MDAWidgetTopbar()
+def test_mda_widget_uses_top_tabs(qtbot: QtBot) -> None:
+    wdg = MDAWidget()
     qtbot.addWidget(wdg)
-    # It IS an MDAWidget: same behavior, different presentation.
-    assert isinstance(wdg, MDAWidget)
     assert isinstance(wdg.tab_wdg, TopbarMDATabs)
     assert wdg.tabs is wdg.tab_wdg
 
     tabs = wdg.tabs
-    # The five axes, in this app's order, are followed by Saving. Global
-    # settings are not a tab at all (see below). Each tab's
+    # The five axes, in the collapsible presentation's order, are followed by
+    # Saving. Global settings are not a tab at all (see below). Each tab's
     # native icon/text are both empty; the visible checkbox, icon and name
     # label are a custom button widget instead (see _AxisTabButton), with the
     # name also available as a tooltip on hover.
@@ -96,13 +94,13 @@ def test_topbar_is_mda_widget(qtbot: QtBot) -> None:
     assert not tabs.isChecked(wdg.save_info)
 
 
-def test_topbar_selects_channels_by_default(qtbot: QtBot) -> None:
-    wdg = MDAWidgetTopbar()
+def test_mda_widget_selects_channels_by_default(qtbot: QtBot) -> None:
+    wdg = MDAWidget()
     qtbot.addWidget(wdg)
     assert wdg.tabs.currentWidget() is wdg.channels
 
 
-def test_topbar_every_tab_shows_its_editor(qtbot: QtBot) -> None:
+def test_mda_widget_every_tab_shows_its_editor(qtbot: QtBot) -> None:
     """Selecting a tab must actually reveal its editor.
 
     Regression test: `__init__` rebuilds the five axis tabs, and
@@ -110,7 +108,7 @@ def test_topbar_every_tab_shows_its_editor(qtbot: QtBot) -> None:
     card-wrapped editors were shown again afterwards, so Channels,
     Positions, Time Series and Saving came up blank.
     """
-    wdg = MDAWidgetTopbar()
+    wdg = MDAWidget()
     qtbot.addWidget(wdg)
     wdg.show()
     qtbot.waitExposed(wdg)
@@ -130,7 +128,7 @@ def test_topbar_every_tab_shows_its_editor(qtbot: QtBot) -> None:
         assert editor.isVisible(), f"{type(editor).__name__} tab is blank"
 
 
-def test_topbar_checking_a_tab_switches_to_it(qtbot: QtBot) -> None:
+def test_mda_widget_checking_a_tab_switches_to_it(qtbot: QtBot) -> None:
     """Native `CheckableTabWidget` behaviour: checking a tab selects it too.
 
     Unlike the collapsible presentation's dedicated section widgets, which
@@ -139,7 +137,7 @@ def test_topbar_checking_a_tab_switches_to_it(qtbot: QtBot) -> None:
     (`change_tab_on_check=True`) -- the same behaviour plain `MDAWidget`
     already has for its own tabs.
     """
-    wdg = MDAWidgetTopbar()
+    wdg = MDAWidget()
     qtbot.addWidget(wdg)
     tabs = wdg.tabs
     assert tabs.currentWidget() is wdg.channels  # starts on Channels
@@ -149,9 +147,9 @@ def test_topbar_checking_a_tab_switches_to_it(qtbot: QtBot) -> None:
     assert tabs.currentWidget() is wdg.stage_positions
 
 
-def test_topbar_disabled_axis_stays_selectable(qtbot: QtBot) -> None:
+def test_mda_widget_disabled_axis_stays_selectable(qtbot: QtBot) -> None:
     """A disabled dimension is dimmed but its editor remains viewable."""
-    wdg = MDAWidgetTopbar()
+    wdg = MDAWidget()
     qtbot.addWidget(wdg)
     tabs = wdg.tabs
     assert not tabs.isChecked(wdg.stage_positions)
@@ -160,37 +158,14 @@ def test_topbar_disabled_axis_stays_selectable(qtbot: QtBot) -> None:
     assert not wdg.stage_positions.isEnabled()
 
 
-def test_topbar_value_parity_with_mda_widget(qtbot: QtBot) -> None:
-    """The top-tabs presentation must build the identical sequence."""
-    ref = MDAWidget()
-    qtbot.addWidget(ref)
-    wdg = MDAWidgetTopbar()
-    qtbot.addWidget(wdg)
-
-    ref.setValue(MDA)
-    wdg.setValue(MDA)
-
-    topbar_value = wdg.value()
-    reference_value = ref.value()
-    assert topbar_value.replace(metadata={}) == reference_value.replace(metadata={})
-    # per-axis inclusion mirrors the reference
-    for axis in "cpgzt":
-        assert wdg.tabs.isAxisUsed(axis) == ref.tab_wdg.isAxisUsed(axis)
-    # per-position autofocus offset preserved
-    restored = wdg.value().stage_positions
-    assert restored[0].sequence is not None
-    assert restored[0].sequence.autofocus_plan is not None
-    assert restored[0].sequence.autofocus_plan.autofocus_motor_offset == 25.0
-
-
-def test_topbar_settings_sit_between_the_tabs_and_the_footer(qtbot: QtBot) -> None:
+def test_mda_widget_settings_sit_between_the_tabs_and_the_footer(qtbot: QtBot) -> None:
     """Saving is a tab; global settings are a card of their own below them.
 
     The settings card is outside both the tab widget (it always applies, so
     it stays visible whichever tab is showing) and the footer (which holds
     only the always-reachable actions).
     """
-    wdg = MDAWidgetTopbar()
+    wdg = MDAWidget()
     qtbot.addWidget(wdg)
     wdg.resize(800, 700)
     wdg.show()
@@ -226,8 +201,8 @@ def test_topbar_settings_sit_between_the_tabs_and_the_footer(qtbot: QtBot) -> No
     assert save_center.x() < load_center.x() < run_center.x()
 
 
-def test_topbar_disables_editors_during_run(qtbot: QtBot) -> None:
-    wdg = MDAWidgetTopbar()
+def test_mda_widget_disables_editors_during_run(qtbot: QtBot) -> None:
+    wdg = MDAWidget()
     qtbot.addWidget(wdg)
     tabs = wdg.tabs
     axis_widgets = {
@@ -265,8 +240,8 @@ def test_topbar_disables_editors_during_run(qtbot: QtBot) -> None:
     assert wdg._load_button.isEnabled()
 
 
-def test_topbar_run_preserves_axis_order(qtbot: QtBot) -> None:
-    wdg = MDAWidgetTopbar()
+def test_mda_widget_run_preserves_axis_order(qtbot: QtBot) -> None:
+    wdg = MDAWidget()
     qtbot.addWidget(wdg)
     wdg.setValue(MDA)
 
@@ -282,8 +257,8 @@ def test_topbar_run_preserves_axis_order(qtbot: QtBot) -> None:
     wdg._disconnect()
 
 
-def test_topbar_runs_acquisition(qtbot: QtBot) -> None:
-    wdg = MDAWidgetTopbar()
+def test_mda_widget_runs_acquisition(qtbot: QtBot) -> None:
+    wdg = MDAWidget()
     qtbot.addWidget(wdg)
     wdg.setValue(MDA)
 
@@ -295,9 +270,9 @@ def test_topbar_runs_acquisition(qtbot: QtBot) -> None:
     wdg._disconnect()
 
 
-def test_topbar_card_tab_enables_content_when_checked(qtbot: QtBot) -> None:
+def test_mda_widget_card_tab_enables_content_when_checked(qtbot: QtBot) -> None:
     """Checking a card-wrapped axis tab (grid, z) enables its inner widget."""
-    wdg = MDAWidgetTopbar()
+    wdg = MDAWidget()
     qtbot.addWidget(wdg)
     tabs = wdg.tabs
     for widget in (wdg.grid_plan, wdg.z_plan):
@@ -308,9 +283,9 @@ def test_topbar_card_tab_enables_content_when_checked(qtbot: QtBot) -> None:
         assert not widget.isEnabled()
 
 
-def test_topbar_duration_label_in_footer(qtbot: QtBot) -> None:
+def test_mda_widget_duration_label_in_footer(qtbot: QtBot) -> None:
     """Duration/time-estimate label must live in the footer, not float over tabs."""
-    wdg = MDAWidgetTopbar()
+    wdg = MDAWidget()
     qtbot.addWidget(wdg)
     footer = wdg.findChild(QWidget, "mdaExecutionFooter")
     assert footer is not None

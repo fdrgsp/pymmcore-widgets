@@ -36,7 +36,6 @@ __all__ = [
     "MDASequenceWidget",
     "MDAWidget",
     "MDAWidgetCollapsible",
-    "MDAWidgetTopbar",
     "ObjectivesPixelConfigurationWidget",
     "ObjectivesWidget",
     "PixelConfigurationWidget",
@@ -85,7 +84,7 @@ from .control import (
 from .device_properties import PropertiesWidget, PropertyBrowser, PropertyWidget
 from .hcs import HCSWizard
 from .hcwizard import ConfigWizard
-from .mda import MDAWidget, MDAWidgetCollapsible, MDAWidgetTopbar
+from .mda import MDAWidget, MDAWidgetCollapsible
 from .useq_widgets import (
     ChannelTable,
     GridPlanWidget,
