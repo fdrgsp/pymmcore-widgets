@@ -12,7 +12,6 @@ from qtpy.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QDoubleSpinBox,
-    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -70,6 +69,28 @@ ICONS_MARK: dict[str, tuple[str, Flip | None]] = {
 }
 
 
+# Short row labels of the compact layout; the full name is the label's tooltip.
+BOUND_LABELS: dict[str, str] = {
+    "top": "Top",
+    "bottom": "Bottom",
+    "left": "Left",
+    "right": "Right",
+    "top_left": "Top L",
+    "top_right": "Top R",
+    "bottom_left": "Bottom L",
+    "bottom_right": "Bottom R",
+}
+_BOUND_KIND = {name: "corner" if "_" in name else "edge" for name in BOUND_LABELS}
+# (field, edge, corner) of each compact row: the bound field it shows, and the
+# bound its Mark/Move buttons act on in Edges and in Corners mode
+_COMPACT_ROWS = (
+    ("top", "top", "top_left"),
+    ("bottom", "bottom", "bottom_left"),
+    ("left", "left", "top_right"),
+    ("right", "right", "bottom_right"),
+)
+
+
 class XYBoundsControl(QWidget):
     """Buttons to mark and visit bounds on the XY stage."""
 
@@ -87,19 +108,10 @@ class XYBoundsControl(QWidget):
         self.btn_bottom_left = _MarkVisitButton("bottom_left")
         self.btn_bottom_right = _MarkVisitButton("bottom_right")
 
-        if compact_layout:
-            for button in (
-                self.btn_top,
-                self.btn_left,
-                self.btn_right,
-                self.btn_bottom,
-                self.btn_top_left,
-                self.btn_top_right,
-                self.btn_bottom_left,
-                self.btn_bottom_right,
-            ):
-                button.setIconSize(QSize(16, 16))
-                button.setFixedSize(30, 26)
+        # Separate, always-visible Mark and Move buttons for each bound in the
+        # compact layout (see _make_compact_widget), keyed by bound name.
+        self.mark_buttons: dict[str, QPushButton] = {}
+        self.visit_buttons: dict[str, QPushButton] = {}
 
         self.go_middle = QCheckBox("Move")
         self.go_middle.setSizePolicy(*FIXED_POLICY)
@@ -115,15 +127,25 @@ class XYBoundsControl(QWidget):
         if compact_layout:
             self._buttons_widget = self._make_compact_widget()
             top_layout.addWidget(self._buttons_widget, 1)
-            # In compact mode, go_middle only mirrors the Move/Mark radio state
-            # and _bounds_wdg only donates its field widgets to the compact
-            # grid (see _make_compact_widget) -- neither is placed in a
-            # layout. Give them a parent so they don't end up as permanent,
-            # invisible top-level widgets.
-            self.go_middle.setParent(self)
-            self.go_middle.hide()
-            self._bounds_wdg.setParent(self)
-            self._bounds_wdg.hide()
+            # The compact layout has its own Mark and Move buttons, so neither
+            # the direction pad's buttons nor its Move toggle are placed in a
+            # layout, and _bounds_wdg only donates its field widgets to the
+            # compact grid. Give them a parent so they don't end up as
+            # permanent, invisible top-level widgets.
+            for widget in (
+                self.go_middle,
+                self._bounds_wdg,
+                self.btn_top,
+                self.btn_left,
+                self.btn_right,
+                self.btn_bottom,
+                self.btn_top_left,
+                self.btn_top_right,
+                self.btn_bottom_left,
+                self.btn_bottom_right,
+            ):
+                widget.setParent(self)
+                widget.hide()
         else:
             self._buttons_widget = self._make_direction_pad()
             top_layout.setSpacing(15)
@@ -158,15 +180,22 @@ class XYBoundsControl(QWidget):
         return buttons_widget
 
     def _make_compact_widget(self) -> QWidget:
+        """Lay out each bound's field with its Mark and Move buttons side by side.
+
+        Edges/Corners picks what the four rows' buttons act on: each row's edge
+        (Top, Bottom, Left, Right), or a corner (Top Left, Bottom Left, Top
+        Right, Bottom Right), marking or visiting two edges at once. Each row's
+        label names whichever bound its buttons act on. Mark and Move are both
+        always visible -- as in the Z Stack's Top/Bottom rows -- rather than one
+        set of buttons switching between marking and moving.
+        """
         compact_widget = QWidget()
         compact_widget.setSizePolicy(
-            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred
         )
         layout = QGridLayout(compact_widget)
-        # Match the horizontal inset used by the common grid form below, so
-        # Mode, Top, and Left share its label-column starting edge.
-        layout.setContentsMargins(12, 0, 12, 0)
-        layout.setHorizontalSpacing(12)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setHorizontalSpacing(10)
         layout.setVerticalSpacing(4)
 
         self._edge_mode = QRadioButton("Edges")
@@ -177,121 +206,75 @@ class XYBoundsControl(QWidget):
         mode_row = QHBoxLayout()
         mode_row.setContentsMargins(0, 0, 0, 0)
         mode_row.setSpacing(10)
-        mode_row.addWidget(QLabel("Mode:"))
         mode_row.addWidget(self._edge_mode)
         mode_row.addWidget(self._corner_mode)
-        self._action_separator = QFrame()
-        self._action_separator.setFrameShape(QFrame.Shape.VLine)
-        self._action_separator.setFrameShadow(QFrame.Shadow.Sunken)
-        mode_row.addWidget(self._action_separator)
-
-        self._mark_action = QRadioButton("Mark")
-        self._move_action = QRadioButton("Move")
-        action_group = QButtonGroup(compact_widget)
-        action_group.addButton(self._mark_action)
-        action_group.addButton(self._move_action)
-        mode_row.addWidget(QLabel("Action:"))
-        mode_row.addWidget(self._mark_action)
-        mode_row.addWidget(self._move_action)
         mode_row.addStretch()
-        mode_widget = QWidget()
-        mode_widget.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
-        )
-        mode_widget.setLayout(mode_row)
-        layout.addWidget(mode_widget, 0, 0, 1, 2)
+        layout.addWidget(QLabel("Bounds by"), 0, 0)
+        layout.addLayout(mode_row, 0, 1, 1, 2)
 
-        self._compact_action_stacks: list[QStackedWidget] = []
-        # Each entry is (label, edge_text, corner_text) so _set_corner_mode
-        # can swap the label to match whichever bound is currently
-        # mark-able in that row (e.g. "Top" <-> "Top Left").
+        rows = [
+            (getattr(self._bounds_wdg, field), edge, corner)
+            for field, edge, corner in _COMPACT_ROWS
+        ]
+        # (label, edge_text, corner_text): _set_corner_mode renames each row
+        # after the bound its buttons currently act on (e.g. "Top" <-> "Top Left")
         self._compact_field_labels: list[tuple[QLabel, str, str]] = []
-        specs = (
-            ("Top", self._bounds_wdg.top, self.btn_top, self.btn_top_left, 0, 0),
-            (
-                "Bottom",
-                self._bounds_wdg.bottom,
-                self.btn_bottom,
-                self.btn_top_right,
-                0,
-                1,
-            ),
-            (
-                "Left",
-                self._bounds_wdg.left,
-                self.btn_left,
-                self.btn_bottom_left,
-                1,
-                0,
-            ),
-            (
-                "Right",
-                self._bounds_wdg.right,
-                self.btn_right,
-                self.btn_bottom_right,
-                1,
-                1,
-            ),
-        )
-        for text, field, edge_button, corner_button, row, column in specs:
-            control = QWidget()
-            control_layout = QHBoxLayout(control)
-            control_layout.setContentsMargins(0, 0, 0, 0)
-            control_layout.setSpacing(2)
-            edge_text = f"{text}:"
-            corner_text = f"{corner_button.label.title()}:"
+        self._compact_action_stacks: list[QStackedWidget] = []
+        for row, (field, edge, corner) in enumerate(rows, start=1):
+            edge_text, corner_text = BOUND_LABELS[edge], BOUND_LABELS[corner]
             label = QLabel(edge_text)
-            control_layout.addWidget(label)
             self._compact_field_labels.append((label, edge_text, corner_text))
-            control_layout.addWidget(field)
+            layout.addWidget(label, row, 0)
+            layout.addWidget(field, row, 1)
+            stack = QStackedWidget()
+            stack.addWidget(self._mark_visit_buttons(edge))
+            stack.addWidget(self._mark_visit_buttons(corner))
+            stack.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            self._compact_action_stacks.append(stack)
+            layout.addWidget(stack, row, 2)
+        layout.setRowStretch(len(rows) + 1, 1)
 
-            action_stack = QStackedWidget()
-            action_stack.setFixedSize(30, 26)
-            action_stack.addWidget(edge_button)
-            action_stack.addWidget(corner_button)
-            self._compact_action_stacks.append(action_stack)
-            control_layout.addWidget(action_stack)
-            layout.addWidget(control, row + 1, column)
-        # The bounds page is kept as tall as the other grid modes.  Share that
-        # available height between its three visual rows instead of leaving an
-        # unused block underneath the compact controls.
-        for row in range(3):
-            layout.setRowStretch(row, 1)
-        # Labels are only as wide as whichever text set (edge or corner
-        # names) is active, so switching Mode reclaims the unused space
-        # instead of every label permanently reserving room for the longer
-        # of the two (e.g. "Bottom Right:").
-        self._compact_label_widths = (
-            max(
-                self.fontMetrics().horizontalAdvance(edge_text)
-                for _, edge_text, _ in self._compact_field_labels
-            )
-            + 4,
-            max(
-                self.fontMetrics().horizontalAdvance(corner_text)
-                for _, _, corner_text in self._compact_field_labels
-            )
-            + 4,
+        # Wide enough for both sets of names, so switching between edges and
+        # corners does not move the fields and buttons beside the labels.
+        metrics = self.fontMetrics()
+        width = max(
+            metrics.horizontalAdvance(text)
+            for _, *texts in self._compact_field_labels
+            for text in texts
         )
-        self._set_corner_mode(False)
-
+        for label, *_ in self._compact_field_labels:
+            label.setFixedWidth(width + 4)
         self._corner_mode.toggled.connect(self._set_corner_mode)
-        self._move_action.toggled.connect(self.go_middle.setChecked)
-        self.go_middle.toggled.connect(self._sync_action_mode)
         self._edge_mode.setChecked(True)
-        self._mark_action.setChecked(True)
+        self._set_corner_mode(False)
         return compact_widget
+
+    def _mark_visit_buttons(self, name: str) -> QWidget:
+        label = name.replace("_", " ")
+        glyph, flip = ICONS_MARK[name]
+        mark = self.mark_buttons[name] = _bound_button(
+            QIconifyIcon(glyph, flip=flip), f"Mark the {label} bound."
+        )
+        visit = self.visit_buttons[name] = _bound_button(
+            QIconifyIcon(ICONS_GO[name]), f"Move to the {label} bound."
+        )
+        pair = QWidget()
+        row = QHBoxLayout(pair)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        row.addWidget(mark)
+        row.addWidget(visit)
+        return pair
 
     def _set_corner_mode(self, corners: bool) -> None:
         for stack in self._compact_action_stacks:
             stack.setCurrentIndex(int(corners))
-        width = self._compact_label_widths[int(corners)]
-        for label, edge_text, corner_text in self._compact_field_labels:
+        for (label, edge_text, corner_text), (_, edge, corner) in zip(
+            self._compact_field_labels, _COMPACT_ROWS, strict=True
+        ):
             label.setText(corner_text if corners else edge_text)
-            label.setFixedWidth(width)
-
-    def _sync_action_mode(self, move: bool) -> None:
-        (self._move_action if move else self._mark_action).setChecked(True)
+            bound = corner if corners else edge
+            label.setToolTip(f"The {bound.replace('_', ' ')} {_BOUND_KIND[bound]}.")
 
     def _update_buttons_icon(self, state: bool) -> None:
         """Switch the icon of the buttons between `mark` and `visit`."""
@@ -329,6 +312,22 @@ class CoreXYBoundsControl(XYBoundsControl):
         self.btn_top_right.clicked.connect(lambda: self._mark_or_visit(True, False))
         self.btn_bottom_left.clicked.connect(lambda: self._mark_or_visit(False, True))
         self.btn_bottom_right.clicked.connect(lambda: self._mark_or_visit(False, False))
+        # (top, left) of each bound: True/False picks the side, None leaves that
+        # axis alone -- the arguments _mark and _visit take.
+        sides = {
+            "top": (True, None),
+            "bottom": (False, None),
+            "left": (None, True),
+            "right": (None, False),
+            "top_left": (True, True),
+            "top_right": (True, False),
+            "bottom_left": (False, True),
+            "bottom_right": (False, False),
+        }
+        for name, button in self.mark_buttons.items():
+            button.clicked.connect(lambda _=False, s=sides[name]: self._mark(*s))
+        for name, button in self.visit_buttons.items():
+            button.clicked.connect(lambda _=False, s=sides[name]: self._visit(*s))
 
     def value(self) -> dict[str, float]:
         """Return the current value of the grid plan widget."""
@@ -431,6 +430,16 @@ class CoreXYBoundsControl(XYBoundsControl):
 
 
 # -------- helpers --------
+
+
+def _bound_button(icon: QIconifyIcon, tooltip: str) -> QPushButton:
+    button = QPushButton()
+    button.setIcon(icon)
+    button.setIconSize(QSize(16, 16))
+    button.setFixedSize(30, 26)
+    button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    button.setToolTip(tooltip)
+    return button
 
 
 class _PositionSpinBox(QDoubleSpinBox):

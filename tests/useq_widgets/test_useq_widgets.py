@@ -11,7 +11,12 @@ import pytest
 import useq
 from qtpy.QtCore import QPoint, Qt, QTimer
 from qtpy.QtGui import QFont
-from qtpy.QtWidgets import QLabel, QMessageBox, QTableWidgetSelectionRange
+from qtpy.QtWidgets import (
+    QApplication,
+    QLabel,
+    QMessageBox,
+    QTableWidgetSelectionRange,
+)
 
 import pymmcore_widgets
 from pymmcore_widgets import _icons
@@ -731,6 +736,41 @@ def test_z_plan_widget(qtbot: QtBot) -> None:
         wdg.setValue(plan)
 
 
+def test_grid_plan_order_buttons(qtbot: QtBot) -> None:
+    """Each order is a button; picking one sets the plan's order."""
+    wdg = GridPlanWidget()
+    qtbot.addWidget(wdg)
+    assert wdg.order.currentEnum() is _grid.OrderMode.row_wise_snake
+    with qtbot.waitSignal(wdg.valueChanged):
+        wdg.order._buttons[_grid.OrderMode.column_wise].click()
+    assert wdg.value().mode == useq.OrderMode.column_wise
+    # exclusive: clicking the selected button keeps it selected
+    wdg.order._buttons[_grid.OrderMode.column_wise].click()
+    assert wdg.order.currentEnum() is _grid.OrderMode.column_wise
+
+
+def test_grid_plan_summary(qtbot: QtBot) -> None:
+    """The summary states the tiles, rows x columns and size it can know."""
+    wdg = GridPlanWidget()
+    qtbot.addWidget(wdg)
+    times = _grid._TIMES
+
+    # rows and columns are known without a field of view; the size is not
+    wdg.setValue(useq.GridRowsColumns(rows=3, columns=4))
+    assert wdg._summary.text() == f"12 tiles · 3 {times} 4"
+
+    wdg.setFovWidth(400)
+    wdg.setFovHeight(300)
+    assert wdg._summary.text() == f"12 tiles · 3 {times} 4 · 1.60 {times} 0.90 mm"
+
+    # an area's tiles depend on the field of view
+    wdg.setValue(useq.GridWidthHeight(width=1000, height=600))
+    assert wdg._summary.text() == f"6 tiles · 2 {times} 3 · 1.20 {times} 0.60 mm"
+    wdg._fov_width = wdg._fov_height = None
+    wdg.setMode("bounds")
+    assert wdg._summary.text() == "Set the pixel size to compute the tiles."
+
+
 def test_grid_plan_label_column_shrinks_with_the_font(qtbot: QtBot) -> None:
     """The aligned label column follows a smaller font, not only a larger one.
 
@@ -765,18 +805,9 @@ def test_grid_plan_widget(qtbot: QtBot) -> None:
     wdg.resize(1000, 500)
     wdg.show()
 
-    visible_mode_buttons = (
-        wdg._mode_number_radio,
-        wdg._mode_area_radio,
-        wdg._mode_bounds_radio,
-    )
-    assert all(
-        button.width() == button.sizeHint().width() for button in visible_mode_buttons
-    )
-    bounds_right = wdg._mode_bounds_radio.mapTo(wdg, QPoint()).x() + (
-        wdg._mode_bounds_radio.width()
-    )
-    assert bounds_right < wdg.width() * 0.6
+    # the settings every mode shares sit in a column left of the mode's own
+    common_right = wdg._common.mapTo(wdg, QPoint()).x() + wdg._common.width()
+    assert common_right < wdg.row_col_wdg.rows.mapTo(wdg, QPoint()).x()
 
     form_fields = (
         wdg.row_col_wdg.rows,
@@ -787,22 +818,40 @@ def test_grid_plan_widget(qtbot: QtBot) -> None:
         wdg.bounds_wdg.top,
         wdg.bounds_wdg.right,
         wdg.bounds_wdg.bottom,
-        wdg.overlap,
-        wdg.order,
         wdg.relative_to,
         wdg.width_height_wdg.relative_to,
     )
     assert len({field.width() for field in form_fields}) == 1
     assert form_fields[0].width() < wdg.width() * 0.3
-    assert (
-        wdg.row_col_wdg.rows.mapTo(wdg, QPoint()).x()
-        == wdg.overlap.mapTo(wdg, QPoint()).x()
-    )
     assert wdg.row_col_wdg.relative_to.mapTo(wdg, QPoint()).y() > (
         wdg.row_col_wdg.columns.mapTo(wdg, QPoint()).y()
     )
     wdg.relative_to.setCurrentEnum(_grid.RelativeTo.top_left)
     assert wdg.width_height_wdg.relative_to.currentEnum() is (_grid.RelativeTo.top_left)
+
+    # the shared column keeps its place and width in every mode, and every
+    # mode's fields start at the same x, so nothing jumps on a switch
+    common_geometries = set()
+    field_xs = set()
+    first_fields = (
+        wdg.row_col_wdg.rows,
+        wdg.width_height_wdg.area_width,
+        wdg.bounds_wdg.top,
+    )
+    for mode, field in zip(
+        (_grid.Mode.NUMBER, _grid.Mode.AREA, _grid.Mode.BOUNDS),
+        first_fields,
+        strict=True,
+    ):
+        wdg.setMode(mode)
+        QApplication.processEvents()
+        common_geometries.add(wdg._common.geometry().getRect())
+        field_xs.add(field.mapTo(wdg, QPoint()).x())
+        # setMode keeps the "Define by" combo in sync
+        assert wdg._mode_combo.currentData() is mode
+    assert len(common_geometries) == 1
+    assert len(field_xs) == 1
+    wdg.setMode(_grid.Mode.NUMBER)
 
     stack_heights = []
     widget_heights = []
@@ -827,21 +876,22 @@ def test_grid_plan_widget(qtbot: QtBot) -> None:
         wdg.setValue(plan)
     assert wdg.mode() == _grid.Mode.NUMBER
     assert wdg.value() == plan
-    assert wdg._mode_btn_group.checkedButton().text() == "Fields of View"
+    assert wdg._mode_combo.currentText() == "Rows & Columns"
+    assert wdg.order.currentEnum() is _grid.OrderMode.spiral
 
     plan = useq.GridFromEdges(left=1, right=2, top=3, bottom=4, overlap=10)
     with qtbot.waitSignal(wdg.valueChanged):
         wdg.setValue(plan)
     assert wdg.mode() == _grid.Mode.BOUNDS
     assert wdg.value() == plan
-    assert wdg._mode_btn_group.checkedButton().text() == "Absolute Bounds"
+    assert wdg._mode_combo.currentText() == "Absolute Bounds"
 
     plan = useq.GridWidthHeight(width=1000, height=2000, fov_height=3, fov_width=4)
     with qtbot.waitSignal(wdg.valueChanged):
         wdg.setValue(plan)
     assert wdg.mode() == _grid.Mode.AREA
     assert wdg.value() == plan
-    assert wdg._mode_btn_group.checkedButton().text() == "Width && Height"
+    assert wdg._mode_combo.currentText() == "Width & Height"
 
     plan = useq.GridFromPolygon(
         vertices=[(-4, 0), (5, -5), (5, 9), (0, 10)], fov_height=1, fov_width=1
@@ -850,7 +900,7 @@ def test_grid_plan_widget(qtbot: QtBot) -> None:
         wdg.setValue(plan)
     assert wdg.mode() == _grid.Mode.POLYGON
     assert wdg.value().model_dump() == plan.model_dump()
-    assert wdg._mode_btn_group.checkedButton().text() == "Polygon"
+    assert wdg._mode_combo.currentText() == "Polygon"
 
     assert wdg._fov_height == 1
     wdg.setFovHeight(5)
@@ -1037,7 +1087,7 @@ def test_mda_popup_with_polygon(qtbot: QtBot) -> None:
 
     gp = pop.mda_tabs.grid_plan
     assert pop.mda_tabs.isChecked(gp)
-    assert gp._mode_btn_group.checkedButton().text() == "Polygon"
+    assert gp._mode_combo.currentText() == "Polygon"
     assert gp.polygon_wdg.scene is not None
     assert gp.polygon_wdg.scene.items()
 

@@ -1673,22 +1673,40 @@ def test_grid_plan_fov_update(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
     fields_right = bounds.bottom.mapTo(wdg.grid_plan, QPoint()).x() + (
         bounds.bottom.width()
     )
-    buttons_left = bounds._compact_action_stacks[1].mapTo(wdg.grid_plan, QPoint()).x()
-    assert 0 <= buttons_left - fields_right <= 4
-    assert bounds.btn_top.width() == 30
-    assert bounds._edge_mode.isChecked()
-    assert all(stack.currentIndex() == 0 for stack in bounds._compact_action_stacks)
+    buttons_left = bounds.mark_buttons["bottom"].mapTo(wdg.grid_plan, QPoint()).x()
+    assert 0 <= buttons_left - fields_right <= 12
+    labels = [label for label, *_ in bounds._compact_field_labels]
 
+    # Edges: each row's Mark and Move, side by side, act on its edge
+    assert bounds._edge_mode.isChecked()
+    assert [label.text() for label in labels] == ["Top", "Bottom", "Left", "Right"]
+    assert labels[0].toolTip() == "The top edge."
+    fields_x = bounds.top.mapTo(bounds, QPoint()).x()
+    for name in ("top", "bottom", "left", "right"):
+        mark, visit = bounds.mark_buttons[name], bounds.visit_buttons[name]
+        assert mark.isVisible() and visit.isVisible()
+        assert mark.width() == visit.width() == 30
+        assert mark.toolTip().startswith("Mark")
+        assert visit.toolTip().startswith("Move to")
+        assert mark.mapTo(bounds, QPoint()).x() < visit.mapTo(bounds, QPoint()).x()
+    assert not bounds.mark_buttons["top_left"].isVisible()
+
+    # Corners: each row is renamed after the corner its buttons now act on
     bounds._corner_mode.setChecked(True)
-    assert all(stack.currentIndex() == 1 for stack in bounds._compact_action_stacks)
-    assert bounds._action_separator.frameShape() == bounds._action_separator.Shape.VLine
-    assert bounds._mark_action.isChecked()
-    bounds._move_action.setChecked(True)
-    assert bounds.go_middle.isChecked()
-    assert all(
-        stack.currentWidget().toolTip().startswith("Move to")
-        for stack in bounds._compact_action_stacks
-    )
+    assert [label.text() for label in labels] == [
+        "Top L",
+        "Bottom L",
+        "Top R",
+        "Bottom R",
+    ]
+    assert labels[0].toolTip() == "The top left corner."
+    for name in ("top_left", "top_right", "bottom_left", "bottom_right"):
+        assert bounds.mark_buttons[name].isVisible()
+        assert bounds.visit_buttons[name].isVisible()
+    assert not bounds.mark_buttons["top"].isVisible()
+    # the fields and buttons stay put when switching
+    assert bounds.top.mapTo(bounds, QPoint()).x() == fields_x
+    bounds._edge_mode.setChecked(True)
 
     wdg.grid_plan.setMode("number")
     wdg.grid_plan.setMode("bounds")
@@ -1815,6 +1833,54 @@ def test_xy_bounds_mark_corners_expand_region(
     assert abs(wdg.left.value() - wdg.right.value()) == pytest.approx(
         20.0 + 100.0, abs=0.01
     )
+
+
+def test_xy_bounds_compact_mark_and_move_buttons(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """The compact layout's separate Mark and Move buttons mark and visit."""
+    mmc = global_mmcore
+    mmc.setROI(0, 0, 100, 200)  # fov_width=100um, fov_height=200um @ px=1.0
+
+    wdg = CoreXYBoundsControl(core=mmc, compact_layout=True)
+    qtbot.addWidget(wdg)
+    wdg._corner_mode.setChecked(True)
+
+    device = mmc.getXYStageDevice()
+    mmc.setXYPosition(device, 10.0, 40.0)
+    mmc.waitForDevice(device)
+    wdg.mark_buttons["top_left"].click()
+
+    mmc.setXYPosition(device, 30.0, 20.0)
+    mmc.waitForDevice(device)
+    wdg.mark_buttons["bottom_right"].click()
+
+    assert abs(wdg.top.value() - wdg.bottom.value()) == pytest.approx(
+        20.0 + 200.0, abs=0.01
+    )
+    assert abs(wdg.left.value() - wdg.right.value()) == pytest.approx(
+        20.0 + 100.0, abs=0.01
+    )
+
+    # Move returns to the marked positions, one axis or both at once
+    mmc.setXYPosition(device, 999.0, 999.0)
+    mmc.waitForDevice(device)
+    wdg.visit_buttons["top_left"].click()
+    assert mmc.getXPosition(device) == pytest.approx(10.0, abs=0.01)
+    assert mmc.getYPosition(device) == pytest.approx(40.0, abs=0.01)
+
+    wdg._edge_mode.setChecked(True)
+    wdg.visit_buttons["right"].click()
+    assert mmc.getXPosition(device) == pytest.approx(30.0, abs=0.01)
+    assert mmc.getYPosition(device) == pytest.approx(40.0, abs=0.01)
+
+    # marking one edge leaves the other axis alone
+    left = wdg.left.value()
+    mmc.setXYPosition(device, 30.0, 100.0)
+    mmc.waitForDevice(device)
+    wdg.mark_buttons["top"].click()
+    assert wdg.left.value() == left
+    assert wdg.top.value() == pytest.approx(100.0 + 100.0, abs=0.01)
 
 
 def test_xy_bounds_set_value_clears_raw_marks(

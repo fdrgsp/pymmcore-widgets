@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
 import useq
 from qtpy.QtCore import QEvent, QPointF, QSize, Qt, Signal
 from qtpy.QtGui import (
     QBrush,
+    QColor,
     QFontMetrics,
+    QIcon,
     QPainter,
     QPainterPath,
+    QPalette,
     QPen,
+    QPixmap,
     QPolygonF,
     QResizeEvent,
     QTransform,
@@ -18,27 +22,30 @@ from qtpy.QtGui import (
 from qtpy.QtWidgets import (
     QAbstractButton,
     QButtonGroup,
+    QComboBox,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
     QGraphicsPathItem,
     QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsView,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
-    QRadioButton,
     QSizePolicy,
     QSpinBox,
     QStackedWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 from superqt import QEnumComboBox
+from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
 from pymmcore_widgets._util import (
     QWIDGETSIZE_MAX,
-    SeparatorWidget,
     disable_wheel_scroll_recursive,
 )
 
@@ -106,8 +113,25 @@ _MODE_TO_USEQ: dict[Mode, type[GridPlan]] = {
 }
 
 
+# (icon, label) of each mode in the "Define by" combo box
+_MODE_ITEMS: dict[Mode, tuple[str, str]] = {
+    Mode.NUMBER: ("mdi:grid", "Rows & Columns"),
+    Mode.AREA: ("mdi:arrow-expand-all", "Width & Height"),
+    Mode.BOUNDS: ("mdi:vector-square", "Absolute Bounds"),
+    Mode.POLYGON: ("mdi:vector-polygon", "Polygon"),
+}
+_TIMES = "\u00d7"  # the multiplication sign, between rows/columns and sizes
+# above this many positions the summary only states the count, rather than
+# iterating every position to measure the grid
+_MAX_SUMMARY_POSITIONS = 10_000
+
+
 class GridPlanWidget(QWidget):
     """Widget to edit a [`useq-schema` GridPlan](https://pymmcore-plus.github.io/useq-schema/schema/axes/#grid-plans).
+
+    The settings every mode shares (the mode itself, overlap, acquisition order and
+    a summary of the resulting grid) sit in a column on the left; the current
+    mode's own settings sit on the right.
 
     This widget does not scroll on its own; a caller that needs it to (e.g. a
     tab page with limited height) should wrap it in its own ``QScrollArea``.
@@ -117,12 +141,8 @@ class GridPlanWidget(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        # A plain QWidget defaults to Preferred/Preferred, so it would only
-        # take its natural content width -- unlike a QScrollArea (this
-        # widget's base class before it became a plain QWidget), which always
-        # stretched to fill its container. Expanding restores that, so it
-        # still fills whatever it's placed in (a card, a scroll area's
-        # viewport, ...) instead of leaving a gap of bare container behind it.
+        # Expanding, so it fills whatever it's placed in (a card, a scroll
+        # area's viewport, ...) instead of leaving a gap of bare container.
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._mode: Mode = Mode.AREA  # will change to NUMBER below in init
         self._fov_width: float | None = None
@@ -130,26 +150,24 @@ class GridPlanWidget(QWidget):
 
         # WIDGETS -----------------------------------------------
 
-        # Radio buttons to select the mode
-        self._mode_number_radio = QRadioButton("Fields of View")
-        self._mode_area_radio = QRadioButton("Width && Height")
-        self._mode_bounds_radio = QRadioButton("Absolute Bounds")
-        self._mode_polygon_radio = QRadioButton("Polygon")
-        # by default, hide the polygon mode. Will be visible only if required using
-        # the setMode method.
-        self._mode_polygon_radio.hide()
-        # group the radio buttons together
-        self._mode_btn_group = QButtonGroup()
-        self._mode_btn_group.addButton(self._mode_number_radio)
-        self._mode_btn_group.addButton(self._mode_area_radio)
-        self._mode_btn_group.addButton(self._mode_bounds_radio)
-        self._mode_btn_group.addButton(self._mode_polygon_radio)
-        self._mode_btn_group.buttonToggled.connect(self.setMode)
-        for button in self._mode_btn_group.buttons():
-            button.setSizePolicy(
-                QSizePolicy.Policy.Maximum,
-                QSizePolicy.Policy.Fixed,
-            )
+        self._mode_combo = QComboBox()
+        for mode in (Mode.NUMBER, Mode.AREA, Mode.BOUNDS):
+            self._add_mode_item(mode)
+        # Polygon is only offered once a GridFromPolygon plan is set (see
+        # setValue): it cannot be defined from this widget.
+
+        self.overlap = QDoubleSpinBox()
+        self.overlap.setRange(-1000, 1000)
+        self.overlap.setValue(0)
+        self.overlap.setSuffix(" %")
+        self.order = _OrderButtons()
+
+        self._summary = QLabel()
+        self._summary.setWordWrap(True)
+        # the summary's length varies; it wraps instead of widening the column
+        self._summary.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
 
         self.row_col_wdg = _RowsColsWidget()
         self.width_height_wdg = _WidthHeightWidget()
@@ -162,30 +180,36 @@ class GridPlanWidget(QWidget):
             Mode.BOUNDS: self.bounds_wdg,
             Mode.POLYGON: self.polygon_wdg,
         }
-
-        self._bottom_stuff = _BottomStuff()
         # aliases
-        self.overlap = self._bottom_stuff.overlap
-        self.order = self._bottom_stuff.order
         self.relative_to = self.row_col_wdg.relative_to
 
         # LAYOUT -----------------------------------------------
 
-        # radio buttons on the top row
-        btns_row = QHBoxLayout()
-        btns_row.setContentsMargins(0, 0, 0, 0)
-        btns_row.addWidget(QLabel("Mode:"))
-        btns_row.addSpacing(24)
-        mode_buttons = QHBoxLayout()
-        mode_buttons.setSpacing(32)
-        mode_buttons.addWidget(self._mode_number_radio)
-        mode_buttons.addWidget(self._mode_area_radio)
-        mode_buttons.addWidget(self._mode_bounds_radio)
-        mode_buttons.addWidget(self._mode_polygon_radio)
-        btns_row.addLayout(mode_buttons)
-        btns_row.addStretch()
+        # left: what every mode shares
+        self._common = QWidget()
+        common = QGridLayout(self._common)
+        common.setContentsMargins(0, 0, 0, 0)
+        common.setHorizontalSpacing(10)
+        common.setVerticalSpacing(8)
+        common.addWidget(QLabel("Define by"), 0, 0)
+        common.addWidget(self._mode_combo, 0, 1)
+        common.addWidget(QLabel("Overlap"), 1, 0)
+        common.addWidget(self.overlap, 1, 1)
+        common.addWidget(QLabel("Order"), 2, 0)
+        common.addWidget(self.order, 2, 1)
+        common.addWidget(self._summary, 3, 0, 1, 2)
+        common.setRowStretch(4, 1)
+        # its contents are the same in every mode, so it keeps one width and
+        # the mode settings beside it never shift on a mode switch
+        self._common.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred
+        )
 
-        # stack the different mode widgets on top of each other
+        divider = QFrame()
+        divider.setFrameShape(QFrame.Shape.VLine)
+        divider.setFrameShadow(QFrame.Shadow.Sunken)
+
+        # right: the current mode's own settings
         self._stack = _ResizableStackedWidget(self)
         self._stack.addWidget(self.row_col_wdg)
         self._stack.addWidget(self.width_height_wdg)
@@ -197,11 +221,11 @@ class GridPlanWidget(QWidget):
             self.bounds_wdg,
         )
 
-        main_layout = QVBoxLayout(self)
-        main_layout.addLayout(btns_row)
-        main_layout.addWidget(SeparatorWidget())
+        main_layout = QHBoxLayout(self)
+        main_layout.setSpacing(16)
+        main_layout.addWidget(self._common)
+        main_layout.addWidget(divider)
         main_layout.addWidget(self._stack, 1)
-        main_layout.addWidget(self._bottom_stuff)
 
         # this widget commonly sits inside an outer collapsible section or a
         # caller-provided QScrollArea (see the standard MDAWidget's Grid tab),
@@ -209,17 +233,9 @@ class GridPlanWidget(QWidget):
         # accidentally changing a value while scrolling past it
         disable_wheel_scroll_recursive(self)
 
-        self._mode_number_radio.setChecked(True)
-
-        # FIXME: On Windows 11, buttons inside a QScrollArea's viewport are
-        # filled in with the accent color, making it very difficult to see
-        # which radio button is checked. This HACK solves the issue for a
-        # caller that wraps this widget in a QScrollArea. It's likely future
-        # Qt versions will fix this.
-        self.setStyleSheet("QRadioButton {color: none}")
-
         # CONNECTIONS ------------------------------------------
 
+        self._mode_combo.currentIndexChanged.connect(self._on_mode_combo_changed)
         self.row_col_wdg.relative_to.currentIndexChanged.connect(
             lambda index: self._sync_relative_to(
                 index,
@@ -237,44 +253,37 @@ class GridPlanWidget(QWidget):
         self.row_col_wdg.valueChanged.connect(self._on_change)
         self.width_height_wdg.valueChanged.connect(self._on_change)
         self.bounds_wdg.valueChanged.connect(self._on_change)
-        self._bottom_stuff.valueChanged.connect(self._on_change)
+        self.overlap.valueChanged.connect(self._on_change)
+        self.order.valueChanged.connect(self._on_change)
 
         self._align_label_columns()
+        self._update_summary_palette()
+        self.setMode(Mode.NUMBER)
 
     def changeEvent(self, event: QEvent | None) -> None:
         super().changeEvent(event)
+        if event is None:
+            return  # pragma: no cover
         # the label column width is measured from the font, so re-align whenever
         # the font or style changes (e.g. an application zoom/theme change).
-        if event is not None and event.type() in (
-            QEvent.Type.FontChange,
-            QEvent.Type.StyleChange,
-        ):
+        if event.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange):
             self._align_label_columns()
+        if event.type() in (QEvent.Type.PaletteChange, QEvent.Type.StyleChange):
+            self._update_summary_palette()
 
     def _align_label_columns(self) -> None:
-        """Give every form common label and field widths.
+        """Give every mode's form common label and field widths.
 
-        Each mode widget and the common controls use their own ``QFormLayout``,
-        so without this the field column would start at a different x in each
-        mode -- the short ``Grid Rows:``/``Width:`` labels leave their fields
-        further left than the wider ``Acquisition order:`` below. Sizing every
-        label to the widest one lines the fields up across modes and with the
-        common controls.
+        Each mode's settings use their own ``QFormLayout``, so without this the
+        fields would start at a different x in each mode, jumping on every mode
+        switch. Sizing every label to the widest one lines them up.
         """
         labels: list[QLabel] = []
         fields: list[QWidget] = []
-        for wdg in (
-            self.row_col_wdg,
-            self.width_height_wdg,
-            self.bounds_wdg,
-            self._bottom_stuff,
-        ):
+        for wdg in (self.row_col_wdg, self.width_height_wdg, self.bounds_wdg):
             form = wdg.layout()
             if not isinstance(form, QFormLayout):
                 continue  # pragma: no cover
-            form.setFormAlignment(
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-            )
             for row in range(form.rowCount()):
                 item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
                 label = item.widget() if item is not None else None
@@ -300,10 +309,8 @@ class GridPlanWidget(QWidget):
         )
         # QLabel.sizeHint() can exceed that font-metrics estimate by a pixel or
         # two for some strings (its internal text layout rounds differently),
-        # so fold in any already-known sizeHint too -- otherwise setMinimumWidth
-        # would let that one label win out and its form's field column would
-        # drift a pixel off from the others. sizeHint() can legitimately be 0
-        # before the label is shown/polished, but that never raises our max.
+        # so fold in any already-known sizeHint too. sizeHint() can legitimately
+        # be 0 before the label is shown/polished, but that never raises our max.
         width = max(width, max(label.sizeHint().width() for label in labels))
         for label in labels:
             label.setFixedWidth(width)
@@ -328,22 +335,17 @@ class GridPlanWidget(QWidget):
         mode : Mode | Literal["number", "area", "bounds", "polygon"]
             The mode to set.
         """
-        if isinstance(mode, QRadioButton):
-            btn_map: dict[QAbstractButton, Mode] = {
-                self._mode_number_radio: Mode.NUMBER,
-                self._mode_area_radio: Mode.AREA,
-                self._mode_bounds_radio: Mode.BOUNDS,
-                self._mode_polygon_radio: Mode.POLYGON,
-            }
-            mode = btn_map[mode]
-        elif isinstance(mode, str):
-            mode = Mode(mode)
-
+        mode = Mode(mode)
         if mode is Mode.POLYGON and not self.polygon_wdg._polygon:
             raise ValueError(
                 "Polygon mode may not be selected programmatically without a "
                 " pre-assigned GridFromPolygon Plan."
             )
+
+        if mode is Mode.POLYGON:
+            self._add_mode_item(Mode.POLYGON)
+        with signals_blocked(self._mode_combo):
+            self._mode_combo.setCurrentIndex(self._mode_combo.findData(mode))
 
         previous, self._mode = getattr(self, "_mode", None), mode
         if previous != self._mode:
@@ -362,7 +364,8 @@ class GridPlanWidget(QWidget):
         """
         kwargs = {
             **self._stack.currentWidget().value(),
-            **self._bottom_stuff.value(),
+            "overlap": (self.overlap.value(), self.overlap.value()),
+            "mode": self.order.currentEnum().value,
             "fov_width": self._fov_width,
             "fov_height": self._fov_height,
         }
@@ -390,21 +393,11 @@ class GridPlanWidget(QWidget):
                 self._fov_height = value.fov_height
             if value.fov_width:
                 self._fov_width = value.fov_width
-            with signals_blocked(self._bottom_stuff):
-                self._bottom_stuff.setValue(value)
+            with signals_blocked(self.overlap), signals_blocked(self.order):
+                if value.overlap:
+                    self.overlap.setValue(value.overlap[0])
+                self.order.setCurrentEnum(OrderMode(value.mode.value))
                 self.setMode(mode)
-
-            # ensure the correct QRadioButton is checked
-            with signals_blocked(self._mode_btn_group):
-                if mode == Mode.NUMBER:
-                    self._mode_number_radio.setChecked(True)
-                elif mode == Mode.AREA:
-                    self._mode_area_radio.setChecked(True)
-                elif mode == Mode.BOUNDS:
-                    self._mode_bounds_radio.setChecked(True)
-                elif mode == Mode.POLYGON:
-                    self._mode_polygon_radio.show()
-                    self._mode_polygon_radio.setChecked(True)
 
         self._on_change()
 
@@ -428,6 +421,15 @@ class GridPlanWidget(QWidget):
 
     # ------------------------- Private API -------------------------
 
+    def _add_mode_item(self, mode: Mode) -> None:
+        if self._mode_combo.findData(mode) == -1:
+            icon, text = _MODE_ITEMS[mode]
+            self._mode_combo.addItem(QIconifyIcon(icon), text, mode)
+
+    def _on_mode_combo_changed(self, index: int) -> None:
+        if (mode := self._mode_combo.itemData(index)) is not None:
+            self.setMode(mode)
+
     def _sync_relative_to(
         self,
         index: int,
@@ -438,6 +440,16 @@ class GridPlanWidget(QWidget):
             target.relative_to.setCurrentIndex(index)
         source.valueChanged.emit()
 
+    def _update_summary_palette(self) -> None:
+        """Draw the summary in a muted version of the text color."""
+        palette = self._summary.palette()
+        color = QColor(
+            self.palette().color(QPalette.ColorGroup.Active, QPalette.ColorRole.Text)
+        )
+        color.setAlpha(165)
+        palette.setColor(QPalette.ColorRole.WindowText, color)
+        self._summary.setPalette(palette)
+
     def _on_change(self) -> None:
         if (val := self.value()) is None:
             return  # pragma: no cover
@@ -446,7 +458,46 @@ class GridPlanWidget(QWidget):
         # order from the gui.
         if isinstance(val, useq.GridFromPolygon):
             self.polygon_wdg.setValue(val)
+        self._summary.setText(_grid_summary(val))
         self.valueChanged.emit(val)
+
+
+def _grid_summary(plan: GridPlan) -> str:
+    """Describe the grid `plan` makes: tiles, rows x columns, and its size in mm.
+
+    Whatever cannot be known is left out: the tiles of an area or a set of bounds
+    depend on the field of view, and so does the size of any grid.
+    """
+    try:
+        count = plan.num_positions()
+    except ValueError:
+        return "Set the pixel size to compute the tiles."
+    parts = [f"{count} tile{'s' if count != 1 else ''}"]
+    if count > _MAX_SUMMARY_POSITIONS:
+        return parts[0]
+    positions = list(plan)
+    rows = {p.grid_row for p in positions}
+    cols = {p.grid_col for p in positions}
+    if None not in rows and None not in cols:
+        parts.append(f"{len(rows)} {_TIMES} {len(cols)}")
+    if plan.fov_width and plan.fov_height:
+        xs = [p.x for p in positions if p.x is not None]
+        ys = [p.y for p in positions if p.y is not None]
+        if xs and ys:
+            width = (max(xs) - min(xs) + plan.fov_width) / 1000
+            height = (max(ys) - min(ys) + plan.fov_height) / 1000
+            parts.append(f"{width:.2f} {_TIMES} {height:.2f} mm")
+    return " · ".join(parts)
+
+
+def _mode_form(parent: QWidget) -> QFormLayout:
+    """A mode's settings form: left-aligned labels, fields top-left."""
+    layout = QFormLayout(parent)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    layout.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+    layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    return layout
 
 
 class _RowsColsWidget(QWidget):
@@ -465,12 +516,10 @@ class _RowsColsWidget(QWidget):
         self.columns.setSuffix(" fields")
         self.relative_to = QEnumComboBox(self, RelativeTo)
 
-        layout = QFormLayout(self)
-        layout.setContentsMargins(12, 12, 12, 4)
-        layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        layout.addRow("Grid Rows:", self.rows)
-        layout.addRow("Grid Cols:", self.columns)
-        layout.addRow("Current position:", self.relative_to)
+        layout = _mode_form(self)
+        layout.addRow("Rows", self.rows)
+        layout.addRow("Columns", self.columns)
+        layout.addRow("Start at", self.relative_to)
 
         self.rows.valueChanged.connect(self.valueChanged)
         self.columns.valueChanged.connect(self.valueChanged)
@@ -509,12 +558,10 @@ class _WidthHeightWidget(QWidget):
         self.area_height.setSingleStep(0.1)
         self.relative_to = QEnumComboBox(self, RelativeTo)
 
-        layout = QFormLayout(self)
-        layout.setContentsMargins(12, 12, 12, 4)
-        layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        layout.addRow("Width:", self.area_width)
-        layout.addRow("Height:", self.area_height)
-        layout.addRow("Current position:", self.relative_to)
+        layout = _mode_form(self)
+        layout.addRow("Width", self.area_width)
+        layout.addRow("Height", self.area_height)
+        layout.addRow("Start at", self.relative_to)
 
         self.area_width.valueChanged.connect(self.valueChanged)
         self.area_height.valueChanged.connect(self.valueChanged)
@@ -544,24 +591,25 @@ class _BoundsWidget(QWidget):
         self.left = QDoubleSpinBox()
         self.left.setRange(-10000000, 10000000)
         self.left.setDecimals(3)
+        self.left.setSuffix(" µm")
         self.top = QDoubleSpinBox()
         self.top.setRange(-10000000, 10000000)
         self.top.setDecimals(3)
+        self.top.setSuffix(" µm")
         self.right = QDoubleSpinBox()
         self.right.setRange(-10000000, 10000000)
         self.right.setDecimals(3)
+        self.right.setSuffix(" µm")
         self.bottom = QDoubleSpinBox()
         self.bottom.setRange(-10000000, 10000000)
         self.bottom.setDecimals(3)
+        self.bottom.setSuffix(" µm")
 
-        form = QFormLayout(self)
-        form.setContentsMargins(12, 12, 12, 4)
-        form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        form.addRow("Left:", self.left)
-        form.addRow("Top:", self.top)
-        form.addRow("Right:", self.right)
-        form.addRow("Bottom:", self.bottom)
+        form = _mode_form(self)
+        form.addRow("Top", self.top)
+        form.addRow("Bottom", self.bottom)
+        form.addRow("Left", self.left)
+        form.addRow("Right", self.right)
 
         self.top.valueChanged.connect(self.valueChanged)
         self.bottom.valueChanged.connect(self.valueChanged)
@@ -792,38 +840,137 @@ class _ResizableStackedWidget(QStackedWidget):
         self.updateGeometry()
 
 
-class _BottomStuff(QWidget):
+class _OrderButtons(QWidget):
+    """One checkable button per acquisition order, each drawing its own path."""
+
     valueChanged = Signal()
 
-    def __init__(self) -> None:
-        super().__init__()
+    _ORDERS: ClassVar[dict[OrderMode, str]] = {
+        OrderMode.row_wise_snake: "Row-wise snake",
+        OrderMode.column_wise_snake: "Column-wise snake",
+        OrderMode.row_wise: "Row-wise",
+        OrderMode.column_wise: "Column-wise",
+        OrderMode.spiral: "Spiral",
+    }
+    _ICON_SIZE = 20
 
-        self.overlap = QDoubleSpinBox()
-        self.overlap.setRange(-1000, 1000)
-        self.overlap.setValue(0)
-        self.overlap.setSuffix(" %")
-        self.order = QEnumComboBox(self, OrderMode)
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        self._group = QButtonGroup(self)
+        self._buttons: dict[OrderMode, QToolButton] = {}
+        for order, tooltip in self._ORDERS.items():
+            btn = QToolButton()
+            btn.setCheckable(True)
+            btn.setIconSize(QSize(self._ICON_SIZE, self._ICON_SIZE))
+            btn.setToolTip(tooltip)
+            btn.setAccessibleName(tooltip)
+            self._group.addButton(btn)
+            self._buttons[order] = btn
+            layout.addWidget(btn)
+        layout.addStretch()
+        self._buttons[OrderMode.row_wise_snake].setChecked(True)
+        self._group.buttonToggled.connect(self._on_button_toggled)
+        self._update_icons()
 
-        self._form_layout = QFormLayout(self)
-        self._form_layout.setContentsMargins(12, 0, 12, 12)
-        self._form_layout.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
-        )
+    def currentEnum(self) -> OrderMode:
+        """Return the selected acquisition order."""
+        for order, btn in self._buttons.items():
+            if btn.isChecked():
+                return order
+        return OrderMode.row_wise_snake  # pragma: no cover
 
-        self._form_layout.addRow("", SeparatorWidget())
-        self._form_layout.addRow("Overlap:", self.overlap)
-        self._form_layout.addRow("Acquisition order:", self.order)
+    def setCurrentEnum(self, order: OrderMode) -> None:
+        """Select an acquisition order."""
+        self._buttons[OrderMode(order)].setChecked(True)
 
-        self.overlap.valueChanged.connect(self.valueChanged)
-        self.order.currentIndexChanged.connect(self.valueChanged)
+    def changeEvent(self, event: QEvent | None) -> None:
+        super().changeEvent(event)
+        if event is not None and event.type() in (
+            QEvent.Type.PaletteChange,
+            QEvent.Type.StyleChange,
+        ):
+            self._update_icons()
 
-    def value(self) -> dict:
-        return {
-            "overlap": (self.overlap.value(), self.overlap.value()),
-            "mode": self.order.currentEnum().value,
-        }
+    def _on_button_toggled(self, _: QAbstractButton, checked: bool) -> None:
+        if checked:
+            self.valueChanged.emit()
 
-    def setValue(self, plan: GridPlan) -> None:
-        if plan.overlap:
-            self.overlap.setValue(plan.overlap[0])
-        self.order.setCurrentEnum(OrderMode(plan.mode.value))
+    def _update_icons(self) -> None:
+        """Draw the selected path in the text color and the others dimmed.
+
+        The difference is part of the icons (their checked state) rather than
+        left to the style alone, whose checked tool button can be hard to tell
+        apart from an unchecked one (e.g. on macOS in a light theme). The text
+        color, unlike the highlight, contrasts with the background in any theme.
+        """
+        palette = self.palette()
+        checked = palette.color(QPalette.ColorGroup.Active, QPalette.ColorRole.Text)
+        unchecked = QColor(checked)
+        unchecked.setAlpha(110)
+        ratio = self.devicePixelRatioF()
+        for order, btn in self._buttons.items():
+            icon = QIcon()
+            for color, state in (
+                (unchecked, QIcon.State.Off),
+                (checked, QIcon.State.On),
+            ):
+                pixmap = _order_pixmap(order, color, self._ICON_SIZE, ratio)
+                icon.addPixmap(pixmap, QIcon.Mode.Normal, state)
+            btn.setIcon(icon)
+
+
+def _order_pixmap(order: OrderMode, color: QColor, size: int, ratio: float) -> QPixmap:
+    """Draw the path `order` takes through a 3 x 3 grid, starting at the dot."""
+    pixmap = QPixmap(round(size * ratio), round(size * ratio))
+    pixmap.setDevicePixelRatio(ratio)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    pad = 3
+    step = (size - 2 * pad) / 2
+    pts = [
+        [QPointF(pad + c * step, pad + r * step) for c in range(3)] for r in range(3)
+    ]
+    cols = [[pts[r][c] for r in range(3)] for c in range(3)]
+    runs: list[list[QPointF]]
+    if order is OrderMode.row_wise_snake:
+        runs = [
+            [p for r, row in enumerate(pts) for p in (row if r % 2 == 0 else row[::-1])]
+        ]
+    elif order is OrderMode.column_wise_snake:
+        runs = [
+            [
+                p
+                for c, col in enumerate(cols)
+                for p in (col if c % 2 == 0 else col[::-1])
+            ]
+        ]
+    elif order is OrderMode.row_wise:
+        runs = pts
+    elif order is OrderMode.column_wise:
+        runs = cols
+    else:  # spiral, outward from the center
+        runs = [[pts[1][1], pts[1][2], pts[2][2], pts[2][1], pts[2][0],
+                 pts[1][0], pts[0][0], pts[0][1], pts[0][2]]]  # fmt: skip
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    for i, run in enumerate(runs):
+        if i:  # a raster's jump back to the start of the next line
+            painter.setPen(QPen(color, 1, Qt.PenStyle.DotLine))
+            painter.drawLine(runs[i - 1][-1], run[0])
+        painter.setPen(QPen(color, 1.6))
+        path = QPainterPath(run[0])
+        for point in run[1:]:
+            path.lineTo(point)
+        painter.drawPath(path)
+    painter.setBrush(color)
+    painter.drawEllipse(runs[0][0], 1.8, 1.8)
+    painter.end()
+    return pixmap
+
+
+def _alternate(line: list[QPointF], index: int) -> list[QPointF]:
+    """Every other line of a snake runs backwards."""
+    return line if index % 2 == 0 else line[::-1]
