@@ -270,6 +270,7 @@ class GridPlanWidget(QWidget):
             self._align_label_columns()
         if event.type() in (QEvent.Type.PaletteChange, QEvent.Type.StyleChange):
             self._update_summary_palette()
+            self._update_mode_icons()
 
     def _align_label_columns(self) -> None:
         """Give every mode's form common label and field widths.
@@ -424,7 +425,24 @@ class GridPlanWidget(QWidget):
     def _add_mode_item(self, mode: Mode) -> None:
         if self._mode_combo.findData(mode) == -1:
             icon, text = _MODE_ITEMS[mode]
-            self._mode_combo.addItem(QIconifyIcon(icon), text, mode)
+            self._mode_combo.addItem(
+                QIconifyIcon(icon, color=self._icon_color()), text, mode
+            )
+
+    def _icon_color(self) -> str:
+        """The palette's text color, so the mode icons follow the theme."""
+        color = self.palette().color(
+            QPalette.ColorGroup.Active, QPalette.ColorRole.Text
+        )
+        return str(color.name())
+
+    def _update_mode_icons(self) -> None:
+        """Redraw the mode icons in the (possibly new) palette's text color."""
+        color = self._icon_color()
+        for index in range(self._mode_combo.count()):
+            mode = self._mode_combo.itemData(index)
+            icon = QIconifyIcon(_MODE_ITEMS[mode][0], color=color)
+            self._mode_combo.setItemIcon(index, icon)
 
     def _on_mode_combo_changed(self, index: int) -> None:
         if (mode := self._mode_combo.itemData(index)) is not None:

@@ -10,7 +10,7 @@ import pint
 import pytest
 import useq
 from qtpy.QtCore import QPoint, Qt, QTimer
-from qtpy.QtGui import QFont
+from qtpy.QtGui import QColor, QFont, QPalette
 from qtpy.QtWidgets import (
     QApplication,
     QLabel,
@@ -747,6 +747,24 @@ def test_grid_plan_order_buttons(qtbot: QtBot) -> None:
     # exclusive: clicking the selected button keeps it selected
     wdg.order._buttons[_grid.OrderMode.column_wise].click()
     assert wdg.order.currentEnum() is _grid.OrderMode.column_wise
+
+
+def test_grid_plan_mode_icons_follow_the_palette(qtbot: QtBot) -> None:
+    """The "Define by" icons are drawn in the text color, not left black."""
+    wdg = GridPlanWidget()
+    qtbot.addWidget(wdg)
+    palette = wdg.palette()
+    palette.setColor(QPalette.ColorRole.Text, QColor("#ff0000"))
+    wdg.setPalette(palette)
+    for index in range(wdg._mode_combo.count()):
+        image = wdg._mode_combo.itemIcon(index).pixmap(16, 16).toImage()
+        opaque = {
+            image.pixelColor(x, y).name()
+            for x in range(image.width())
+            for y in range(image.height())
+            if image.pixelColor(x, y).alpha() == 255
+        }
+        assert opaque == {"#ff0000"}
 
 
 def test_grid_plan_summary(qtbot: QtBot) -> None:
