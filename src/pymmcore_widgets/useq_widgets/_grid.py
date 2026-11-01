@@ -22,7 +22,6 @@ from qtpy.QtGui import (
 from qtpy.QtWidgets import (
     QAbstractButton,
     QButtonGroup,
-    QComboBox,
     QDoubleSpinBox,
     QFormLayout,
     QGraphicsPathItem,
@@ -32,6 +31,7 @@ from qtpy.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QRadioButton,
     QSizePolicy,
     QSpinBox,
     QStackedWidget,
@@ -113,10 +113,10 @@ _MODE_TO_USEQ: dict[Mode, type[GridPlan]] = {
 }
 
 
-# (icon, label) of each mode in the "Define by" combo box
+# (icon, label) of each mode's radio button
 _MODE_ITEMS: dict[Mode, tuple[str, str]] = {
-    Mode.NUMBER: ("mdi:grid", "Rows & Columns"),
-    Mode.AREA: ("mdi:arrow-expand-all", "Width & Height"),
+    Mode.NUMBER: ("mdi:grid", "Rows && Columns"),
+    Mode.AREA: ("mdi:arrow-expand-all", "Width && Height"),
     Mode.BOUNDS: ("mdi:vector-square", "Absolute Bounds"),
     Mode.POLYGON: ("mdi:vector-polygon", "Polygon"),
 }
@@ -129,9 +129,10 @@ _MAX_SUMMARY_POSITIONS = 10_000
 class GridPlanWidget(QWidget):
     """Widget to edit a [`useq-schema` GridPlan](https://pymmcore-plus.github.io/useq-schema/schema/axes/#grid-plans).
 
-    The settings every mode shares (the mode itself, overlap, acquisition order and
-    a summary of the resulting grid) sit in a column on the left; the current
-    mode's own settings sit on the right.
+    The mode is picked from a row of radio buttons on top, as in the Z stack
+    editor. Below it, the settings every mode shares (overlap, acquisition order
+    and a summary of the resulting grid) sit in a column on the left, and the
+    current mode's own settings on the right.
 
     This widget does not scroll on its own; a caller that needs it to (e.g. a
     tab page with limited height) should wrap it in its own ``QScrollArea``.
@@ -150,11 +151,17 @@ class GridPlanWidget(QWidget):
 
         # WIDGETS -----------------------------------------------
 
-        self._mode_combo = QComboBox()
-        for mode in (Mode.NUMBER, Mode.AREA, Mode.BOUNDS):
-            self._add_mode_item(mode)
+        self._mode_radios: dict[Mode, QRadioButton] = {}
+        self._mode_btn_group = QButtonGroup(self)
+        for mode, (_, text) in _MODE_ITEMS.items():
+            radio = self._mode_radios[mode] = QRadioButton(text)
+            radio.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            radio.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+            self._mode_btn_group.addButton(radio)
         # Polygon is only offered once a GridFromPolygon plan is set (see
-        # setValue): it cannot be defined from this widget.
+        # setMode): it cannot be defined from this widget.
+        self._mode_radios[Mode.POLYGON].hide()
+        self._update_mode_icons()
 
         self.overlap = QDoubleSpinBox()
         self.overlap.setRange(-1000, 1000)
@@ -185,20 +192,31 @@ class GridPlanWidget(QWidget):
 
         # LAYOUT -----------------------------------------------
 
+        # top: the mode, as in ZPlanWidget
+        mode_layout = QHBoxLayout()
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.addWidget(QLabel("Mode:"))
+        mode_layout.addSpacing(24)
+        # spacing rather than spacers, so the hidden Polygon radio takes none
+        radios = QHBoxLayout()
+        radios.setSpacing(32)
+        for radio in self._mode_radios.values():
+            radios.addWidget(radio)
+        mode_layout.addLayout(radios)
+        mode_layout.addStretch()
+
         # left: what every mode shares
         self._common = QWidget()
         common = QGridLayout(self._common)
         common.setContentsMargins(0, 0, 0, 0)
         common.setHorizontalSpacing(10)
         common.setVerticalSpacing(8)
-        common.addWidget(QLabel("Define by"), 0, 0)
-        common.addWidget(self._mode_combo, 0, 1)
-        common.addWidget(QLabel("Overlap"), 1, 0)
-        common.addWidget(self.overlap, 1, 1)
-        common.addWidget(QLabel("Order"), 2, 0)
-        common.addWidget(self.order, 2, 1)
-        common.addWidget(self._summary, 3, 0, 1, 2)
-        common.setRowStretch(4, 1)
+        common.addWidget(QLabel("Overlap"), 0, 0)
+        common.addWidget(self.overlap, 0, 1)
+        common.addWidget(QLabel("Order"), 1, 0)
+        common.addWidget(self.order, 1, 1)
+        common.addWidget(self._summary, 2, 0, 1, 2)
+        common.setRowStretch(3, 1)
         # its contents are the same in every mode, so it keeps one width and
         # the mode settings beside it never shift on a mode switch
         self._common.setSizePolicy(
@@ -219,11 +237,16 @@ class GridPlanWidget(QWidget):
             self.bounds_wdg,
         )
 
-        main_layout = QHBoxLayout(self)
-        main_layout.setSpacing(16)
-        main_layout.addWidget(self._common)
-        main_layout.addWidget(divider)
-        main_layout.addWidget(self._stack, 1)
+        body_layout = QHBoxLayout()
+        body_layout.setSpacing(16)
+        body_layout.addWidget(self._common)
+        body_layout.addWidget(divider)
+        body_layout.addWidget(self._stack, 1)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.addLayout(mode_layout)
+        main_layout.addWidget(SeparatorWidget())
+        main_layout.addLayout(body_layout)
 
         # this widget commonly sits inside an outer collapsible section or a
         # caller-provided QScrollArea (see the standard MDAWidget's Grid tab),
@@ -233,7 +256,7 @@ class GridPlanWidget(QWidget):
 
         # CONNECTIONS ------------------------------------------
 
-        self._mode_combo.currentIndexChanged.connect(self._on_mode_combo_changed)
+        self._mode_btn_group.buttonToggled.connect(self._on_mode_toggled)
         self.row_col_wdg.relative_to.currentIndexChanged.connect(
             lambda index: self._sync_relative_to(
                 index,
@@ -342,9 +365,9 @@ class GridPlanWidget(QWidget):
             )
 
         if mode is Mode.POLYGON:
-            self._add_mode_item(Mode.POLYGON)
-        with signals_blocked(self._mode_combo):
-            self._mode_combo.setCurrentIndex(self._mode_combo.findData(mode))
+            self._mode_radios[Mode.POLYGON].show()
+        with signals_blocked(self._mode_btn_group):
+            self._mode_radios[mode].setChecked(True)
 
         previous, self._mode = getattr(self, "_mode", None), mode
         if previous != self._mode:
@@ -420,13 +443,6 @@ class GridPlanWidget(QWidget):
 
     # ------------------------- Private API -------------------------
 
-    def _add_mode_item(self, mode: Mode) -> None:
-        if self._mode_combo.findData(mode) == -1:
-            icon, text = _MODE_ITEMS[mode]
-            self._mode_combo.addItem(
-                QIconifyIcon(icon, color=self._icon_color()), text, mode
-            )
-
     def _icon_color(self) -> str:
         """The palette's text color, so the mode icons follow the theme."""
         color = self.palette().color(
@@ -435,16 +451,16 @@ class GridPlanWidget(QWidget):
         return str(color.name())
 
     def _update_mode_icons(self) -> None:
-        """Redraw the mode icons in the (possibly new) palette's text color."""
+        """Draw the mode icons in the (possibly new) palette's text color."""
         color = self._icon_color()
-        for index in range(self._mode_combo.count()):
-            mode = self._mode_combo.itemData(index)
-            icon = QIconifyIcon(_MODE_ITEMS[mode][0], color=color)
-            self._mode_combo.setItemIcon(index, icon)
+        for mode, radio in self._mode_radios.items():
+            radio.setIcon(QIconifyIcon(_MODE_ITEMS[mode][0], color=color))
 
-    def _on_mode_combo_changed(self, index: int) -> None:
-        if (mode := self._mode_combo.itemData(index)) is not None:
-            self.setMode(mode)
+    def _on_mode_toggled(self, button: QAbstractButton, checked: bool) -> None:
+        if checked:
+            for mode, radio in self._mode_radios.items():
+                if radio is button:
+                    self.setMode(mode)
 
     def _sync_relative_to(
         self,

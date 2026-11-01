@@ -736,6 +736,18 @@ def test_z_plan_widget(qtbot: QtBot) -> None:
         wdg.setValue(plan)
 
 
+def test_grid_plan_mode_radios(qtbot: QtBot) -> None:
+    """The mode is picked from radio buttons; Polygon only shows once set."""
+    wdg = GridPlanWidget()
+    qtbot.addWidget(wdg)
+    assert wdg.mode() is _grid.Mode.NUMBER
+    assert wdg._mode_radios[_grid.Mode.POLYGON].isHidden()
+    with qtbot.waitSignal(wdg.valueChanged):
+        wdg._mode_radios[_grid.Mode.BOUNDS].click()
+    assert wdg.mode() is _grid.Mode.BOUNDS
+    assert isinstance(wdg.value(), useq.GridFromEdges)
+
+
 def test_grid_plan_order_buttons(qtbot: QtBot) -> None:
     """Each order is a button; picking one sets the plan's order."""
     wdg = GridPlanWidget()
@@ -750,14 +762,14 @@ def test_grid_plan_order_buttons(qtbot: QtBot) -> None:
 
 
 def test_grid_plan_mode_icons_follow_the_palette(qtbot: QtBot) -> None:
-    """The "Define by" icons are drawn in the text color, not left black."""
+    """The mode icons are drawn in the text color, not left black."""
     wdg = GridPlanWidget()
     qtbot.addWidget(wdg)
     palette = wdg.palette()
     palette.setColor(QPalette.ColorRole.Text, QColor("#ff0000"))
     wdg.setPalette(palette)
-    for index in range(wdg._mode_combo.count()):
-        image = wdg._mode_combo.itemIcon(index).pixmap(16, 16).toImage()
+    for radio in wdg._mode_radios.values():
+        image = radio.icon().pixmap(16, 16).toImage()
         opaque = {
             image.pixelColor(x, y).name()
             for x in range(image.width())
@@ -865,8 +877,8 @@ def test_grid_plan_widget(qtbot: QtBot) -> None:
         QApplication.processEvents()
         common_geometries.add(wdg._common.geometry().getRect())
         field_xs.add(field.mapTo(wdg, QPoint()).x())
-        # setMode keeps the "Define by" combo in sync
-        assert wdg._mode_combo.currentData() is mode
+        # setMode keeps the radio buttons in sync
+        assert wdg._mode_radios[mode].isChecked()
     assert len(common_geometries) == 1
     assert len(field_xs) == 1
     wdg.setMode(_grid.Mode.NUMBER)
@@ -894,7 +906,7 @@ def test_grid_plan_widget(qtbot: QtBot) -> None:
         wdg.setValue(plan)
     assert wdg.mode() == _grid.Mode.NUMBER
     assert wdg.value() == plan
-    assert wdg._mode_combo.currentText() == "Rows & Columns"
+    assert wdg._mode_radios[_grid.Mode.NUMBER].isChecked()
     assert wdg.order.currentEnum() is _grid.OrderMode.spiral
 
     plan = useq.GridFromEdges(left=1, right=2, top=3, bottom=4, overlap=10)
@@ -902,14 +914,14 @@ def test_grid_plan_widget(qtbot: QtBot) -> None:
         wdg.setValue(plan)
     assert wdg.mode() == _grid.Mode.BOUNDS
     assert wdg.value() == plan
-    assert wdg._mode_combo.currentText() == "Absolute Bounds"
+    assert wdg._mode_radios[_grid.Mode.BOUNDS].isChecked()
 
     plan = useq.GridWidthHeight(width=1000, height=2000, fov_height=3, fov_width=4)
     with qtbot.waitSignal(wdg.valueChanged):
         wdg.setValue(plan)
     assert wdg.mode() == _grid.Mode.AREA
     assert wdg.value() == plan
-    assert wdg._mode_combo.currentText() == "Width & Height"
+    assert wdg._mode_radios[_grid.Mode.AREA].isChecked()
 
     plan = useq.GridFromPolygon(
         vertices=[(-4, 0), (5, -5), (5, 9), (0, 10)], fov_height=1, fov_width=1
@@ -918,7 +930,8 @@ def test_grid_plan_widget(qtbot: QtBot) -> None:
         wdg.setValue(plan)
     assert wdg.mode() == _grid.Mode.POLYGON
     assert wdg.value().model_dump() == plan.model_dump()
-    assert wdg._mode_combo.currentText() == "Polygon"
+    assert wdg._mode_radios[_grid.Mode.POLYGON].isChecked()
+    assert not wdg._mode_radios[_grid.Mode.POLYGON].isHidden()
 
     assert wdg._fov_height == 1
     wdg.setFovHeight(5)
@@ -1105,7 +1118,7 @@ def test_mda_popup_with_polygon(qtbot: QtBot) -> None:
 
     gp = pop.mda_tabs.grid_plan
     assert pop.mda_tabs.isChecked(gp)
-    assert gp._mode_combo.currentText() == "Polygon"
+    assert gp._mode_radios[_grid.Mode.POLYGON].isChecked()
     assert gp.polygon_wdg.scene is not None
     assert gp.polygon_wdg.scene.items()
 
