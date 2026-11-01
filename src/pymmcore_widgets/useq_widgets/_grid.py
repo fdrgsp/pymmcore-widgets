@@ -216,30 +216,34 @@ class GridPlanWidget(QWidget):
         mode_layout.addWidget(self._polygon_slot)
         mode_layout.addStretch()
 
-        # left: what every mode shares
+        # left: what every mode shares. Its rows are mode rows too (_ROW_HEIGHT
+        # tall, _ROW_SPACING apart), so each lines up with a row on the right.
         self._common = QWidget()
         self._common_form = QGridLayout()
         self._common_form.setContentsMargins(0, 0, 0, 0)
         self._common_form.setHorizontalSpacing(10)
-        self._common_form.setVerticalSpacing(8)
-        overlap_label = QLabel("Overlap")
-        # as tall as a mode row, so the overlap lines up with the first field
-        overlap_label.setMinimumHeight(_ROW_HEIGHT)
-        self._common_form.addWidget(overlap_label, 0, 0)
-        self._common_form.addWidget(self.overlap, 0, 1)
-        self._common_form.addWidget(QLabel("Order"), 1, 0)
-        self._common_form.addWidget(self.order, 1, 1)
+        self._common_form.setVerticalSpacing(_ROW_SPACING)
+        for row, (text, field) in enumerate(
+            (("Overlap", self.overlap), ("Order", self.order))
+        ):
+            label = QLabel(text)
+            label.setMinimumHeight(_ROW_HEIGHT)
+            self._common_form.addWidget(label, row, 0)
+            self._common_form.addWidget(field, row, 1)
         # rows that belong to one mode only (see _add_mode_option)
         self._mode_options: list[tuple[Mode, QWidget, QWidget]] = []
         # labels outside the mode forms that share their label column, each with
         # every text it can show (see _align_label_columns)
         self._extra_aligned_labels: list[tuple[QLabel, tuple[str, ...]]] = []
+        # The summary sits at the bottom, level with the last mode row (e.g.
+        # the bounds' Right), whichever mode is shown.
+        self._summary.setMinimumHeight(_ROW_HEIGHT)
         common = QVBoxLayout(self._common)
         common.setContentsMargins(0, 0, 0, 0)
-        common.setSpacing(8)
+        common.setSpacing(_ROW_SPACING)
         common.addLayout(self._common_form)
-        common.addWidget(self._summary)
         common.addStretch()
+        common.addWidget(self._summary)
         # its contents are the same in every mode, so it keeps one width and
         # the mode settings beside it never shift on a mode switch
         self._common.setSizePolicy(
@@ -485,6 +489,7 @@ class GridPlanWidget(QWidget):
         summary under it does not move on a mode switch.
         """
         label_wdg = QLabel(label)
+        label_wdg.setMinimumHeight(_ROW_HEIGHT)
         row = self._common_form.rowCount()
         self._common_form.addWidget(label_wdg, row, 0)
         self._common_form.addWidget(widget, row, 1)
@@ -967,6 +972,8 @@ class _OrderButtons(QWidget):
             btn = QToolButton()
             btn.setCheckable(True)
             btn.setIconSize(QSize(self._ICON_SIZE, self._ICON_SIZE))
+            # a mode row's height, so the Order row lines up with the rows beside it
+            btn.setFixedHeight(_ROW_HEIGHT)
             btn.setToolTip(tooltip)
             btn.setAccessibleName(tooltip)
             self._group.addButton(btn)

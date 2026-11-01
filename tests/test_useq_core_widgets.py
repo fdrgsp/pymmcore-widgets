@@ -8,7 +8,7 @@ import pytest
 import useq
 from pymmcore_plus.core import SequencedEvent
 from qtpy.QtCore import QPoint, Qt, QTimer
-from qtpy.QtWidgets import QMessageBox
+from qtpy.QtWidgets import QMessageBox, QWidget
 
 from pymmcore_widgets import HCSWizard
 from pymmcore_widgets._models._core_functions import block_core
@@ -1982,6 +1982,17 @@ def test_grid_plan_bounds_by_in_left_column(
     bounds._corner_mode.setChecked(True)
     assert bounds.mark_buttons["top_left"].isVisible()
     assert bounds.top.mapTo(wdg, QPoint()) == wdg.row_col_wdg.rows.mapTo(wdg, QPoint())
+    bounds._edge_mode.setChecked(True)
+
+    # each left row lines up with a bounds row: Overlap/Top, Order/Bottom,
+    # Bounds by/Left, and the summary/Right
+    def center_y(w: QWidget) -> float:
+        return w.mapTo(wdg, QPoint()).y() + w.height() / 2
+
+    left = (wdg.overlap, wdg.order, bounds_by, wdg._summary)
+    right = (bounds.top, bounds.bottom, bounds.left, bounds.right)
+    for left_wdg, right_wdg in zip(left, right, strict=True):
+        assert abs(center_y(left_wdg) - center_y(right_wdg)) <= 1
 
 
 def test_grid_plan_subsequence_fov_update(
