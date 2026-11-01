@@ -193,24 +193,39 @@ class XYBoundsControl(QWidget):
         compact_widget.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred
         )
-        layout = QGridLayout(compact_widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setHorizontalSpacing(10)
-        layout.setVerticalSpacing(4)
+        main = QVBoxLayout(compact_widget)
+        main.setContentsMargins(0, 0, 0, 0)
+        main.setSpacing(4)
 
         self._edge_mode = QRadioButton("Edges")
         self._corner_mode = QRadioButton("Corners")
         mode_group = QButtonGroup(compact_widget)
         mode_group.addButton(self._edge_mode)
         mode_group.addButton(self._corner_mode)
-        mode_row = QHBoxLayout()
+        # The Edges/Corners row is a widget of its own, above the fields, so a
+        # host can move it elsewhere (the Grid editor puts it in its left
+        # column) without leaving an empty row in the grid below.
+        self._bounds_by_label = QLabel("Bounds by")
+        self._bounds_by = QWidget()
+        mode_row = QHBoxLayout(self._bounds_by)
         mode_row.setContentsMargins(0, 0, 0, 0)
         mode_row.setSpacing(10)
         mode_row.addWidget(self._edge_mode)
         mode_row.addWidget(self._corner_mode)
         mode_row.addStretch()
-        layout.addWidget(QLabel("Bounds by"), 0, 0)
-        layout.addLayout(mode_row, 0, 1, 1, 2)
+        bounds_by_row = QHBoxLayout()
+        bounds_by_row.setContentsMargins(0, 0, 0, 0)
+        bounds_by_row.setSpacing(10)
+        bounds_by_row.addWidget(self._bounds_by_label)
+        bounds_by_row.addWidget(self._bounds_by, 1)
+        main.addLayout(bounds_by_row)
+
+        layout = QGridLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setHorizontalSpacing(10)
+        layout.setVerticalSpacing(4)
+        main.addLayout(layout)
+        main.addStretch()
 
         rows = [
             (getattr(self._bounds_wdg, field), edge, corner)
@@ -220,7 +235,7 @@ class XYBoundsControl(QWidget):
         # after the bound its buttons currently act on (e.g. "Top" <-> "Top Left")
         self._compact_field_labels: list[tuple[QLabel, str, str]] = []
         self._compact_action_stacks: list[QStackedWidget] = []
-        for row, (field, edge, corner) in enumerate(rows, start=1):
+        for row, (field, edge, corner) in enumerate(rows):
             edge_text, corner_text = BOUND_LABELS[edge], BOUND_LABELS[corner]
             label = QLabel(edge_text)
             self._compact_field_labels.append((label, edge_text, corner_text))
@@ -232,17 +247,23 @@ class XYBoundsControl(QWidget):
             stack.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             self._compact_action_stacks.append(stack)
             layout.addWidget(stack, row, 2)
-        layout.setRowStretch(len(rows) + 1, 1)
 
         # Wide enough for both sets of names, so switching between edges and
-        # corners does not move the fields and buttons beside the labels.
+        # corners does not move the fields and buttons beside the labels. The
+        # "Bounds by" label shares the width, so the radios line up with them.
         metrics = self.fontMetrics()
         width = max(
             metrics.horizontalAdvance(text)
-            for _, *texts in self._compact_field_labels
+            for texts in (
+                *(texts for _, *texts in self._compact_field_labels),
+                [self._bounds_by_label.text()],
+            )
             for text in texts
         )
-        for label, *_ in self._compact_field_labels:
+        for label in (
+            self._bounds_by_label,
+            *(label for label, *_ in self._compact_field_labels),
+        ):
             label.setFixedWidth(width + 4)
         self._corner_mode.toggled.connect(self._set_corner_mode)
         self._edge_mode.setChecked(True)

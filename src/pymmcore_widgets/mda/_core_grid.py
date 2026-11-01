@@ -54,6 +54,18 @@ class CoreConnectedGridPlanWidget(GridPlanWidget):
             self._core_xy_bounds.bottom,
         ):
             field.setFixedWidth(field_width)
+        # Edges/Corners goes in the left column, above the summary, which
+        # keeps the bounds page to its four rows like the other modes
+        self._core_xy_bounds._bounds_by_label.hide()
+        self._add_mode_option(Mode.BOUNDS, "Bounds by", self._core_xy_bounds._bounds_by)
+        # and its fields line up with the other modes' fields
+        self._extra_aligned_labels.extend(
+            (label, (edge_text, corner_text))
+            for label, edge_text, corner_text in (
+                self._core_xy_bounds._compact_field_labels
+            )
+        )
+        self._align_label_columns()
         self._stack.setStableWidgets(
             self.row_col_wdg,
             self.width_height_wdg,

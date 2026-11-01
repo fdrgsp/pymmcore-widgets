@@ -1944,6 +1944,46 @@ def test_xy_bounds_visit_returns_to_marked_position(
     assert mmc.getYPosition(device) == pytest.approx(40.0, abs=0.01)
 
 
+def test_grid_plan_bounds_by_in_left_column(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = CoreConnectedGridPlanWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.show()
+    bounds = wdg._core_xy_bounds
+    bounds_by = bounds._bounds_by
+    fields = {
+        "number": wdg.row_col_wdg.rows,
+        "area": wdg.width_height_wdg.area_width,
+        "bounds": bounds.top,
+    }
+
+    # Edges/Corners sits in the left column, above the summary, shown only
+    # in bounds mode but keeping its space, so the summary never moves
+    assert wdg._common.isAncestorOf(bounds_by)
+    assert not bounds.isAncestorOf(bounds_by)
+    assert not bounds._bounds_by_label.isVisible()
+    summary_y: set[int] = set()
+    fields_pos: set[QPoint] = set()
+    for mode, field in fields.items():
+        wdg.setMode(mode)
+        assert bounds_by.isVisible() == (mode == "bounds")
+        assert (
+            bounds_by.mapTo(wdg, QPoint()).y() < wdg._summary.mapTo(wdg, QPoint()).y()
+        )
+        summary_y.add(wdg._summary.mapTo(wdg, QPoint()).y())
+        # every mode's first field sits at the same place, beside the overlap
+        fields_pos.add(field.mapTo(wdg, QPoint()))
+    assert len(summary_y) == 1
+    assert len(fields_pos) == 1
+    assert fields_pos.pop().y() == wdg.overlap.mapTo(wdg, QPoint()).y()
+
+    # the radios still drive the bounds rows
+    bounds._corner_mode.setChecked(True)
+    assert bounds.mark_buttons["top_left"].isVisible()
+    assert bounds.top.mapTo(wdg, QPoint()) == wdg.row_col_wdg.rows.mapTo(wdg, QPoint())
+
+
 def test_grid_plan_subsequence_fov_update(
     qtbot: QtBot, global_mmcore: CMMCorePlus
 ) -> None:

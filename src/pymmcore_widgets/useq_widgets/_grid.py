@@ -124,6 +124,11 @@ _TIMES = "\u00d7"  # the multiplication sign, between rows/columns and sizes
 # above this many positions the summary only states the count, rather than
 # iterating every position to measure the grid
 _MAX_SUMMARY_POSITIONS = 10_000
+# Every mode's rows are this tall -- the height of the bounds' Mark and Move
+# buttons -- with _ROW_SPACING between them, so the fields sit at the same y in
+# every mode and nothing jumps on a mode switch.
+_ROW_HEIGHT = 26
+_ROW_SPACING = 4
 
 
 class GridPlanWidget(QWidget):
@@ -213,16 +218,28 @@ class GridPlanWidget(QWidget):
 
         # left: what every mode shares
         self._common = QWidget()
-        common = QGridLayout(self._common)
+        self._common_form = QGridLayout()
+        self._common_form.setContentsMargins(0, 0, 0, 0)
+        self._common_form.setHorizontalSpacing(10)
+        self._common_form.setVerticalSpacing(8)
+        overlap_label = QLabel("Overlap")
+        # as tall as a mode row, so the overlap lines up with the first field
+        overlap_label.setMinimumHeight(_ROW_HEIGHT)
+        self._common_form.addWidget(overlap_label, 0, 0)
+        self._common_form.addWidget(self.overlap, 0, 1)
+        self._common_form.addWidget(QLabel("Order"), 1, 0)
+        self._common_form.addWidget(self.order, 1, 1)
+        # rows that belong to one mode only (see _add_mode_option)
+        self._mode_options: list[tuple[Mode, QWidget, QWidget]] = []
+        # labels outside the mode forms that share their label column, each with
+        # every text it can show (see _align_label_columns)
+        self._extra_aligned_labels: list[tuple[QLabel, tuple[str, ...]]] = []
+        common = QVBoxLayout(self._common)
         common.setContentsMargins(0, 0, 0, 0)
-        common.setHorizontalSpacing(10)
-        common.setVerticalSpacing(8)
-        common.addWidget(QLabel("Overlap"), 0, 0)
-        common.addWidget(self.overlap, 0, 1)
-        common.addWidget(QLabel("Order"), 1, 0)
-        common.addWidget(self.order, 1, 1)
-        common.addWidget(self._summary, 2, 0, 1, 2)
-        common.setRowStretch(3, 1)
+        common.setSpacing(8)
+        common.addLayout(self._common_form)
+        common.addWidget(self._summary)
+        common.addStretch()
         # its contents are the same in every mode, so it keeps one width and
         # the mode settings beside it never shift on a mode switch
         self._common.setSizePolicy(
@@ -304,7 +321,8 @@ class GridPlanWidget(QWidget):
 
         Each mode's settings use their own ``QFormLayout``, so without this the
         fields would start at a different x in each mode, jumping on every mode
-        switch. Sizing every label to the widest one lines them up.
+        switch. Sizing every label to the widest one lines them up. Labels in
+        ``_extra_aligned_labels`` join them, sized to their widest text.
         """
         labels: list[QLabel] = []
         fields: list[QWidget] = []
@@ -326,14 +344,20 @@ class GridPlanWidget(QWidget):
         # sizeHint() never reports less than its minimum width, so measuring
         # them while still fixed could only ever grow the column -- after
         # zooming out, the labels kept the previous (larger) zoom's width.
+        texts: list[tuple[QLabel, tuple[str, ...]]] = [
+            (label, (label.text(),)) for label in labels
+        ]
+        texts += self._extra_aligned_labels
+        labels += [label for label, _ in self._extra_aligned_labels]
         for wdg in (*labels, *fields):
             wdg.setMinimumWidth(0)
             wdg.setMaximumWidth(QWIDGETSIZE_MAX)
         # Measure with QFontMetrics rather than sizeHint(): it is correct even
         # before the labels are shown/polished (sizeHint() can still be 0 then).
         width = max(
-            QFontMetrics(label.font()).horizontalAdvance(label.text())
-            for label in labels
+            QFontMetrics(label.font()).horizontalAdvance(text)
+            for label, label_texts in texts
+            for text in label_texts
         )
         # QLabel.sizeHint() can exceed that font-metrics estimate by a pixel or
         # two for some strings (its internal text layout rounds differently),
@@ -375,6 +399,10 @@ class GridPlanWidget(QWidget):
             self._polygon_slot.show()
         with signals_blocked(self._mode_btn_group):
             self._mode_radios[mode].setChecked(True)
+
+        for option_mode, *widgets in self._mode_options:
+            for wdg in widgets:
+                wdg.setVisible(option_mode is mode)
 
         previous, self._mode = getattr(self, "_mode", None), mode
         if previous != self._mode:
@@ -449,6 +477,23 @@ class GridPlanWidget(QWidget):
         return self._fov_height
 
     # ------------------------- Private API -------------------------
+
+    def _add_mode_option(self, mode: Mode, label: str, widget: QWidget) -> None:
+        """Add a row of `mode`'s own settings to the left column, above the summary.
+
+        The row shows only in `mode`, but keeps its space in the others, so the
+        summary under it does not move on a mode switch.
+        """
+        label_wdg = QLabel(label)
+        row = self._common_form.rowCount()
+        self._common_form.addWidget(label_wdg, row, 0)
+        self._common_form.addWidget(widget, row, 1)
+        for wdg in (label_wdg, widget):
+            policy = wdg.sizePolicy()
+            policy.setRetainSizeWhenHidden(True)
+            wdg.setSizePolicy(policy)
+            wdg.setVisible(mode is self._mode)
+        self._mode_options.append((mode, label_wdg, widget))
 
     def _icon_color(self) -> str:
         """The palette's text color, so the mode icons follow the theme."""
@@ -533,10 +578,28 @@ def _mode_form(parent: QWidget) -> QFormLayout:
     """A mode's settings form: left-aligned labels, fields top-left."""
     layout = QFormLayout(parent)
     layout.setContentsMargins(0, 0, 0, 0)
+    # as in the left column and the bounds grid, so fields line up across modes
+    layout.setHorizontalSpacing(10)
+    layout.setVerticalSpacing(_ROW_SPACING)
     layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
     layout.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
     layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     return layout
+
+
+def _add_mode_row(form: QFormLayout, text: str, field: QWidget) -> None:
+    """Add a _ROW_HEIGHT row to a mode's form, its field centered in it.
+
+    The height is pinned once, here, rather than in _align_label_columns, which
+    re-runs on every font change and would undo an app-wide zoom's rescaling of
+    it (as it rescales the bounds' Mark and Move buttons).
+    """
+    label = QLabel(text)
+    label.setMinimumHeight(_ROW_HEIGHT)
+    form.addRow(label, field)
+    # QFormLayout top-aligns a field in a taller row; center it, like the
+    # bounds fields beside their buttons
+    form.setAlignment(field, Qt.AlignmentFlag.AlignVCenter)
 
 
 class _RowsColsWidget(QWidget):
@@ -556,9 +619,9 @@ class _RowsColsWidget(QWidget):
         self.relative_to = QEnumComboBox(self, RelativeTo)
 
         layout = _mode_form(self)
-        layout.addRow("Rows", self.rows)
-        layout.addRow("Columns", self.columns)
-        layout.addRow("Start at", self.relative_to)
+        _add_mode_row(layout, "Rows", self.rows)
+        _add_mode_row(layout, "Columns", self.columns)
+        _add_mode_row(layout, "Start at", self.relative_to)
 
         self.rows.valueChanged.connect(self.valueChanged)
         self.columns.valueChanged.connect(self.valueChanged)
@@ -598,9 +661,9 @@ class _WidthHeightWidget(QWidget):
         self.relative_to = QEnumComboBox(self, RelativeTo)
 
         layout = _mode_form(self)
-        layout.addRow("Width", self.area_width)
-        layout.addRow("Height", self.area_height)
-        layout.addRow("Start at", self.relative_to)
+        _add_mode_row(layout, "Width", self.area_width)
+        _add_mode_row(layout, "Height", self.area_height)
+        _add_mode_row(layout, "Start at", self.relative_to)
 
         self.area_width.valueChanged.connect(self.valueChanged)
         self.area_height.valueChanged.connect(self.valueChanged)
@@ -645,10 +708,10 @@ class _BoundsWidget(QWidget):
         self.bottom.setSuffix(" µm")
 
         form = _mode_form(self)
-        form.addRow("Top", self.top)
-        form.addRow("Bottom", self.bottom)
-        form.addRow("Left", self.left)
-        form.addRow("Right", self.right)
+        _add_mode_row(form, "Top", self.top)
+        _add_mode_row(form, "Bottom", self.bottom)
+        _add_mode_row(form, "Left", self.left)
+        _add_mode_row(form, "Right", self.right)
 
         self.top.valueChanged.connect(self.valueChanged)
         self.bottom.valueChanged.connect(self.valueChanged)
