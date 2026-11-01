@@ -4,7 +4,7 @@ import enum
 from typing import Final, Literal
 
 import useq
-from qtpy.QtCore import QPointF, QRectF, QSize, Qt, Signal
+from qtpy.QtCore import QPointF, QRect, QRectF, QSize, Qt, Signal
 from qtpy.QtGui import QColor, QPainter, QPen, QPolygonF
 from qtpy.QtWidgets import (
     QButtonGroup,
@@ -60,10 +60,21 @@ class ZStackViz(QWidget):
     # position arrow reaches furthest, 43 px right of it (see paintEvent) -- so
     # no blank strip separates the graphic from what sits beside it.
     _WIDTH = 96
+    # the drawn stack reaches this far either side of the axis
+    _STACK_HALF_WIDTH = 30
 
     def sizeHint(self) -> QSize:
         """Return a compact preferred size."""
         return QSize(self._WIDTH, 230)
+
+    def _blank_right(self) -> int:
+        """Return the width of the blank strip right of the drawn stack.
+
+        The live position arrow is drawn in it, so it is part of the gap
+        between the stack and whatever sits beside the graphic.
+        """
+        axis_x: int = QRect(0, 0, self._WIDTH, 1).adjusted(8, 0, -8, 0).center().x()
+        return self._WIDTH - 1 - (axis_x + self._STACK_HALF_WIDTH)
 
     def setPlan(
         self,
@@ -110,8 +121,8 @@ class ZStackViz(QWidget):
         accent_line.setAlpha(115)
 
         axis_x = rect.center().x()
-        bar_left = axis_x - 30
-        bar_right = axis_x + 30
+        bar_left = axis_x - self._STACK_HALF_WIDTH
+        bar_right = axis_x + self._STACK_HALF_WIDTH
         track_height = axis_bottom - axis_top
 
         painter.setPen(QPen(axis_color, 2))
@@ -255,7 +266,7 @@ class ZPlanWidget(QWidget):
         self.step.setValue(1)
 
         self.steps = QSpinBox()
-        self.steps.setRange(0, 1000)
+        self.steps.setRange(0, 10000)
         self.steps.setSpecialValueText("N/A")
         self.steps.setValue(0)
         disable_wheel_scroll(self.steps)
@@ -352,7 +363,7 @@ class ZPlanWidget(QWidget):
         for label in self._form_labels:
             label.setFixedWidth(label_width)
         grid.setColumnMinimumWidth(0, label_width)
-        grid.setColumnMinimumWidth(1, 175)
+        grid.setColumnMinimumWidth(1, 193)
         # The last column is as wide as its widest content, with room reserved
         # for what can appear later -- the suggested-step button, and the range
         # summary up to 999.999 um -- so the box does not resize as they do.
@@ -396,8 +407,9 @@ class ZPlanWidget(QWidget):
         body_layout.addLayout(self._viz_layout)
         # the same divider GridPlanWidget draws between its two parts
         body_layout.addWidget(SeparatorWidget(orientation=Qt.Orientation.Vertical))
-        # extra room between the divider and the box, as in GridPlanWidget
-        body_layout.addSpacing(8)
+        # As far from the divider as the drawn stack is on its other side (the
+        # graphic's blank strip, where the stage marker goes, is that gap).
+        body_layout.addSpacing(self._viz._blank_right())
         # Fit the box to its controls rather than stretching it across the
         # widget, which only leaves empty space at its right edge. Every mode
         # keeps the same controls width, so the box does not resize on a switch.
