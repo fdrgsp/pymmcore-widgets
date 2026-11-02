@@ -3,13 +3,28 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
+import pytest
 from qtpy.QtWidgets import QApplication
 
 from pymmcore_widgets import CoreLogWidget
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from pymmcore_plus import CMMCorePlus
     from pytestqt.qtbot import QtBot
+
+
+@pytest.fixture(autouse=True)
+def private_log_file(global_mmcore: CMMCorePlus, tmp_path: Path) -> None:
+    """Log to a file only this test uses.
+
+    The default log file is shared by every pytest-xdist worker, and any of them
+    can rotate it while a test is watching it.
+    """
+    log_file = tmp_path / "core.log"
+    log_file.write_text("[IFO,App] Log start\n")
+    global_mmcore.setPrimaryLogFile(str(log_file))
 
 
 def test_core_log_widget_init(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
@@ -39,7 +54,7 @@ def test_core_log_widget_update(qtbot: QtBot, global_mmcore: CMMCorePlus) -> Non
 
     # Write directly to the log file rather than using logMessage(), which goes
     # through C++ std::ofstream buffering that may not flush to disk in time
-    # under heavy parallel I/O (the root cause of flaky failures here).
+    # under heavy parallel I/O.
     new_message = "Test message"
     log_path = global_mmcore.getPrimaryLogFile()
     with open(log_path, "a") as f:
