@@ -589,7 +589,6 @@ class PixelConfigurationWidget(QWidget):
 
     # -------------- apply --------------
 
-    @Slot()
     def _on_apply(self) -> None:
         """Update the current pixel size configurations."""
         # check if there are errors in the pixel configurations

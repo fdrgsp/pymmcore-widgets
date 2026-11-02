@@ -422,6 +422,9 @@ class StageExplorer(QWidget):
             # type argument.
             mda_events.frameReady.connect(self._frame_relay.submit)
         mda_events.sequenceFinished.connect(self._on_sequence_finished)
+        # NOTE: no @Slot on methods that subclasses override. On PySide6, a connection
+        # to an override of a @Slot isn't tied to the receiver: a signal queued from
+        # another thread is still delivered after the widget is freed, and crashes.
         self._mmc.events.pixelSizeChanged.connect(self._on_pixel_size_changed)
         self._mmc.events.pixelSizeAffineChanged.connect(
             self._on_pixel_size_affine_changed
@@ -580,7 +583,6 @@ class StageExplorer(QWidget):
         self._contrast_slider.reset_data_range()
         self._contrast_slider.setVisible(False)
 
-    @Slot()
     def _on_roi_changed(self) -> None:
         """Update the ROI manager when a new ROI is set."""
         img_w = self._mmc.getImageWidth()
@@ -735,7 +737,6 @@ class StageExplorer(QWidget):
         fov_h = self._mmc.getImageHeight() * px
         return fov_w, fov_h
 
-    @Slot()
     def _on_sys_config_loaded(self) -> None:
         """Clear the scene and reinitialize when the system configuration is loaded."""
         self._on_clear_action()
@@ -779,17 +780,14 @@ class StageExplorer(QWidget):
         if xy_dev := self._mmc.getXYStageDevice():
             self._stage_controller = QStageMoveAccumulator.for_device(xy_dev, self._mmc)
 
-    @Slot(float)
     def _on_pixel_size_changed(self, value: float) -> None:
         """Refresh the affine state when pixel size changes."""
         self._affine_state.refresh()
 
-    @Slot()
     def _on_pixel_size_affine_changed(self) -> None:
         """Refresh the affine state when pixel size affine changes."""
         self._affine_state.refresh()
 
-    @Slot(object)
     def _on_mouse_double_click(self, event: MouseEvent) -> None:
         """Move the stage to the clicked position."""
         if not self._mmc.getXYStageDevice() or self._stage_controller is None:
