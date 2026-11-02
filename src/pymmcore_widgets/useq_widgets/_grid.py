@@ -555,14 +555,15 @@ def _grid_summary(plan: GridPlan) -> str:
     """Describe the grid `plan` makes: tiles, rows x columns, and its size in mm.
 
     Whatever cannot be known is left out: the tiles of an area or a set of bounds
-    depend on the field of view, and so does the size of any grid.
+    depend on the field of view, and so does the size of any grid. A polygon only
+    gets its tile count.
     """
     try:
         count = plan.num_positions()
     except ValueError:
         return "Set the pixel size to compute the tiles."
     parts = [f"{count} tile{'s' if count != 1 else ''}"]
-    if count > _MAX_SUMMARY_POSITIONS:
+    if count > _MAX_SUMMARY_POSITIONS or isinstance(plan, useq.GridFromPolygon):
         return parts[0]
     positions = list(plan)
     rows = {p.grid_row for p in positions}

@@ -2724,3 +2724,35 @@ def test_channel_columns_fill_width(global_mmcore: CMMCorePlus, qtbot: QtBot) ->
     assert header.sectionResizeMode(exp_col) == header.ResizeMode.Interactive
     header.resizeSection(exp_col, table.columnWidth(exp_col) - 20)
     check()
+
+
+def test_grid_plan_bounds_edit_updates_summary(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = CoreConnectedGridPlanWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.setFovWidth(512)
+    wdg.setFovHeight(512)
+    wdg.setMode("bounds")
+    assert wdg._summary.text().startswith("1 tile ")
+
+    # the fields shown are the core bounds control's, not the base bounds_wdg's
+    with qtbot.waitSignal(wdg.valueChanged):
+        wdg._core_xy_bounds.right.setValue(1024)
+
+    assert wdg._summary.text().startswith("2 tiles ")
+
+
+def test_grid_plan_polygon_summary_is_tile_count_only(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = CoreConnectedGridPlanWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    plan = useq.GridFromPolygon(
+        vertices=[(0, 0), (3000, 0), (3000, 2000)], fov_width=512, fov_height=512
+    )
+    wdg.setValue(plan)
+
+    count = plan.num_positions()
+    assert count > 1
+    assert wdg._summary.text() == f"{count} tiles"

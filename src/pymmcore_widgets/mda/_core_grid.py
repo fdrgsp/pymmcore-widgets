@@ -46,6 +46,8 @@ class CoreConnectedGridPlanWidget(GridPlanWidget):
         self.bounds_wdg.hide()
         # add CoreXYBoundsControl widget to GridPlanWidget
         self._stack.addWidget(self._core_xy_bounds)
+        # the base class connected the bounds_wdg replaced above
+        self._core_xy_bounds._bounds_wdg.valueChanged.connect(self._on_change)
         field_width = self.row_col_wdg.rows.width()
         for field in (
             self._core_xy_bounds.left,
