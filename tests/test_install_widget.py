@@ -1,8 +1,11 @@
 import os
 import platform
 import sys
+from email.message import Message
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 import pytest
 from pytestqt.qtbot import QtBot
@@ -56,6 +59,20 @@ def test_install_widget(qtbot: QtBot, tmp_path: Path):
         wdg.table.uninstall()
 
     assert not dest.exists()
+
+
+def test_available_releases_closes_a_failed_response() -> None:
+    """A rate-limited listing can't leave its response open for the GC to warn about."""
+    error = HTTPError("url", 403, "rate limit exceeded", Message(), BytesIO())
+    with (
+        patch.object(_install_widget, "FULL_RELEASES", False),
+        patch(
+            "pymmcore_plus.install._available_test_adapter_releases",
+            side_effect=error,
+        ),
+    ):
+        assert _install_widget._available_releases() == []
+    assert error.closed
 
 
 def test_install_row_is_offered_wherever_mmcore_can_install(qtbot: QtBot):

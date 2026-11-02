@@ -304,7 +304,8 @@ def test_columns_fill_width_and_absorb_resizes(
     current_col = table.indexOf(tbl.CURRENT)
     assert header.sectionResizeMode(current_col) == QHeaderView.ResizeMode.Fixed
     # a style's minimum section size can exceed the column's width (e.g. on Windows)
-    assert table.columnWidth(current_col) == max(30, header.minimumSectionSize())
+    current_width = max(30, header.minimumSectionSize())
+    assert table.columnWidth(current_col) == current_width
     assert used() == vp_width
 
     ls_col = table.indexOf(tbl._light_source_column)
@@ -316,7 +317,7 @@ def test_columns_fill_width_and_absorb_resizes(
     header.resizeSection(ls_col, table.columnWidth(ls_col) + 5000)
     assert used() == vp_width
     assert table.columnWidth(last) == tbl._fitter.contentWidth(last)
-    assert table.columnWidth(current_col) == 30
+    assert table.columnWidth(current_col) == current_width
 
 
 def test_unset_camera_properties_are_left_unchanged(

@@ -11,6 +11,7 @@ import sys
 from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
+from urllib.error import HTTPError
 
 from pymmcore_plus import find_micromanager
 from pymmcore_plus.install import available_versions
@@ -83,11 +84,14 @@ def _available_releases() -> list[str]:
     widget.
     """
     with suppress(Exception):
-        if FULL_RELEASES:
-            return list(available_versions())
-        from pymmcore_plus.install import _available_test_adapter_releases
+        try:
+            if FULL_RELEASES:
+                return list(available_versions())
+            from pymmcore_plus.install import _available_test_adapter_releases
 
-        return sorted(_available_test_adapter_releases(), reverse=True)
+            return sorted(_available_test_adapter_releases(), reverse=True)
+        except HTTPError as e:
+            e.close()  # it holds the response open, e.g. on a GitHub rate limit
     return []
 
 
