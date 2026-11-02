@@ -93,28 +93,43 @@ class _LogReader(QObject):
         self.finished.emit()
 
     def _on_file_changed(self, path: str) -> None:
-        """Handle log rotation or truncation."""
-        try:
-            real_size = os.path.getsize(path)
-            current_pos = self._file.tell() if self._file else 0
-            if real_size < current_pos:
-                # rotated or truncated
-                if self._file:
-                    self._file.close()
-                self._file = open(self._path, encoding="utf-8", errors="replace")
-            self._read_new()
-        except Exception:
-            pass
+        """Read new lines without waiting for the next poll."""
+        self._read_new()
 
     def _read_new(self) -> None:
-        """Read and emit any new lines."""
+        """Read and emit any new lines, following the log through a rotation."""
         if not self._file:
             return
+        self._emit_lines()
+        if self._file_was_replaced():
+            self._file.close()
+            self._file = open(self._path, encoding="utf-8", errors="replace")
+            # QFileSystemWatcher stops watching a file that is renamed away
+            if self._path not in self._watcher.files():
+                self._watcher.addPath(self._path)
+            self._emit_lines()
+
+    def _emit_lines(self) -> None:
+        if not self._file:
+            return  # pragma: no cover
         # Seek to current position to clear Python's internal read buffers,
         # ensuring we see data written externally since the last read.
         self._file.seek(self._file.tell())
         for line in self._file:
             self.new_lines.emit(line.rstrip("\n"))
+
+    def _file_was_replaced(self) -> bool:
+        """Return whether the path holds a new file, or the open one was truncated."""
+        if not self._file:
+            return False  # pragma: no cover
+        try:
+            on_disk = os.stat(self._path)
+        except OSError:
+            return False  # mid-rotation: the next poll will find the new file
+        opened = os.fstat(self._file.fileno())
+        return (
+            not os.path.samestat(on_disk, opened) or on_disk.st_size < self._file.tell()
+        )
 
 
 class CoreLogWidget(QWidget):

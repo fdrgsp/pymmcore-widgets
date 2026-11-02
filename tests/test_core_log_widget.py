@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from typing import TYPE_CHECKING
 
 import pytest
@@ -70,6 +71,55 @@ def test_core_log_widget_update(qtbot: QtBot, global_mmcore: CMMCorePlus) -> Non
             raise AssertionError("New message not found in CoreLogWidget.")
 
     qtbot.waitUntil(wait_for_update)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Cannot rename an open file")
+def test_core_log_widget_follows_rotation(
+    qtbot: QtBot, global_mmcore: CMMCorePlus, tmp_path: Path
+) -> None:
+    log_file = tmp_path / "rotating.log"
+    log_file.write_text("old line\n" * 10)
+    wdg = CoreLogWidget(path=str(log_file))
+    qtbot.addWidget(wdg)
+
+    def wait_for_line(line: str) -> None:
+        def _check() -> None:
+            assert line in wdg._log_view.toPlainText()
+
+        qtbot.waitUntil(_check)
+
+    # the last lines of the old file are still read after it is renamed...
+    with open(log_file, "a") as f:
+        f.write("last old line\n")
+    os.replace(log_file, f"{log_file}.1")
+    wait_for_line("last old line")
+    # ...while the new file doesn't exist yet, long enough for the watcher to drop it
+    qtbot.wait(300)
+
+    # a new file larger than the old one, so its size alone doesn't reveal the rotation
+    log_file.write_text("filler\n" * 100 + "first new line\n")
+    wait_for_line("first new line")
+    assert str(log_file) in wdg._reader._watcher.files()
+
+    with open(log_file, "a") as f:
+        f.write("second new line\n")
+    wait_for_line("second new line")
+
+
+def test_core_log_widget_follows_truncation(
+    qtbot: QtBot, global_mmcore: CMMCorePlus, tmp_path: Path
+) -> None:
+    log_file = tmp_path / "truncated.log"
+    log_file.write_text("old line\n" * 10)
+    wdg = CoreLogWidget(path=str(log_file))
+    qtbot.addWidget(wdg)
+
+    log_file.write_text("short\n")
+
+    def _check() -> None:
+        assert "short" in wdg._log_view.toPlainText()
+
+    qtbot.waitUntil(_check)
 
 
 def test_core_log_widget_clear(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
