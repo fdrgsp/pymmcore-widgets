@@ -47,7 +47,8 @@ class ChannelTable(DataTableWidget):
 
         self._group_wdg = QWidget()
         layout = QHBoxLayout(self._group_wdg)
-        layout.addWidget(QLabel("Group:"))
+        self._group_label = QLabel("Group:")
+        layout.addWidget(self._group_label)
         layout.addWidget(self._group_combo)
         layout.addStretch()
         layout.setContentsMargins(5, 0, 0, 0)

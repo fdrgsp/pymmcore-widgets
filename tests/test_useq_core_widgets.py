@@ -18,7 +18,6 @@ from pymmcore_widgets.mda import MDAWidget, MDAWidgetCollapsible
 from pymmcore_widgets.mda._channel_properties import (
     CHANNEL_PROPERTIES_KEY,
     ChannelPropertiesSequence,
-    to_channel_properties_sequence,
 )
 from pymmcore_widgets.mda._core_channels import CoreConnectedChannelTable
 from pymmcore_widgets.mda._core_grid import CoreConnectedGridPlanWidget
@@ -1402,7 +1401,6 @@ def test_moving_channel_preserves_intensity(
         "exposure": 25.0,
         "light_source": "Camera · TestProperty2",
         "intensity": 0.5,
-        "camera_properties": {"Gain": 3},
     }
     wdg.setRowSettings(1, settings)
     other = wdg.rowSettings(0)
@@ -2660,12 +2658,10 @@ def test_light_source_columns_positioned_after_exposure(
         "exposure",
         "light_source",
         "intensity",
-        *(f"camera:{prop}" for prop in tbl.cameraProperties()),
         "acquire_every",
         "do_stack",
         "z_offset",
     ]
-    assert tbl.cameraProperties()  # DemoCamera has Gain, Offset, ScanMode
     assert order() == expected
 
     # the light source column is rebuilt whenever the config changes; that must
@@ -2926,70 +2922,6 @@ def test_group_light_source_single_preset_all_ranged(
     global_mmcore.deleteConfigGroup("MixedGroup")
 
 
-def test_camera_property_columns_under_camera_checkbox(
-    global_mmcore: CMMCorePlus, qtbot: QtBot
-) -> None:
-    tbl = CoreConnectedChannelTable(rows=2, mmcore=global_mmcore)
-    qtbot.addWidget(tbl)
-    table = tbl.table()
-    props = tbl.cameraProperties()
-    assert {"Gain", "Offset", "ScanMode"} <= set(props)
-    assert "Binning" not in props
-    cols = [table.indexOf(f"{prop}") for prop in props]
-
-    assert not tbl.cameraVisible()
-    assert all(table.isColumnHidden(c) for c in cols)
-    # Advanced is about the other columns
-    tbl.setAdvancedVisible(True)
-    assert all(table.isColumnHidden(c) for c in cols)
-    tbl.camera.setChecked(True)
-    assert tbl.cameraVisible()
-    assert not any(table.isColumnHidden(c) for c in cols)
-
-
-def test_camera_properties_reach_the_sequence(
-    global_mmcore: CMMCorePlus, qtbot: QtBot
-) -> None:
-    tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
-    qtbot.addWidget(tbl)
-    tbl.setValue([useq.Channel(config="DAPI"), useq.Channel(config="FITC")])
-    table = tbl.table()
-    gain = table.cellWidget(1, table.indexOf("Gain"))
-    scan = table.cellWidget(1, table.indexOf("ScanMode"))
-
-    # unset cells ("—") set nothing
-    assert not [p for p in tbl.channelProperties() if p["group"].startswith("camera:")]
-    assert "camera:Gain" not in tbl.value()[0].model_dump()
-
-    gain.setOptionalValue(4)
-    scan.setCurrentText("3")
-    props = [p for p in tbl.channelProperties() if p["group"].startswith("camera:")]
-    assert {(p["channel_index"], p["property"], p["value"]) for p in props} == {
-        (1, "Gain", 4),
-        (1, "ScanMode", "3"),
-    }
-    assert all(p["device"] == "Camera" for p in props)
-
-    # applied when the channel is acquired...
-    seq = to_channel_properties_sequence(
-        useq.MDASequence(
-            channels=tbl.value(),
-            metadata={PYMMCW_METADATA_KEY: {"channel_properties": props}},
-        )
-    )
-    events = list(seq)
-    assert ("Camera", "Gain", 4) in [tuple(p) for p in events[1].properties or ()]
-    assert not [p for p in events[0].properties or () if p.property_name == "Gain"]
-
-    # ...and restored from the sequence
-    other = CoreConnectedChannelTable(mmcore=global_mmcore)
-    qtbot.addWidget(other)
-    other.setValue(tbl.value())
-    other.setChannelProperties(tbl.channelProperties())
-    assert other.rowSettings(1)["camera_properties"] == {"Gain": 4, "ScanMode": "3"}
-    assert other.rowSettings(0)["camera_properties"] == {}
-
-
 def test_row_settings_round_trip(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
     tbl = CoreConnectedChannelTable(rows=1, mmcore=global_mmcore)
     qtbot.addWidget(tbl)
@@ -2997,23 +2929,122 @@ def test_row_settings_round_trip(global_mmcore: CMMCorePlus, qtbot: QtBot) -> No
         "exposure": 12.5,
         "light_source": LS_FLOAT,
         "intensity": 0.5,
-        "camera_properties": {"Gain": 2},
     }
     tbl.setRowSettings(0, settings)  # type: ignore[arg-type]
     assert tbl.rowSettings(0) == settings
 
-    # an unknown light source is left alone; unlisted camera properties are unset
+    # an unknown light source is left alone
     tbl.setRowSettings(
         0,
         {
             "exposure": 20,
             "light_source": "Nope · Nothing",
             "intensity": 1,
-            "camera_properties": {},
         },
     )
     assert tbl.rowSettings(0)["light_source"] == LS_FLOAT
-    assert tbl.rowSettings(0)["camera_properties"] == {}
+    assert tbl.rowSettings(0)["exposure"] == 20
+
+
+def test_group_combo_sets_the_channel_group(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+    combo = tbl._group_combo
+    assert tbl._group_label.text() == "Core Channel:"
+    assert combo.currentText() == "Channel"
+
+    combo.setCurrentText("Objective")
+    assert global_mmcore.getChannelGroup() == "Channel"  # not until it is picked
+    combo.activated.emit(combo.currentIndex())
+    assert global_mmcore.getChannelGroup() == "Objective"
+    assert combo.currentText() == "Objective"
+
+    # restoring a sequence's group is not a pick
+    tbl.setValue([useq.Channel(group="Channel", config="DAPI")])
+    assert combo.currentText() == "Channel"
+    assert global_mmcore.getChannelGroup() == "Objective"
+
+    global_mmcore.setChannelGroup("Channel")
+    assert combo.currentText() == "Channel"
+
+
+def test_changing_group_clears_the_rows(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+    combo = tbl._group_combo
+    rows = [
+        useq.Channel(group="Channel", config="DAPI"),
+        useq.Channel(group="Channel", config="FITC"),
+    ]
+
+    def configs() -> list[str]:
+        return [c.config for c in tbl.value()]
+
+    # a user's pick clears them, rather than leaving the new group's first preset
+    tbl.setValue(rows)
+    combo.setCurrentText("Objective")
+    combo.activated.emit(combo.currentIndex())
+    assert configs() == []
+
+    # so does a change on the core
+    global_mmcore.setChannelGroup("Channel")
+    tbl.setValue(rows)
+    global_mmcore.setChannelGroup("Objective")
+    assert configs() == []
+    global_mmcore.setChannelGroup("Channel")
+
+    # picking the group already shown does not
+    tbl.setValue(rows)
+    combo.activated.emit(combo.currentIndex())
+    assert configs() == ["DAPI", "FITC"]
+
+    # nor does restoring a sequence replace its rows with nothing
+    tbl.setValue([useq.Channel(group="Objective", config="10X")])
+    assert configs() == ["10X"]
+
+
+def test_run_and_save_take_what_is_being_typed(
+    global_mmcore: CMMCorePlus, qtbot: QtBot, tmp_path: Path
+) -> None:
+    """Without Enter: on macOS, clicking Run or Save leaves the editor its focus."""
+    wdg = MDAWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.show()
+    wdg.activateWindow()
+    qtbot.waitExposed(wdg)
+    qtbot.wait(100)
+    if not wdg.isActiveWindow():  # pragma: no cover
+        pytest.skip("focus needs the window to be active, which CI cannot always do")
+    wdg.setValue(
+        useq.MDASequence(
+            channels=[{"config": "DAPI", "exposure": 10}],
+            time_plan={"interval": 1, "loops": 5},
+        )
+    )
+    table = wdg.time_plan.table()
+
+    def type_loops(text: str) -> None:
+        spin = table.cellWidget(0, table.indexOf(wdg.time_plan.LOOPS))
+        spin.setFocus()
+        qtbot.keyClick(
+            spin.lineEdit(), Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier
+        )
+        qtbot.keyClicks(spin.lineEdit(), text)
+
+    # still the old value while typing: this is what would otherwise run
+    type_loops("30")
+    assert wdg.value().time_plan.loops == 5
+    wdg.prepare_mda()
+    assert wdg.value().time_plan.loops == 30
+
+    type_loops("40")
+    dest = tmp_path / "seq.yaml"
+    wdg.save(dest)
+    assert useq.MDASequence.from_file(dest).time_plan.loops == 40
 
 
 def test_channel_columns_fill_width(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
@@ -3030,7 +3061,6 @@ def test_channel_columns_fill_width(global_mmcore: CMMCorePlus, qtbot: QtBot) ->
 
     qtbot.waitUntil(check)
     tbl.setAdvancedVisible(True)
-    tbl.setCameraVisible(True)
     qtbot.waitUntil(check)
     header = table.horizontalHeader()
     exp_col = table.indexOf(tbl.EXPOSURE)

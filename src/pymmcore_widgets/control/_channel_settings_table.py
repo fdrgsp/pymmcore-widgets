@@ -1,10 +1,10 @@
-"""Per-preset channel settings: exposure, light source and camera properties."""
+"""Per-preset channel settings: exposure and light source."""
 
 from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import QEvent, QItemSelectionModel, QPointF, Qt, QTimer
@@ -24,14 +24,7 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
-from pymmcore_widgets._channel_settings import (
-    CAMERA_PROPERTIES,
-    ChannelSettings,
-    apply_channel_settings,
-    camera_property_columns,
-    read_camera_cell,
-    write_camera_cell,
-)
+from pymmcore_widgets._channel_settings import ChannelSettings, apply_channel_settings
 from pymmcore_widgets._light_sources import (
     INTENSITY_KEY,
     LIGHT_SOURCE_KEY,
@@ -49,10 +42,10 @@ from pymmcore_widgets.useq_widgets._column_info import (
     FloatColumn,
     TextColumn,
 )
-from pymmcore_widgets.useq_widgets._data_table import DataTableWidget
+from pymmcore_widgets.useq_widgets._data_table import DataTable, DataTableWidget
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Mapping
 
     from qtpy.QtCore import QAbstractItemModel, QModelIndex, SignalInstance
     from qtpy.QtWidgets import QStyleOptionViewItem
@@ -124,7 +117,7 @@ class CurrentPresetDelegate(QStyledItemDelegate):
 
 
 @dataclass(frozen=True)
-class _CurrentColumn(ColumnInfo):
+class CurrentPresetColumn(ColumnInfo):
     """Narrow indicator of the preset currently active on the microscope.
 
     Clicking a cell applies that row's preset (see `ChannelSettingsTable`).
@@ -153,18 +146,34 @@ class _CurrentColumn(ColumnInfo):
         if item := table.item(row, col):
             item.setData(_ACTIVE_ROLE, bool(value))
 
+    def setup(self, table: DataTable, delegate: CurrentPresetDelegate) -> None:
+        """Make this column of `table` a fixed-width one, painted by `delegate`."""
+        col = table.indexOf(self)
+        table.setItemDelegateForColumn(col, delegate)
+        if (header := table.horizontalHeader()) is not None:
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+        table.setColumnWidth(col, _CURRENT_COL_WIDTH)
+        if header_item := table.horizontalHeaderItem(col):
+            header_item.setToolTip("Preset currently active on the microscope")
+
+    def markActive(self, table: DataTable, row: int) -> None:
+        """Show `row` as the active one (-1 for none)."""
+        if (col := table.indexOf(self)) < 0:  # pragma: no cover
+            return
+        with signals_blocked(table):
+            for r in range(table.rowCount()):
+                self.set_cell_data(table, r, col, r == row)
+
 
 class ChannelSettingsTable(DataTableWidget):
     """Table of the settings to use for each preset of a channel group.
 
-    Picking a group in the *Group* combo lists every preset of that group, one per
-    row, each with an exposure, a light source (the same choices as
+    Picking a group in the *Core Channel* combo lists every preset of that
+    group, one per row, each with an exposure, a light source (the same choices as
     [`CoreConnectedChannelTable`][pymmcore_widgets.mda.CoreConnectedChannelTable])
-    and intensity, and a column for each per-channel camera property the current
-    camera has (see `CAMERA_PROPERTIES`). The *Light Sources* and *Camera*
-    checkboxes show or hide those columns (see `setLightSourcesVisible` and
-    `setCameraVisible`); the exposure is always shown. A camera property cell
-    showing "—" leaves that property unchanged.
+    and intensity. The *Light Source* checkbox shows or hides those columns (see
+    `setLightSourcesVisible`); the exposure is always shown. A group picked in the
+    combo becomes the core's channel group, and the combo follows the core's.
 
     Settings are remembered for every group, not just the one shown, so switching
     back to a group restores what was entered for it. Use
@@ -188,10 +197,8 @@ class ChannelSettingsTable(DataTableWidget):
         Optional parent widget, by default None.
     """
 
-    CAMERA_PROPERTIES: ClassVar[tuple[str, ...]] = CAMERA_PROPERTIES
-
     # fmt: off
-    CURRENT = _CurrentColumn()
+    CURRENT = CurrentPresetColumn()
     PRESET = _PresetColumn(key=PRESET_KEY, header="Preset")
     EXPOSURE = FloatColumn(key=EXPOSURE_KEY, header="Exposure [ms]", default=DEFAULT_EXP, minimum=0.01)  # noqa: E501
     LIGHT_SOURCE = ComboColumn(key=LIGHT_SOURCE_KEY, header="Light Source", default=NO_LIGHT_SOURCE, allowed_values=(NO_LIGHT_SOURCE,))  # noqa: E501
@@ -208,15 +215,9 @@ class ChannelSettingsTable(DataTableWidget):
         self._settings: dict[str, dict[str, ChannelSettings]] = {}
         self._light_sources: dict[str, list[tuple[str, str]]] = {}
         self._light_source_column: ComboColumn = self.LIGHT_SOURCE
-        self._camera = ""
-        self._camera_property_names: tuple[str, ...] = self.CAMERA_PROPERTIES
-        # {property name: column} for the camera properties shown
-        self._camera_columns: dict[str, ColumnInfo] = {}
         self._syncing = False
-        # the light source columns are shown by default, the camera property ones
-        # hidden; see setLightSourcesVisible and setCameraVisible
+        # the light source columns are shown by default; see setLightSourcesVisible
         self._light_sources_visible = True
-        self._camera_visible = False
         # row of the preset active on the microscope, or -1
         self._active_row = -1
 
@@ -224,35 +225,27 @@ class ChannelSettingsTable(DataTableWidget):
         self._group_combo = QComboBox()
         disable_wheel_scroll(self._group_combo)
         self._group_combo.currentTextChanged.connect(self._on_group_changed)
+        self._group_combo.activated.connect(self._on_group_activated)
         group_wdg = QWidget()
         group_layout = QHBoxLayout(group_wdg)
         group_layout.setContentsMargins(5, 5, 5, 5)
-        group_layout.addWidget(QLabel("Group:"))
+        group_layout.addWidget(QLabel("Core Channel:"))
         group_layout.addWidget(self._group_combo)
         group_layout.addStretch()
         self._toolbar.clear()
         self._toolbar.addWidget(group_wdg)
 
-        self.light_sources = QCheckBox("Light Sources")
+        self.light_sources = QCheckBox("Light Source")
         self.light_sources.setToolTip(
             "Show the Light Source and Intensity columns.\n"
             "While unchecked those columns are hidden, but keep their values."
         )
         self.light_sources.setChecked(self._light_sources_visible)
         self.light_sources.toggled.connect(self.setLightSourcesVisible)
-        self.camera = QCheckBox("Camera")
-        self.camera.setToolTip(
-            "Show the per-channel camera property columns (e.g. Gain, Offset, "
-            "Readout Mode).\n"
-            "While unchecked those columns are hidden, but keep their values."
-        )
-        self.camera.setChecked(self._camera_visible)
-        self.camera.toggled.connect(self.setCameraVisible)
         self._btn_row = QHBoxLayout()
         self._btn_row.setContentsMargins(5, 5, 5, 5)
         self._btn_row.setSpacing(15)
         self._btn_row.addWidget(self.light_sources)
-        self._btn_row.addWidget(self.camera)
         self._btn_row.addStretch()
         cast("QVBoxLayout", self.layout()).addLayout(self._btn_row)
 
@@ -397,45 +390,13 @@ class ChannelSettingsTable(DataTableWidget):
         """Return whether the Light Source and Intensity columns are shown."""
         return self._light_sources_visible
 
-    def setCameraVisible(self, visible: bool) -> None:
-        """Show or hide the camera property columns. Off by default.
-
-        This is a pure view toggle: the columns keep their values, which are stored
-        and applied regardless.
-        """
-        self._camera_visible = bool(visible)
-        with signals_blocked(self.camera):
-            self.camera.setChecked(self._camera_visible)
-        self._apply_column_visibility()
-        self._fitter.fit()
-
-    def cameraVisible(self) -> bool:
-        """Return whether the camera property columns are shown."""
-        return self._camera_visible
-
-    def cameraProperties(self) -> tuple[str, ...]:
-        """Return the camera properties shown as columns, for the current camera."""
-        return tuple(self._camera_columns)
-
-    def setCameraPropertyNames(self, names: Iterable[str]) -> None:
-        """Choose which camera properties are offered (default `CAMERA_PROPERTIES`).
-
-        Of these, only the ones the current camera has and can write become columns.
-        """
-        self._camera_property_names = tuple(names)
-        self.refresh()
-
     def refresh(self) -> None:
-        """Re-read the groups, light sources and camera properties from the core.
+        """Re-read the groups and light sources from the core.
 
         Normally kept up to date by core signals; see
         [`CoreConnectedChannelTable.refresh`][pymmcore_widgets.mda.CoreConnectedChannelTable.refresh].
         """
         self._light_sources = find_light_sources(self._mmc)
-        self._camera = self._mmc.getCameraDevice()
-        self._camera_columns = camera_property_columns(
-            self._mmc, self._camera, self._camera_property_names
-        )
 
         groups = list(self._mmc.getAvailableConfigGroups())
         current = self.channelGroup()
@@ -464,21 +425,10 @@ class ChannelSettingsTable(DataTableWidget):
                 self.EXPOSURE,
                 self._light_source_column,
                 self.INTENSITY,
-                *self._camera_columns.values(),
             ):
                 table.addColumn(info)
-            for prop, info in self._camera_columns.items():
-                col = table.indexOf(info)
-                if header_item := table.horizontalHeaderItem(col):
-                    header_item.setToolTip(f"{self._camera} · {prop}")
             self._apply_column_visibility()
-            current_col = table.indexOf(self.CURRENT)
-            table.setItemDelegateForColumn(current_col, self._current_delegate)
-            if (header := table.horizontalHeader()) is not None:
-                header.setSectionResizeMode(current_col, QHeaderView.ResizeMode.Fixed)
-            table.setColumnWidth(current_col, _CURRENT_COL_WIDTH)
-            if header_item := table.horizontalHeaderItem(current_col):
-                header_item.setToolTip("Preset currently active on the microscope")
+            self.CURRENT.setup(table, self._current_delegate)
         self._populate()
 
     # ------------------- Private API -------------------
@@ -488,16 +438,14 @@ class ChannelSettingsTable(DataTableWidget):
         for info in (self._light_source_column, self.INTENSITY):
             if (col := table.indexOf(info)) >= 0:
                 table.setColumnHidden(col, not self._light_sources_visible)
-        for cam_info in self._camera_columns.values():
-            if (col := table.indexOf(cam_info)) >= 0:
-                table.setColumnHidden(col, not self._camera_visible)
 
     def _default_settings(self) -> ChannelSettings:
         return ChannelSettings(
-            exposure=self._mmc.getExposure() if self._camera else DEFAULT_EXP,
+            exposure=(
+                self._mmc.getExposure() if self._mmc.getCameraDevice() else DEFAULT_EXP
+            ),
             light_source=NO_LIGHT_SOURCE,
             intensity=0.0,
-            camera_properties={},
         )
 
     def showEvent(self, a0: QShowEvent | None) -> None:
@@ -565,10 +513,6 @@ class ChannelSettingsTable(DataTableWidget):
         self._configure_intensity(row, int_col, source)
         self.INTENSITY.set_cell_data(table, row, int_col, settings["intensity"])
 
-        stored_cam = settings["camera_properties"]
-        for prop, info in self._camera_columns.items():
-            write_camera_cell(table, row, info, stored_cam.get(prop))
-
     def _configure_intensity(self, row: int, col: int, source: str) -> None:
         """Range the spin box at `row` for `source`, starting at its current value."""
         wdg = cast("IntensitySpinBox | None", self._table.cellWidget(row, col))
@@ -587,18 +531,10 @@ class ChannelSettingsTable(DataTableWidget):
 
     def _row_settings(self, row: int) -> tuple[str, ChannelSettings]:
         rec = self._table.rowData(row)
-        camera_properties = {}
-        for prop, info in self._camera_columns.items():
-            value = read_camera_cell(
-                self._mmc, self._camera, prop, info, rec.get(info.key)
-            )
-            if value is not None:
-                camera_properties[prop] = value
         return str(rec.get(PRESET_KEY) or ""), ChannelSettings(
             exposure=float(rec.get(EXPOSURE_KEY) or DEFAULT_EXP),
             light_source=str(rec.get(LIGHT_SOURCE_KEY) or NO_LIGHT_SOURCE),
             intensity=float(rec.get(INTENSITY_KEY) or 0.0),
-            camera_properties=camera_properties,
         )
 
     def _on_table_changed(self, emit: bool = True) -> None:
@@ -624,16 +560,6 @@ class ChannelSettingsTable(DataTableWidget):
                 stored = self._settings.setdefault(group, {})
                 for row in range(table.rowCount()):
                     preset, settings = self._row_settings(row)
-                    # keep values of properties only another camera has
-                    if old := stored.get(preset):
-                        settings["camera_properties"] = {
-                            **{
-                                prop: value
-                                for prop, value in old["camera_properties"].items()
-                                if prop not in self._camera_columns
-                            },
-                            **settings["camera_properties"],
-                        }
                     stored[preset] = settings
         finally:
             self._syncing = False
@@ -649,11 +575,7 @@ class ChannelSettingsTable(DataTableWidget):
         """Mark `row` active (-1 for none) and move the row highlight to it."""
         self._active_row = row
         table = self._table
-        if (col := table.indexOf(self.CURRENT)) < 0:  # pragma: no cover
-            return
-        with signals_blocked(table):
-            for r in range(table.rowCount()):
-                self.CURRENT.set_cell_data(table, r, col, r == row)
+        self.CURRENT.markActive(table, row)
         if (sel_model := table.selectionModel()) is None:  # pragma: no cover
             return
         if row < 0:
@@ -661,7 +583,7 @@ class ChannelSettingsTable(DataTableWidget):
             return
         # selected through the model: the view's NoSelection mode ignores selectRow
         sel_model.select(
-            cast("QAbstractItemModel", table.model()).index(row, col),
+            cast("QAbstractItemModel", table.model()).index(row, 0),
             QItemSelectionModel.SelectionFlag.ClearAndSelect
             | QItemSelectionModel.SelectionFlag.Rows,
         )
@@ -694,6 +616,10 @@ class ChannelSettingsTable(DataTableWidget):
     def _on_group_changed(self, group: str) -> None:
         self._populate()
 
+    def _on_group_activated(self, *_: Any) -> None:
+        # activated is user-only: showing a group programmatically changes nothing
+        self._mmc.setChannelGroup(self.channelGroup())
+
     def _on_configs_changed(self, *_: Any) -> None:
         # accepts (and ignores) the varying args of the config* core signals
         self.refresh()
@@ -703,11 +629,8 @@ class ChannelSettingsTable(DataTableWidget):
             self.setChannelGroup(group)
 
     def _on_property_changed(self, device: str, prop: str, value: str) -> None:
-        if device == "Core" and prop == "Camera" and value != self._camera:
-            self.refresh()
-        else:
-            # a device in a preset may have been moved directly
-            self._update_active_row()
+        # a device in a preset may have been moved directly
+        self._update_active_row()
 
     def _disconnect(self) -> None:
         ev = self._mmc.events

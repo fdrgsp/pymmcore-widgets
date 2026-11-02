@@ -10,6 +10,7 @@ import useq
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtGui import QIcon
 from qtpy.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QCheckBox,
     QComboBox,
@@ -1218,8 +1219,20 @@ class MDASequenceWidget(QWidget):
             self.axis_order.setCurrentText(axis_text)
         self.valueChanged.emit()
 
+    def _commit_editors(self) -> None:
+        """Take what is being typed in the focused editor, whichever one it is.
+
+        A table's spin box only takes a typed value on Enter or when losing the
+        focus, and on macOS clicking a button does not take the focus: without this,
+        Run and Save would use the value from before the typing.
+        """
+        focused = QApplication.focusWidget()
+        if focused is not None and self.isAncestorOf(focused):
+            focused.clearFocus()
+
     def save(self, file: str | Path | None = None) -> None:
         """Save the current [`useq.MDASequence`][] to a file."""
+        self._commit_editors()
         if not isinstance(file, (str, Path)):
             file, _ = QFileDialog.getSaveFileName(
                 self,

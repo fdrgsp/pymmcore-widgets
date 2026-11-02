@@ -73,26 +73,6 @@ def test_all_channel_settings_round_trip(
     assert _cell(other, 1, "exposure").value() == 7
 
 
-def test_camera_property_columns(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
-    tbl = ChannelSettingsTable(mmcore=global_mmcore)
-    qtbot.addWidget(tbl)
-
-    # DemoCamera: Gain (ranged int), Offset (int), ScanMode (choice); never the
-    # shape/dtype-changing ones
-    props = tbl.cameraProperties()
-    assert {"Gain", "Offset", "ScanMode"} <= set(props)
-    assert "Binning" not in props
-    assert "PixelType" not in props
-
-    _cell(tbl, 0, "camera:Gain").setValue(3)
-    _cell(tbl, 0, "camera:ScanMode").setCurrentText("2")
-    preset = _cell(tbl, 0, "config").text()
-    settings = tbl.channelSettings(preset)
-    assert settings is not None
-    assert settings["camera_properties"]["Gain"] == 3
-    assert settings["camera_properties"]["ScanMode"] == "2"
-
-
 def test_intensity_is_ranged_by_the_light_source(
     global_mmcore: CMMCorePlus, qtbot: QtBot
 ) -> None:
@@ -119,27 +99,17 @@ def test_apply_channel(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
     _cell(tbl, 1, "exposure").setValue(33)
     _cell(tbl, 1, "light_source").setCurrentText(LS_FLOAT)
     _cell(tbl, 1, "intensity").setValue(0.25)
-    _cell(tbl, 1, "camera:Gain").setValue(2)
 
     tbl.applyChannel(preset)
     assert global_mmcore.getCurrentConfig("Channel") == preset
     assert global_mmcore.getExposure() == 33
     assert float(global_mmcore.getProperty("Camera", "TestProperty2")) == 0.25
-    assert global_mmcore.getProperty("Camera", "Gain") == "2"
 
 
-def test_light_source_and_camera_checkboxes(
-    global_mmcore: CMMCorePlus, qtbot: QtBot
-) -> None:
+def test_light_source_checkbox(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
     tbl = ChannelSettingsTable(mmcore=global_mmcore)
     qtbot.addWidget(tbl)
     table = tbl.table()
-
-    def camera_hidden() -> list[bool]:
-        return [
-            table.isColumnHidden(table.indexOf(f"{prop}"))
-            for prop in tbl.cameraProperties()
-        ]
 
     def light_hidden() -> list[bool]:
         return [
@@ -147,29 +117,27 @@ def test_light_source_and_camera_checkboxes(
             for header in ("Light Source", "Intensity")
         ]
 
-    # the exposure is always shown; light sources by default, camera ones not
+    # the exposure is always shown; light sources by default
+    assert [table.columnInfo(c).key for c in range(table.columnCount())] == [
+        "_current",
+        "config",
+        "exposure",
+        "light_source",
+        "intensity",
+    ]
     assert not table.isColumnHidden(table.indexOf("Exposure [ms]"))
     assert tbl.lightSourcesVisible()
     assert not any(light_hidden())
-    assert not tbl.cameraVisible()
-    assert all(camera_hidden())
 
-    tbl.camera.setChecked(True)
-    assert tbl.cameraVisible()
-    assert not any(camera_hidden())
     tbl.light_sources.setChecked(False)
     assert not tbl.lightSourcesVisible()
     assert all(light_hidden())
 
     # still applied after the columns are rebuilt
     tbl.refresh()
-    assert not any(camera_hidden())
     assert all(light_hidden())
-    tbl.setCameraVisible(False)
     tbl.setLightSourcesVisible(True)
-    assert not tbl.camera.isChecked()
     assert tbl.light_sources.isChecked()
-    assert all(camera_hidden())
     assert not any(light_hidden())
 
 
@@ -320,28 +288,6 @@ def test_columns_fill_width_and_absorb_resizes(
     assert table.columnWidth(current_col) == current_width
 
 
-def test_unset_camera_properties_are_left_unchanged(
-    global_mmcore: CMMCorePlus, qtbot: QtBot
-) -> None:
-    tbl = ChannelSettingsTable(mmcore=global_mmcore)
-    qtbot.addWidget(tbl)
-    global_mmcore.setProperty("Camera", "Gain", "5")
-    preset = _cell(tbl, 0, "config").text()
-    settings = tbl.channelSettings(preset)
-    assert settings is not None
-    assert settings["camera_properties"] == {}  # every cell starts at "—"
-
-    tbl.applyChannel(preset)
-    assert global_mmcore.getProperty("Camera", "Gain") == "5"
-
-    # setting a value and clearing it again leaves nothing stored
-    gain = _cell(tbl, 0, "camera:Gain")
-    gain.setOptionalValue(2)
-    assert tbl.channelSettings(preset)["camera_properties"] == {"Gain": 2}
-    gain.setOptionalValue(None)
-    assert tbl.channelSettings(preset)["camera_properties"] == {}
-
-
 def test_table_fits_its_rows(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
     tbl = ChannelSettingsTable(mmcore=global_mmcore)
     qtbot.addWidget(tbl)
@@ -357,3 +303,23 @@ def test_table_fits_its_rows(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
 
     qtbot.waitUntil(rows_fit)
     assert table.minimumHeight() == table.maximumHeight()
+
+
+def test_group_combo_sets_the_channel_group(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    tbl = ChannelSettingsTable(mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+    combo = tbl._group_combo
+
+    # showing a group programmatically leaves the core alone
+    tbl.setChannelGroup("Objective")
+    assert global_mmcore.getChannelGroup() == "Channel"
+
+    # a user's pick does
+    combo.activated.emit(combo.currentIndex())
+    assert global_mmcore.getChannelGroup() == "Objective"
+
+    # and the combo follows the core
+    global_mmcore.setChannelGroup("Channel")
+    assert tbl.channelGroup() == "Channel"

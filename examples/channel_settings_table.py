@@ -1,10 +1,10 @@
 """ChannelSettingsTable stores the settings to use for each preset of a group.
 
-Pick a group to list its presets, then set each one's exposure, light source,
-intensity and camera properties (the "Light Sources" and "Camera" checkboxes show
-or hide those columns). Settings are kept for every group, so switching back
-restores them. The first column marks the preset active on the microscope; click
-another row's ring to apply that preset and its settings.
+Pick a group to list its presets, then set each one's exposure, light source and
+intensity (the "Light Source" checkbox shows or hides those columns). Settings are
+kept for every group, so switching back restores them. The first column marks the
+preset active on the microscope; click another row's ring or preset name to apply
+that preset and its settings.
 """
 
 from contextlib import suppress

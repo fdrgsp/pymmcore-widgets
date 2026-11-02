@@ -320,6 +320,7 @@ class MDAWidget(MDASequenceWidget):
         None
             Preparation successful, saving deactivated
         """
+        self._commit_editors()
         # in case the user does not press enter after editing the save name.
         self.save_info.save_name.editingFinished.emit()
 
