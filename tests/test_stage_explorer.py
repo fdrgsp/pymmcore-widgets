@@ -1344,8 +1344,9 @@ def test_map_memory_menu_property_sync_both_directions(qtbot: QtBot) -> None:
     assert explorer.max_map_memory_mb == 5000.0
 
     # property -> UI
-    explorer.max_map_memory_mb = 7500.0
-    assert menu.value() == 7.5
+    # low enough for any machine: the menu's maximum is the total physical RAM
+    explorer.max_map_memory_mb = 2500.0
+    assert menu.value() == 2.5
 
 
 def test_map_memory_action_is_instant_popup(qtbot: QtBot) -> None:

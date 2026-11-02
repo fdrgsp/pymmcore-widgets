@@ -511,9 +511,11 @@ def _field_doc(model: type, name: str) -> str:
     lines = doc.splitlines()
     for i, line in enumerate(lines):
         if line.strip().startswith(f"{name} ") and ":" in line:
+            # relative: Python 3.13+ strips the indentation common to a docstring
+            indent = len(line) - len(line.lstrip())
             body = []
             for follow in lines[i + 1 :]:
-                if not follow.strip() or not follow.startswith("        "):
+                if not follow.strip() or len(follow) - len(follow.lstrip()) <= indent:
                     break
                 body.append(follow.strip())
             return " ".join(body)

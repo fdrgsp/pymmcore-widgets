@@ -303,7 +303,8 @@ def test_columns_fill_width_and_absorb_resizes(
 
     current_col = table.indexOf(tbl.CURRENT)
     assert header.sectionResizeMode(current_col) == QHeaderView.ResizeMode.Fixed
-    assert table.columnWidth(current_col) == 30
+    # a style's minimum section size can exceed the column's width (e.g. on Windows)
+    assert table.columnWidth(current_col) == max(30, header.minimumSectionSize())
     assert used() == vp_width
 
     ls_col = table.indexOf(tbl._light_source_column)

@@ -982,7 +982,8 @@ def test_mda_popup_fits_grid_editor(
     scroll = pop.mda_tabs._page_for[grid].findChild(QScrollArea)
     viewport = scroll.viewport()
     right = grid.mapTo(viewport, QPoint()).x() + grid.minimumSizeHint().width()
-    assert right <= viewport.width()
+    # the popup resizes itself as it is first shown, so give that time to land
+    qtbot.waitUntil(lambda: right <= viewport.width())
     if isinstance(grid_plan, useq.GridFromPolygon):
         polygon = grid._mode_radios[_grid.Mode.POLYGON]
         assert polygon.isVisible()
