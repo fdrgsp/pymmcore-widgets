@@ -1977,6 +1977,130 @@ def test_xy_bounds_visit_returns_to_marked_position(
     assert mmc.getYPosition(device) == pytest.approx(40.0, abs=0.01)
 
 
+def _xy_bounds_at(
+    qtbot: QtBot, mmc: CMMCorePlus, x: float, y: float
+) -> CoreXYBoundsControl:
+    """A compact control, with a 100 x 200 um FOV and the stage at (x, y)."""
+    mmc.setROI(0, 0, 100, 200)  # fov_width=100um, fov_height=200um @ px=1.0
+    wdg = CoreXYBoundsControl(core=mmc, compact_layout=True)
+    qtbot.addWidget(wdg)
+    device = mmc.getXYStageDevice()
+    mmc.setXYPosition(device, x, y)
+    mmc.waitForDevice(device)
+    return wdg
+
+
+def test_xy_bounds_visit_follows_an_edited_bound(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Regression test: a stale mark used to win over the value in the field."""
+    mmc = global_mmcore
+    wdg = _xy_bounds_at(qtbot, mmc, 10, 500)
+    device = mmc.getXYStageDevice()
+    wdg.mark_buttons["top"].click()
+    wdg.top.setValue(3000)
+
+    mmc.setXYPosition(device, 777.0, 0.0)
+    mmc.waitForDevice(device)
+    wdg.visit_buttons["top"].click()
+
+    assert mmc.getXPosition(device) == pytest.approx(777, abs=0.02)
+    assert mmc.getYPosition(device) == pytest.approx(3000 - 100, abs=0.02)
+
+
+def test_xy_bounds_mark_keeps_an_edited_bound(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Regression test: marking one end used to reset an edited other end."""
+    mmc = global_mmcore
+    wdg = _xy_bounds_at(qtbot, mmc, 0, 500)
+    device = mmc.getXYStageDevice()
+    wdg.mark_buttons["top"].click()
+    wdg.top.setValue(3000)
+
+    mmc.setXYPosition(device, 0.0, 0.0)
+    mmc.waitForDevice(device)
+    wdg.mark_buttons["bottom"].click()
+
+    assert wdg.top.value() == 3000
+    assert wdg.bottom.value() == pytest.approx(-100, abs=0.02)
+
+
+def test_xy_bounds_marks_survive_marking_the_other_end(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Both ends stay visitable at their marks, though marking moves both fields."""
+    mmc = global_mmcore
+    wdg = _xy_bounds_at(qtbot, mmc, 0, 500)
+    device = mmc.getXYStageDevice()
+    wdg.mark_buttons["top"].click()
+    mmc.setXYPosition(device, 0.0, 700.0)
+    mmc.waitForDevice(device)
+    wdg.mark_buttons["bottom"].click()
+
+    assert wdg._raw_marks == {
+        "top": pytest.approx(500, abs=0.02),
+        "bottom": pytest.approx(700, abs=0.02),
+    }
+
+
+@pytest.mark.parametrize(
+    "plan, expected",
+    [
+        (
+            useq.GridFromEdges(top=1000, bottom=0, left=0, right=1000),
+            {"top": 900, "bottom": 100, "left": 50, "right": 950},
+        ),
+        # the top and bottom fields swapped, as marking on a flipped stage does
+        (
+            useq.GridFromEdges(top=0, bottom=1000, left=0, right=1000),
+            {"top": 100, "bottom": 900, "left": 50, "right": 950},
+        ),
+        # no inside to tell
+        (
+            useq.GridFromEdges(top=300, bottom=300, left=40, right=40),
+            {"top": 300, "bottom": 300, "left": 40, "right": 40},
+        ),
+    ],
+)
+def test_xy_bounds_visit_without_marks_stays_inside_the_bounds(
+    qtbot: QtBot,
+    global_mmcore: CMMCorePlus,
+    plan: useq.GridFromEdges,
+    expected: dict[str, float],
+) -> None:
+    mmc = global_mmcore
+    wdg = _xy_bounds_at(qtbot, mmc, 777, 888)
+    wdg.setValue(plan)
+    device = mmc.getXYStageDevice()
+
+    for name, position in expected.items():
+        wdg.visit_buttons[name].click()
+        get = mmc.getYPosition if name in ("top", "bottom") else mmc.getXPosition
+        assert get(device) == pytest.approx(position, abs=0.02)
+
+
+def test_xy_bounds_visit_lands_on_the_outermost_tiles(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """With bounds a whole number of tiles apart, Move shows the first/last tiles."""
+    mmc = global_mmcore
+    wdg = _xy_bounds_at(qtbot, mmc, 0, 0)
+    plan = useq.GridFromEdges(
+        top=1000, bottom=0, left=0, right=1000, fov_width=100, fov_height=200
+    )
+    wdg.setValue(plan)
+    xs, ys = [p.x for p in plan], [p.y for p in plan]
+    device = mmc.getXYStageDevice()
+
+    wdg.visit_buttons["top_left"].click()
+    assert mmc.getXPosition(device) == pytest.approx(min(xs), abs=0.02)
+    assert mmc.getYPosition(device) == pytest.approx(max(ys), abs=0.02)
+    wdg.visit_buttons["bottom_right"].click()
+    assert mmc.getXPosition(device) == pytest.approx(max(xs), abs=0.02)
+    assert mmc.getYPosition(device) == pytest.approx(min(ys), abs=0.02)
+
+
 def test_grid_plan_bounds_buttons_stay_at_the_right_edge(
     qtbot: QtBot, global_mmcore: CMMCorePlus
 ) -> None:

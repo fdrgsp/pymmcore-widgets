@@ -855,6 +855,28 @@ def test_grid_plan_fields_fill_the_width(
     assert right == wdg.width() - margin
 
 
+@pytest.mark.parametrize(
+    "plan",
+    [
+        useq.GridRowsColumns(rows=2, columns=3, relative_to="top_left"),
+        useq.GridWidthHeight(
+            width=30, height=30, fov_width=10, fov_height=10, relative_to="top_left"
+        ),
+    ],
+)
+def test_grid_plan_set_value_keeps_relative_to(
+    qtbot: QtBot, plan: useq.GridRowsColumns | useq.GridWidthHeight
+) -> None:
+    """Regression test: "top_left" did not match the combo's "top left" text."""
+    wdg = GridPlanWidget()
+    qtbot.addWidget(wdg)
+
+    wdg.setValue(plan)
+
+    assert wdg.value() == plan
+    assert wdg.relative_to.currentEnum() is _grid.RelativeTo.top_left
+
+
 def test_grid_plan_mode_row_does_not_set_the_width(qtbot: QtBot) -> None:
     """The gaps between the mode radios give way before the fields below do.
 

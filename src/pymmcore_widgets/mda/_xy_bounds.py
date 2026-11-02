@@ -319,13 +319,23 @@ class CoreXYBoundsControl(XYBoundsControl):
         self._mmc = core or CMMCorePlus.instance()
         self._device = device
         # Raw (uncorrected) centers marked this session, keyed by "top",
-        # "bottom", "left", "right" -- see _mark_axis.
+        # "bottom", "left", "right" -- see _mark_axis. Each lasts until its
+        # field next changes, as it no longer describes that field's value.
         self._raw_marks: dict[str, float] = {}
 
         self.top = self._bounds_wdg.top
         self.left = self._bounds_wdg.left
         self.right = self._bounds_wdg.right
         self.bottom = self._bounds_wdg.bottom
+        for key, field in (
+            ("top", self.top),
+            ("bottom", self.bottom),
+            ("left", self.left),
+            ("right", self.right),
+        ):
+            field.valueChanged.connect(
+                lambda _=0.0, k=key: self._raw_marks.pop(k, None)
+            )
 
         self.btn_top.clicked.connect(lambda: self._mark_or_visit(top=True))
         self.btn_left.clicked.connect(lambda: self._mark_or_visit(left=True))
@@ -367,12 +377,16 @@ class CoreXYBoundsControl(XYBoundsControl):
     def _mark_or_visit(self, top: bool | None = None, left: bool | None = None) -> None:
         self._visit(top, left) if self.go_middle.isChecked() else self._mark(top, left)
 
-    def _mark(self, top: bool | None = None, left: bool | None = None) -> None:
-        device = self._device or self._mmc.getXYStageDevice()
-        fov_w = fov_h = 0.0
+    def _fov_size(self) -> tuple[float, float]:
+        """Return the (width, height) of the FOV in µm, zero if it is not known."""
         if px := self._mmc.getPixelSizeUm():
             *_, width, height = self._mmc.getROI()
-            fov_w, fov_h = width * px, height * px
+            return width * px, height * px
+        return 0.0, 0.0
+
+    def _mark(self, top: bool | None = None, left: bool | None = None) -> None:
+        device = self._device or self._mmc.getXYStageDevice()
+        fov_w, fov_h = self._fov_size()
         if top is not None:
             y = self._mmc.getYPosition(device)
             key, other_key = ("top", "bottom") if top else ("bottom", "top")
@@ -400,7 +414,6 @@ class CoreXYBoundsControl(XYBoundsControl):
         GridFromEdges uses outer image edges. Compare the marked centers to find
         the outward direction, independently of the stage's axis orientation.
         """
-        self._raw_marks[key] = raw
         exact_other_raw = self._raw_marks.get(other_key)
         if exact_other_raw is None:
             # Until both centers are marked, infer direction from the other field.
@@ -412,21 +425,42 @@ class CoreXYBoundsControl(XYBoundsControl):
         if exact_other_raw is not None:
             # Correct the first mark's direction now that both centers are known.
             other_wdg.setValue(exact_other_raw - outward)
+            self._raw_marks[other_key] = exact_other_raw
+        # after setting the fields, which drops the marks of those that changed
+        self._raw_marks[key] = raw
+
+    def _bound_center(
+        self, key: str, wdg: QDoubleSpinBox, other_wdg: QDoubleSpinBox, extent: float
+    ) -> float:
+        """Return where to center the FOV to visit the bound *key*.
+
+        That is where it was marked or, if it was not, half an *extent* inside
+        the field, which holds the outer image edge (see _mark_axis). With both
+        ends of the axis at one value, there is no inside to tell.
+        """
+        if (raw := self._raw_marks.get(key)) is not None:
+            return raw
+        value: float = wdg.value()
+        other: float = other_wdg.value()
+        if value == other:
+            return value
+        return value - extent / 2 if value > other else value + extent / 2
 
     def _visit(self, top: bool | None = None, left: bool | None = None) -> None:
         device = self._device or self._mmc.getXYStageDevice()
+        fov_w, fov_h = self._fov_size()
         if top is None:
             y = self._mmc.getYPosition(device)
         elif top:
-            y = self._raw_marks.get("top", self.top.value())
+            y = self._bound_center("top", self.top, self.bottom, fov_h)
         else:
-            y = self._raw_marks.get("bottom", self.bottom.value())
+            y = self._bound_center("bottom", self.bottom, self.top, fov_h)
         if left is None:
             x = self._mmc.getXPosition(device)
         elif left:
-            x = self._raw_marks.get("left", self.left.value())
+            x = self._bound_center("left", self.left, self.right, fov_w)
         else:
-            x = self._raw_marks.get("right", self.right.value())
+            x = self._bound_center("right", self.right, self.left, fov_w)
 
         self._mmc.setXYPosition(device, x, y)
         self._mmc.waitForDevice(device)

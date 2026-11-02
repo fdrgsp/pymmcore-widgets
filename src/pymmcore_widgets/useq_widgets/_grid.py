@@ -649,7 +649,7 @@ class _RowsColsWidget(QWidget):
     def setValue(self, plan: useq.GridRowsColumns) -> None:
         self.rows.setValue(plan.rows)
         self.columns.setValue(plan.columns)
-        self.relative_to.setCurrentText(plan.relative_to.value)
+        self.relative_to.setCurrentEnum(RelativeTo(plan.relative_to.value))
 
 
 class _WidthHeightWidget(QWidget):
@@ -694,7 +694,7 @@ class _WidthHeightWidget(QWidget):
         # uses mm, so we convert width and height to mm here
         self.area_width.setValue(plan.width / 1000)
         self.area_height.setValue(plan.height / 1000)
-        self.relative_to.setCurrentText(plan.relative_to.value)
+        self.relative_to.setCurrentEnum(RelativeTo(plan.relative_to.value))
 
 
 class _BoundsWidget(QWidget):
