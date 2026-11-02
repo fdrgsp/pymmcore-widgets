@@ -33,6 +33,7 @@ from qtpy.QtWidgets import (
     QLabel,
     QRadioButton,
     QSizePolicy,
+    QSpacerItem,
     QSpinBox,
     QStackedWidget,
     QToolButton,
@@ -204,7 +205,12 @@ class GridPlanWidget(QWidget):
         mode_layout.setSpacing(10)
         for mode in (Mode.NUMBER, Mode.AREA, Mode.BOUNDS):
             if mode is not Mode.NUMBER:
-                mode_layout.addSpacing(25)
+                # gives way before the row can set the width of the whole widget
+                mode_layout.addSpacerItem(
+                    QSpacerItem(
+                        25, 0, QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+                    )
+                )
             mode_layout.addWidget(self._mode_radios[mode])
         # Polygon carries its spacing in a container shown and hidden with it,
         # so while hidden it leaves no gap at the end of the row
@@ -326,7 +332,8 @@ class GridPlanWidget(QWidget):
         Each mode's settings use their own ``QFormLayout``, so without this the
         fields would start at a different x in each mode, jumping on every mode
         switch. Sizing every label to the widest one lines them up. Labels in
-        ``_extra_aligned_labels`` join them, sized to their widest text.
+        ``_extra_aligned_labels`` join them, sized to their widest text. Fields
+        share a minimum width, and grow from it to fill the width of the page.
         """
         labels: list[QLabel] = []
         fields: list[QWidget] = []
@@ -373,7 +380,7 @@ class GridPlanWidget(QWidget):
 
         field_width = max(field.sizeHint().width() for field in fields)
         for field in fields:
-            field.setFixedWidth(field_width)
+            field.setMinimumWidth(field_width)
 
     # ------------------------- Public API -------------------------
 

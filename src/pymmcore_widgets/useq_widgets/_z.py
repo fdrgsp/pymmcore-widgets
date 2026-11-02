@@ -364,6 +364,8 @@ class ZPlanWidget(QWidget):
             label.setFixedWidth(label_width)
         grid.setColumnMinimumWidth(0, label_width)
         grid.setColumnMinimumWidth(1, 193)
+        # the fields take any spare width, so the box's contents fill it
+        grid.setColumnStretch(1, 1)
         # The last column is as wide as its widest content, with room reserved
         # for what can appear later -- the suggested-step button, and the range
         # summary up to 999.999 um -- so the box does not resize as they do.
@@ -410,11 +412,9 @@ class ZPlanWidget(QWidget):
         # As far from the divider as the drawn stack is on its other side (the
         # graphic's blank strip, where the stage marker goes, is that gap).
         body_layout.addSpacing(self._viz._blank_right())
-        # Fit the box to its controls rather than stretching it across the
-        # widget, which only leaves empty space at its right edge. Every mode
-        # keeps the same controls width, so the box does not resize on a switch.
-        body_layout.addWidget(self._controls_box)
-        body_layout.addStretch()
+        # The box fills the widget, and its fields fill the box. Every mode keeps
+        # the same controls width, so the box does not resize on a switch.
+        body_layout.addWidget(self._controls_box, 1)
 
         layout = QVBoxLayout(self)
         layout.addLayout(mode_layout)

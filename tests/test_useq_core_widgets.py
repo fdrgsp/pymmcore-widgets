@@ -1691,8 +1691,8 @@ def test_grid_plan_fov_update(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
         widget_heights.append(wdg.grid_plan.sizeHint().height())
     assert len(set(stack_heights)) == 1
     assert len(set(widget_heights)) == 1
-    assert wdg.grid_plan._core_xy_bounds.left.width() == (
-        wdg.grid_plan.row_col_wdg.rows.width()
+    assert wdg.grid_plan._core_xy_bounds.left.minimumWidth() == (
+        wdg.grid_plan.row_col_wdg.rows.minimumWidth()
     )
 
     wdg.grid_plan.setMode("bounds")
@@ -1975,6 +1975,24 @@ def test_xy_bounds_visit_returns_to_marked_position(
 
     assert mmc.getXPosition(device) == pytest.approx(10.0, abs=0.01)
     assert mmc.getYPosition(device) == pytest.approx(40.0, abs=0.01)
+
+
+def test_grid_plan_bounds_buttons_stay_at_the_right_edge(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """The fields take the spare width, not a gap to the right of the buttons."""
+    wdg = CoreConnectedGridPlanWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.setMode("bounds")
+    wdg.resize(1000, 400)
+    wdg.show()
+    qtbot.waitExposed(wdg)
+
+    bounds = wdg._core_xy_bounds
+    visit = bounds.visit_buttons["top"]
+    margin = wdg.layout().contentsMargins().right()
+    assert visit.mapTo(wdg, QPoint()).x() + visit.width() == wdg.width() - margin
+    assert bounds.top.width() > bounds.top.minimumWidth()
 
 
 def test_grid_plan_bounds_by_in_left_column(

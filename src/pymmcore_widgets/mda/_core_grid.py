@@ -48,14 +48,14 @@ class CoreConnectedGridPlanWidget(GridPlanWidget):
         self._stack.addWidget(self._core_xy_bounds)
         # the base class connected the bounds_wdg replaced above
         self._core_xy_bounds._bounds_wdg.valueChanged.connect(self._on_change)
-        field_width = self.row_col_wdg.rows.width()
+        field_width = self.row_col_wdg.rows.minimumWidth()
         for field in (
             self._core_xy_bounds.left,
             self._core_xy_bounds.top,
             self._core_xy_bounds.right,
             self._core_xy_bounds.bottom,
         ):
-            field.setFixedWidth(field_width)
+            field.setMinimumWidth(field_width)
         # Edges/Corners goes in the left column, above the summary, which
         # keeps the bounds page to its four rows like the other modes
         self._core_xy_bounds._bounds_by_label.hide()

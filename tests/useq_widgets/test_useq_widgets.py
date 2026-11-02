@@ -45,9 +45,11 @@ from pymmcore_widgets.useq_widgets._mda_sequence import AF_PER_POS_SOFTWARE_TOOL
 from pymmcore_widgets.useq_widgets._positions import MDAButton, QFileDialog, _MDAPopup
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from pytestqt.qtbot import QtBot
+    from qtpy.QtWidgets import QWidget
 
 
 class MyEnum(enum.Enum):
@@ -830,6 +832,55 @@ def test_grid_plan_label_column_shrinks_with_the_font(qtbot: QtBot) -> None:
     assert label.minimumWidth() == label.maximumWidth() < wide * 0.75
 
 
+@pytest.mark.parametrize(
+    "mode, field",
+    [
+        ("number", lambda w: w.row_col_wdg.rows),
+        ("area", lambda w: w.width_height_wdg.area_width),
+        ("bounds", lambda w: w.bounds_wdg.top),
+    ],
+)
+def test_grid_plan_fields_fill_the_width(
+    qtbot: QtBot, mode: str, field: Callable[[GridPlanWidget], QWidget]
+) -> None:
+    wdg = GridPlanWidget()
+    qtbot.addWidget(wdg)
+    wdg.setMode(mode)
+    wdg.resize(1000, 300)
+    wdg.show()
+    qtbot.waitExposed(wdg)
+
+    margin = wdg.layout().contentsMargins().right()
+    right = field(wdg).mapTo(wdg, QPoint()).x() + field(wdg).width()
+    assert right == wdg.width() - margin
+
+
+def test_grid_plan_mode_row_does_not_set_the_width(qtbot: QtBot) -> None:
+    """The gaps between the mode radios give way before the fields below do.
+
+    Regression test: with a style that widens the radios, the fixed gaps made the
+    row wider than the fields, so the widget could not shrink to fit them.
+    """
+    wdg = GridPlanWidget()
+    qtbot.addWidget(wdg)
+    mode_row = wdg.layout().itemAt(0).layout()
+    assert mode_row.minimumSize().width() <= mode_row.sizeHint().width() - 50
+
+
+def test_z_plan_controls_fill_the_width(qtbot: QtBot) -> None:
+    wdg = ZPlanWidget()
+    qtbot.addWidget(wdg)
+    wdg.resize(1000, 300)
+    wdg.show()
+    qtbot.waitExposed(wdg)
+
+    box = wdg._controls_box
+    margin = wdg.layout().contentsMargins().right()
+    assert box.mapTo(wdg, QPoint()).x() + box.width() == wdg.width() - margin
+    # the box's fields take the spare width, not a gap inside the box
+    assert wdg.step.width() > 300
+
+
 def test_grid_plan_widget(qtbot: QtBot) -> None:
     wdg = GridPlanWidget()
     qtbot.addWidget(wdg)
@@ -852,8 +903,7 @@ def test_grid_plan_widget(qtbot: QtBot) -> None:
         wdg.relative_to,
         wdg.width_height_wdg.relative_to,
     )
-    assert len({field.width() for field in form_fields}) == 1
-    assert form_fields[0].width() < wdg.width() * 0.3
+    assert len({field.minimumWidth() for field in form_fields}) == 1
     assert wdg.row_col_wdg.relative_to.mapTo(wdg, QPoint()).y() > (
         wdg.row_col_wdg.columns.mapTo(wdg, QPoint()).y()
     )

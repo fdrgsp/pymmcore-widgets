@@ -191,7 +191,7 @@ class XYBoundsControl(QWidget):
         """
         compact_widget = QWidget()
         compact_widget.setSizePolicy(
-            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
         )
         main = QVBoxLayout(compact_widget)
         main.setContentsMargins(0, 0, 0, 0)
@@ -224,6 +224,8 @@ class XYBoundsControl(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setHorizontalSpacing(10)
         layout.setVerticalSpacing(4)
+        # the fields take any spare width, keeping the buttons at the right edge
+        layout.setColumnStretch(1, 1)
         main.addLayout(layout)
         main.addStretch()
 
