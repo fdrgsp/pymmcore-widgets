@@ -15,6 +15,7 @@ from qtpy.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QRadioButton,
     QSizePolicy,
@@ -24,6 +25,7 @@ from qtpy.QtWidgets import (
 )
 from superqt.iconify import QIconifyIcon
 
+from pymmcore_widgets._util import RightClickMenu
 from pymmcore_widgets.useq_widgets._grid import _BoundsWidget
 
 if TYPE_CHECKING:
@@ -68,6 +70,9 @@ ICONS_MARK: dict[str, tuple[str, Flip | None]] = {
     "bottom_right": ("mdi:border-style", "horizontal,vertical"),
 }
 
+
+_READ_ONLY_TOOLTIP = "Set by the Mark buttons. Right-click to enable editing."
+_EDITABLE_TOOLTIP = "Right-click to disable editing."
 
 # Short row labels of the compact layout; the full name is the label's tooltip.
 BOUND_LABELS: dict[str, str] = {
@@ -336,6 +341,14 @@ class CoreXYBoundsControl(XYBoundsControl):
             field.valueChanged.connect(
                 lambda _=0.0, k=key: self._raw_marks.pop(k, None)
             )
+        self._bound_fields = (self.top, self.bottom, self.left, self.right)
+
+        self._edit_menu = QMenu(self)
+        self._edit_action = self._edit_menu.addAction("Enable Editing")
+        self._edit_action.setCheckable(True)
+        self._edit_action.toggled.connect(self.enable_editing)
+        RightClickMenu(self._edit_menu, self._bound_fields, self.isEnabled)
+        self.enable_editing(False)
 
         self.btn_top.clicked.connect(lambda: self._mark_or_visit(top=True))
         self.btn_left.clicked.connect(lambda: self._mark_or_visit(left=True))
@@ -361,6 +374,16 @@ class CoreXYBoundsControl(XYBoundsControl):
             button.clicked.connect(lambda _=False, s=sides[name]: self._mark(*s))
         for name, button in self.visit_buttons.items():
             button.clicked.connect(lambda _=False, s=sides[name]: self._visit(*s))
+
+    def enable_editing(self, enabled: bool) -> None:
+        """Toggle whether the user can type in all of the bound fields at once.
+
+        They are disabled by default, as the Mark buttons set them.
+        """
+        self._edit_action.setChecked(enabled)
+        for field in self._bound_fields:
+            field.setEnabled(enabled)
+            field.setToolTip(_EDITABLE_TOOLTIP if enabled else _READ_ONLY_TOOLTIP)
 
     def value(self) -> dict[str, float]:
         """Return the current value of the grid plan widget."""

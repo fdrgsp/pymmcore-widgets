@@ -8,9 +8,10 @@ import pytest
 import useq
 from pymmcore_plus.core import SequencedEvent
 from qtpy.QtCore import QPoint, Qt, QTimer
-from qtpy.QtWidgets import QMessageBox, QWidget
+from qtpy.QtGui import QContextMenuEvent
+from qtpy.QtWidgets import QApplication, QMessageBox, QWidget
 
-from pymmcore_widgets import HCSWizard
+from pymmcore_widgets import GridPlanWidget, HCSWizard
 from pymmcore_widgets._models._core_functions import block_core
 from pymmcore_widgets._util import get_next_available_path
 from pymmcore_widgets.mda import MDAWidget, MDAWidgetCollapsible
@@ -46,6 +47,7 @@ from pymmcore_widgets.useq_widgets._positions import (
     MDAButton,
     _MDAPopup,
 )
+from tests._utils import right_press
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -1988,6 +1990,112 @@ def _xy_bounds_at(
     mmc.setXYPosition(device, x, y)
     mmc.waitForDevice(device)
     return wdg
+
+
+def test_xy_bounds_fields_are_disabled_until_enabled(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = _xy_bounds_at(qtbot, global_mmcore, 0, 0)
+    fields = (wdg.top, wdg.bottom, wdg.left, wdg.right)
+    assert not any(field.isEnabled() for field in fields)
+    assert all("Right-click to enable" in field.toolTip() for field in fields)
+
+    # marking and loading a plan still set them
+    wdg.mark_buttons["top"].click()
+    assert wdg.top.value() != 0
+    wdg.setValue(useq.GridFromEdges(top=1, bottom=2, left=3, right=4))
+    assert wdg.value() == {"top": 1, "bottom": 2, "left": 3, "right": 4}
+    assert not any(field.isEnabled() for field in fields)
+
+    # re-enabling the editor they are in does not enable them
+    wdg.setEnabled(False)
+    wdg.setEnabled(True)
+    assert not any(field.isEnabled() for field in fields)
+
+    # enabling is for all of them, and so is disabling
+    wdg._edit_action.setChecked(True)
+    assert all(field.isEnabled() for field in fields)
+    assert all("Right-click to disable" in field.toolTip() for field in fields)
+    wdg._edit_action.setChecked(False)
+    assert not any(field.isEnabled() for field in fields)
+
+
+def test_xy_bounds_right_click_opens_the_editing_menu(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = _xy_bounds_at(qtbot, global_mmcore, 0, 0)
+    fields = (wdg.top, wdg.bottom, wdg.left, wdg.right)
+    menu = wdg._edit_menu.exec = Mock()
+
+    # delivered to the line edit, the widget actually under the cursor.
+    # Disabled, the context menu event never comes, only the press.
+    for field in fields:
+        menu.reset_mock()
+        QApplication.sendEvent(field.lineEdit(), right_press())
+        qtbot.waitUntil(lambda: menu.called)
+
+    wdg.enable_editing(True)
+    for field in fields:
+        menu.reset_mock()
+        QApplication.sendEvent(field.lineEdit(), right_press())
+        qtbot.wait(20)
+        menu.assert_not_called()
+        point = QPoint(2, 2)
+        QApplication.sendEvent(
+            field.lineEdit(),
+            QContextMenuEvent(QContextMenuEvent.Reason.Mouse, point, point),
+        )
+        qtbot.waitUntil(lambda: menu.called)
+
+
+def test_xy_bounds_enabling_from_the_menu_does_not_reopen_it(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Regression test: Qt follows the press with a context menu event.
+
+    Were the menu to open during the press, enabling the field from it would let
+    that event through, opening the menu again as soon as it closed.
+    """
+    wdg = _xy_bounds_at(qtbot, global_mmcore, 0, 0)
+    menu = wdg._edit_menu.exec = Mock(side_effect=lambda *_: wdg.enable_editing(True))
+    point = QPoint(2, 2)
+
+    QApplication.sendEvent(wdg.top.lineEdit(), right_press())
+    assert not menu.called
+    QApplication.sendEvent(
+        wdg.top.lineEdit(),
+        QContextMenuEvent(QContextMenuEvent.Reason.Mouse, point, point),
+    )
+    qtbot.waitUntil(lambda: menu.called)
+    qtbot.wait(20)
+
+    menu.assert_called_once()
+    assert wdg.top.isEnabled()
+
+
+def test_xy_bounds_no_editing_menu_while_the_editor_is_disabled(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = _xy_bounds_at(qtbot, global_mmcore, 0, 0)
+    menu = wdg._edit_menu.exec = Mock()
+    wdg.setEnabled(False)
+
+    QApplication.sendEvent(wdg.top.lineEdit(), right_press())
+    qtbot.wait(20)
+
+    menu.assert_not_called()
+
+
+def test_grid_plan_bounds_fields_are_disabled_only_when_connected(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Without a core there is nothing to mark, so typing is the only way."""
+    connected = CoreConnectedGridPlanWidget(mmcore=global_mmcore)
+    plain = GridPlanWidget()
+    qtbot.addWidget(connected)
+    qtbot.addWidget(plain)
+    assert not connected._core_xy_bounds.top.isEnabled()
+    assert plain.bounds_wdg.top.isEnabled()
 
 
 def test_xy_bounds_visit_follows_an_edited_bound(

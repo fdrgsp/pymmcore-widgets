@@ -2,12 +2,20 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from psygnal import SignalGroup, SignalInstance
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtCore import QEvent, QMarginsF, QObject, Qt
-from qtpy.QtGui import QPainter, QPaintEvent, QPen, QResizeEvent
+from qtpy.QtCore import QEvent, QMarginsF, QObject, Qt, QTimer
+from qtpy.QtGui import (
+    QContextMenuEvent,
+    QCursor,
+    QMouseEvent,
+    QPainter,
+    QPaintEvent,
+    QPen,
+    QResizeEvent,
+)
 from qtpy.QtWidgets import (
     QAbstractSpinBox,
     QComboBox,
@@ -16,13 +24,14 @@ from qtpy.QtWidgets import (
     QGraphicsScene,
     QGraphicsView,
     QLabel,
+    QMenu,
     QVBoxLayout,
     QWidget,
 )
 from superqt.utils import signals_blocked
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Iterable, Sequence
     from contextlib import AbstractContextManager
     from typing import Any
 
@@ -190,6 +199,62 @@ def get_next_available_path(requested_path: Path | str, min_digits: int = 3) -> 
     if requested_num is not None:
         current_max = max(requested_num, current_max)
     return directory / f"{stem}_{current_max:0{min_digits}d}{extension}"
+
+
+class RightClickMenu(QObject):
+    """Open `menu` on a right-click on any of `widgets`, even if they are disabled.
+
+    Qt does not deliver the context menu event to a disabled widget, but its event
+    filters do still see the mouse press. QAbstractSpinBox also has its own context
+    menu handler, which this takes the place of.
+
+    The menu opens once Qt is done with the click, which goes on to send a context
+    menu event after the press: were the menu already open, enabling the widget
+    from it would have that event open the menu again as soon as it closes.
+
+    Parameters
+    ----------
+    menu : QMenu
+        The menu to open, which becomes the parent of this object.
+    widgets : Iterable[QWidget]
+        The widgets to open it from.
+    available : Callable[[], bool]
+        Whether to open it at all, asked on each click.
+    """
+
+    def __init__(
+        self, menu: QMenu, widgets: Iterable[QWidget], available: Callable[[], bool]
+    ) -> None:
+        super().__init__(menu)
+        self._menu = menu
+        self._widgets = tuple(widgets)
+        self._available = available
+        # a child timer, rather than QTimer.singleShot, so that a pending opening
+        # dies with this object
+        self._open_timer = QTimer(self)
+        self._open_timer.setSingleShot(True)
+        self._open_timer.setInterval(0)
+        self._open_timer.timeout.connect(self._open)
+        for widget in self._widgets:
+            widget.installEventFilter(self)
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        if a0 not in self._widgets:
+            return False
+        right_press_on_disabled = (
+            isinstance(a1, QMouseEvent)
+            and a1.type() == QEvent.Type.MouseButtonPress
+            and a1.button() == Qt.MouseButton.RightButton
+            and not cast("QWidget", a0).isEnabled()
+        )
+        if not (right_press_on_disabled or isinstance(a1, QContextMenuEvent)):
+            return False
+        if self._available():
+            self._open_timer.start()
+        return True
+
+    def _open(self) -> None:
+        self._menu.exec(QCursor.pos())
 
 
 class _WheelBlocker(QObject):

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import Mock
 
 from pymmcore_plus import CMMCorePlus, DeviceType
+from qtpy.QtWidgets import QApplication
 
 from pymmcore_widgets.control._xyz_stage_widget import XYZStageWidget
+from tests._utils import right_press
 
 if TYPE_CHECKING:
     from pytestqt.qtbot import QtBot
@@ -44,7 +47,7 @@ def test_xyz_stage_no_device_placeholder(qtbot: QtBot) -> None:
 def test_xyz_stage_device_changes_dynamically(
     qtbot: QtBot, global_mmcore: CMMCorePlus
 ) -> None:
-    wdg = XYZStageWidget()
+    wdg = XYZStageWidget(absolute_positioning=True)
     qtbot.addWidget(wdg)
 
     assert wdg._xy_stack.currentWidget() is wdg._xy_move_btns
@@ -221,18 +224,37 @@ def test_xyz_stage_invert_axes(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None
 def test_enable_xyz_position_editing(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
     wdg = XYZStageWidget()
     qtbot.addWidget(wdg)
-    assert wdg._x_pos.isReadOnly()
-    assert wdg._y_pos.isReadOnly()
-    assert wdg._z_pos.isReadOnly()
+    boxes = (wdg._x_pos, wdg._y_pos, wdg._z_pos)
+    assert not any(box.isEnabled() for box in boxes)
+    assert all("Right-click to enable" in box.toolTip() for box in boxes)
 
     wdg.enable_absolute_positioning(True)
     assert wdg._pos_toggle_action.isChecked()
-    assert not wdg._x_pos.isReadOnly()
-    assert not wdg._y_pos.isReadOnly()
-    assert not wdg._z_pos.isReadOnly()
+    assert all(box.isEnabled() for box in boxes)
+    assert all("Right-click to disable" in box.toolTip() for box in boxes)
+
+    # a box without a device stays disabled, until it has one again
+    z_device = wdg._z_device
+    wdg._bind_z_device("")
+    assert wdg._x_pos.isEnabled() and not wdg._z_pos.isEnabled()
+    wdg._bind_z_device(z_device)
+    assert wdg._z_pos.isEnabled()
 
     wdg.enable_absolute_positioning(False)
     assert not wdg._pos_toggle_action.isChecked()
-    assert wdg._x_pos.isReadOnly()
-    assert wdg._y_pos.isReadOnly()
-    assert wdg._z_pos.isReadOnly()
+    assert not any(box.isEnabled() for box in boxes)
+    wdg._bind_z_device("")
+    wdg._bind_z_device(z_device)
+    assert not wdg._z_pos.isEnabled()
+
+
+def test_xyz_position_box_right_click_opens_the_menu(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = XYZStageWidget()
+    qtbot.addWidget(wdg)
+    menu = wdg._pos_menu.exec = Mock()
+
+    QApplication.sendEvent(wdg._z_pos.lineEdit(), right_press())
+
+    qtbot.waitUntil(lambda: menu.called)

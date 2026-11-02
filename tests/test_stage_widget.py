@@ -3,11 +3,13 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import Mock
 
 from pymmcore_plus import DeviceType
-from qtpy.QtWidgets import QGridLayout
+from qtpy.QtWidgets import QApplication, QGridLayout
 
 from pymmcore_widgets.control._stage_widget import MoveStageButton, StageWidget
+from tests._utils import right_press
 
 if TYPE_CHECKING:
     from pymmcore_plus import CMMCorePlus
@@ -174,57 +176,77 @@ def test_z_stage_snap_on_click(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None
 
 
 def test_enable_position_buttons(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
-    # Absolute positioning disabled
     stage_xy = StageWidget("XY")
     qtbot.addWidget(stage_xy)
-    # Phase 1: position boxes stay enabled (so right-click still reaches them and
-    # the "Enable Editing" context menu is reachable) but are read-only until the
-    # menu action is toggled
-    assert stage_xy._x_pos.isEnabled()
-    assert stage_xy._y_pos.isEnabled()
-    assert stage_xy._x_pos.isReadOnly()
-    assert stage_xy._y_pos.isReadOnly()
+    boxes = (stage_xy._x_pos, stage_xy._y_pos)
+
+    # Phase 1: the boxes are disabled until the menu action is toggled, with or
+    # without a device
+    assert not any(box.isEnabled() for box in boxes)
+    assert all("Right-click to enable" in box.toolTip() for box in boxes)
     stage_xy._enable_wdg(False)
-    assert not stage_xy._x_pos.isEnabled()
-    assert not stage_xy._y_pos.isEnabled()
+    assert not any(box.isEnabled() for box in boxes)
     stage_xy._enable_wdg(True)
-    assert stage_xy._x_pos.isEnabled()
-    assert stage_xy._y_pos.isEnabled()
-    assert stage_xy._x_pos.isReadOnly()
-    assert stage_xy._y_pos.isReadOnly()
-    # Phase 2: Trigger menu action, boxes become editable (not read-only)
+    assert not any(box.isEnabled() for box in boxes)
+
+    # Phase 2: Trigger menu action, boxes are enabled if there is a device
     stage_xy._pos_toggle_action.trigger()
-    assert not stage_xy._x_pos.isReadOnly()
-    assert not stage_xy._y_pos.isReadOnly()
+    assert all(box.isEnabled() for box in boxes)
+    assert all("Right-click to disable" in box.toolTip() for box in boxes)
     stage_xy._enable_wdg(False)
-    assert not stage_xy._x_pos.isEnabled()
-    assert not stage_xy._y_pos.isEnabled()
+    assert not any(box.isEnabled() for box in boxes)
     stage_xy._enable_wdg(True)
-    assert stage_xy._x_pos.isEnabled()
-    assert stage_xy._y_pos.isEnabled()
-    assert not stage_xy._x_pos.isReadOnly()
-    assert not stage_xy._y_pos.isReadOnly()
+    assert all(box.isEnabled() for box in boxes)
     stage_xy._pos_toggle_action.trigger()
-    assert stage_xy._x_pos.isReadOnly()
-    assert stage_xy._y_pos.isReadOnly()
+    assert not any(box.isEnabled() for box in boxes)
+
     # Phase 3: Set absolute positioning using API
     # Should be identical to Phase 2
     stage_xy.enable_absolute_positioning(True)
     assert stage_xy._pos_toggle_action.isChecked()
-    assert not stage_xy._x_pos.isReadOnly()
-    assert not stage_xy._y_pos.isReadOnly()
+    assert all(box.isEnabled() for box in boxes)
     stage_xy._enable_wdg(False)
-    assert not stage_xy._x_pos.isEnabled()
-    assert not stage_xy._y_pos.isEnabled()
+    assert not any(box.isEnabled() for box in boxes)
+    # toggling without a device takes effect once there is one
+    stage_xy.enable_absolute_positioning(False)
+    stage_xy.enable_absolute_positioning(True)
+    assert not any(box.isEnabled() for box in boxes)
     stage_xy._enable_wdg(True)
-    assert stage_xy._x_pos.isEnabled()
-    assert stage_xy._y_pos.isEnabled()
-    assert not stage_xy._x_pos.isReadOnly()
-    assert not stage_xy._y_pos.isReadOnly()
+    assert all(box.isEnabled() for box in boxes)
     stage_xy.enable_absolute_positioning(False)
     assert not stage_xy._pos_toggle_action.isChecked()
-    assert stage_xy._x_pos.isReadOnly()
-    assert stage_xy._y_pos.isReadOnly()
+    assert not any(box.isEnabled() for box in boxes)
+
+
+def test_position_box_tooltip_names_the_axis(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    stage_z = StageWidget("Z")
+    stage_xy = StageWidget("XY")
+    qtbot.addWidget(stage_z)
+    qtbot.addWidget(stage_xy)
+    assert stage_z._y_pos.toolTip().startswith("Set Z in µm")
+    assert stage_xy._x_pos.toolTip().startswith("Set X in µm")
+    assert stage_xy._y_pos.toolTip().startswith("Set Y in µm")
+
+
+def test_position_box_right_click_opens_the_menu(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    stage_xy = StageWidget("XY")
+    qtbot.addWidget(stage_xy)
+    menu = stage_xy._pos_menu.exec = Mock()
+
+    # disabled, as the context menu event never reaches a disabled box
+    QApplication.sendEvent(stage_xy._x_pos.lineEdit(), right_press())
+    qtbot.waitUntil(lambda: menu.called)
+
+    # not without a device
+    menu.reset_mock()
+    stage_xy._enable_wdg(False)
+    QApplication.sendEvent(stage_xy._x_pos.lineEdit(), right_press())
+    qtbot.wait(20)
+    menu.assert_not_called()
 
 
 def test_invert_axis(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:

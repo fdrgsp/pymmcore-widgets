@@ -4,11 +4,25 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
+from qtpy.QtCore import QEvent, QPointF, Qt
+from qtpy.QtGui import QMouseEvent
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from pytestqt.qtbot import QtBot
     from qtpy.QtCore import SignalInstance
+
+
+def right_press() -> QMouseEvent:
+    """A press of the right mouse button."""
+    return QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(2, 2),
+        Qt.MouseButton.RightButton,
+        Qt.MouseButton.RightButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
 
 
 @contextmanager

@@ -4,7 +4,7 @@ from typing import cast
 
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import QEvent, QObject, Qt, QTimerEvent, Slot
-from qtpy.QtGui import QContextMenuEvent, QWheelEvent
+from qtpy.QtGui import QWheelEvent
 from qtpy.QtWidgets import (
     QCheckBox,
     QGridLayout,
@@ -18,6 +18,8 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from pymmcore_widgets._util import RightClickMenu
 
 from ._q_stage_controller import QStageMoveAccumulator
 from ._stage_widget import (
@@ -124,6 +126,7 @@ class XYZStageWidget(QWidget):
         self._y_pos = MoveStageSpinBox(label="Y")
         self._z_pos = MoveStageSpinBox(label="Z")
         self._pos_boxes.extend([self._x_pos, self._y_pos, self._z_pos])
+        RightClickMenu(self._pos_menu, self._pos_boxes, self.isEnabled)
         self._x_pos.editingFinished.connect(self._move_xy_absolute)
         self._y_pos.editingFinished.connect(self._move_xy_absolute)
         self._z_pos.editingFinished.connect(self._move_z_absolute)
@@ -190,7 +193,7 @@ class XYZStageWidget(QWidget):
         main_layout.addWidget(move_box)
         main_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        # catch events (context-menu, wheel-scroll) on every descendant widget,
+        # catch wheel-scroll events on every descendant widget,
         # so e.g. mouse-wheel scrolling works no matter where the cursor is
         for child in self.findChildren(QWidget):
             child.installEventFilter(self)
@@ -245,10 +248,16 @@ class XYZStageWidget(QWidget):
             If False, the position spinboxes will be disabled for user editing.
         """
         self._pos_toggle_action.setChecked(enabled)
+        self._update_pos_boxes()
         for box in self._pos_boxes:
-            # use read-only (rather than disabled) so the boxes keep receiving
-            # mouse events and the "Enable Editing" context menu stays reachable
-            box.setReadOnly(not enabled)
+            box.set_editing_tooltip(enabled)
+
+    def _update_pos_boxes(self) -> None:
+        """Enable the position boxes that have a device, if editing is enabled."""
+        editing = self._pos_toggle_action.isChecked()
+        self._x_pos.setEnabled(editing and bool(self._xy_device))
+        self._y_pos.setEnabled(editing and bool(self._xy_device))
+        self._z_pos.setEnabled(editing and bool(self._z_device))
 
     @Slot(str, str, object)
     def _on_property_changed(self, device: str, prop: str, value: str) -> None:
@@ -277,8 +286,7 @@ class XYZStageWidget(QWidget):
         self._top_row.setAlignment(self._xy_stack, Qt.AlignmentFlag.AlignLeft | v_align)
         self._x_step.setEnabled(bool(device))
         self._y_step.setEnabled(bool(device))
-        self._x_pos.setEnabled(bool(device))
-        self._y_pos.setEnabled(bool(device))
+        self._update_pos_boxes()
         self._invert_x.setEnabled(bool(device))
         self._invert_y.setEnabled(bool(device))
 
@@ -304,7 +312,7 @@ class XYZStageWidget(QWidget):
         v_align = Qt.AlignmentFlag.AlignTop if device else Qt.AlignmentFlag.AlignVCenter
         self._top_row.setAlignment(self._z_stack, Qt.AlignmentFlag.AlignLeft | v_align)
         self._z_step.setEnabled(bool(device))
-        self._z_pos.setEnabled(bool(device))
+        self._update_pos_boxes()
         self._invert_z.setEnabled(bool(device))
 
         if device:
@@ -388,12 +396,6 @@ class XYZStageWidget(QWidget):
         super().timerEvent(event)
 
     def eventFilter(self, obj: QObject | None, event: QEvent | None) -> bool:
-        # NB QAbstractSpinBox has its own Context Menu handler, which conflicts
-        # with the one we want to generate. So we intercept the event here >:)
-        # See https://stackoverflow.com/a/71126504
-        if obj in self._pos_boxes and isinstance(event, QContextMenuEvent):
-            self._pos_menu.exec(event.globalPos())
-            return True
         if (
             isinstance(event, QWheelEvent)
             and not self._is_step_box(obj)
