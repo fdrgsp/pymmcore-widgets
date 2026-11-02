@@ -19,6 +19,7 @@ def right_press() -> QMouseEvent:
     return QMouseEvent(
         QEvent.Type.MouseButtonPress,
         QPointF(2, 2),
+        QPointF(2, 2),
         Qt.MouseButton.RightButton,
         Qt.MouseButton.RightButton,
         Qt.KeyboardModifier.NoModifier,
