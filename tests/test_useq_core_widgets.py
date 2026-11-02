@@ -11,7 +11,7 @@ from qtpy.QtCore import QPoint, Qt, QTimer
 from qtpy.QtGui import QContextMenuEvent
 from qtpy.QtWidgets import QApplication, QMessageBox, QWidget
 
-from pymmcore_widgets import GridPlanWidget, HCSWizard
+from pymmcore_widgets import GridPlanWidget, HCSWizard, ZPlanWidget
 from pymmcore_widgets._models._core_functions import block_core
 from pymmcore_widgets._util import get_next_available_path
 from pymmcore_widgets.mda import MDAWidget, MDAWidgetCollapsible
@@ -518,6 +518,69 @@ def test_z_visit_bounds(
             wdg.reference_btn.click()
             global_mmcore.waitForSystem()
             assert global_mmcore.getZPosition() == pytest.approx(200)
+
+
+def test_z_top_bottom_fields_are_disabled_until_enabled(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = CoreConnectedZPlanWidget(global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.setMode("top_bottom")
+    fields = (wdg.top, wdg.bottom)
+    assert not any(field.isEnabled() for field in fields)
+    assert all("Right-click to enable" in field.toolTip() for field in fields)
+    # the fields of the other modes have no Mark buttons to set them
+    assert wdg.range.isEnabled() and wdg.above.isEnabled() and wdg.below.isEnabled()
+
+    # marking and loading a plan still set them
+    global_mmcore.setZPosition(12)
+    global_mmcore.waitForSystem()
+    wdg.top_btn.mark.click()
+    assert wdg.top.value() == pytest.approx(12, abs=0.1)
+    wdg.setValue(useq.ZTopBottom(top=30, bottom=10, step=5))
+    assert wdg.value() == useq.ZTopBottom(top=30, bottom=10, step=5)
+    assert not any(field.isEnabled() for field in fields)
+
+    # re-enabling the editor they are in does not enable them
+    wdg.setEnabled(False)
+    wdg.setEnabled(True)
+    assert not any(field.isEnabled() for field in fields)
+
+    # enabling is for both of them, and so is disabling
+    wdg._edit_action.setChecked(True)
+    assert all(field.isEnabled() for field in fields)
+    assert all("Right-click to disable" in field.toolTip() for field in fields)
+    wdg._edit_action.setChecked(False)
+    assert not any(field.isEnabled() for field in fields)
+
+
+def test_z_right_click_opens_the_editing_menu(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = CoreConnectedZPlanWidget(global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.setMode("top_bottom")
+    menu = wdg._edit_menu.exec = Mock()
+
+    for field in (wdg.top, wdg.bottom):
+        menu.reset_mock()
+        QApplication.sendEvent(field.lineEdit(), right_press())
+        qtbot.waitUntil(lambda: menu.called)
+
+    # not while the whole editor is disabled, as when its section is unticked
+    menu.reset_mock()
+    wdg.setEnabled(False)
+    QApplication.sendEvent(wdg.top.lineEdit(), right_press())
+    qtbot.wait(20)
+    menu.assert_not_called()
+
+
+def test_z_plain_widget_top_bottom_stay_editable(qtbot: QtBot) -> None:
+    """Without a core there is nothing to mark, so typing is the only way."""
+    wdg = ZPlanWidget()
+    qtbot.addWidget(wdg)
+    wdg.setMode("top_bottom")
+    assert wdg.top.isEnabled() and wdg.bottom.isEnabled()
 
 
 def test_z_move_button_layout(qtbot: QtBot) -> None:

@@ -11,6 +11,7 @@ from qtpy.QtWidgets import (
     QCheckBox,
     QGridLayout,
     QHBoxLayout,
+    QMenu,
     QSizePolicy,
     QToolButton,
     QWidget,
@@ -18,6 +19,7 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 from superqt.utils import create_worker, ensure_main_thread
 
+from pymmcore_widgets._util import RightClickMenu
 from pymmcore_widgets.useq_widgets._z import (
     ROW_FIRST_BOUND,
     ROW_SECOND_BOUND,
@@ -25,7 +27,7 @@ from pymmcore_widgets.useq_widgets._z import (
     ZPlanWidget,
 )
 
-from ._xy_bounds import ICONS_GO
+from ._xy_bounds import _EDITABLE_TOOLTIP, _READ_ONLY_TOOLTIP, ICONS_GO
 
 if TYPE_CHECKING:
     from qtpy.QtGui import QHideEvent, QShowEvent
@@ -175,6 +177,13 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         self._grid_layout.setRowMinimumHeight(ROW_FIRST_BOUND, bound_height)
         self._grid_layout.setRowMinimumHeight(ROW_SECOND_BOUND, bound_height)
 
+        self._edit_menu = QMenu(self)
+        self._edit_action = self._edit_menu.addAction("Enable Editing")
+        self._edit_action.setCheckable(True)
+        self._edit_action.toggled.connect(self.enable_editing)
+        RightClickMenu(self._edit_menu, (self.top, self.bottom), self.isEnabled)
+        self.enable_editing(False)
+
         self._sync_visual_height()
         self.setMode(self._mode)
 
@@ -222,6 +231,16 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         self._grid_layout.setAlignment(self._move_buttons, alignment)
         self._sync_visual_height()
         self._update_live_marker()
+
+    def enable_editing(self, enabled: bool) -> None:
+        """Toggle whether the user can type in both the top and bottom fields.
+
+        They are disabled by default, as the Mark buttons set them.
+        """
+        self._edit_action.setChecked(enabled)
+        for field in (self.top, self.bottom):
+            field.setEnabled(enabled)
+            field.setToolTip(_EDITABLE_TOOLTIP if enabled else _READ_ONLY_TOOLTIP)
 
     def setStackActive(self, active: bool) -> None:
         """Allow polling only when the containing Z-stack axis is checked."""
