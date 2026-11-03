@@ -31,6 +31,7 @@ from qtpy.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QRadioButton,
     QSizePolicy,
     QSpacerItem,
@@ -952,6 +953,30 @@ class _ResizableStackedWidget(QStackedWidget):
         return hint
 
     def onCurrentChanged(self, idx: int) -> None:
+        self.updateGeometry()
+
+    def changeEvent(self, event: QEvent | None) -> None:
+        super().changeEvent(event)
+        if event is not None and event.type() in (
+            QEvent.Type.FontChange,
+            QEvent.Type.StyleChange,
+        ):
+            self._invalidate_stable_widgets()
+
+    def _invalidate_stable_widgets(self) -> None:
+        """Make the pages not on show measure their contents again.
+
+        A nested layout only drops the sizes it cached when its widget's top
+        layout activates, which never happens while the widget is hidden. Its
+        fields would keep their size from before the style change until first
+        shown, and the size reserved for every page would change at that point.
+        """
+        for page in self._stable_widgets:
+            if page is not self.currentWidget():
+                for child in page.findChildren(QWidget):
+                    child.updateGeometry()
+                for layout in page.findChildren(QLayout):
+                    layout.invalidate()
         self.updateGeometry()
 
 

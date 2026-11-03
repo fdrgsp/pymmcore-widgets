@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 import pytest
 import useq
 from pymmcore_plus.core import SequencedEvent
-from qtpy.QtCore import QPoint, Qt, QTimer
+from qtpy.QtCore import QEvent, QPoint, Qt, QTimer
 from qtpy.QtGui import QContextMenuEvent
 from qtpy.QtWidgets import QApplication, QMessageBox, QWidget
 
@@ -31,6 +31,7 @@ from pymmcore_widgets.mda._core_z import (
     _suggested_step_from_name,
 )
 from pymmcore_widgets.mda._xy_bounds import CoreXYBoundsControl
+from pymmcore_widgets.useq_widgets._grid import Mode
 from pymmcore_widgets.useq_widgets._mda_sequence import (
     AF_AXIS_TOOLTIP,
     AF_DISABLED_TOOLTIP,
@@ -3146,3 +3147,27 @@ def test_grid_plan_polygon_summary_is_tile_count_only(
     count = plan.num_positions()
     assert count > 1
     assert wdg._summary.text() == f"{count} tiles"
+
+
+def test_grid_mode_pages_reserve_their_current_size_after_a_style_change(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """A style change must reach the bounds page while it is hidden.
+
+    Its fields sit in a nested layout that keeps its cached size until shown, so
+    the whole editor changed height on the first switch to Absolute Bounds.
+    """
+    wdg = CoreConnectedGridPlanWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.show()
+    assert wdg.mode() is not Mode.BOUNDS
+    field = wdg._core_xy_bounds.top
+    before = wdg._stack.sizeHint().height()
+
+    field.setMinimumHeight(before)
+    QApplication.sendEvent(wdg._stack, QEvent(QEvent.Type.StyleChange))
+    assert wdg._stack.sizeHint().height() > before
+
+    field.setMinimumHeight(0)
+    QApplication.sendEvent(wdg._stack, QEvent(QEvent.Type.StyleChange))
+    assert wdg._stack.sizeHint().height() == before
