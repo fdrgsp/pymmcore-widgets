@@ -13,6 +13,8 @@ from qtpy.QtWidgets import QLabel, QMenu, QVBoxLayout, QWidget
 from vispy import scene
 from vispy.scene.visuals import Image
 
+from pymmcore_widgets._util import own_vispy_init_context
+
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
@@ -104,6 +106,7 @@ class StageViewer(QWidget):
         self._downsample_timer.timeout.connect(self.apply_downsampling)
 
         self.canvas = vispy.scene.SceneCanvas(show=True)
+        own_vispy_init_context(self.canvas)
 
         self.view = cast("ViewBox", self.canvas.central_widget.add_view())
         self.view.camera = scene.PanZoomCamera(aspect=1)

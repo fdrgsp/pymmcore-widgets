@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 import useq
 from pymmcore_plus import CMMCorePlus
+from qtpy.QtGui import QOpenGLContext
 
 from pymmcore_widgets import ImagePreview
 
@@ -12,6 +13,18 @@ from ._utils import wait_signal
 
 if TYPE_CHECKING:
     from pytestqt.qtbot import QtBot
+
+
+def test_canvas_init_context_dies_with_the_widget(qtbot: "QtBot"):
+    """vispy's context, current on the main thread, must not wait for the collector.
+
+    Freed by a worker thread's garbage collection it would leave the main thread with a
+    dangling current context, and a segfault the next time a surface is destroyed.
+    """
+    widget = ImagePreview(mmcore=CMMCorePlus.instance())
+    with qtbot.waitSignal(widget._canvas.native._secondary_context.destroyed):
+        widget.deleteLater()
+    assert QOpenGLContext.currentContext() is None
 
 
 def test_image_preview(qtbot: "QtBot"):

@@ -12,6 +12,8 @@ from qtpy.QtCore import QTimer, Slot
 from superqt.iconify import QIconifyIcon
 from useq import MDAEvent, MDASequence, _channel
 
+from pymmcore_widgets._util import own_vispy_init_context
+
 from ._channel_row import ChannelRow, try_cast_colormap
 from ._datastore import QOMEZarrDatastore
 from ._labeled_slider import LabeledVisibilitySlider
@@ -158,6 +160,7 @@ class StackViewer(QtWidgets.QWidget):
         self._canvas = scene.SceneCanvas(
             size=self.img_size, parent=self, keys="interactive"
         )
+        own_vispy_init_context(self._canvas)
         self._canvas._send_hover_events = True
         self._canvas.events.mouse_move.connect(self.on_mouse_move)
         self.view = self._canvas.central_widget.add_view()

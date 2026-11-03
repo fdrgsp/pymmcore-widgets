@@ -7,6 +7,8 @@ from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import Qt, QTimer, Slot
 from qtpy.QtWidgets import QVBoxLayout, QWidget
 
+from pymmcore_widgets._util import own_vispy_init_context
+
 if TYPE_CHECKING:
     from typing import Literal
 
@@ -62,6 +64,7 @@ class ImagePreview(QWidget):
         self._canvas = scene.SceneCanvas(
             keys="interactive", size=(512, 512), parent=self
         )
+        own_vispy_init_context(self._canvas)
         self.view = self._canvas.central_widget.add_view(camera="panzoom")
         self.view.camera.aspect = 1
 

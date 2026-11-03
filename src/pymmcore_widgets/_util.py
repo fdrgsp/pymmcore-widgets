@@ -346,6 +346,22 @@ class ResizingGraphicsView(QGraphicsView):
         super().resizeEvent(event)
 
 
+def own_vispy_init_context(canvas: Any) -> None:
+    """Make the GL context and surface vispy's Qt backend creates die with its widget.
+
+    vispy leaves that context current on the main thread, using it to render a canvas
+    that was never shown, and only the Python canvas owns it. If the garbage collector
+    happens to free the canvas on a worker thread, Qt clears the worker's current
+    context rather than the main thread's, which is left pointing to a deleted context:
+    the next surface destroyed there segfaults. As children of the widget, they are
+    deleted with it, on the main thread, and a late collection only frees their
+    wrappers.
+    """
+    native = canvas.native
+    native._secondary_context.setParent(native)
+    native._surface.setParent(native)
+
+
 def load_system_config(config: str = "", mmcore: CMMCorePlus | None = None) -> None:
     """Internal convenience for `loadSystemConfiguration(config)`.
 
