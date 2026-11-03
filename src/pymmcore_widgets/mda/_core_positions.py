@@ -532,29 +532,27 @@ class CoreConnectedPositionTable(PositionTable):
     @Slot()
     def _update_fov_size(self) -> None:
         """Update the FOV size of any grid plan subsequence."""
-        if not (pos_list := self.value()):
+        table = self.table()
+        if not table.rowCount() or not self._mmc.getCameraDevice():
             return
-
-        # get updated FOV size
         px = self._mmc.getPixelSizeUm()
         fov_w = self._mmc.getImageWidth() * px
         fov_h = self._mmc.getImageHeight() * px
 
-        new_pos_list = []
-        for pos in pos_list:
-            # skip if there is not a subsequence
-            if pos.sequence is None:
-                new_pos_list.append(pos)
-                continue
-            # skip if there is not a grid plan
-            if (gp := pos.sequence.grid_plan) is None:
-                new_pos_list.append(pos)
-                continue
-            # update the FOV size, preserving any other subsequence settings
-            # (channels, z_plan, axis_order, autofocus_plan, etc.)
-            new_gp = gp.model_copy(update={"fov_width": fov_w, "fov_height": fov_h})
-            new_seq = pos.sequence.model_copy(update={"grid_plan": new_gp})
-            new_pos = pos.model_copy(update={"sequence": new_seq})
-            new_pos_list.append(new_pos)
-        # update the table
-        self.setValue(new_pos_list)
+        col = table.indexOf(self.SEQ)
+        changed = False
+        # Include unchecked rows and keep their editors alive during a refresh.
+        with signals_blocked(self), signals_blocked(table):
+            for row in range(table.rowCount()):
+                seq = self.SEQ.get_cell_data(table, row, col).get("sequence")
+                if seq is None or (grid := seq.grid_plan) is None:
+                    continue
+                if grid.fov_width == fov_w and grid.fov_height == fov_h:
+                    continue
+                grid = grid.model_copy(update={"fov_width": fov_w, "fov_height": fov_h})
+                self.SEQ.set_cell_data(
+                    table, row, col, seq.model_copy(update={"grid_plan": grid})
+                )
+                changed = True
+        if changed:
+            self.valueChanged.emit()

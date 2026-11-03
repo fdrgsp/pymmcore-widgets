@@ -3,11 +3,13 @@ from __future__ import annotations
 import os
 import sys
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 from qtpy.QtWidgets import QApplication
 
 from pymmcore_widgets import CoreLogWidget
+from pymmcore_widgets._log import _LogReader
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -120,6 +122,28 @@ def test_core_log_widget_follows_truncation(
         assert "short" in wdg._log_view.toPlainText()
 
     qtbot.waitUntil(_check)
+
+
+def test_log_reader_recovers_from_failed_reopen(tmp_path: Path) -> None:
+    path = tmp_path / "reopen.log"
+    path.write_text("old line\n" * 10)
+    reader = _LogReader(str(path))
+    reader.start()
+    original = reader._file
+    lines: list[str] = []
+    reader.new_lines.connect(lines.append)
+    try:
+        path.write_text("new line\n")
+        with patch(
+            "pymmcore_widgets._log.open", side_effect=PermissionError, create=True
+        ):
+            reader._read_new()
+        assert reader._file is original
+        assert original is not None and not original.closed
+        reader._read_new()
+        assert lines == ["new line"]
+    finally:
+        reader._stop()
 
 
 def test_core_log_widget_clear(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:

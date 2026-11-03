@@ -102,8 +102,12 @@ class _LogReader(QObject):
             return
         self._emit_lines()
         if self._file_was_replaced():
+            try:
+                replacement = open(self._path, encoding="utf-8", errors="replace")
+            except OSError:
+                return  # another rotation or temporary access failure; retry next poll
             self._file.close()
-            self._file = open(self._path, encoding="utf-8", errors="replace")
+            self._file = replacement
             # QFileSystemWatcher stops watching a file that is renamed away
             if self._path not in self._watcher.files():
                 self._watcher.addPath(self._path)
@@ -194,7 +198,7 @@ class CoreLogWidget(QWidget):
         # to start at the left edge of the text.
         self._log_view.moveCursor(QTextCursor.MoveOperation.Start)
 
-        # --- Reader thread setup ---
+        # --- Log reader ---
         self._reader = _LogReader(path)
 
         # --- Layout ---
@@ -226,11 +230,11 @@ class CoreLogWidget(QWidget):
         return hint.expandedTo(QSize(1000, 800))
 
     def _append_line(self, line: str) -> None:
-        """Append a line, respecting pause/follow settings."""
+        """Append a line to the display."""
         self._log_view.appendPlainText(line)
 
     def closeEvent(self, event: QCloseEvent | None) -> None:
-        """Clean up thread on close."""
+        """Stop watching the log on close."""
         self._reader._stop()
         super().closeEvent(event)
 

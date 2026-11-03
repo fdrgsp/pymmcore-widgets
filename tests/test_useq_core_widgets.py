@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     from pymmcore_plus import CMMCorePlus
     from pytestqt.qtbot import QtBot
 
+    from pymmcore_widgets._channel_settings import ChannelSettings
     from pymmcore_widgets.mda._core_tabs import CoreMDATabs
 
 
@@ -2383,6 +2384,32 @@ def test_grid_plan_subsequence_fov_update(
     assert "".join(sp.value()[0].sequence.axis_order) == "tpcgz"
 
 
+def test_fov_refresh_preserves_unchecked_rows_and_editors(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    positions = CoreConnectedPositionTable(mmcore=global_mmcore)
+    qtbot.addWidget(positions)
+    sequence = useq.MDASequence(grid_plan=useq.GridRowsColumns(rows=2, columns=2))
+    positions.setValue([useq.Position(z=z, sequence=sequence) for z in (10, 20)])
+    table = positions.table()
+    positions.NAME.setCheckState(
+        table, 1, table.indexOf(positions.NAME), Qt.CheckState.Unchecked
+    )
+    positions.include_z.setChecked(False)
+    col = table.indexOf(positions.SEQ)
+    editors = [table.cellWidget(row, col) for row in range(2)]
+
+    with qtbot.waitSignal(global_mmcore.events.roiSet):
+        global_mmcore.setROI(0, 0, 100, 150)
+
+    assert table.rowCount() == 2
+    assert [table.cellWidget(row, col) for row in range(2)] == editors
+    assert not positions.NAME.isChecked(table, 1, table.indexOf(positions.NAME))
+    values = positions.value(exclude_unchecked=False, exclude_hidden_cols=False)
+    assert [pos.z for pos in values] == [10, 20]
+    assert [pos.sequence.grid_plan.fov_width for pos in values] == [100, 100]
+
+
 def test_sub_wdg_channel_tab(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
     wdg = MDAWidget()
     qtbot.addWidget(wdg)
@@ -2691,6 +2718,26 @@ def test_refresh_picks_up_changes_made_with_signals_blocked(
 
     tbl.refresh()
     assert LS_FLOAT not in tbl.lightSources()
+
+
+def test_channel_refresh_preserves_settings(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+    tbl.setValue([useq.Channel(config="DAPI", exposure=25)])
+    settings: ChannelSettings = {
+        "exposure": 25.0,
+        "light_source": LS_FLOAT,
+        "intensity": 0.42,
+    }
+    tbl.setRowSettings(0, settings)
+
+    tbl.refresh()
+    assert tbl.rowSettings(0) == settings
+
+    global_mmcore.defineConfig("Other", "Preset", "Camera", "TestProperty1", "0")
+    assert tbl.rowSettings(0) == settings
 
 
 def test_channel_properties(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:

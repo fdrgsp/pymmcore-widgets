@@ -406,10 +406,10 @@ class CoreConnectedChannelTable(ChannelTable):
     def _update_channel_groups(self) -> None:
         """Update the channel groups when the system configuration is loaded."""
         groups = {
-            group: self._mmc.getAvailableConfigs(group)
+            str(group): self._mmc.getAvailableConfigs(group)
             for group in self._mmc.getAvailableConfigGroups()
         }
-        ch_group = self._mmc.getChannelGroup()
+        ch_group = str(self._mmc.getChannelGroup())
         if ch_group not in groups:
             ch_group = next(iter(groups), "")
         # while the rows still hold their values, unlike after the rebuild below
@@ -459,12 +459,12 @@ class CoreConnectedChannelTable(ChannelTable):
 
     def _update_light_sources(self) -> None:
         """Rebuild the light source column's choices from the current configuration."""
-        self._light_sources = find_light_sources(self._mmc)
-
         table = self.table()
         ls_col = table.indexOf(self._light_source_column)
         if ls_col < 0:  # pragma: no cover
             return
+        settings = [self.rowSettings(row) for row in range(table.rowCount())]
+        self._light_sources = find_light_sources(self._mmc)
 
         # swap in a column with the new choices (same approach as _on_group_changed)
         with signals_blocked(self):
@@ -478,7 +478,10 @@ class CoreConnectedChannelTable(ChannelTable):
             table.addColumn(self._light_source_column, ls_col)
             # the fresh column defaults to visible; restore the user's choice
             self._apply_light_source_visibility()
-            self._sync_intensity_widgets(force=True)
+            for row, saved in enumerate(settings):
+                if saved["light_source"] not in self._light_sources:
+                    saved["light_source"] = NO_LIGHT_SOURCE
+                self.setRowSettings(row, saved)
         self.valueChanged.emit()
 
     def _configure_intensity_widget(self, row: int, col: int, group: str) -> None:
@@ -493,7 +496,7 @@ class CoreConnectedChannelTable(ChannelTable):
         wdg.setPropertyLimits(group, (lower, upper), is_int)
 
     @Slot()
-    def _sync_intensity_widgets(self, force: bool = False) -> None:
+    def _sync_intensity_widgets(self) -> None:
         """Re-range each row's intensity spin box to match its light source.
 
         Driven by `valueChanged` rather than by wiring each combo box, so that it
@@ -519,7 +522,7 @@ class CoreConnectedChannelTable(ChannelTable):
                     )
                     if wdg is None:  # pragma: no cover
                         continue
-                    if force or wdg.group() != group:
+                    if wdg.group() != group:
                         self._configure_intensity_widget(row, int_col, group)
         finally:
             self._syncing_intensity = False
