@@ -13,6 +13,7 @@ from qtpy.QtCore import QPoint, Qt, QTimer
 from qtpy.QtGui import QColor, QFont, QPalette
 from qtpy.QtWidgets import (
     QApplication,
+    QComboBox,
     QLabel,
     QMessageBox,
     QScrollArea,
@@ -1356,3 +1357,29 @@ def test_table_spinbox_shows_its_value(
     qtbot.waitExposed(spin)
     line_edit = spin.lineEdit()
     assert line_edit.width() >= line_edit.fontMetrics().horizontalAdvance(spin.text())
+
+
+@pytest.mark.parametrize(
+    "table_cls",
+    [
+        pytest.param(ChannelTable, id="channels"),
+        pytest.param(PositionTable, id="positions"),
+        pytest.param(TimePlanWidget, id="time"),
+    ],
+)
+def test_mda_table_rows_are_as_tall_as_a_combo_box(
+    table_cls: type[DataTableWidget], qtbot: QtBot
+) -> None:
+    wdg = table_cls(2)
+    qtbot.addWidget(wdg)
+    wdg.show()
+    qtbot.waitExposed(wdg)
+    table = wdg.table()
+    row_height = QComboBox().sizeHint().height() + 1  # the grid line
+    qtbot.waitUntil(lambda: table.rowHeight(0) == row_height)
+    assert table.rowHeight(1) == row_height
+
+    # new rows too, and what a table's minimum height is computed from
+    table.insertRow(2)
+    qtbot.waitUntil(lambda: table.rowHeight(2) == row_height)
+    assert table.verticalHeader().defaultSectionSize() == row_height

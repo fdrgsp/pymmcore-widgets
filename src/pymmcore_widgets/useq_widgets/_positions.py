@@ -234,6 +234,7 @@ class PositionTable(DataTableWidget):
 
     def __init__(self, rows: int = 0, parent: QWidget | None = None):
         super().__init__(rows, parent)
+        self._table.setUniformRows()
 
         # track whether a global absolute grid disables all x/y
         self._global_xy_disabled = False

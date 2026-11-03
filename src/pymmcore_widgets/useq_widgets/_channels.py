@@ -41,6 +41,7 @@ class ChannelTable(DataTableWidget):
     # fmt: on
     def __init__(self, rows: int = 0, parent: QWidget | None = None):
         super().__init__(rows, parent)
+        self._table.setUniformRows()
         self._group_combo = QComboBox()
         disable_wheel_scroll(self._group_combo)
         self._group_combo.currentTextChanged.connect(self._on_group_changed)

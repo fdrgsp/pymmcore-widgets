@@ -27,6 +27,7 @@ class TimePlanWidget(DataTableWidget):
 
     def __init__(self, rows: int = 0, parent: QWidget | None = None):
         super().__init__(rows, parent)
+        self._table.setUniformRows()
         self._emitting = False
         self._mode_column: int | None = None
 
