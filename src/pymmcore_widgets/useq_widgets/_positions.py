@@ -23,6 +23,8 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
+from pymmcore_widgets._util import use_combo_row_height
+
 from ._column_info import FloatColumn, TextColumn, WdgGetSet, WidgetColumn
 from ._data_table import DataTableWidget
 
@@ -234,7 +236,7 @@ class PositionTable(DataTableWidget):
 
     def __init__(self, rows: int = 0, parent: QWidget | None = None):
         super().__init__(rows, parent)
-        self._table.setUniformRows()
+        use_combo_row_height(self._table)
 
         # track whether a global absolute grid disables all x/y
         self._global_xy_disabled = False

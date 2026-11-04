@@ -34,7 +34,7 @@ from pymmcore_widgets._light_sources import (
     find_light_sources,
     light_source_limits,
 )
-from pymmcore_widgets._util import YELLOW, disable_wheel_scroll
+from pymmcore_widgets._util import YELLOW, disable_wheel_scroll, use_combo_row_height
 from pymmcore_widgets.useq_widgets import ComboColumn
 from pymmcore_widgets.useq_widgets._column_fit import ColumnFitter
 from pymmcore_widgets.useq_widgets._column_info import (
@@ -264,9 +264,7 @@ class ChannelSettingsTable(DataTableWidget):
             model.rowsRemoved.connect(self._fit_height)
         if (h_bar := self._table.horizontalScrollBar()) is not None:
             h_bar.rangeChanged.connect(self._fit_height_timer.start)
-        self._table.setUniformRows()
-        if (v_header := self._table.verticalHeader()) is not None:
-            v_header.sectionResized.connect(self._on_row_resized)
+        use_combo_row_height(self._table)
 
         # update the stored settings before anyone is told of the change
         self._table.valueChanged.disconnect(self.valueChanged)
@@ -463,10 +461,6 @@ class ChannelSettingsTable(DataTableWidget):
             QEvent.Type.StyleChange,
         ):
             self._fit_height_timer.start()
-
-    def _on_row_resized(self, *_: Any) -> None:
-        # not right away: the header still reports the old height of the row
-        self._fit_height_timer.start()
 
     def _fit_height(self, *_: Any) -> None:
         """Fit the table to its header and rows, and this widget to its contents."""

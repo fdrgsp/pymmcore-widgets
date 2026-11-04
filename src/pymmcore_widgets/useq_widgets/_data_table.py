@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar, cast
 
-from qtpy.QtCore import QEvent, QItemSelectionModel, QSize, Qt, Signal
+from qtpy.QtCore import QItemSelectionModel, QSize, Qt, Signal
 from qtpy.QtGui import QAction, QPainter
 from qtpy.QtWidgets import (
     QCheckBox,
@@ -39,8 +39,6 @@ class DataTable(QTableWidget):
     valueChanged = Signal()
 
     COLUMNS: ClassVar[tuple[ColumnInfo, ...]] = ()
-    # height of every cell widget, once setUniformRows() was called
-    _cell_height: int = 0
 
     def __init_subclass__(cls) -> None:
         # this isn't covered in tests, because all of our subclasses are from
@@ -64,42 +62,6 @@ class DataTable(QTableWidget):
         self.itemChanged.connect(self.valueChanged)
         self.model().rowsInserted.connect(self._on_rows_inserted)
         self.model().rowsRemoved.connect(self.valueChanged)
-
-    def setUniformRows(self) -> None:
-        """Make every row as tall as a combo box, whatever its cell widgets want.
-
-        Rows follow their contents (`ResizeToContents`), whose cost grows with the
-        number of rows: about 180 ms to add a row at 1500.
-        """
-        self._apply_uniform_rows()
-
-    def setCellWidget(self, row: int, column: int, widget: QWidget | None) -> None:
-        super().setCellWidget(row, column, widget)
-        if self._cell_height and widget is not None:
-            widget.setFixedHeight(self._cell_height)
-
-    def changeEvent(self, e: QEvent | None) -> None:
-        super().changeEvent(e)
-        if (
-            self._cell_height
-            and e is not None
-            and e.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange)
-        ):
-            self._apply_uniform_rows()
-
-    def _apply_uniform_rows(self) -> None:
-        combo = QComboBox()
-        combo.setFont(self.font())
-        self._cell_height = combo.sizeHint().height()
-        v_header = self.verticalHeader()
-        v_header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        # not used for the rows, but what a table's minimum height is computed from
-        v_header.setDefaultSectionSize(self._cell_height + int(self.showGrid()))
-        for row in range(self.rowCount()):
-            for col in range(self.columnCount()):
-                if (cell := self.cellWidget(row, col)) is not None:
-                    cell.setFixedHeight(self._cell_height)
-        self.resizeRowsToContents()
 
     def columnInfo(self, col: int) -> ColumnInfo | None:
         if header_item := self.horizontalHeaderItem(col):

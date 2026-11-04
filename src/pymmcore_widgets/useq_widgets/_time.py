@@ -8,6 +8,8 @@ from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 from useq import MultiPhaseTimePlan, TDurationLoops, TIntervalDuration, TIntervalLoops
 
+from pymmcore_widgets._util import use_combo_row_height
+
 from ._column_info import IntColumn, TextColumn, TimeDeltaColumn
 from ._data_table import DataTableWidget
 
@@ -27,7 +29,7 @@ class TimePlanWidget(DataTableWidget):
 
     def __init__(self, rows: int = 0, parent: QWidget | None = None):
         super().__init__(rows, parent)
-        self._table.setUniformRows()
+        use_combo_row_height(self._table)
         self._emitting = False
         self._mode_column: int | None = None
 

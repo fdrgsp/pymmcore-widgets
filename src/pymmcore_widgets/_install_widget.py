@@ -31,6 +31,8 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from pymmcore_widgets._util import use_combo_row_height
+
 if TYPE_CHECKING:
     from qtpy.QtGui import QKeyEvent
 
@@ -288,6 +290,7 @@ class _InstallTable(QTableWidget):
         # silently skipped and left the row-number gutter on screen.
         if (vh := self.verticalHeader()) is not None:
             vh.hide()
+        use_combo_row_height(self)
         if (hh := self.horizontalHeader()) is not None:
             hh.setSectionResizeMode(self.USE_COL, hh.ResizeMode.ResizeToContents)
             hh.setSectionResizeMode(self.VER_COL, hh.ResizeMode.ResizeToContents)

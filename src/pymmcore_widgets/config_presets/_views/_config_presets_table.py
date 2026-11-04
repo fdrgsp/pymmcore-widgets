@@ -28,6 +28,7 @@ from pymmcore_widgets._models import (
     QConfigGroupsModel,
     get_loaded_devices,
 )
+from pymmcore_widgets._util import use_combo_row_height
 
 from ._device_property_selector import DevicePropertySelector
 from ._property_setting_delegate import PropertySettingDelegate
@@ -86,6 +87,7 @@ class ConfigPresetsTableView(QTableView):
         # so truthiness here would skip these calls entirely
         if (vh := self.verticalHeader()) is not None:
             vh.setSectionsClickable(False)
+        use_combo_row_height(self)
 
         # Right-click on column headers for per-preset property management
         if (hh := self.horizontalHeader()) is not None:

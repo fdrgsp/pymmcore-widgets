@@ -23,8 +23,10 @@ from qtpy.QtWidgets import (
     QDialogButtonBox,
     QGraphicsScene,
     QGraphicsView,
+    QHeaderView,
     QLabel,
     QMenu,
+    QTableView,
     QVBoxLayout,
     QWidget,
 )
@@ -274,6 +276,51 @@ def disable_wheel_scroll(widget: QWidget) -> None:
     """
     widget._wheel_blocker = blocker = _WheelBlocker(widget)
     widget.installEventFilter(blocker)
+
+
+def combo_box_height(widget: QWidget) -> int:
+    """Return the height a combo box wants with `widget`'s font and style."""
+    combo = QComboBox()
+    combo.setFont(widget.font())
+    return int(combo.sizeHint().height())
+
+
+class _ComboRowHeight(QObject):
+    """Event filter keeping a table's rows as tall as a combo box."""
+
+    def __init__(self, table: QTableView) -> None:
+        super().__init__(table)
+        self._table = table
+        self.apply()
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        if a1 is not None and a1.type() in (
+            QEvent.Type.FontChange,
+            QEvent.Type.StyleChange,
+        ):
+            self.apply()
+        return False
+
+    def apply(self) -> None:
+        table = self._table
+        height = combo_box_height(table) + int(table.showGrid())
+        v_header = cast("QHeaderView", table.verticalHeader())
+        v_header.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        v_header.setDefaultSectionSize(height)
+        # the default is only for new rows
+        if (model := table.model()) is not None:
+            for row in range(model.rowCount()):
+                table.setRowHeight(row, height)
+
+
+def use_combo_row_height(table: QTableView) -> None:
+    """Keep the rows of `table` as tall as a combo box, at every font and zoom.
+
+    Unlike fitting rows to their contents, this costs nothing as rows are added,
+    and rows look the same across tables, whatever they hold.
+    """
+    table._combo_row_height = row_height = _ComboRowHeight(table)
+    table.installEventFilter(row_height)
 
 
 def disable_wheel_scroll_recursive(widget: QWidget) -> None:

@@ -44,6 +44,7 @@ from superqt.utils import signals_blocked
 
 from pymmcore_widgets._icons import StandardIcon
 from pymmcore_widgets._models import Device, DevicePropertySetting, get_loaded_devices
+from pymmcore_widgets._util import use_combo_row_height
 from pymmcore_widgets.useq_widgets import DataTable, DataTableWidget
 from pymmcore_widgets.useq_widgets._column_info import FloatColumn, TextColumn
 
@@ -653,6 +654,7 @@ class _PixelTable(DataTableWidget):
 
     def __init__(self, rows: int = 0, parent: QWidget | None = None):
         super().__init__(rows, parent)
+        use_combo_row_height(self._table)
 
         # Pixel presets are keyed by name; row reordering has no meaning here.
         for action in (
@@ -852,6 +854,7 @@ class _PropertyValueTableView(QTableView):
         # falsy, so truthiness here would skip and leave the gutter visible
         if (vh := self.verticalHeader()) is not None:
             vh.setVisible(False)
+        use_combo_row_height(self)
 
     def setModel(self, model: QAbstractItemModel | None) -> None:
         """Set the model and size the columns to it.

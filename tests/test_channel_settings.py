@@ -305,7 +305,9 @@ def test_table_fits_its_rows(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
     assert table.minimumHeight() == table.maximumHeight()
 
 
-def test_rows_fit_their_cell_widgets(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
+def test_rows_keep_their_height_when_hiding_columns(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
     tbl = ChannelSettingsTable(mmcore=global_mmcore)
     qtbot.addWidget(tbl)
     tbl.resize(1200, tbl.height())  # no horizontal scroll bar taking room
@@ -314,20 +316,16 @@ def test_rows_fit_their_cell_widgets(global_mmcore: CMMCorePlus, qtbot: QtBot) -
     table = tbl.table()
 
     def rows_fit_exactly() -> None:
-        heights = {table.rowHeight(r) for r in range(table.rowCount())}
-        assert heights == {table.sizeHintForRow(0)}
         rows = sum(table.rowHeight(r) for r in range(table.rowCount()))
         assert table.viewport().height() == rows
 
     qtbot.waitUntil(rows_fit_exactly)
-    tall = table.rowHeight(0)
+    height = table.rowHeight(0)
+    assert height == table.verticalHeader().defaultSectionSize()
 
-    # no gap is left under the rows when hiding a column changes their height
     tbl.setLightSourcesVisible(False)
     qtbot.waitUntil(rows_fit_exactly)
-    tbl.setLightSourcesVisible(True)
-    qtbot.waitUntil(rows_fit_exactly)
-    assert table.rowHeight(0) == tall
+    assert table.rowHeight(0) == height
 
 
 def test_group_combo_sets_the_channel_group(
