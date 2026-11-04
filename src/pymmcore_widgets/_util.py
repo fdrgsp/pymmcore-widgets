@@ -281,6 +281,7 @@ def disable_wheel_scroll(widget: QWidget) -> None:
 def combo_box_height(widget: QWidget) -> int:
     """Return the height a combo box wants with `widget`'s font and style."""
     combo = QComboBox()
+    combo.setStyle(widget.style())
     combo.setFont(widget.font())
     return int(combo.sizeHint().height())
 

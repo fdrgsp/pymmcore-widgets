@@ -3,7 +3,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from qtpy.QtWidgets import QTableView, QTableWidget, QWidget
+from qtpy.QtWidgets import (
+    QProxyStyle,
+    QStyle,
+    QStyleOption,
+    QTableView,
+    QTableWidget,
+    QWidget,
+)
 
 from pymmcore_widgets import _util
 from pymmcore_widgets._install_widget import _InstallTable
@@ -31,6 +38,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from pytestqt.qtbot import QtBot
+    from qtpy.QtCore import QSize
 
 
 def test_qwidgetsize_max_matches_qt(qtbot: QtBot) -> None:
@@ -92,3 +100,26 @@ def test_pixel_table_uses_the_combo_row_height(qtbot: QtBot) -> None:
     qtbot.addWidget(wdg)
     table = wdg.table()
     assert table.verticalHeader().defaultSectionSize() == combo_box_height(table) + 1
+
+
+def test_combo_row_height_uses_the_tables_style(qtbot: QtBot) -> None:
+    class TallComboStyle(QProxyStyle):
+        def sizeFromContents(
+            self,
+            ct: QStyle.ContentsType,
+            opt: QStyleOption | None,
+            contentsSize: QSize,
+            widget: QWidget | None = None,
+        ) -> QSize:
+            size = super().sizeFromContents(ct, opt, contentsSize, widget)
+            if ct == QStyle.ContentsType.CT_ComboBox:
+                size.setHeight(65)
+            return size
+
+    table = QTableWidget(1, 1)
+    qtbot.addWidget(table)
+    style = TallComboStyle("Fusion")
+    style.setParent(table)
+    table.setStyle(style)
+    use_combo_row_height(table)
+    assert table.rowHeight(0) == 66
