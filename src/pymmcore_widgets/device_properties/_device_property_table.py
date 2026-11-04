@@ -13,6 +13,7 @@ from qtpy.QtWidgets import QAbstractScrollArea, QTableWidget, QTableWidgetItem, 
 from superqt.utils import signals_blocked
 
 from pymmcore_widgets._icons import StandardIcon
+from pymmcore_widgets._util import use_combo_row_height
 
 from ._property_widget import PropertyWidget
 
@@ -78,10 +79,8 @@ class DevicePropertyTable(QTableWidget):
         self.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         self.horizontalHeader().setStretchLastSection(True)
 
-        vh = self.verticalHeader()
-        vh.setSectionResizeMode(vh.ResizeMode.Fixed)
-        vh.setDefaultSectionSize(24)
-        vh.setVisible(False)
+        self.verticalHeader().setVisible(False)
+        use_combo_row_height(self)
 
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.setSelectionMode(self.SelectionMode.NoSelection)

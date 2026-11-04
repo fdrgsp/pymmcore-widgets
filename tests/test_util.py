@@ -22,6 +22,10 @@ from pymmcore_widgets.config_presets._pixel_configuration_widget import (
 from pymmcore_widgets.config_presets._views._config_presets_table import (
     ConfigPresetsTableView,
 )
+from pymmcore_widgets.device_properties._device_property_table import (
+    DevicePropertyTable,
+)
+from pymmcore_widgets.hcs._well_calibration_widget import _CalibrationTable
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -67,6 +71,8 @@ def test_use_combo_row_height(qtbot: QtBot, monkeypatch: pytest.MonkeyPatch) -> 
     "make_table",
     [
         pytest.param(_InstallTable, id="install"),
+        pytest.param(DevicePropertyTable, id="device_properties"),
+        pytest.param(_CalibrationTable, id="well_calibration"),
         pytest.param(_MainTable, id="group_presets"),
         pytest.param(ConfigPresetsTableView, id="config_presets"),
         pytest.param(_PropertyValueTableView, id="property_values"),

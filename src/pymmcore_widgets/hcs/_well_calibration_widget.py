@@ -20,7 +20,7 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
-from pymmcore_widgets._util import GREEN
+from pymmcore_widgets._util import GREEN, use_combo_row_height
 
 from ._util import find_circle_center, find_rectangle_center
 
@@ -106,6 +106,7 @@ class _CalibrationTable(QTableWidget):
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        use_combo_row_height(self)
 
         hdr = self.horizontalHeader()
         hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
