@@ -140,14 +140,19 @@ class CoreConnectedPositionTable(PositionTable):
 
     def setValue(self, value: Sequence[Position]) -> None:  # type: ignore [override]
         """Set the value of the positions table."""
-        super().setValue(value)
-        self._update_z_enablement()
-        self._update_autofocus_enablement()
-        if isinstance(value, WellPlatePlan):
-            self._plate_plan = value
-            self._hcs.setValue(value)
-            self._set_position_table_editable(False)
-            value = tuple(value)
+        was_hcs = self._plate_plan is not None
+        with self.table().batchUpdate(), signals_blocked(self):
+            super().setValue(value)
+            self._update_z_enablement()
+            self._update_autofocus_enablement()
+            if isinstance(value, WellPlatePlan):
+                self._plate_plan = value
+                self._hcs.setValue(value)
+                self._set_position_table_editable(False)
+            elif was_hcs:
+                self._plate_plan = None
+                self._set_position_table_editable(True)
+        self.valueChanged.emit()
 
     # ----------------------- private methods -----------------------
 
@@ -215,11 +220,7 @@ class CoreConnectedPositionTable(PositionTable):
 
     def _update_table_positions(self, plan: WellPlatePlan) -> None:
         """Update the table with the positions from the HCS wizard."""
-        with signals_blocked(self):
-            self.setValue(list(plan))
-            self._plate_plan = plan
-            self._set_position_table_editable(False)
-        self.valueChanged.emit()
+        self.setValue(plan)
 
     def _rename_hcs_position_button(self, text: str) -> None:
         if wiz := self._hcs_wizard:
@@ -240,39 +241,46 @@ class CoreConnectedPositionTable(PositionTable):
         if dialog.exec() == QMessageBox.StandardButton.Yes:
             self._plate_plan = None
             self._set_position_table_editable(True)
+            self.valueChanged.emit()
 
     def _set_position_table_editable(self, state: bool) -> None:
         """Enable/disable the position table depending on the use of the HCS wizard."""
-        self._edit_hcs_pos.setVisible(not state)
-        self.include_z.setVisible(state)
-        self.af_per_position.setVisible(state)
-
-        # Hide or show all columns that are irrelevant when using the HCS wizard
         table = self.table()
-        inc_z = self.include_z.isChecked()
-        table.setColumnHidden(table.indexOf(self._xy_btn_col), not state)
-        table.setColumnHidden(table.indexOf(self._z_btn_col), not state or not inc_z)
-        table.setColumnHidden(table.indexOf(self.Z), not state or not inc_z)
-        table.setColumnHidden(table.indexOf(self.SEQ), not state)
+        with table.batchUpdate():
+            self._edit_hcs_pos.setVisible(not state)
+            self.include_z.setVisible(state)
+            self.af_per_position.setVisible(state)
 
-        # Enable or disable the toolbar
-        for action in self.toolBar().actions()[1:]:
-            action.setEnabled(state)
+            # Hide or show all columns that are irrelevant when using the HCS wizard
+            inc_z = self.include_z.isChecked()
+            table.setColumnHidden(table.indexOf(self._xy_btn_col), not state)
+            table.setColumnHidden(
+                table.indexOf(self._z_btn_col), not state or not inc_z
+            )
+            table.setColumnHidden(table.indexOf(self.Z), not state or not inc_z)
+            table.setColumnHidden(table.indexOf(self.SEQ), not state)
 
-        self._enable_table_items(state)
-        # connect/disconnect the double click event and rename the button
-        if state:
-            self._rename_hcs_position_button(ADD_POSITIONS)
-            with suppress(RuntimeError):
-                self.table().cellDoubleClicked.disconnect(self._show_pos_editing_dialog)
-        else:
-            self._rename_hcs_position_button(UPDATE_POSITIONS)
-            # using UniqueConnection to avoid multiple connections
-            # but catching the TypeError if the connection is already made
-            with suppress(TypeError, RuntimeError):
-                self.table().cellDoubleClicked.connect(
-                    self._show_pos_editing_dialog, Qt.ConnectionType.UniqueConnection
-                )
+            # Enable or disable the toolbar
+            for action in self.toolBar().actions()[1:]:
+                action.setEnabled(state)
+
+            self._enable_table_items(state)
+            # connect/disconnect the double click event and rename the button
+            if state:
+                self._rename_hcs_position_button(ADD_POSITIONS)
+                with suppress(RuntimeError):
+                    self.table().cellDoubleClicked.disconnect(
+                        self._show_pos_editing_dialog
+                    )
+            else:
+                self._rename_hcs_position_button(UPDATE_POSITIONS)
+                # using UniqueConnection to avoid multiple connections
+                # but catching the TypeError if the connection is already made
+                with suppress(TypeError, RuntimeError):
+                    self.table().cellDoubleClicked.connect(
+                        self._show_pos_editing_dialog,
+                        Qt.ConnectionType.UniqueConnection,
+                    )
 
     def _enable_table_items(self, state: bool) -> None:
         """Enable or disable the table items depending on the use of the HCS wizard."""

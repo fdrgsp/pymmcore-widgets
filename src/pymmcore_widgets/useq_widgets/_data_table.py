@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, ClassVar, cast
 
 from qtpy.QtCore import QItemSelectionModel, QSize, Qt, Signal
@@ -127,11 +128,29 @@ class DataTable(QTableWidget):
 
     def setValue(self, records: Iterable[Record]) -> None:
         """Set the value of the table."""
-        self.setRowCount(0)
         _records = list(records)
-        self.setRowCount(len(_records))
-        for row, record in enumerate(_records):
-            self.setRowData(row, record)
+        with self.batchUpdate():
+            self.setRowCount(0)
+            self.setRowCount(len(_records))
+            for row, record in enumerate(_records):
+                self.setRowData(row, record)
+
+    @contextmanager
+    def batchUpdate(self) -> Iterator[None]:
+        """Defer cell-widget layout by hiding a visible table during an update.
+
+        Disabling painting alone does not prevent repeated editor layout. Nested
+        updates and exceptions preserve visibility. Signals remain enabled for
+        row initialization and model/view notifications.
+        """
+        was_visible = self.isVisible()
+        if was_visible:
+            self.hide()
+        try:
+            yield
+        finally:
+            if was_visible:
+                self.show()
 
     def checkAllRows(self) -> None:
         self._check_all(Qt.CheckState.Checked)
