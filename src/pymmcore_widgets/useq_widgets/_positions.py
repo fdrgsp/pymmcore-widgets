@@ -31,13 +31,17 @@ from ._data_table import DataTableWidget
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from qtpy.QtCore import SignalInstance
     from qtpy.QtGui import QShowEvent
+    from qtpy.QtWidgets import QTableWidget
 
     from ._column_info import TableDoubleSpinBox
+    from ._data_table import DataTable
 
 OK_CANCEL = QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
 NULL_SEQUENCE = useq.MDASequence()
 MAX = 9999999
+CLEAR_BTN_SPACING = 4
 AF_PER_POS_TOOLTIP = (
     "If checked, the user can set a different Hardware Autofocus Offset for each "
     "Position in the table."
@@ -156,8 +160,11 @@ class MDAButton(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.seq_btn = QPushButton()
+        # Fixed width: an icon-only button, as wide as a ButtonColumn's button.
+        # Preferred height: grow to the row's height rather than the button's
+        # small default.
         self.seq_btn.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred
         )
         self.seq_btn.clicked.connect(self._on_click)
         self.seq_btn.setIcon(QIconifyIcon("mdi:grid"))
@@ -165,9 +172,7 @@ class MDAButton(QWidget):
 
         self.clear_btn = QPushButton()
         self.clear_btn.setIcon(QIconifyIcon("mdi:close-circle", color="red"))
-        # Fixed width keeps it narrower than seq_btn (a secondary action next to
-        # the primary one), but match its vertical policy so it grows to the
-        # same height instead of shrinking to the button's small default size.
+        # Narrower than seq_btn: a secondary action next to the primary one.
         self.clear_btn.setFixedWidth(24)
         self.clear_btn.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred
@@ -176,12 +181,21 @@ class MDAButton(QWidget):
         self.clear_btn.clicked.connect(lambda: self.setValue(None))
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 0, 4, 0)
-        layout.setSpacing(4)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(CLEAR_BTN_SPACING)
         layout.addWidget(self.seq_btn)
         layout.addWidget(self.clear_btn)
+        # keep seq_btn in place whether or not clear_btn is showing
+        layout.addStretch()
 
         self.setValue(None)
+
+    def fitWidth(self, show_clear: bool) -> int:
+        """Return the width needed for seq_btn and, optionally, clear_btn."""
+        width = int(self.seq_btn.sizeHint().width())
+        if show_clear:
+            width += CLEAR_BTN_SPACING + self.clear_btn.minimumWidth()
+        return width
 
     def _on_click(self) -> None:
         dialog = _MDAPopup(self._value, self)
@@ -223,6 +237,29 @@ class SubSeqColumn(WidgetColumn):
 
     data_type: WdgGetSet = _MDAButton
 
+    def init_cell(
+        self, table: QTableWidget, row: int, col: int, change_signal: SignalInstance
+    ) -> None:
+        super().init_cell(table, row, col, change_signal)
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(col, header.ResizeMode.Fixed)
+        wdg = cast("MDAButton", table.cellWidget(row, col))
+        # The grid line takes a pixel from every cell, which is how a ButtonColumn's
+        # button ends up one pixel narrower than its size hint.  Match it.
+        grid_line = int(table.showGrid())
+        wdg.seq_btn.setFixedWidth(wdg.seq_btn.sizeHint().width() - grid_line)
+        wdg.valueChanged.connect(lambda: self.fitWidth(table))
+        self.fitWidth(table)
+
+    def fitWidth(self, table: QTableWidget) -> None:
+        """Fit the column to seq_btn, widening it only if a row shows clear_btn."""
+        col = cast("DataTable", table).indexOf(self)
+        wdgs = (table.cellWidget(row, col) for row in range(table.rowCount()))
+        btns = [cast("MDAButton", wdg) for wdg in wdgs if wdg is not None]
+        if btns:
+            show_clear = any(not btn.clear_btn.isHidden() for btn in btns)
+            table.setColumnWidth(col, btns[0].fitWidth(show_clear))
+
 
 class PositionTable(DataTableWidget):
     """Table to edit a list of [useq.Position](https://pymmcore-plus.github.io/useq-schema/schema/axes/#useq.Position)."""
@@ -244,6 +281,8 @@ class PositionTable(DataTableWidget):
         # when a sub-sequence changes, update x/y enabled state for that row
         if model := self.table().model():
             model.rowsInserted.connect(self._on_table_rows_inserted)
+            # removing the last row with a grid plan lets the Grid column shrink
+            model.rowsRemoved.connect(lambda: self.SEQ.fitWidth(self.table()))
             if (rows := self.table().rowCount()) > 0:
                 self._on_table_rows_inserted(None, 0, rows - 1)
 

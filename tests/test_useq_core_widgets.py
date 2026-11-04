@@ -315,6 +315,47 @@ def test_mda_starts_empty_with_every_axis_off(
         assert not wdg.tab_wdg.isChecked(axis)
 
 
+def test_position_table_grid_button_matches_arrow_buttons(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """The Grid button is as small as the arrow buttons, with or without a plan."""
+    wdg = CoreConnectedPositionTable(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.resize(900, 400)
+    wdg.show()
+    plan = useq.MDASequence(grid_plan=useq.GridRowsColumns(rows=2, columns=2))
+    wdg.setValue(
+        [useq.Position(x=1, y=2, z=3), useq.Position(x=1, y=2, z=3, sequence=plan)]
+    )
+    QApplication.processEvents()
+
+    table = wdg.table()
+    seq_col = table.indexOf(wdg.SEQ)
+    arrow = table.cellWidget(0, table.indexOf(wdg._xy_btn_col))
+    no_plan = cast("MDAButton", table.cellWidget(0, seq_col))
+    with_plan = cast("MDAButton", table.cellWidget(1, seq_col))
+    assert no_plan.clear_btn.isHidden()
+    assert with_plan.clear_btn.isVisible()
+
+    for btn in (no_plan.seq_btn, with_plan.seq_btn):
+        assert btn.size() == arrow.size()
+    # the clear button fits next to it, rather than being cut off by the cell
+    assert with_plan.clear_btn.geometry().right() < with_plan.width()
+
+    # without a plan on any row, there is no space left of or right of the button
+    arrow_col_width = table.columnWidth(table.indexOf(wdg._xy_btn_col))
+    with_plan.clear_btn.click()
+    QApplication.processEvents()
+    assert table.columnWidth(seq_col) == arrow_col_width
+    assert no_plan.seq_btn.size() == arrow.size()
+
+    # setting a plan widens the column, and removing that row narrows it again
+    with_plan.setValue(plan)
+    assert table.columnWidth(seq_col) > arrow_col_width
+    table.removeRow(1)
+    assert table.columnWidth(seq_col) == arrow_col_width
+
+
 def test_core_position_table_add_position(
     qtbot: QtBot, mock_getAutoFocusOffset: None
 ) -> None:
