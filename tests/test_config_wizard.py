@@ -10,7 +10,9 @@ from pymmcore_plus.model import Microscope, Setting
 from pymmcore_plus.model._config_group import ConfigGroup, ConfigPreset
 from qtpy.QtCore import Qt
 from qtpy.QtGui import QCloseEvent, QFocusEvent
+from qtpy.QtWidgets import QTableWidget
 
+from pymmcore_widgets._util import combo_box_height
 from pymmcore_widgets.hcwizard import devices_page
 from pymmcore_widgets.hcwizard._dev_setup_dialog import DeviceSetupDialog
 from pymmcore_widgets.hcwizard._peripheral_setup_dialog import PeripheralSetupDlg
@@ -470,3 +472,16 @@ def test_validate_page_syncs_parent_labels(
 
     # Should have been restored from core
     assert camera_dev.parent_label == "DHub"
+
+
+def test_wizard_tables_use_the_combo_row_height(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    wiz = ConfigWizard(str(TEST_CONFIG), global_mmcore)
+    qtbot.addWidget(wiz)
+    # the roles page has none, nor do pages that only build their tables on entry
+    tables = wiz.findChildren(QTableWidget)
+    assert tables
+    for table in tables:
+        row_height = combo_box_height(table) + 1
+        assert table.verticalHeader().defaultSectionSize() == row_height, table

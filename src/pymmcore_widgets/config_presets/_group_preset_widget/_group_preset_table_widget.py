@@ -20,7 +20,7 @@ from qtpy.QtWidgets import (
 )
 
 from pymmcore_widgets._models import set_config_groups
-from pymmcore_widgets._util import load_system_config
+from pymmcore_widgets._util import load_system_config, use_combo_row_height
 from pymmcore_widgets.control._presets_widget import PresetsWidget
 from pymmcore_widgets.device_properties._property_widget import PropertyWidget
 
@@ -43,8 +43,7 @@ class _MainTable(QTableWidget):
             hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignHCenter)
         if (vh := self.verticalHeader()) is not None:
             vh.setVisible(False)
-            vh.setSectionResizeMode(vh.ResizeMode.Fixed)
-            vh.setDefaultSectionSize(24)
+        use_combo_row_height(self)
         self.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)

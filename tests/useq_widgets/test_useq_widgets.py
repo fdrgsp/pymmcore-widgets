@@ -1383,3 +1383,18 @@ def test_mda_table_rows_are_as_tall_as_a_combo_box(
     table.insertRow(2)
     qtbot.waitUntil(lambda: table.rowHeight(2) == row_height)
     assert table.verticalHeader().defaultSectionSize() == row_height
+
+
+def test_time_plan_set_value_selects_no_row(qtbot: QtBot) -> None:
+    wdg = TimePlanWidget()
+    qtbot.addWidget(wdg)
+    wdg.setValue(
+        useq.MultiPhaseTimePlan(
+            phases=[{"interval": 1, "loops": 2}, {"interval": 3, "loops": 4}]
+        )
+    )
+    table = wdg.table()
+    assert not table.selectedRanges()
+    # what `_resolve_duration` goes by
+    assert table.currentRow() == 1
+    assert table.currentColumn() == table.indexOf(wdg.LOOPS)

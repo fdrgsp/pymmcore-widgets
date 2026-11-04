@@ -17,6 +17,8 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import exceptions_as_dialog
 
+from pymmcore_widgets._util import use_combo_row_height
+
 from ._dev_setup_dialog import DeviceSetupDialog
 
 if TYPE_CHECKING:
@@ -56,6 +58,7 @@ class PeripheralSetupDlg(QDialog):
         hh.setSectionResizeMode(hh.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(0, hh.ResizeMode.Stretch)
         self.table.verticalHeader().hide()
+        use_combo_row_height(self.table)
 
         self._select_all = QCheckBox("Select All")
         self._select_all.setTristate(True)

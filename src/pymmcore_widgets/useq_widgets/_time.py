@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
+from qtpy.QtCore import QItemSelectionModel
 from qtpy.QtGui import QIcon
 from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
@@ -100,7 +101,10 @@ class TimePlanWidget(DataTableWidget):
         col_idx = table.indexOf(
             self.DURATION if isinstance(_phases[0], TIntervalDuration) else self.LOOPS
         )
-        table.setCurrentCell(table.rowCount() - 1, col_idx)
+        # current, not selected: this only says which column drives the others
+        table.setCurrentCell(
+            table.rowCount() - 1, col_idx, QItemSelectionModel.SelectionFlag.NoUpdate
+        )
         self._resolve_duration()
 
     # ------------------------- Private API -------------------------

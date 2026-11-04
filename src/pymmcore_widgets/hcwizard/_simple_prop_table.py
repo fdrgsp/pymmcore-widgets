@@ -8,6 +8,7 @@ from pymmcore_plus import CMMCorePlus, Keyword
 from qtpy.QtCore import Signal
 from qtpy.QtWidgets import QComboBox, QTableWidget, QTableWidgetItem, QWidget
 
+from pymmcore_widgets._util import use_combo_row_height
 from pymmcore_widgets.device_properties._property_widget import PropertyWidget
 
 if TYPE_CHECKING:
@@ -51,7 +52,7 @@ class PropTable(QTableWidget):
         self.setSelectionMode(self.SelectionMode.NoSelection)
         self.horizontalHeader().setStretchLastSection(True)
         self.verticalHeader().setVisible(False)
-        self.verticalHeader().setDefaultSectionSize(24)
+        use_combo_row_height(self)
         self.setColumnWidth(0, 200)
 
     def iterRows(self) -> Iterator[tuple[str, str]]:

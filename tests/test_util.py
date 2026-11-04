@@ -12,6 +12,9 @@ from pymmcore_widgets._util import (
     combo_box_height,
     use_combo_row_height,
 )
+from pymmcore_widgets.config_presets._group_preset_widget._group_preset_table_widget import (  # noqa: E501
+    _MainTable,
+)
 from pymmcore_widgets.config_presets._pixel_configuration_widget import (
     _PixelTable,
     _PropertyValueTableView,
@@ -64,6 +67,7 @@ def test_use_combo_row_height(qtbot: QtBot, monkeypatch: pytest.MonkeyPatch) -> 
     "make_table",
     [
         pytest.param(_InstallTable, id="install"),
+        pytest.param(_MainTable, id="group_presets"),
         pytest.param(ConfigPresetsTableView, id="config_presets"),
         pytest.param(_PropertyValueTableView, id="property_values"),
     ],

@@ -15,6 +15,8 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
+from pymmcore_widgets._util import use_combo_row_height
+
 from ._base_page import ConfigWizardPage
 
 logger = logging.getLogger(__name__)
@@ -30,6 +32,7 @@ class _LabelTable(QTableWidget):
         self.setHorizontalHeaderLabels(headers)
         self.horizontalHeader().setStretchLastSection(True)
         self.verticalHeader().setVisible(False)
+        use_combo_row_height(self)
 
         self.itemChanged.connect(self._on_item_changed)
 

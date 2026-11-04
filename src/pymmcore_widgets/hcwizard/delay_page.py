@@ -13,6 +13,8 @@ from qtpy.QtWidgets import (
 )
 from superqt.iconify import QIconifyIcon
 
+from pymmcore_widgets._util import use_combo_row_height
+
 from ._base_page import ConfigWizardPage
 
 if TYPE_CHECKING:
@@ -41,7 +43,7 @@ class DelayTable(QTableWidget):
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.setSelectionMode(self.SelectionMode.NoSelection)
         self.verticalHeader().setVisible(False)
-        self.verticalHeader().setDefaultSectionSize(24)
+        use_combo_row_height(self)
         self.setColumnWidth(0, 200)
 
     def rebuild(self) -> None:

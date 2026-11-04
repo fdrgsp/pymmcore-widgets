@@ -26,6 +26,7 @@ from superqt.iconify import QIconifyIcon
 from superqt.utils import exceptions_as_dialog, signals_blocked
 
 from pymmcore_widgets._icons import StandardIcon
+from pymmcore_widgets._util import use_combo_row_height
 
 from ._base_page import ConfigWizardPage
 from ._dev_setup_dialog import DeviceSetupDialog
@@ -51,6 +52,7 @@ class _DeviceTable(QTableWidget):
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
 
         self.verticalHeader().setVisible(False)
+        use_combo_row_height(self)
         hh = self.horizontalHeader()
         hh.setSectionResizeMode(hh.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(3, hh.ResizeMode.Stretch)
@@ -265,6 +267,7 @@ class _AvailableDevicesWidget(QWidget):
         hh.setSectionResizeMode(hh.ResizeMode.Stretch)
         hh.sectionClicked.connect(self._sort_by_col)
         self.table.verticalHeader().setVisible(False)
+        use_combo_row_height(self.table)
 
         # Initialize sorting order as ascending for the first column
         self._sorted_col = 0
