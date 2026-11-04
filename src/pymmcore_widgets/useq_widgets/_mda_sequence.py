@@ -638,11 +638,13 @@ class AutofocusAxis(_CheckableCard):
             max(layout.itemAtPosition(2 * i, c).sizeHint().height() for c in (0, 1))
             for i in range(len(self._rows))
         ]
-        # Taller controls need less space around them to keep the text lines
-        # equally spaced. Reserve both modes without padding every row to match.
-        pitch = max((a + b + 1) // 2 for a, b in pairwise(heights))
-        for i, (a, b) in enumerate(pairwise(heights)):
-            layout.setRowMinimumHeight(2 * i + 1, pitch - (a + b) // 2)
+        # QRect.center() rounds odd and even heights differently. Measure the
+        # actual center-to-center steps rather than averaging adjacent heights.
+        centers = [(height - 1) // 2 for height in heights]
+        steps = [
+            height + after - before
+            for height, (before, after) in zip(heights, pairwise(centers), strict=False)
+        ]
         option = QStyleOptionGroupBox()
         self.initStyleOption(option)
         title = self.style().subControlRect(
@@ -651,8 +653,12 @@ class AutofocusAxis(_CheckableCard):
             QStyle.SubControl.SC_GroupBoxLabel,
             self,
         )
-        top = title.center().y() + pitch - self.contentsRect().top() - heights[0] // 2
-        layout.setContentsMargins(5, max(0, top), 5, 0)
+        title_center = title.center().y()
+        pitch = max(max(steps), self.contentsRect().top() + centers[0] - title_center)
+        for i, step in enumerate(steps):
+            layout.setRowMinimumHeight(2 * i + 1, pitch - step)
+        top = title_center + pitch - self.contentsRect().top() - centers[0]
+        layout.setContentsMargins(5, top, 5, 0)
         layout.activate()
 
     def event(self, event: QEvent) -> bool:

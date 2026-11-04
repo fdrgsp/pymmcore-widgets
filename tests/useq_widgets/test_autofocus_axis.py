@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 import useq
 from qtpy.QtCore import Qt
-from qtpy.QtWidgets import QStyle, QStyleOptionGroupBox
+from qtpy.QtWidgets import QStyle, QStyleOptionGroupBox, QVBoxLayout, QWidget
 
 from pymmcore_widgets.useq_widgets import MDASequenceWidget
 from pymmcore_widgets.useq_widgets._mda_sequence import AutofocusAxis
@@ -169,20 +169,24 @@ def test_each_kind_shows_only_its_own_options(qtbot: QtBot) -> None:
 
 
 @pytest.mark.parametrize("initial_kind", ["hardware", "software"])
-@pytest.mark.parametrize("font_size", [None, 18])
+@pytest.mark.parametrize("font_size", [None, 9, 18])
 def test_switching_kind_keeps_layout_size(
     qtbot: QtBot, initial_kind: str, font_size: int | None
 ) -> None:
-    af = AutofocusAxis()
-    qtbot.addWidget(af)
+    # The MDA embeds this form: top-level windows have an extra Qt minimum size.
+    host = QWidget()
+    af = AutofocusAxis(host)
+    layout = QVBoxLayout(host)
+    layout.addWidget(af, alignment=Qt.AlignmentFlag.AlignTop)
+    qtbot.addWidget(host)
     af.setSoftwareMethods(["oughtafocus"])
     af.setKind(initial_kind)
     if font_size is not None:
         font = af.font()
         font.setPointSize(font_size)
         af.setFont(font)
-    af.show()
-    qtbot.waitExposed(af)
+    host.show()
+    qtbot.waitExposed(host)
     af.adjustSize()
     size_hint = af.sizeHint()
     minimum_size_hint = af.minimumSizeHint()
