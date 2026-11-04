@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, cast
 
 import useq
@@ -97,15 +98,8 @@ class CoreConnectedChannelTable(ChannelTable):
         # sources list every (device, property) in the preset (intensity is broadcast).
         self._light_sources: dict[str, list[tuple[str, str]]] = {}
         self._light_source_column: ComboColumn = self.LIGHT_SOURCE
-        # guards _sync_intensity_widgets against re-entrancy
-        self._syncing_intensity = False
-        # the extra columns are opt-in by default visibility; see setLightSourceVisible
-        self._light_source_visible = True
-        # the advanced columns (Do Stack / Acquire Every / Z Offset) are hidden
-        # by default; see setAdvancedVisible. Do Stack and Acquire Every
-        # additionally require their own axis to be active, tracked here and
-        # updated by the owning MDA tab widget.
-        self._advanced_visible = False
+        # Do Stack and Acquire Every also require their own axis to be active, tracked
+        # here and updated by the owning MDA tab widget; see setAdvancedVisible.
         self._z_stack_active = False
         self._time_plan_active = False
         # columns are fitted to their contents, resizable and span the table's width
@@ -117,7 +111,7 @@ class CoreConnectedChannelTable(ChannelTable):
             "the Light Source and Intensity columns.\n"
             "While unchecked those columns are hidden and set no properties."
         )
-        self.show_light_source.setChecked(self._light_source_visible)
+        self.show_light_source.setChecked(True)
         self.show_light_source.toggled.connect(self.setLightSourceVisible)
 
         self.advanced = QCheckBox("Advanced")
@@ -127,7 +121,6 @@ class CoreConnectedChannelTable(ChannelTable):
             "Series -- is active).\n"
             "While unchecked those columns are hidden, but still apply."
         )
-        self.advanced.setChecked(self._advanced_visible)
         self.advanced.toggled.connect(self.setAdvancedVisible)
 
         self._group_label.setText("Core Channel:")
@@ -168,15 +161,14 @@ class CoreConnectedChannelTable(ChannelTable):
         Turning it off keeps whatever the columns hold, so turning it back on
         restores the previous selections.
         """
-        self._light_source_visible = bool(visible)
         with signals_blocked(self.show_light_source):
-            self.show_light_source.setChecked(self._light_source_visible)
+            self.show_light_source.setChecked(visible)
         self._apply_light_source_visibility()
         self.valueChanged.emit()
 
     def lightSourceVisible(self) -> bool:
         """Return whether the per-channel light source feature is enabled."""
-        return self._light_source_visible
+        return bool(self.show_light_source.isChecked())
 
     def setAdvancedVisible(self, visible: bool) -> None:
         """Show or hide the advanced per-channel columns.
@@ -187,14 +179,13 @@ class CoreConnectedChannelTable(ChannelTable):
         *Acquire Every* are additionally shown only while their axis is active. Off
         by default.
         """
-        self._advanced_visible = bool(visible)
         with signals_blocked(self.advanced):
-            self.advanced.setChecked(self._advanced_visible)
+            self.advanced.setChecked(visible)
         self._apply_advanced_visibility()
 
     def advancedVisible(self) -> bool:
         """Return whether the advanced per-channel columns are shown."""
-        return self._advanced_visible
+        return bool(self.advanced.isChecked())
 
     def setZStackActive(self, active: bool) -> None:
         """Record whether the Z-stack axis is active.
@@ -296,7 +287,7 @@ class CoreConnectedChannelTable(ChannelTable):
         for idx, rec in enumerate(records):
             config = str(rec.get("config", ""))
             settings = self._record_settings(rec)
-            if not self._light_source_visible:
+            if not self.show_light_source.isChecked():
                 settings["light_source"] = NO_LIGHT_SOURCE
             props.extend(
                 ChannelProperty(
@@ -325,8 +316,6 @@ class CoreConnectedChannelTable(ChannelTable):
         table = self.table()
         ls_col = table.indexOf(self._light_source_column)
         int_col = table.indexOf(self.INTENSITY)
-        if ls_col < 0 or int_col < 0:  # pragma: no cover
-            return
 
         labels = {
             dev_prop: label
@@ -383,8 +372,7 @@ class CoreConnectedChannelTable(ChannelTable):
         after the (less frequently used) acquire_every/do_stack/z_offset ones.
         """
         table = self.table()
-        if (exposure_col := table.indexOf(self.EXPOSURE)) < 0:  # pragma: no cover
-            return
+        exposure_col = table.indexOf(self.EXPOSURE)
 
         with signals_blocked(self):
             for offset, info in enumerate(
@@ -392,7 +380,7 @@ class CoreConnectedChannelTable(ChannelTable):
             ):
                 current = table.indexOf(info)
                 target = exposure_col + offset
-                if current < 0 or current == target:  # pragma: no cover
+                if current == target:  # pragma: no cover
                     continue
                 table.removeColumn(current)
                 table.addColumn(info, target)
@@ -442,37 +430,33 @@ class CoreConnectedChannelTable(ChannelTable):
 
     def _apply_light_source_visibility(self) -> None:
         table = self.table()
+        hidden = not self.show_light_source.isChecked()
         for info in (self._light_source_column, self.INTENSITY):
-            if (col := table.indexOf(info)) >= 0:
-                table.setColumnHidden(col, not self._light_source_visible)
+            table.setColumnHidden(table.indexOf(info), hidden)
 
     def _apply_advanced_visibility(self) -> None:
         table = self.table()
-        if (z_off_col := table.indexOf(self.Z_OFFSET)) >= 0:
-            table.setColumnHidden(z_off_col, not self._advanced_visible)
-        if (do_stack_col := table.indexOf(self.DO_STACK)) >= 0:
-            show_do_stack = self._advanced_visible and self._z_stack_active
-            table.setColumnHidden(do_stack_col, not show_do_stack)
-        if (every_col := table.indexOf(self.ACQUIRE_EVERY)) >= 0:
-            show_every = self._advanced_visible and self._time_plan_active
-            table.setColumnHidden(every_col, not show_every)
+        shown = self.advanced.isChecked()
+        table.setColumnHidden(table.indexOf(self.Z_OFFSET), not shown)
+        table.setColumnHidden(
+            table.indexOf(self.DO_STACK), not (shown and self._z_stack_active)
+        )
+        table.setColumnHidden(
+            table.indexOf(self.ACQUIRE_EVERY), not (shown and self._time_plan_active)
+        )
 
     def _update_light_sources(self) -> None:
         """Rebuild the light source column's choices from the current configuration."""
         table = self.table()
         ls_col = table.indexOf(self._light_source_column)
-        if ls_col < 0:  # pragma: no cover
-            return
         settings = [self.rowSettings(row) for row in range(table.rowCount())]
         self._light_sources = find_light_sources(self._mmc)
 
         # swap in a column with the new choices (same approach as _on_group_changed)
         with signals_blocked(self):
             table.removeColumn(ls_col)
-            self._light_source_column = ComboColumn(
-                key=LIGHT_SOURCE_KEY,
-                header="Light Source",
-                default=NO_LIGHT_SOURCE,
+            self._light_source_column = replace(
+                self.LIGHT_SOURCE,
                 allowed_values=(NO_LIGHT_SOURCE, *self._light_sources),
             )
             table.addColumn(self._light_source_column, ls_col)
@@ -502,30 +486,19 @@ class CoreConnectedChannelTable(ChannelTable):
         Driven by `valueChanged` rather than by wiring each combo box, so that it
         keeps working across row insertion *and* wholesale column rebuilds.
         """
-        if self._syncing_intensity:
-            return
-
         table = self.table()
         ls_col = table.indexOf(self._light_source_column)
         int_col = table.indexOf(self.INTENSITY)
-        if ls_col < 0 or int_col < 0:  # pragma: no cover
-            return
 
-        self._syncing_intensity = True
-        try:
-            with signals_blocked(table):
-                for row in range(table.rowCount()):
-                    data = self._light_source_column.get_cell_data(table, row, ls_col)
-                    group = data.get(LIGHT_SOURCE_KEY) or NO_LIGHT_SOURCE
-                    wdg = cast(
-                        "IntensitySpinBox | None", table.cellWidget(row, int_col)
-                    )
-                    if wdg is None:  # pragma: no cover
-                        continue
-                    if wdg.group() != group:
-                        self._configure_intensity_widget(row, int_col, group)
-        finally:
-            self._syncing_intensity = False
+        with signals_blocked(table):
+            for row in range(table.rowCount()):
+                data = self._light_source_column.get_cell_data(table, row, ls_col)
+                group = data.get(LIGHT_SOURCE_KEY) or NO_LIGHT_SOURCE
+                wdg = cast("IntensitySpinBox | None", table.cellWidget(row, int_col))
+                if wdg is None:  # pragma: no cover
+                    continue
+                if wdg.group() != group:
+                    self._configure_intensity_widget(row, int_col, group)
 
     def _disconnect(self) -> None:
         """Disconnect from the core instance."""

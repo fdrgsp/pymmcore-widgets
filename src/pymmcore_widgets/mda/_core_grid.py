@@ -31,10 +31,7 @@ class CoreConnectedGridPlanWidget(GridPlanWidget):
         self, mmcore: CMMCorePlus | None = None, parent: QWidget | None = None
     ) -> None:
         self._mmc = mmcore or CMMCorePlus.instance()
-        self._core_xy_bounds = CoreXYBoundsControl(
-            core=self._mmc,
-            compact_layout=True,
-        )
+        self._core_xy_bounds = CoreXYBoundsControl(core=self._mmc, compact_layout=True)
 
         super().__init__(parent)
 
@@ -49,12 +46,7 @@ class CoreConnectedGridPlanWidget(GridPlanWidget):
         # the base class connected the bounds_wdg replaced above
         self._core_xy_bounds._bounds_wdg.valueChanged.connect(self._on_change)
         field_width = self.row_col_wdg.rows.minimumWidth()
-        for field in (
-            self._core_xy_bounds.left,
-            self._core_xy_bounds.top,
-            self._core_xy_bounds.right,
-            self._core_xy_bounds.bottom,
-        ):
+        for field in self._core_xy_bounds._bound_fields:
             field.setMinimumWidth(field_width)
         # Edges/Corners goes in the left column, above the summary, which
         # keeps the bounds page to its four rows like the other modes

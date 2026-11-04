@@ -31,7 +31,6 @@ MDA_ICONS: dict[str, str] = {
     "z_plan": "mdi:arrow-up-down",
     "time_plan": "mdi:clock-time-four-outline",
     "saving": "mdi:content-save-outline",
-    "settings": "mdi:cog-outline",
 }
 
 
@@ -88,7 +87,7 @@ class _AxisTabButton(QWidget):
         title: str,
         icon: QIcon,
         *,
-        checked: bool | None = False,
+        checked: bool = False,
     ) -> None:
         super().__init__()
 
@@ -100,28 +99,21 @@ class _AxisTabButton(QWidget):
         layout.setContentsMargins(6, 4, 6, 4)
         layout.setSpacing(2)
 
-        self._checkbox: QCheckBox | None = None
-        if checked is not None:
-            top = QHBoxLayout()
-            top.setContentsMargins(0, 0, 0, 0)
-            top.setSpacing(7)
-            top.addStretch()
-            self._checkbox = QCheckBox()
-            self._checkbox.setChecked(checked)
-            self._checkbox.toggled.connect(self.toggled)
-            top.addWidget(self._checkbox)
-            top.addWidget(icon_label)
-            top.addStretch()
-            layout.addLayout(top)
-        else:
-            layout.addWidget(icon_label)
+        top = QHBoxLayout()
+        top.setSpacing(7)
+        top.addStretch()
+        self._checkbox = QCheckBox()
+        self._checkbox.setChecked(checked)
+        self._checkbox.toggled.connect(self.toggled)
+        top.addWidget(self._checkbox)
+        top.addWidget(icon_label)
+        top.addStretch()
+        layout.addLayout(top)
         lbl = QLabel(title)
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(lbl)
 
-    def isChecked(self) -> bool | None:
-        if self._checkbox is None:
-            return None
+    def isChecked(self) -> bool:
         return bool(self._checkbox.isChecked())
 
     def set_icon(self, icon: QIcon) -> None:
@@ -129,8 +121,7 @@ class _AxisTabButton(QWidget):
         self._icon_label.setPixmap(icon.pixmap(20, 20))
 
     def setChecked(self, checked: bool) -> None:
-        if self._checkbox is not None:
-            self._checkbox.setChecked(checked)
+        self._checkbox.setChecked(checked)
 
 
 class _AxisTabBar(QTabBar):

@@ -58,10 +58,13 @@ def find_light_sources(core: CMMCorePlus) -> dict[str, list[tuple[str, str]]]:
         is_read_only=False,
         as_object=False,
     )
-    sources: dict[str, list[tuple[str, str]]] = {
-        f"{dev}{PROPERTY_SEPARATOR}{prop}": [(str(dev), str(prop))]
+    eligible = {
+        (str(dev), str(prop))
         for dev, prop in properties
         if not core.isPropertyPreInit(dev, prop)
+    }
+    sources: dict[str, list[tuple[str, str]]] = {
+        f"{dev}{PROPERTY_SEPARATOR}{prop}": [(dev, prop)] for dev, prop in eligible
     }
 
     for group in core.getAvailableConfigGroups():
@@ -69,24 +72,11 @@ def find_light_sources(core: CMMCorePlus) -> dict[str, list[tuple[str, str]]]:
         if len(presets) != 1:
             continue
         (preset,) = presets
-        dev_props: list[tuple[str, str]] = []
-        valid = True
-        try:
-            for device, prop, _value in core.getConfigData(group, preset):
-                ptype = core.getPropertyType(device, prop)
-                if (
-                    ptype not in (PropertyType.Integer, PropertyType.Float)
-                    or not core.hasPropertyLimits(device, prop)
-                    or core.isPropertyReadOnly(device, prop)
-                    or core.isPropertyPreInit(device, prop)
-                ):
-                    valid = False
-                    break
-                dev_props.append((str(device), str(prop)))
-        except RuntimeError:
-            # A device referenced by the group has been unloaded; skip.
-            valid = False
-        if valid and dev_props and group not in sources:
+        dev_props = [
+            (str(device), str(prop))
+            for device, prop, _value in core.getConfigData(group, preset)
+        ]
+        if dev_props and group not in sources and eligible.issuperset(dev_props):
             sources[group] = dev_props
 
     return dict(sorted(sources.items(), key=lambda kv: kv[0].casefold()))

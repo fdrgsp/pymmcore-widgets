@@ -119,8 +119,6 @@ class StageMovementButtons(QWidget):
     def __init__(self, show_x: bool = True, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        self._x_visible = show_x
-
         btn_grid = QGridLayout(self)
         btn_grid.setContentsMargins(0, 0, 0, 0)
         btn_grid.setSpacing(2)
@@ -161,7 +159,50 @@ class StageMovementButtons(QWidget):
         return float(mag * self.step_size.value())
 
 
-class StageWidget(QWidget):
+class _WheelPollStageWidget(QWidget):
+    """Stage control that can poll positions and moves Z with the mouse wheel."""
+
+    _poll_timer_id: int | None
+
+    def _step_boxes(self) -> tuple[QWidget, ...]:
+        raise NotImplementedError
+
+    def _move_by_wheel(self, event: QWheelEvent) -> bool:
+        raise NotImplementedError
+
+    @Slot(bool)
+    def _toggle_poll_timer(self, on: bool) -> None:
+        if on:
+            if self._poll_timer_id is None:
+                self._poll_timer_id = self.startTimer(500)
+        else:
+            if self._poll_timer_id is not None:
+                self.killTimer(self._poll_timer_id)
+                self._poll_timer_id = None
+
+    def eventFilter(self, obj: QObject | None, event: QEvent | None) -> bool:
+        if (
+            isinstance(event, QWheelEvent)
+            and not self._is_step_box(obj)
+            and self._move_by_wheel(event)
+        ):
+            return True
+        return super().eventFilter(obj, event)  # type: ignore [no-any-return]
+
+    def wheelEvent(self, event: QWheelEvent | None) -> None:
+        if event is None or not self._move_by_wheel(event):
+            super().wheelEvent(event)
+
+    def _is_step_box(self, obj: QObject | None) -> bool:
+        # scrolling over a step spinbox should change that step value itself,
+        # not move the stage
+        boxes = self._step_boxes()
+        return obj in boxes or (
+            isinstance(obj, QWidget) and any(box.isAncestorOf(obj) for box in boxes)
+        )
+
+
+class StageWidget(_WheelPollStageWidget):
     """A Widget to control a XY and/or a Z stage.
 
     Parameters
@@ -339,40 +380,13 @@ class StageWidget(QWidget):
         else:
             self._enable_wdg(False)
 
-    @Slot(bool)
-    def _toggle_poll_timer(self, on: bool) -> None:
-        if on:
-            if self._poll_timer_id is None:
-                self._poll_timer_id = self.startTimer(500)
-        else:
-            if self._poll_timer_id is not None:
-                self.killTimer(self._poll_timer_id)
-                self._poll_timer_id = None
-
     def timerEvent(self, event: QTimerEvent | None) -> None:
         if event and event.timerId() == self._poll_timer_id:
             self._update_position_from_core()
         super().timerEvent(event)
 
-    def eventFilter(self, obj: QObject | None, event: QEvent | None) -> bool:
-        if (
-            isinstance(event, QWheelEvent)
-            and not self._is_step_box(obj)
-            and self._move_by_wheel(event)
-        ):
-            return True
-        return super().eventFilter(obj, event)  # type: ignore [no-any-return]
-
-    def wheelEvent(self, event: QWheelEvent | None) -> None:
-        if event is None or not self._move_by_wheel(event):
-            super().wheelEvent(event)
-
-    def _is_step_box(self, obj: QObject | None) -> bool:
-        # scrolling over the step spinbox should change the step value itself,
-        # not move the stage
-        return obj is self._step or (
-            isinstance(obj, QWidget) and self._step.isAncestorOf(obj)
-        )
+    def _step_boxes(self) -> tuple[QWidget, ...]:
+        return (self._step,)
 
     def _move_by_wheel(self, event: QWheelEvent) -> bool:
         """Move a single-axis (Z) stage via mouse-wheel scrolling."""

@@ -38,7 +38,6 @@ class RolesPage(ConfigWizardPage):
         self.auto_shutter_checkbox = QCheckBox()
         self.auto_shutter_checkbox.stateChanged.connect(self._on_auto_shutter_changed)
 
-        # focus direction combos, keyed by stage device name
         self._focus_dir_combos: dict[str, QComboBox] = {}
 
         layout = QVBoxLayout(self)
@@ -53,7 +52,6 @@ class RolesPage(ConfigWizardPage):
         roles_form.addRow("Use auto-shutter", self.auto_shutter_checkbox)
         layout.addLayout(roles_form)
 
-        # focus direction section
         self._focus_dir_group = QGroupBox("Stage Focus Directions")
         self._focus_dir_layout = QFormLayout()
         self._focus_dir_layout.setFieldGrowthPolicy(
@@ -116,7 +114,6 @@ class RolesPage(ConfigWizardPage):
         if stages and not self.focus_combo.currentText():
             self.focus_combo.setCurrentText(stages[0])
 
-        # rebuild focus direction combos for all stage devices
         self._rebuild_focus_directions()
 
         super().initializePage()
@@ -138,7 +135,6 @@ class RolesPage(ConfigWizardPage):
 
     def _rebuild_focus_directions(self) -> None:
         """Rebuild the focus direction combo boxes for all stage devices."""
-        # clear existing combos
         self._focus_dir_combos.clear()
         while self._focus_dir_layout.rowCount():
             self._focus_dir_layout.removeRow(0)
@@ -149,12 +145,7 @@ class RolesPage(ConfigWizardPage):
         for dev in stage_devices:
             combo = QComboBox()
             combo.addItems(_FOCUS_DIR_OPTIONS)
-            # read current direction from model
-            try:
-                idx = _FOCUS_DIR_VALUES.index(dev.focus_direction)
-            except ValueError:  # pragma: no cover
-                idx = 0
-            combo.setCurrentIndex(idx)
+            combo.setCurrentIndex(_FOCUS_DIR_VALUES.index(dev.focus_direction))
             combo.currentIndexChanged.connect(
                 lambda index, d=dev: self._on_focus_direction_changed(d.name, index)
             )

@@ -191,10 +191,6 @@ class MDATabs(CheckableTabWidget):
     """Checkable QTabWidget for editing a useq.MDASequence.
 
     It contains a Tab for each of the MDASequence, axis (channels, positions, etc...).
-    Each tab shows a checkbox and icon on top and its name below (see `_add_tab`,
-    `_AxisTabButton`), rather than the default side-by-side checkbox/text. Grid and
-    Z Stack are each wrapped in a bordered card; the table editors
-    (channels/positions/time) already carry their own frame.
     """
 
     time_plan: TimePlanWidget
@@ -257,7 +253,7 @@ class MDATabs(CheckableTabWidget):
         title: str,
         icon_key: str,
         *,
-        checked: bool | None,
+        checked: bool,
         card: bool = False,
     ) -> int:
         """Add a tab with an icon-on-top / title-below button widget.
@@ -266,8 +262,7 @@ class MDATabs(CheckableTabWidget):
         so no editor sits flush against the tab's edges; ``card=True`` puts a
         bordered card inside a scroll area in between. ``widget`` is stored in
         ``_page_for`` either way, so all other methods address the real widget
-        rather than whichever container it ended up in. ``checked=None`` gives
-        the tab no checkbox.
+        rather than whichever container it ended up in.
         """
         icon = QIconifyIcon(MDA_ICONS[icon_key])
         index = int(self.count())
@@ -297,13 +292,12 @@ class MDATabs(CheckableTabWidget):
         QTabWidget.addTab(self, page, "")
 
         btn = _AxisTabButton(title, icon, checked=checked)
-        if checked is not None:
-            # _AxisTabButton implements the checkbox API used by the base class.
-            self._cboxes.append(cast("QCheckBox", btn))
-            # A disabled page would override later enablement of its editor.
-            btn.toggled.connect(lambda c, w=widget: self._on_tab_checkbox_toggled(c, w))
-            if not checked:
-                widget.setEnabled(False)
+        # _AxisTabButton implements the checkbox API used by the base class.
+        self._cboxes.append(cast("QCheckBox", btn))
+        # A disabled page would override later enablement of its editor.
+        btn.toggled.connect(lambda c, w=widget: self._on_tab_checkbox_toggled(c, w))
+        if not checked:
+            widget.setEnabled(False)
         if tab_bar := self.tabBar():
             tab_bar.setTabButton(index, QTabBar.ButtonPosition.LeftSide, btn)
             tab_bar.setTabToolTip(index, title)
@@ -312,9 +306,8 @@ class MDATabs(CheckableTabWidget):
 
     def indexOf(self, widget: QWidget | None) -> int:
         """Return the tab index for ``widget``, resolving through its page."""
-        if widget is not None and widget in self._page_for:
-            widget = self._page_for[widget]
-        return int(QTabWidget.indexOf(self, widget))
+        page = self._page_for.get(widget, widget) if widget is not None else None
+        return int(QTabWidget.indexOf(self, page))
 
     def setCurrentWidget(self, widget: QWidget | None) -> None:
         """Select the tab for ``widget``, resolving through its page."""
@@ -510,12 +503,8 @@ class AutofocusAxis(QGroupBox):
         self._mode_label.setToolTip(AF_MODE_TOOLTIP)
         self.use_hardware = QRadioButton("Hardware")
         self.use_hardware.setChecked(True)
-        self.use_hardware.setToolTip(AF_HARDWARE_TOOLTIP)
         self.use_software = QRadioButton("Software")
-        self.use_software.setEnabled(False)
-        self.use_software.setToolTip(AF_NO_SOFTWARE_TOOLTIP)
         self._kind_group = QButtonGroup(self)
-        self._kind_group.setExclusive(True)
         self._kind_group.addButton(self.use_hardware)
         self._kind_group.addButton(self.use_software)
 
@@ -523,17 +512,14 @@ class AutofocusAxis(QGroupBox):
         self._search_label = QLabel("Search:")
         self._search_label.setToolTip(AF_SEARCH_TOOLTIP)
         # all zero: autofocus is only attempted where it starts, until asked for more
-        self.search_below_um = self._search_spin("below ", 0.0, AF_SEARCH_BELOW_TOOLTIP)
-        self.search_above_um = self._search_spin("above ", 0.0, AF_SEARCH_ABOVE_TOOLTIP)
-        self.search_step_um = self._search_spin("step ", 0.0, AF_SEARCH_STEP_TOOLTIP)
+        self.search_below_um = self._search_spin("below ", AF_SEARCH_BELOW_TOOLTIP)
+        self.search_above_um = self._search_spin("above ", AF_SEARCH_ABOVE_TOOLTIP)
+        self.search_step_um = self._search_spin("step ", AF_SEARCH_STEP_TOOLTIP)
 
         # --- software only: which routine, and its settings ---
         self._method_label = QLabel("Method:")
-        self._method_label.setToolTip(AF_METHOD_TOOLTIP)
         self.method = QComboBox()
-        self.method.setToolTip(AF_METHOD_TOOLTIP)
         self.settings_button = _settings_button(AF_SETTINGS_TOOLTIP)
-        self.settings_button.setEnabled(False)
         # each method keeps its own settings, so switching back and forth does not
         # discard what was configured
         self._method_models: dict[str, type] = {}
@@ -549,47 +535,27 @@ class AutofocusAxis(QGroupBox):
 
         # --- software only: skipping time points, since each run costs many images ---
         self._every_n_label = QLabel("Run every:")
-        self._every_n_label.setToolTip(AF_EVERY_N_TOOLTIP)
         self.every_n_timepoints = QSpinBox()
         self.every_n_timepoints.setRange(1, 10000)
         self.every_n_timepoints.setValue(1)
         self.every_n_timepoints.setSuffix(" timepoint(s)")
-        self.every_n_timepoints.setToolTip(AF_EVERY_N_TOOLTIP)
         disable_wheel_scroll(self.every_n_timepoints)
 
         # Preserve plan fields this widget cannot edit, such as offsets and retries.
         self._hardware_plan: useq.AxesBasedAF | None = None
         self._software_plan: useq.SoftwareAxesBasedAF | None = None
 
-        axis_row = QHBoxLayout()
-        axis_row.setSpacing(10)
-        axis_row.setContentsMargins(0, 0, 0, 0)
-        axis_row.addWidget(self.label)
-        axis_row.addWidget(self.use_af_p)
-        axis_row.addWidget(self.use_af_t)
-        axis_row.addWidget(self.use_af_g)
-        axis_row.addStretch()
-
-        mode_row = QHBoxLayout()
-        mode_row.setSpacing(10)
-        mode_row.setContentsMargins(0, 0, 0, 0)
-        mode_row.addWidget(self._mode_label)
-        mode_row.addWidget(self.use_hardware)
-        mode_row.addWidget(self.use_software)
-        mode_row.addStretch()
-
-        search_row = QHBoxLayout()
-        search_row.setSpacing(10)
-        search_row.setContentsMargins(0, 0, 0, 0)
-        search_row.addWidget(self._search_label)
-        search_row.addWidget(self.search_below_um)
-        search_row.addWidget(self.search_above_um)
-        search_row.addWidget(self.search_step_um)
-        search_row.addStretch()
+        axis_row = _row(self.label, self.use_af_p, self.use_af_t, self.use_af_g)
+        mode_row = _row(self._mode_label, self.use_hardware, self.use_software)
+        search_row = _row(
+            self._search_label,
+            self.search_below_um,
+            self.search_above_um,
+            self.search_step_um,
+        )
 
         software_row = QHBoxLayout()
         software_row.setSpacing(10)
-        software_row.setContentsMargins(0, 0, 0, 0)
         software_row.addWidget(self._method_label)
         software_row.addWidget(self.method, 1)
         software_row.addWidget(self.settings_button)
@@ -604,12 +570,14 @@ class AutofocusAxis(QGroupBox):
         layout.addLayout(search_row)
         layout.addLayout(software_row)
 
-        self.toggled.connect(self._on_enabled_toggled)
+        self.toggled.connect(self._on_af_state_changed)
         self.use_af_p.toggled.connect(self.valueChanged)
-        self.use_af_t.toggled.connect(self._on_t_axis_toggled)
+        self.use_af_t.toggled.connect(self._on_af_state_changed)
         self.use_af_g.toggled.connect(self.valueChanged)
         self.every_n_timepoints.valueChanged.connect(self.valueChanged)
-        self.use_hardware.toggled.connect(self._on_kind_toggled)
+        # one connection is enough: the two radios are exclusive, so any change
+        # toggles `use_hardware`
+        self.use_hardware.toggled.connect(self._on_af_state_changed)
         self.search_below_um.valueChanged.connect(self._on_search_range_changed)
         self.search_above_um.valueChanged.connect(self._on_search_range_changed)
         self.search_step_um.valueChanged.connect(self.valueChanged)
@@ -630,12 +598,11 @@ class AutofocusAxis(QGroupBox):
         self._update_kind_widgets()
         self.setSoftwareMethods(*_installed_software_methods())
 
-    def _search_spin(self, prefix: str, default: float, tooltip: str) -> QDoubleSpinBox:
+    def _search_spin(self, prefix: str, tooltip: str) -> QDoubleSpinBox:
         spin = QDoubleSpinBox()
         spin.setRange(0.0, 10000.0)
         spin.setDecimals(1)
         spin.setSingleStep(1.0)
-        spin.setValue(default)
         spin.setPrefix(prefix)
         spin.setSuffix(" \u00b5m")
         spin.setToolTip(tooltip)
@@ -708,7 +675,6 @@ class AutofocusAxis(QGroupBox):
                     self.method.setItemData(i, doc, Qt.ItemDataRole.ToolTipRole)
             if current in names:
                 self.method.setCurrentText(current)
-        self._update_settings_button()
         self._update_method_tooltip()
         self._update_kind_widgets()
 
@@ -768,12 +734,8 @@ class AutofocusAxis(QGroupBox):
         """The settings for the selected routine."""
         return dict(self._method_settings.get(self.softwareMethod(), {}))
 
-    def _update_settings_button(self) -> None:
-        """A routine with no known settings model has nothing to edit."""
-        self.settings_button.setEnabled(self.softwareMethod() in self._method_models)
-
     def _on_method_changed(self) -> None:
-        self._update_settings_button()
+        self._update_kind_widgets()
         self._update_method_tooltip()
         self.valueChanged.emit()
 
@@ -795,19 +757,9 @@ class AutofocusAxis(QGroupBox):
             self._method_settings[method] = dialog.value()
             self.valueChanged.emit()
 
-    def _on_enabled_toggled(self) -> None:
+    def _on_af_state_changed(self) -> None:
         # Qt re-enables the children, but each mode's own controls carry an enabled
         # state of their own that has to be reapplied on top of that
-        self._update_kind_widgets()
-        self.valueChanged.emit()
-
-    def _on_t_axis_toggled(self) -> None:
-        self._update_kind_widgets()
-        self.valueChanged.emit()
-
-    def _on_kind_toggled(self) -> None:
-        # one connection is enough: the two radios are exclusive, so any change
-        # toggles `use_hardware`
         self._update_kind_widgets()
         self.valueChanged.emit()
 
@@ -930,7 +882,6 @@ class AutofocusAxis(QGroupBox):
                         self.method.addItem(plan.method)
                     self.method.setCurrentText(plan.method)
                     self._method_settings[plan.method] = dict(plan.settings)
-                    self._update_settings_button()
                 self.setKind("software")
             else:
                 self._hardware_plan = plan
@@ -940,20 +891,30 @@ class AutofocusAxis(QGroupBox):
                 self.setKind("hardware")
 
 
+def _row(*widgets: QWidget) -> QHBoxLayout:
+    """Return a row of `widgets` packed to the left."""
+    row = QHBoxLayout()
+    row.setSpacing(10)
+    for widget in widgets:
+        row.addWidget(widget)
+    row.addStretch()
+    return row
+
+
 class KeepShutterOpen(QWidget):
     valueChanged = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        self.label = QLabel("Keep Shutter Open Across Axis:")
+        lbl = QLabel("Keep Shutter Open Across Axis:")
         self.leave_open_t = QCheckBox("t")
         self.leave_open_z = QCheckBox("z")
 
         layout = QHBoxLayout(self)
         layout.setSpacing(10)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.label)
+        layout.addWidget(lbl)
         layout.addWidget(self.leave_open_z)
         layout.addWidget(self.leave_open_t)
         layout.addStretch()
@@ -983,12 +944,6 @@ class MDASequenceWidget(QWidget):
 
     This widget requires no connection to a microscope or core instance.  It strictly
     deals with loading and creating `useq-schema` [`useq.MDASequence`][] objects.
-
-    The acquisition axes are laid out as checkable tabs (checkbox and icon on top,
-    name below; see `MDATabs`). Settings (axis order, keep shutter open) and
-    Autofocus each get a card between the tabs and the footer, staying visible
-    whichever tab is showing. The footer holds the time estimate and the Save/Load
-    Settings buttons.
     """
 
     valueChanged = Signal()
@@ -1037,7 +992,6 @@ class MDASequenceWidget(QWidget):
 
         # -------------- Main Layout --------------
 
-        self._axis_order_label = QLabel("Axis Order:")
         self.keep_shutter_open = KeepShutterOpen()
         self.af_axis = AutofocusAxis()
 
@@ -1048,33 +1002,23 @@ class MDASequenceWidget(QWidget):
         settings_layout = QVBoxLayout(settings_widget)
         settings_layout.setContentsMargins(5, 5, 5, 5)
         settings_layout.setSpacing(5)
-        axis_row = QWidget()
-        axis_layout = QHBoxLayout(axis_row)
-        axis_layout.setContentsMargins(0, 0, 0, 0)
-        axis_layout.addWidget(self._axis_order_label)
+        axis_layout = QHBoxLayout()
+        axis_layout.addWidget(QLabel("Axis Order:"))
         self.axis_order.setMaximumWidth(100)
         axis_layout.addWidget(self.axis_order)
         axis_layout.addStretch()
-        settings_layout.addWidget(axis_row)
+        settings_layout.addLayout(axis_layout)
         settings_layout.addWidget(self.keep_shutter_open)
         self._settings_box = _wrap_in_card(settings_widget)
         # Autofocus gets a card of its own below: it has more controls than the
         # settings above it, and which ones apply depends on the kind selected.
-        af_widget = QWidget()
-        af_layout = QVBoxLayout(af_widget)
-        # same inner inset as the settings card above, so the two line up
-        af_layout.setContentsMargins(5, 5, 5, 5)
-        af_layout.setSpacing(5)
-        af_layout.addWidget(self.af_axis)
-        self._af_box = _wrap_in_card(af_widget)
+        # same total inset as the settings card above, so the two line up
+        self._af_box = _wrap_in_card(self.af_axis, margin=10)
 
-        self._settings_row = settings_row = QHBoxLayout()
-        settings_col = QVBoxLayout()
-        settings_col.setContentsMargins(0, 0, 0, 0)
-        settings_col.setSpacing(5)
-        settings_col.addWidget(self._settings_box)
-        settings_col.addWidget(self._af_box)
-        settings_row.addLayout(settings_col)
+        self._settings_row = settings_row = QVBoxLayout()
+        settings_row.setSpacing(5)
+        settings_row.addWidget(self._settings_box)
+        settings_row.addWidget(self._af_box)
 
         footer = QFrame()
         footer.setObjectName("mdaExecutionFooter")
@@ -1392,13 +1336,16 @@ class MDASequenceWidget(QWidget):
             self.af_axis.setChecked(True)
             self.af_axis.use_af_p.setChecked(True)
 
-    def _on_af_kind_toggled(self) -> None:
-        """Per-position offsets only apply to hardware autofocus."""
-        absolute_z = (
+    def _uses_absolute_z(self) -> bool:
+        """Return whether an absolute (top-bottom) z plan is selected."""
+        return bool(
             self.tab_wdg.isChecked(self.z_plan)
             and self.z_plan.mode() == Mode.TOP_BOTTOM
         )
-        self._enable_af_per_position(not absolute_z)
+
+    def _on_af_kind_toggled(self) -> None:
+        """Per-position offsets only apply to hardware autofocus."""
+        self._enable_af_per_position(not self._uses_absolute_z())
 
     def _update_available_axis_orders(self) -> None:
         """Handle tabChecked signal.

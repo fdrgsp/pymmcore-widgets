@@ -18,6 +18,7 @@ module can be replaced by putting the `PropertyTuple` directly on the channel.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import TYPE_CHECKING, TypedDict
 
 import useq
@@ -76,17 +77,11 @@ class ChannelPropertiesSequence(useq.MDASequence):
     """
 
     def iter_events(self) -> Iterator[useq.MDAEvent]:
-        from collections import defaultdict
-
         props: dict[int, list[useq.PropertyTuple]] = defaultdict(list)
         for entry in channel_properties(self):
             props[entry["channel_index"]].append(
                 useq.PropertyTuple(entry["device"], entry["property"], entry["value"])
             )
-        if not props:
-            yield from super().iter_events()
-            return
-
         for event in super().iter_events():
             c_idx = event.index.get(Axis.CHANNEL)
             if c_idx is not None and (prop_list := props.get(c_idx)):

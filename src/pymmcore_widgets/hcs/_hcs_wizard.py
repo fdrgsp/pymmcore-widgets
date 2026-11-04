@@ -147,10 +147,12 @@ class HCSWizard(QWizard):
         pp_widget.setWellSize(well_width, well_height)
 
         # set the well shape (circular/rectangular) to match the plate's wells
-        is_circular = plate_plan.plate.circular_wells
-        pp_widget.setWellShape(
-            useq.Shape.ELLIPSE if is_circular else useq.Shape.RECTANGLE
+        shape = (
+            useq.Shape.ELLIPSE
+            if plate_plan.plate.circular_wells
+            else useq.Shape.RECTANGLE
         )
+        pp_widget.setWellShape(shape)
 
         # additionally, restrict the max width and height of the random points widget
         # to the plate size minus the fov size.
@@ -162,14 +164,12 @@ class HCSWizard(QWizard):
         # clobber a shape the user picked manually while just selecting wells)
         random_wdg = pp_widget.random_points_wdg
         if plate_changed:
-            random_wdg.shape.setCurrentText(
-                useq.Shape.ELLIPSE.value if is_circular else useq.Shape.RECTANGLE.value
-            )
+            random_wdg.shape.setCurrentText(shape.value)
 
         # if the random points shape is a rectangle, but the wells are circular,
         # reduce the max width and height by 1.4 to keep the points inside the wells
         if random_wdg.shape.currentText() == useq.Shape.RECTANGLE.value:
-            if is_circular:
+            if plate_plan.plate.circular_wells:
                 well_width /= 1.4
                 well_height /= 1.4
 

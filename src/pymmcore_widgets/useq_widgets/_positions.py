@@ -54,42 +54,24 @@ class _MDAPopup(QDialog):
         value: useq.MDASequence | None = None,
         parent: QWidget | None = None,
     ) -> None:
+        from pymmcore_widgets.mda._core_tabs import CoreMDATabs
+
         from ._mda_sequence import MDATabs
 
         super().__init__(parent)
         self.setWindowTitle("Grid Plan")
 
-        # Find the enclosing main MDA tab widget, if any, so the grid editor
-        # matches its type (e.g. a core-connected grid with live stage bounds).
-        main_tabs: MDATabs | None = None
+        # make the same type of MDA tab widget that we are currently inside of (if
+        # possible), but a core-connected one may be a subclass with a different
+        # presentation (e.g. CollapsibleCoreMDATabs): every axis but the grid is
+        # removed below, so there is nothing left for it to organize.
+        tab_type: type[MDATabs] = MDATabs
         wdg = self.parent()
         while wdg is not None:
             if isinstance(wdg, MDATabs):
-                main_tabs = wdg
+                tab_type = CoreMDATabs if isinstance(wdg, CoreMDATabs) else type(wdg)
                 break
             wdg = wdg.parent()
-
-        # Create a new MDA tab widget of the same type as the main one (if
-        # any), except a core-connected one, which may be a subclass with a
-        # different presentation (e.g. CollapsibleCoreMDATabs, used by
-        # MDAWidgetCollapsible): every axis but the grid is removed below, so
-        # there is nothing left for it to organize. Fall back to the plain,
-        # still core-connected CoreMDATabs instead.
-        try:
-            from pymmcore_widgets.mda._core_tabs import CoreMDATabs
-        except ImportError:  # pragma: no cover
-            CoreMDATabs = None  # type: ignore[assignment,misc]
-
-        if (
-            main_tabs is not None
-            and CoreMDATabs is not None
-            and isinstance(main_tabs, CoreMDATabs)
-        ):
-            tab_type: type[MDATabs] = CoreMDATabs
-        elif main_tabs is not None:
-            tab_type = type(main_tabs)
-        else:
-            tab_type = MDATabs
         self.mda_tabs = tab_type(self)
 
         # set the value if provided
@@ -108,9 +90,6 @@ class _MDAPopup(QDialog):
             self.mda_tabs.time_plan,
         ):
             self.mda_tabs.removeTab(self.mda_tabs.indexOf(axis_widget))
-        # Leave the grid checkbox as restored by setValue above: unchecked
-        # (and the editor disabled) unless the incoming value already had a
-        # grid plan, matching how every other axis checkbox behaves.
 
         # Bring the grid editor into view -- it's the only thing left to edit.
         self.mda_tabs.setCurrentIndex(self.mda_tabs.indexOf(self.mda_tabs.grid_plan))
@@ -249,16 +228,22 @@ class SubSeqColumn(WidgetColumn):
         grid_line = int(table.showGrid())
         wdg.seq_btn.setFixedWidth(wdg.seq_btn.sizeHint().width() - grid_line)
         wdg.valueChanged.connect(lambda: self.fitWidth(table))
-        self.fitWidth(table)
+        # later rows start with clear_btn hidden, so they cannot change the width
+        if row == 0:
+            self.fitWidth(table)
 
     def fitWidth(self, table: QTableWidget) -> None:
         """Fit the column to seq_btn, widening it only if a row shows clear_btn."""
         col = cast("DataTable", table).indexOf(self)
+        if (first := table.cellWidget(0, col)) is None:
+            return
         wdgs = (table.cellWidget(row, col) for row in range(table.rowCount()))
-        btns = [cast("MDAButton", wdg) for wdg in wdgs if wdg is not None]
-        if btns:
-            show_clear = any(not btn.clear_btn.isHidden() for btn in btns)
-            table.setColumnWidth(col, btns[0].fitWidth(show_clear))
+        show_clear = any(
+            not cast("MDAButton", wdg).clear_btn.isHidden()
+            for wdg in wdgs
+            if wdg is not None
+        )
+        table.setColumnWidth(col, cast("MDAButton", first).fitWidth(show_clear))
 
 
 class PositionTable(DataTableWidget):
@@ -513,8 +498,7 @@ class PositionTable(DataTableWidget):
                     if has_abs
                     else ""
                 )
-                xy = _grid_first_point(seq) if has_abs else None
-                self._set_row_xy_enabled(row, not has_abs, tip, xy)
+                self._set_row_xy_enabled(row, not has_abs, tip, _grid_first_point(seq))
                 break
 
     def _set_row_xy_enabled(

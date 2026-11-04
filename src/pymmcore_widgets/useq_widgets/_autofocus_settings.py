@@ -11,14 +11,7 @@ import dataclasses
 import enum
 import types
 from collections.abc import Callable, Mapping, Sequence
-from typing import (
-    Any,
-    Literal,
-    Union,
-    get_args,
-    get_origin,
-    get_type_hints,
-)
+from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
 from qtpy.QtCore import QSize, Qt, Signal
 from qtpy.QtWidgets import (

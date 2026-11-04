@@ -59,7 +59,6 @@ class CoreConnectedPositionTable(PositionTable):
         mmcore: CMMCorePlus | None = None,
         parent: QWidget | None = None,
     ):
-        self._skip_move_to_selection = False
         # must come before __init__ since it is used in super()._on_use_af_toggled
         self._af_btn_col = ButtonColumn(
             key="af_btn", glyph="mdi:arrow-left", on_click=self._set_af_from_core
@@ -240,47 +239,42 @@ class CoreConnectedPositionTable(PositionTable):
         dialog.setDefaultButton(QMessageBox.StandardButton.No)
         if dialog.exec() == QMessageBox.StandardButton.Yes:
             self._plate_plan = None
-            self._set_position_table_editable(True)
+            with self.table().batchUpdate():
+                self._set_position_table_editable(True)
             self.valueChanged.emit()
 
     def _set_position_table_editable(self, state: bool) -> None:
         """Enable/disable the position table depending on the use of the HCS wizard."""
+        self._edit_hcs_pos.setVisible(not state)
+        self.include_z.setVisible(state)
+        self.af_per_position.setVisible(state)
+
+        # Hide or show all columns that are irrelevant when using the HCS wizard
         table = self.table()
-        with table.batchUpdate():
-            self._edit_hcs_pos.setVisible(not state)
-            self.include_z.setVisible(state)
-            self.af_per_position.setVisible(state)
+        inc_z = self.include_z.isChecked()
+        table.setColumnHidden(table.indexOf(self._xy_btn_col), not state)
+        table.setColumnHidden(table.indexOf(self._z_btn_col), not state or not inc_z)
+        table.setColumnHidden(table.indexOf(self.Z), not state or not inc_z)
+        table.setColumnHidden(table.indexOf(self.SEQ), not state)
 
-            # Hide or show all columns that are irrelevant when using the HCS wizard
-            inc_z = self.include_z.isChecked()
-            table.setColumnHidden(table.indexOf(self._xy_btn_col), not state)
-            table.setColumnHidden(
-                table.indexOf(self._z_btn_col), not state or not inc_z
-            )
-            table.setColumnHidden(table.indexOf(self.Z), not state or not inc_z)
-            table.setColumnHidden(table.indexOf(self.SEQ), not state)
+        # Enable or disable the toolbar
+        for action in self.toolBar().actions()[1:]:
+            action.setEnabled(state)
 
-            # Enable or disable the toolbar
-            for action in self.toolBar().actions()[1:]:
-                action.setEnabled(state)
-
-            self._enable_table_items(state)
-            # connect/disconnect the double click event and rename the button
-            if state:
-                self._rename_hcs_position_button(ADD_POSITIONS)
-                with suppress(RuntimeError):
-                    self.table().cellDoubleClicked.disconnect(
-                        self._show_pos_editing_dialog
-                    )
-            else:
-                self._rename_hcs_position_button(UPDATE_POSITIONS)
-                # using UniqueConnection to avoid multiple connections
-                # but catching the TypeError if the connection is already made
-                with suppress(TypeError, RuntimeError):
-                    self.table().cellDoubleClicked.connect(
-                        self._show_pos_editing_dialog,
-                        Qt.ConnectionType.UniqueConnection,
-                    )
+        self._enable_table_items(state)
+        # connect/disconnect the double click event and rename the button
+        if state:
+            self._rename_hcs_position_button(ADD_POSITIONS)
+            with suppress(RuntimeError):
+                self.table().cellDoubleClicked.disconnect(self._show_pos_editing_dialog)
+        else:
+            self._rename_hcs_position_button(UPDATE_POSITIONS)
+            # using UniqueConnection to avoid multiple connections
+            # but catching the TypeError if the connection is already made
+            with suppress(TypeError, RuntimeError):
+                self.table().cellDoubleClicked.connect(
+                    self._show_pos_editing_dialog, Qt.ConnectionType.UniqueConnection
+                )
 
     def _enable_table_items(self, state: bool) -> None:
         """Enable or disable the table items depending on the use of the HCS wizard."""
@@ -412,8 +406,6 @@ class CoreConnectedPositionTable(PositionTable):
     @Slot()
     def _on_selection_change(self) -> None:
         if not self.move_to_selection.isChecked():
-            return
-        if self._skip_move_to_selection:
             return
         # Do not trigger a stage move when the selection change was caused by
         # clicking one of the 'set from core' button columns.  When a mouse

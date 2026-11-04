@@ -20,7 +20,7 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
-from pymmcore_widgets._util import GREEN, use_combo_row_height
+from pymmcore_widgets._util import GREEN, YELLOW, use_combo_row_height
 
 from ._util import find_circle_center, find_rectangle_center
 
@@ -37,7 +37,6 @@ FOUR = QIcon(str(ICON_PATH / "square-edges.svg"))
 NON_CALIBRATED_ICON = "mdi:circle"
 CALIBRATED_ICON = "mdi:check-circle"
 ICON_SIZE = QSize(30, 30)
-YELLOW = "#ffff00"
 
 
 class Mode(NamedTuple):

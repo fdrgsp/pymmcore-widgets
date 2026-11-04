@@ -416,3 +416,34 @@ def test_collinear_nonzero_fixed_index_extrapolation(
     assert math.isclose(spacing[0], 3.0, rel_tol=1e-4)
     assert math.isclose(spacing[1], 3.0, rel_tol=1e-4)
     assert rotation == 0.0
+
+
+@pytest.mark.parametrize("rotation", [-5.0, 5.0])
+@pytest.mark.parametrize(
+    "indices",
+    [
+        ((2, 0), (2, 1), (2, 2)),
+        ((0, 1), (1, 1), (2, 1)),
+        ((0, 0), (1, 0), (0, 1)),
+    ],
+    ids=["row", "column", "affine"],
+)
+def test_rotated_plate_calibration_recovers_plan(qtbot, rotation, indices) -> None:
+    """Measured well centers must reconstruct the plan that generated them."""
+    plate = useq.WellPlate(rows=4, columns=4, well_size=(2, 2), well_spacing=(3, 4))
+    plan = useq.WellPlatePlan(plate=plate, a1_center_xy=(120, -350), rotation=rotation)
+    widget = PlateCalibrationWidget()
+    qtbot.addWidget(widget)
+    widget.setValue(plate)
+    widget._calibrated_wells = {
+        (position.plate_row, position.plate_col): (position.x, position.y)
+        for position in plan.all_well_positions
+        if (position.plate_row, position.plate_col) in indices
+    }
+
+    result = widget._origin_spacing_rotation()
+    assert result is not None
+    origin, spacing, fitted_rotation = result
+    assert origin == pytest.approx(plan.a1_center_xy, abs=1e-4)
+    assert spacing == pytest.approx(plate.well_spacing)
+    assert fitted_rotation == pytest.approx(rotation)

@@ -485,63 +485,35 @@ class DevicesPage(ConfigWizardPage):
 
         # --- Load phase  ---
         # Load all devices into core without initializing so we can query
-        # their real device types.  Also load any assigned COM ports that
-        # are not already in the device list (matching Java's loading of
-        # all available serial ports).
-        loaded: set[str] = set()
+        # their real device types.
+        loaded: list[Device] = []
         for device in self._model.devices:
             if device.device_type == DeviceType.Core:
                 continue
             try:
                 device.load(self._core, reload=True)
-                loaded.add(device.name)
+                loaded.append(device)
             except Exception as e:
                 err[device.name] = str(e)
 
-        # Set parent labels (requires all devices to be loaded)
-        for device in self._model.devices:
-            if device.name not in loaded:
-                continue
+        # Set parent labels (requires all devices to be loaded), and read actual
+        # device types from core: config-file parsing leaves most as DeviceType.Any.
+        for device in loaded:
             if device.parent_label:
                 try:
                     self._core.setParentLabel(device.name, device.parent_label)
                 except Exception:
                     pass
-
-        # Read actual device types from core so we can categorise correctly.
-        # Config-file parsing leaves most devices as DeviceType.Any.
-        for device in self._model.devices:
-            if device.name not in loaded:
-                continue
             try:
                 device.device_type = self._core.getDeviceType(device.name)
             except Exception:
                 pass
 
-        # --- Categorise phase ---
-        serial_devs: list[Device] = []
-        hub_devs: list[Device] = []
-        other_devs: list[Device] = []
-
-        for device in self._model.devices:
-            if device.device_type == DeviceType.Core or device.name not in loaded:
-                continue
-            if device.device_type == DeviceType.Serial:
-                serial_devs.append(device)
-            elif device.device_type == DeviceType.Hub:
-                hub_devs.append(device)
-            else:
-                other_devs.append(device)
-
         # Serial ports and hubs must be initialized before their dependents.
-        for device in (*serial_devs, *hub_devs, *other_devs):
+        order = {DeviceType.Serial: 0, DeviceType.Hub: 1}
+        for device in sorted(loaded, key=lambda d: order.get(d.device_type, 2)):
             try:
-                for prop in device.properties:
-                    if prop.is_pre_init:
-                        prop.apply_to_core(self._core, then_update=False)
-                self._core.initializeDevice(device.name)
-                device.initialized = True
-                device.apply_to_core(self._core)
+                device.initialize(self._core, apply_pre_init=True)
             except Exception as e:
                 err[device.name] = str(e)
             if device.device_type == DeviceType.Hub:

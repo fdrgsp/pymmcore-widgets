@@ -41,15 +41,10 @@ FULL_RELEASES = platform.system() == "Windows" or (
 )
 """Whether complete Micro-Manager nightly builds are published for this platform."""
 
-CAN_INSTALL = FULL_RELEASES or platform.system() in ("Darwin", "Linux", "Windows")
+CAN_INSTALL = platform.system() in ("Darwin", "Linux", "Windows")
 """Whether ``mmcore install`` can install anything at all here.
 
-Where no nightly build is published -- Apple Silicon and Linux --
-``pymmcore_plus.install.install()`` falls back to the mm-test-adapters bundle
-(Demo, Utilities, SequenceTester, NotificationTester), which *is* built for
-macOS-ARM64, macOS-X64, Linux-X64 and Windows-X64. Installing there is how
-those users get a working demo configuration, so the install row belongs on
-screen; only the choice of releases differs (see :func:`_available_releases`).
+Where no nightly build is published, it falls back to the mm-test-adapters bundle.
 """
 
 LOC_ROLE = Qt.ItemDataRole.UserRole + 1

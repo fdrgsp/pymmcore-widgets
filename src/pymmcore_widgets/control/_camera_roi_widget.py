@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import ExitStack, suppress
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict
+from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict, cast
 
 from pymmcore_plus import CMMCorePlus, DeviceType
 from qtpy.QtCore import QSize, Qt, QTimer, Signal, Slot
@@ -106,7 +106,6 @@ class CameraRoiWidget(QWidget):
 
         self._mmc = mmcore or CMMCorePlus.instance()
         self._show_auto_snap = show_auto_snap
-        self._live_restart_pending = False
 
         # this is use to store each camera information so that when the camera is
         # changed in the widget, the proper values can be updated.
@@ -256,13 +255,7 @@ class CameraRoiWidget(QWidget):
     def roiValue(self) -> CameraRoiValue:
         """Return the currently displayed ROI as JSON-serializable primitives."""
         x, y, width, height = self._get_roi_values()
-        return {
-            "camera": self.camera,
-            "x": x,
-            "y": y,
-            "width": width,
-            "height": height,
-        }
+        return CameraRoiValue(camera=self.camera, x=x, y=y, width=width, height=height)
 
     def fullFrameValue(self, camera: str | None = None) -> CameraRoiValue:
         """Return the full-frame ROI for ``camera`` without changing hardware."""
@@ -270,13 +263,9 @@ class CameraRoiWidget(QWidget):
         if camera not in self._cameras:
             raise ValueError(f"Camera {camera!r} is not available")
         info = self._cameras[camera]
-        return {
-            "camera": camera,
-            "x": 0,
-            "y": 0,
-            "width": info.pixel_width,
-            "height": info.pixel_height,
-        }
+        return CameraRoiValue(
+            camera=camera, x=0, y=0, width=info.pixel_width, height=info.pixel_height
+        )
 
     def applyFullFrame(self) -> CameraRoiValue:
         """Clear the active camera ROI and return its actual full-frame geometry."""
@@ -287,33 +276,20 @@ class CameraRoiWidget(QWidget):
             return full
         self._clearROI()
         x, y, width, height = self._mmc.getROI(self.camera)
-        return {
-            "camera": self.camera,
-            "x": x,
-            "y": y,
-            "width": width,
-            "height": height,
-        }
+        return CameraRoiValue(camera=self.camera, x=x, y=y, width=width, height=height)
 
     def setRoiValue(self, value: Mapping[str, object]) -> None:
         """Restore a planned ROI in the editor without applying it to hardware."""
         try:
             camera = value["camera"]
-            x = value["x"]
-            y = value["y"]
-            width = value["width"]
-            height = value["height"]
+            geometry = tuple(value[key] for key in ("x", "y", "width", "height"))
         except KeyError as e:
             raise ValueError("Invalid camera ROI value") from e
         if not isinstance(camera, str) or any(
-            not isinstance(item, int) or isinstance(item, bool)
-            for item in (x, y, width, height)
+            not isinstance(item, int) or isinstance(item, bool) for item in geometry
         ):
             raise ValueError("Invalid camera ROI value")
-        assert isinstance(x, int)
-        assert isinstance(y, int)
-        assert isinstance(width, int)
-        assert isinstance(height, int)
+        x, y, width, height = cast("tuple[int, int, int, int]", geometry)
 
         if camera not in self._cameras:
             raise ValueError(f"Camera {camera!r} is not available")
@@ -596,13 +572,9 @@ class CameraRoiWidget(QWidget):
                 self._mmc.setROI(self.camera, start_x, start_y, width, height)
         finally:
             if restart_live:
-                self._live_restart_pending = True
                 QTimer.singleShot(0, self._restart_live_after_roi_change)
 
     def _restart_live_after_roi_change(self) -> None:
-        if not self._live_restart_pending:
-            return
-        self._live_restart_pending = False
         if (
             not self._mmc.mda.is_running()
             and not self._mmc.isSequenceRunning()

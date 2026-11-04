@@ -271,7 +271,7 @@ def test_collapsible_disables_editors_during_run(qtbot: QtBot) -> None:
 def test_collapsible_run_preserves_axis_order(qtbot: QtBot) -> None:
     """Running an acquisition must not silently change the axis order combo.
 
-    Disabling the editors at sequenceStarted (set_editor_enabled) disables the
+    Disabling the editors at sequenceStarted (_enable_tabs) disables the
     whole Positions widget, which used to be misread by
     CoreConnectedPositionTable.eventFilter as its "Set AF Offset per Position"
     checkbox itself losing its enabled state -- toggling that checkbox off and

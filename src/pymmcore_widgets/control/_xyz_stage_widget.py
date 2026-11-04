@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtCore import QEvent, QObject, Qt, QTimerEvent, Slot
-from qtpy.QtGui import QWheelEvent
+from qtpy.QtCore import Qt, QTimerEvent, Slot
 from qtpy.QtWidgets import (
     QCheckBox,
     QGridLayout,
@@ -27,10 +26,14 @@ from ._stage_widget import (
     MoveStageButton,
     MoveStageSpinBox,
     StageMovementButtons,
+    _WheelPollStageWidget,
 )
 
+if TYPE_CHECKING:
+    from qtpy.QtGui import QWheelEvent
 
-class XYZStageWidget(QWidget):
+
+class XYZStageWidget(_WheelPollStageWidget):
     """A widget to control the Core's default XY and Z (focus) stage devices.
 
     Unlike [`StageWidget`][pymmcore_widgets.StageWidget], this widget does not
@@ -115,7 +118,6 @@ class XYZStageWidget(QWidget):
         self._z_stack.addWidget(self._z_no_device_lbl)
 
         # position spinboxes, with a shared "Enable Editing" context menu
-        self._pos_boxes: list[MoveStageSpinBox] = []
         self._pos_menu = QMenu(self)
         self._pos_toggle_action = self._pos_menu.addAction("Enable Editing")
         self._pos_toggle_action.setCheckable(True)
@@ -125,7 +127,7 @@ class XYZStageWidget(QWidget):
         self._x_pos = MoveStageSpinBox(label="X")
         self._y_pos = MoveStageSpinBox(label="Y")
         self._z_pos = MoveStageSpinBox(label="Z")
-        self._pos_boxes.extend([self._x_pos, self._y_pos, self._z_pos])
+        self._pos_boxes = [self._x_pos, self._y_pos, self._z_pos]
         RightClickMenu(self._pos_menu, self._pos_boxes, self.isEnabled)
         self._x_pos.editingFinished.connect(self._move_xy_absolute)
         self._y_pos.editingFinished.connect(self._move_xy_absolute)
@@ -156,21 +158,19 @@ class XYZStageWidget(QWidget):
         # position and step fields, one row per axis, aligned with X/Y/Z
         pos_col = QGridLayout()
         pos_col.setSpacing(2)
-        pos_col.addWidget(QLabel("Step X: "), 0, 0, Qt.AlignmentFlag.AlignRight)
-        pos_col.addWidget(self._x_step, 0, 1)
-        pos_col.addWidget(QLabel("X: "), 0, 2, Qt.AlignmentFlag.AlignRight)
-        pos_col.addWidget(self._x_pos, 0, 3)
-        pos_col.addWidget(QLabel("Step Y: "), 1, 0, Qt.AlignmentFlag.AlignRight)
-        pos_col.addWidget(self._y_step, 1, 1)
-        pos_col.addWidget(QLabel("Y: "), 1, 2, Qt.AlignmentFlag.AlignRight)
-        pos_col.addWidget(self._y_pos, 1, 3)
-        pos_col.addWidget(QLabel("Step Z: "), 2, 0, Qt.AlignmentFlag.AlignRight)
-        pos_col.addWidget(self._z_step, 2, 1)
-        pos_col.addWidget(QLabel("Z: "), 2, 2, Qt.AlignmentFlag.AlignRight)
-        pos_col.addWidget(self._z_pos, 2, 3)
-        pos_col.setRowStretch(0, 1)
-        pos_col.setRowStretch(1, 1)
-        pos_col.setRowStretch(2, 1)
+        for row, (axis, step, pos) in enumerate(
+            (
+                ("X", self._x_step, self._x_pos),
+                ("Y", self._y_step, self._y_pos),
+                ("Z", self._z_step, self._z_pos),
+            )
+        ):
+            right = Qt.AlignmentFlag.AlignRight
+            pos_col.addWidget(QLabel(f"Step {axis}: "), row, 0, right)
+            pos_col.addWidget(step, row, 1)
+            pos_col.addWidget(QLabel(f"{axis}: "), row, 2, right)
+            pos_col.addWidget(pos, row, 3)
+            pos_col.setRowStretch(row, 1)
 
         # Let the position fields stretch to the arrows' height.
         self._top_row = QHBoxLayout()
@@ -278,12 +278,7 @@ class XYZStageWidget(QWidget):
         self._xy_device = device
         self._xy_halt.setDevice(device)
         xy_page = self._xy_move_btns if device else self._xy_no_device_lbl
-        self._xy_stack.setCurrentWidget(xy_page)
-        # Size to the current page rather than the stack's largest page.
-        self._xy_stack.setFixedSize(xy_page.sizeHint())
-        # Align arrow rows with the fields; center the shorter placeholder.
-        v_align = Qt.AlignmentFlag.AlignTop if device else Qt.AlignmentFlag.AlignVCenter
-        self._top_row.setAlignment(self._xy_stack, Qt.AlignmentFlag.AlignLeft | v_align)
+        self._show_page(self._xy_stack, xy_page, bool(device))
         self._x_step.setEnabled(bool(device))
         self._y_step.setEnabled(bool(device))
         self._update_pos_boxes()
@@ -297,6 +292,14 @@ class XYZStageWidget(QWidget):
         else:
             self._xy_controller = None
 
+    def _show_page(self, stack: QStackedWidget, page: QWidget, device: bool) -> None:
+        stack.setCurrentWidget(page)
+        # Size to the current page rather than the stack's largest page.
+        stack.setFixedSize(page.sizeHint())
+        # Align arrow rows with the fields; center the shorter placeholder.
+        v_align = Qt.AlignmentFlag.AlignTop if device else Qt.AlignmentFlag.AlignVCenter
+        self._top_row.setAlignment(stack, Qt.AlignmentFlag.AlignLeft | v_align)
+
     def _bind_z_device(self, device: str) -> None:
         if device == self._z_device:
             return
@@ -306,11 +309,7 @@ class XYZStageWidget(QWidget):
         self._z_device = device
         self._z_halt.setDevice(device)
         z_page = self._z_move_btns if device else self._z_no_device_lbl
-        self._z_stack.setCurrentWidget(z_page)
-        # see matching comments in _bind_xy_device
-        self._z_stack.setFixedSize(z_page.sizeHint())
-        v_align = Qt.AlignmentFlag.AlignTop if device else Qt.AlignmentFlag.AlignVCenter
-        self._top_row.setAlignment(self._z_stack, Qt.AlignmentFlag.AlignLeft | v_align)
+        self._show_page(self._z_stack, z_page, bool(device))
         self._z_step.setEnabled(bool(device))
         self._update_pos_boxes()
         self._invert_z.setEnabled(bool(device))
@@ -379,43 +378,14 @@ class XYZStageWidget(QWidget):
         self._z_controller.move_absolute(self._z_pos.value())
         self._z_controller.snap_on_finish = self.snap_checkbox.isChecked()
 
-    @Slot(bool)
-    def _toggle_poll_timer(self, on: bool) -> None:
-        if on:
-            if self._poll_timer_id is None:
-                self._poll_timer_id = self.startTimer(500)
-        else:
-            if self._poll_timer_id is not None:
-                self.killTimer(self._poll_timer_id)
-                self._poll_timer_id = None
-
     def timerEvent(self, event: QTimerEvent | None) -> None:
         if event and event.timerId() == self._poll_timer_id:
             self._update_xy_position()
             self._update_z_position()
         super().timerEvent(event)
 
-    def eventFilter(self, obj: QObject | None, event: QEvent | None) -> bool:
-        if (
-            isinstance(event, QWheelEvent)
-            and not self._is_step_box(obj)
-            and self._move_by_wheel(event)
-        ):
-            return True
-        return super().eventFilter(obj, event)  # type: ignore [no-any-return]
-
-    def wheelEvent(self, event: QWheelEvent | None) -> None:
-        if event is None or not self._move_by_wheel(event):
-            super().wheelEvent(event)
-
-    def _is_step_box(self, obj: QObject | None) -> bool:
-        # scrolling over a step spinbox should change that step value itself,
-        # not move the stage
-        step_boxes = (self._x_step, self._y_step, self._z_step)
-        return obj in step_boxes or (
-            isinstance(obj, QWidget)
-            and any(box.isAncestorOf(obj) for box in step_boxes)
-        )
+    def _step_boxes(self) -> tuple[QWidget, ...]:
+        return (self._x_step, self._y_step, self._z_step)
 
     def _move_by_wheel(self, event: QWheelEvent) -> bool:
         """Move the Z stage via mouse-wheel scrolling."""

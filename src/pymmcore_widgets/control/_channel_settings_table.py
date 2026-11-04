@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, cast
 
 from pymmcore_plus import CMMCorePlus
@@ -217,7 +217,6 @@ class ChannelSettingsTable(DataTableWidget):
         self._light_source_column: ComboColumn = self.LIGHT_SOURCE
         self._syncing = False
         # the light source columns are shown by default; see setLightSourcesVisible
-        self._light_sources_visible = True
         # row of the preset active on the microscope, or -1
         self._active_row = -1
 
@@ -240,7 +239,7 @@ class ChannelSettingsTable(DataTableWidget):
             "Show the Light Source and Intensity columns.\n"
             "While unchecked those columns are hidden, but keep their values."
         )
-        self.light_sources.setChecked(self._light_sources_visible)
+        self.light_sources.setChecked(True)
         self.light_sources.toggled.connect(self.setLightSourcesVisible)
         self._btn_row = QHBoxLayout()
         self._btn_row.setContentsMargins(5, 5, 5, 5)
@@ -381,15 +380,14 @@ class ChannelSettingsTable(DataTableWidget):
         This is a pure view toggle: the columns keep their values, which are stored
         and applied regardless.
         """
-        self._light_sources_visible = bool(visible)
         with signals_blocked(self.light_sources):
-            self.light_sources.setChecked(self._light_sources_visible)
+            self.light_sources.setChecked(visible)
         self._apply_column_visibility()
         self._fitter.fit()
 
     def lightSourcesVisible(self) -> bool:
         """Return whether the Light Source and Intensity columns are shown."""
-        return self._light_sources_visible
+        return bool(self.light_sources.isChecked())
 
     def refresh(self) -> None:
         """Re-read the groups and light sources from the core.
@@ -414,10 +412,8 @@ class ChannelSettingsTable(DataTableWidget):
             table.setRowCount(0)
             while table.columnCount():
                 table.removeColumn(0)
-            self._light_source_column = ComboColumn(
-                key=LIGHT_SOURCE_KEY,
-                header="Light Source",
-                default=NO_LIGHT_SOURCE,
+            self._light_source_column = replace(
+                self.LIGHT_SOURCE,
                 allowed_values=(NO_LIGHT_SOURCE, *self._light_sources),
             )
             for info in (
@@ -438,7 +434,7 @@ class ChannelSettingsTable(DataTableWidget):
         table = self._table
         for info in (self._light_source_column, self.INTENSITY):
             if (col := table.indexOf(info)) >= 0:
-                table.setColumnHidden(col, not self._light_sources_visible)
+                table.setColumnHidden(col, not self.light_sources.isChecked())
 
     def _default_settings(self) -> ChannelSettings:
         return ChannelSettings(
@@ -602,13 +598,9 @@ class ChannelSettingsTable(DataTableWidget):
             self._set_active_row(row)
 
     def _on_cell_clicked(self, row: int, col: int) -> None:
-        if col in self._selector_columns():
+        if col in (self._table.indexOf(self.CURRENT), self._table.indexOf(self.PRESET)):
             self.applyChannel(self._preset_at(row))
             self._update_active_row()
-
-    def _selector_columns(self) -> tuple[int, int]:
-        """Return the columns whose cells apply their row's preset when clicked."""
-        return self._table.indexOf(self.CURRENT), self._table.indexOf(self.PRESET)
 
     def _on_config_set(self, group: str, preset: str) -> None:
         if group == self.channelGroup():

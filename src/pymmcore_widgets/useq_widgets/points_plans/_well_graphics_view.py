@@ -204,11 +204,7 @@ class WellView(ResizingGraphicsView):
             last_p = pos
 
     def _marker_color(self) -> QColor:
-        """Return the color used to draw the FOV markers.
-
-        The palette's text color (rather than a hardcoded white) keeps the markers
-        visible against the view background in both light and dark themes.
-        """
+        """Return the color used to draw the FOV markers."""
         return self.palette().color(QPalette.ColorRole.Text)
 
     def _line_color(self, marker_color: QColor) -> QColor:
@@ -225,9 +221,8 @@ class WellView(ResizingGraphicsView):
         if event is not None and event.type() == QEvent.Type.PaletteChange:
             marker_color = self._marker_color()
             line_color = self._line_color(marker_color)
-            for i, fov in enumerate(self._fov_items):
-                if i == 0:  # the first point stays green
-                    continue
+            # the first point stays green
+            for fov in self._fov_items[1:]:
                 fov_pen = fov.pen()
                 fov_pen.setColor(marker_color)
                 fov.setPen(fov_pen)

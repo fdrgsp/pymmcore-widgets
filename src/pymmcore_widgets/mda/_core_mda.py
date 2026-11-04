@@ -39,9 +39,6 @@ from ._save_widget import SaveGroupBox
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
-    # Everything CMMCorePlus.run_mda accepts as one MDA output: a path, a frame
-    # handler, or ome-writers settings. Used for both prepare_mda and
-    # execute_mda below, so the two describe the same value.
     from pymmcore_plus.mda import SingleOutput
 
     from ._core_channels import CoreConnectedChannelTable
@@ -420,37 +417,26 @@ class MDAWidget(MDASequenceWidget):
         # built before the configuration arrives (or queried mid-construction, when
         # the core still reports no devices). Deciding then would disable autofocus
         # for good, since the configuration-loaded signal has already been and gone.
-        if not any(
-            (
-                self._mmc.getCameraDevice(),
-                self._mmc.getFocusDevice(),
-                self._mmc.getAutoFocusDevice(),
-            )
-        ):
+        camera = self._mmc.getCameraDevice()
+        focus = self._mmc.getFocusDevice()
+        if not (camera or focus or self._mmc.getAutoFocusDevice()):
             return
 
-        af_device = self._get_autofocus_device()
-        has_hardware = bool(af_device)
+        has_hardware = bool(self._get_autofocus_device())
         # an image-based routine needs something to image with and something to move
         missing = [
             what
-            for what, device in (
-                ("a camera", self._mmc.getCameraDevice()),
-                ("a focus stage", self._mmc.getFocusDevice()),
-            )
+            for what, device in (("a camera", camera), ("a focus stage", focus))
             if not device
         ]
         self.af_axis.setSoftwareAvailable(
             not missing,
             f"Software autofocus needs {' and '.join(missing)}." if missing else "",
         )
-        has_software = self.af_axis.isSoftwareAvailable()
-        absolute_z = (
-            self.tab_wdg.isChecked(self.z_plan)
-            and self.z_plan.mode() == Mode.TOP_BOTTOM
+        self.af_axis.setEnabled(
+            not self._uses_absolute_z()
+            and (has_hardware or self.af_axis.isSoftwareAvailable())
         )
-
-        self.af_axis.setEnabled(not absolute_z and (has_hardware or has_software))
         self.af_axis.setToolTip(self._get_tooltip(self.af_axis))
         self.af_axis.setHardwareAvailable(
             has_hardware, "" if has_hardware else AF_UNAVAILABLE
@@ -461,7 +447,7 @@ class MDAWidget(MDASequenceWidget):
 
         # per-position autofocus offsets are a hardware-autofocus feature
         self.stage_positions.af_per_position.setEnabled(
-            bool(af_device) and not self.af_axis.use_software.isChecked()
+            has_hardware and not self.af_axis.use_software.isChecked()
         )
         # set tooltip af_per_position
         self.stage_positions.af_per_position.setToolTip(
@@ -477,10 +463,7 @@ class MDAWidget(MDASequenceWidget):
         """Return the tooltip for the autofocus widgets."""
         # An absolute z plan rules out autofocus of either kind, so say that first:
         # it is the reason nothing here can be used, whatever devices exist.
-        if (
-            self.tab_wdg.isChecked(self.z_plan)
-            and self.z_plan.mode() == Mode.TOP_BOTTOM
-        ):
+        if self._uses_absolute_z():
             return AF_DISABLED_TOOLTIP
         # Without an autofocus device only the hardware kind is out, and a software
         # routine needs no such device -- so the section itself is still usable.
@@ -568,24 +551,13 @@ class MDAWidget(MDASequenceWidget):
         )
         return bool(response == QMessageBox.StandardButton.Ok)
 
-    def _af_engaged_no_axis_message(self) -> str:
-        """Message offering to select an autofocus axis before disabling AF.
-
-        Overridden by ``MDAWidgetCollapsible``, where 'Use Hardware Autofocus
-        on Axis' lives inside the 'Settings' collapsible section rather than
-        being directly visible, so the message needs to point the user there.
-        """
-        return AF_ENGAGED_NO_AXIS
-
     def _confirm_af_disable(self) -> bool:
         """Warn that the engaged autofocus will be switched off for this run."""
         af = f"{self._mmc.getAutoFocusDevice()!r}"
         # if the axis widget is disabled there is no axis for the user to select,
         # so explain why the autofocus cannot be used instead.
         template = (
-            self._af_engaged_no_axis_message()
-            if self.af_axis.isEnabled()
-            else AF_ENGAGED_ABSOLUTE_Z
+            AF_ENGAGED_NO_AXIS if self.af_axis.isEnabled() else AF_ENGAGED_ABSOLUTE_Z
         )
         response = QMessageBox.warning(
             self,

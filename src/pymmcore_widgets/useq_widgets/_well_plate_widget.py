@@ -243,21 +243,19 @@ class WellPlateWidget(QWidget):
 
     def _on_custom_plate_saved(self, plate_name: str) -> None:
         """Refresh the combobox and select the plate that was just saved."""
-        with signals_blocked(self.plate_name):
-            self.plate_name.clear()
-            names = sorted(useq.registered_well_plate_keys(), key=_sort_plate)
-            self.plate_name.addItems(names)
-            self.plate_name.setCurrentText(plate_name)
-        self._on_plate_name_changed(plate_name)
+        self._set_plate_names(plate_name)
 
     def _on_custom_plate_deleted(self, plate_name: str) -> None:
         """Refresh the combobox, falling back off a plate that was just deleted."""
         previous = self.plate_name.currentText()
         names = sorted(useq.registered_well_plate_keys(), key=_sort_plate)
         if previous != plate_name and previous in names:
-            target = previous
+            self._set_plate_names(previous)
         else:
-            target = names[0] if names else ""
+            self._set_plate_names(names[0] if names else "")
+
+    def _set_plate_names(self, target: str) -> None:
+        names = sorted(useq.registered_well_plate_keys(), key=_sort_plate)
         with signals_blocked(self.plate_name):
             self.plate_name.clear()
             self.plate_name.addItems(names)
@@ -502,8 +500,8 @@ class WellPlateView(ResizingGraphicsView):
 
         # a cosmetic pen keeps a constant on-screen thickness no matter the plate's
         # physical scale or how far the view is zoomed out to fit it. Use the
-        # palette's text color (rather than a hardcoded black) so the well outlines
-        # stay visible in dark mode, matching the well labels.
+        # palette's text color so the well outlines stay visible in dark mode,
+        # matching the well labels.
         text_color = self.palette().color(QPalette.ColorRole.Text)
         pen = QPen(text_color)
         pen.setCosmetic(True)

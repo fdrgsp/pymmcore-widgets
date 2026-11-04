@@ -128,7 +128,6 @@ class TimePlanWidget(DataTableWidget):
         table = self.table()
         loop_col = table.indexOf(self.LOOPS)
         duration_col = table.indexOf(self.DURATION)
-        interval_col = table.indexOf(self.INTERVAL)
 
         data = self.table().rowData(_current_row)
         if self.INTERVAL.key not in data:
@@ -163,7 +162,7 @@ class TimePlanWidget(DataTableWidget):
             )
         elif _current_col == duration_col:
             self.LOOPS.set_cell_data(table, _current_row, loop_col, plan.loops)
-        elif _current_col == interval_col:
+        elif _current_col == table.indexOf(self.INTERVAL):
             if self._mode_column == duration_col:
                 self.LOOPS.set_cell_data(table, _current_row, loop_col, plan.loops)
             else:

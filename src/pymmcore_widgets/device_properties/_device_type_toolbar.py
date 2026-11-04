@@ -33,13 +33,8 @@ class DeviceButtonToolbar(QToolBar):
             DeviceType.StateDevice,
             DeviceType.ShutterDevice,
         ]
-        _priority_set = set(_priority)
         _rest = sorted(
-            (
-                d
-                for d in DeviceType
-                if d not in _priority_set | {DeviceType.Any, DeviceType.Unknown}
-            ),
+            set(DeviceType) - set(_priority) - {DeviceType.Any, DeviceType.Unknown},
             key=lambda x: x.name,
         )
         for device_type in _priority + _rest:

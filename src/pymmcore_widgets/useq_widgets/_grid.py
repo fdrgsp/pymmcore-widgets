@@ -201,7 +201,6 @@ class GridPlanWidget(QWidget):
 
         # top: the mode, as in ZPlanWidget
         mode_layout = QHBoxLayout()
-        mode_layout.setContentsMargins(0, 0, 0, 0)
         mode_layout.addWidget(QLabel("Mode:"))
         mode_layout.setSpacing(10)
         for mode in (Mode.NUMBER, Mode.AREA, Mode.BOUNDS):
@@ -227,7 +226,6 @@ class GridPlanWidget(QWidget):
         # tall, _ROW_SPACING apart), so each lines up with a row on the right.
         self._common = QWidget()
         self._common_form = QGridLayout()
-        self._common_form.setContentsMargins(0, 0, 0, 0)
         self._common_form.setHorizontalSpacing(10)
         self._common_form.setVerticalSpacing(_ROW_SPACING)
         for row, (text, field) in enumerate(
@@ -508,16 +506,13 @@ class GridPlanWidget(QWidget):
             wdg.setVisible(mode is self._mode)
         self._mode_options.append((mode, label_wdg, widget))
 
-    def _icon_color(self) -> str:
-        """The palette's text color, so the mode icons follow the theme."""
-        color = self.palette().color(
-            QPalette.ColorGroup.Active, QPalette.ColorRole.Text
-        )
-        return str(color.name())
-
     def _update_mode_icons(self) -> None:
         """Draw the mode icons in the (possibly new) palette's text color."""
-        color = self._icon_color()
+        color = (
+            self.palette()
+            .color(QPalette.ColorGroup.Active, QPalette.ColorRole.Text)
+            .name()
+        )
         for mode, radio in self._mode_radios.items():
             radio.setIcon(QIconifyIcon(_MODE_ITEMS[mode][0], color=color))
 
@@ -1077,17 +1072,9 @@ def _order_pixmap(order: OrderMode, color: QColor, size: int, ratio: float) -> Q
     cols = [[pts[r][c] for r in range(3)] for c in range(3)]
     runs: list[list[QPointF]]
     if order is OrderMode.row_wise_snake:
-        runs = [
-            [p for r, row in enumerate(pts) for p in (row if r % 2 == 0 else row[::-1])]
-        ]
+        runs = [_snake(pts)]
     elif order is OrderMode.column_wise_snake:
-        runs = [
-            [
-                p
-                for c, col in enumerate(cols)
-                for p in (col if c % 2 == 0 else col[::-1])
-            ]
-        ]
+        runs = [_snake(cols)]
     elif order is OrderMode.row_wise:
         runs = pts
     elif order is OrderMode.column_wise:
@@ -1113,6 +1100,6 @@ def _order_pixmap(order: OrderMode, color: QColor, size: int, ratio: float) -> Q
     return pixmap
 
 
-def _alternate(line: list[QPointF], index: int) -> list[QPointF]:
-    """Every other line of a snake runs backwards."""
-    return line if index % 2 == 0 else line[::-1]
+def _snake(lines: list[list[QPointF]]) -> list[QPointF]:
+    """Join `lines` into one run; every other line runs backwards."""
+    return [p for i, line in enumerate(lines) for p in (line[::-1] if i % 2 else line)]

@@ -221,16 +221,15 @@ class _StagePoller(QThread):
                     if not was_erroring:
                         logger.exception("Failed to poll XY stage position")
                         was_erroring = True
-                    self.msleep(STAGE_POLL_INTERVAL_MS)
-                    continue
-                was_erroring = False
-                if last is not None:
-                    dx, dy = x - last[0], y - last[1]
-                    if dx * dx + dy * dy < STAGE_POS_TOLERANCE_UM_SQ:
-                        self.msleep(STAGE_POLL_INTERVAL_MS)
-                        continue
-                last = (x, y)
-                self.positionChanged.emit(x, y)
+                else:
+                    was_erroring = False
+                    if (
+                        last is None
+                        or (x - last[0]) ** 2 + (y - last[1]) ** 2
+                        >= STAGE_POS_TOLERANCE_UM_SQ
+                    ):
+                        last = (x, y)
+                        self.positionChanged.emit(x, y)
             self.msleep(STAGE_POLL_INTERVAL_MS)
 
     def stop(self) -> None:
@@ -326,7 +325,7 @@ class StageExplorer(QWidget):
         self._tiles: dict[Hashable, Image] = {}
         self._tile_centers: dict[Hashable, tuple[float, float]] = {}
         self._tile_bytes: dict[Hashable, int] = {}
-        self._map_memory_bytes: int = 0
+        self._map_memory_bytes = 0
         self._next_snap_id: int = 0
         self._mda_tile_keys: dict[Hashable, Hashable] = {}
         # Frames waiting to be pushed to the GPU, newest-per-location wins.
@@ -709,7 +708,7 @@ class StageExplorer(QWidget):
         msg.setText("Replace existing stage positions or add to them?")
         replace_btn = msg.addButton("Replace", QMessageBox.ButtonRole.AcceptRole)
         add_btn = msg.addButton("Add", QMessageBox.ButtonRole.AcceptRole)
-        cancel_btn = msg.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        msg.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
         msg.exec()
 
         clicked = msg.clickedButton()
@@ -717,8 +716,6 @@ class StageExplorer(QWidget):
             self.sendToMDARequested.emit(positions, True)
         elif clicked is add_btn:
             self.sendToMDARequested.emit(positions, False)
-        elif clicked is cancel_btn or clicked is None:
-            return
 
     def keyPressEvent(self, a0: QKeyEvent | None) -> None:
         if a0 is None:
@@ -825,24 +822,18 @@ class StageExplorer(QWidget):
         self._add_image_and_update_widget(img, x, y)
 
     @Slot(object, object)
-    def _on_frame_ready(self, image: np.ndarray, event: useq.MDAEvent) -> None:
-        """Process one frame already delivered on the GUI thread.
-
-        The core's ``frameReady`` signal is connected to ``_frame_relay`` rather
-        than this slot directly. Keeping this method as the unthrottled entry
-        point is useful to callers that already run on the GUI thread and
-        preserves the existing private API used by downstream subclasses.
-        """
-        self._handle_frame_ready(image, event, already_coalesced=False)
-
-    def _handle_frame_ready(
+    def _on_frame_ready(
         self,
         image: np.ndarray,
         event: useq.MDAEvent,
         *,
-        already_coalesced: bool,
+        already_coalesced: bool = False,
     ) -> None:
-        """Place one MDA frame, optionally bypassing the tile redraw throttle."""
+        """Place one MDA frame, optionally bypassing the tile redraw throttle.
+
+        The core's ``frameReady`` signal is connected to ``_frame_relay`` rather
+        than this slot directly.
+        """
         # frameReady fires for *any* running MDA, not just one started from
         # this widget -- skip the scene redraw while hidden, same as
         # _on_image_snapped above.
@@ -850,9 +841,7 @@ class StageExplorer(QWidget):
             return
         # Only the spatial axes take part in the key: a z-stack or a
         # multi-channel event images the same place on the map, so the last
-        # one to arrive is what the map shows. That matches what was already
-        # displayed before (they were drawn stacked opaquely on top of each
-        # other) without keeping the hidden ones alive.
+        # one to arrive is what the map shows.
         x = event.x_pos if event.x_pos is not None else self._mmc.getXPosition()
         y = event.y_pos if event.y_pos is not None else self._mmc.getYPosition()
         self._add_image_and_update_widget(
@@ -877,7 +866,7 @@ class StageExplorer(QWidget):
     ) -> None:
         """Apply the newest frame for every location in one GUI-thread batch."""
         for image, event in batch:
-            self._handle_frame_ready(image, event, already_coalesced=True)
+            self._on_frame_ready(image, event, already_coalesced=True)
 
     # STAGE POSITION MARKER -----------------------------------------------------
 
@@ -1047,9 +1036,8 @@ class StageExplorer(QWidget):
         if (node := self._tiles.get(key)) is not None:
             self._stage_viewer.update_image(node, image, transform=matrix.T)
             cost = image.nbytes * TILE_MEMORY_FACTOR
-            previous_cost = self._tile_bytes[key]
+            self._map_memory_bytes += cost - self._tile_bytes[key]
             self._tile_bytes[key] = cost
-            self._map_memory_bytes += cost - previous_cost
         else:
             cost = image.nbytes * TILE_MEMORY_FACTOR
             system_low = self._system_memory_low(cost)
@@ -1392,13 +1380,7 @@ class StageExplorerToolbar(QToolBar):
         memory_btn = cast("QToolButton", self.widgetForAction(self.map_memory_action))
         self.map_memory_menu = MapMemoryMenu(self)
         memory_btn.setMenu(self.map_memory_menu)
-        # InstantPopup, unlike poll_stage_action/scan_action above: those
-        # have a primary action distinct from their menu (toggle polling,
-        # start a scan), which is what the split MenuButtonPopup look
-        # communicates -- click the icon for that action, click the arrow for
-        # options. This button's only job is showing the limit editor, so
-        # the whole button should do that, not imply a separate primary
-        # action that doesn't exist.
+        # No primary action distinct from the menu, so the whole button opens it.
         memory_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
         self.addSeparator()
@@ -1490,7 +1472,7 @@ class MapMemoryMenu(QMenu):
         action.setDefaultWidget(opts_widget)
         self.addAction(action)
 
-        self._limit_spin.valueChanged.connect(self._emit)
+        self._limit_spin.valueChanged.connect(self.valueChanged)
 
     def value(self) -> float:
         """Return the current limit, in GB."""
@@ -1500,14 +1482,6 @@ class MapMemoryMenu(QMenu):
         """Set the displayed limit, in GB, without emitting `valueChanged`."""
         with QSignalBlocker(self._limit_spin):
             self._limit_spin.setValue(gigabytes)
-
-    def set_range(self, minimum: float, maximum: float) -> None:
-        """Set the spinbox's allowed range, in GB."""
-        self._limit_spin.setRange(minimum, maximum)
-
-    @Slot(float)
-    def _emit(self, value: float) -> None:
-        self.valueChanged.emit(value)
 
 
 @dataclass(slots=True)

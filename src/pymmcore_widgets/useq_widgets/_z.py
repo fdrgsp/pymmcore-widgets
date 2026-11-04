@@ -143,12 +143,8 @@ class ZStackViz(QWidget):
         painter.drawRoundedRect(stack_rect, 3, 3)
 
         line_count = min(self._slices, 50)
-        fractions: tuple[float, ...]
-        if line_count == 1:
-            fractions = (0.5,)
-        else:
-            fractions = tuple(i / (line_count - 1) for i in range(line_count))
-        for fraction in fractions:
+        for i in range(line_count):
+            fraction = i / (line_count - 1) if line_count > 1 else 0.5
             y = stack_rect.top() + fraction * stack_rect.height()
             painter.drawLine(
                 QPointF(stack_rect.left() + 3, y),
@@ -218,7 +214,7 @@ class ZPlanWidget(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         self._suggested: float | None = None
-        self._mode = Mode.TOP_BOTTOM
+        self._mode: Mode = Mode.TOP_BOTTOM
 
         # #################### Mode selector ####################
 
@@ -233,6 +229,11 @@ class ZPlanWidget(QWidget):
         self._btn_top_bot = QRadioButton("Top && Bottom")
         self._btn_top_bot.setIcon(QIconifyIcon("mdi:arrow-expand-vertical"))
         self._btn_top_bot.setToolTip("Mark top and bottom.")
+        self._mode_buttons = {
+            Mode.RANGE_AROUND: self._btn_range,
+            Mode.ABOVE_BELOW: self._button_above_below,
+            Mode.TOP_BOTTOM: self._btn_top_bot,
+        }
         self._mode_btn_group = QButtonGroup(self)
         self._mode_btn_group.addButton(self._btn_range)
         self._mode_btn_group.addButton(self._button_above_below)
@@ -246,7 +247,6 @@ class ZPlanWidget(QWidget):
             )
 
         mode_layout = QHBoxLayout()
-        mode_layout.setContentsMargins(0, 0, 0, 0)
         mode_layout.addWidget(QLabel("Mode:"))
         mode_layout.setSpacing(10)
         mode_layout.addWidget(self._btn_range)
@@ -291,7 +291,6 @@ class ZPlanWidget(QWidget):
         self._use_suggested_btn.hide()
 
         self._summary_label = QLabel()
-        self._summary_label.setWordWrap(False)
         self._viz = ZStackViz()
 
         # #################### Connections ####################
@@ -331,11 +330,9 @@ class ZPlanWidget(QWidget):
         # are hidden.  Otherwise QGridLayout removes the inter-row spacing and
         # the lower controls jump when switching modes.
         bound_height = self.top.sizeHint().height()
-        self._bound_row_placeholders: list[QWidget] = []
         for row in (ROW_FIRST_BOUND, ROW_SECOND_BOUND):
             placeholder = QWidget()
             placeholder.setFixedSize(1, bound_height)
-            self._bound_row_placeholders.append(placeholder)
             # in the (non-interactive) label column, so no extra column is needed
             grid.addWidget(placeholder, row, 0)
 
@@ -346,7 +343,6 @@ class ZPlanWidget(QWidget):
         grid.addWidget(self._step_label, ROW_STEPS, 0)
         grid.addWidget(self.step, ROW_STEPS, 1)
         step_extras = QHBoxLayout()
-        step_extras.setContentsMargins(0, 0, 0, 0)
         step_extras.setSpacing(10)
         step_extras.addWidget(self._use_suggested_btn)
         step_extras.addWidget(QLabel("Slices"))
@@ -354,8 +350,7 @@ class ZPlanWidget(QWidget):
         step_extras.addStretch()
         grid.addLayout(step_extras, ROW_STEPS, 2)
 
-        self._direction_label = self._form_label("Direction")
-        grid.addWidget(self._direction_label, ROW_DIRECTION, 0)
+        grid.addWidget(self._form_label("Direction"), ROW_DIRECTION, 0)
         grid.addWidget(self._direction, ROW_DIRECTION, 1)
         grid.addWidget(self._summary_label, ROW_DIRECTION, 2)
 
@@ -378,8 +373,6 @@ class ZPlanWidget(QWidget):
         summary_metrics = self._summary_label.fontMetrics()
         summary_width = summary_metrics.horizontalAdvance(f"Range: 999.999 {UM}")
         grid.setColumnMinimumWidth(2, max(suggested_width, summary_width))
-        grid.setRowMinimumHeight(ROW_FIRST_BOUND, self.bottom.sizeHint().height())
-        grid.setRowMinimumHeight(ROW_SECOND_BOUND, self.top.sizeHint().height())
         # When mode-specific controls are hidden, keep the height reserved for
         # a stable widget but send any surplus to an empty row at the bottom.
         # Otherwise QGridLayout distributes it between the visible rows and
@@ -395,7 +388,6 @@ class ZPlanWidget(QWidget):
         self._controls_widget.setMinimumHeight(self._reserved_controls_height)
 
         self._viz_layout = QVBoxLayout()
-        self._viz_layout.setContentsMargins(0, 0, 0, 0)
         self._viz_layout.setSpacing(4)
         self._viz_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._viz_layout.addWidget(self._viz)
@@ -404,7 +396,6 @@ class ZPlanWidget(QWidget):
         QVBoxLayout(self._controls_box).addWidget(self._controls_widget)
 
         body_layout = QHBoxLayout()
-        body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(8)
         body_layout.addLayout(self._viz_layout)
         # the same divider GridPlanWidget draws between its two parts
@@ -447,18 +438,13 @@ class ZPlanWidget(QWidget):
         row: int,
         text: str,
         field: QDoubleSpinBox,
-        trailing: QWidget | None = None,
         row_span: int = 1,
     ) -> list[QWidget]:
         label = self._form_label(text)
         alignment = Qt.AlignmentFlag.AlignVCenter
         self._grid_layout.addWidget(label, row, 0, row_span, 1, alignment)
         self._grid_layout.addWidget(field, row, 1, row_span, 1, alignment)
-        widgets: list[QWidget] = [label, field]
-        if trailing is not None:
-            self._grid_layout.addWidget(trailing, row, 2, row_span, 1, alignment)
-            widgets.append(trailing)
-        return widgets
+        return [label, field]
 
     # ------------------------- Public API -------------------------
 
@@ -466,18 +452,16 @@ class ZPlanWidget(QWidget):
         self,
         mode: Mode | Literal["top_bottom", "range_around", "above_below"],
     ) -> None:
-        """Set the current Z-plan definition mode."""
+        """Set the current mode.
+
+        One of "top_bottom", "range_around", or "above_below".
+        """
         if isinstance(mode, str):
             mode = Mode(mode)
         self._mode = mode
 
-        mode_buttons = {
-            Mode.RANGE_AROUND: self._btn_range,
-            Mode.ABOVE_BELOW: self._button_above_below,
-            Mode.TOP_BOTTOM: self._btn_top_bot,
-        }
         with signals_blocked(self._mode_btn_group):
-            mode_buttons[mode].setChecked(True)
+            self._mode_buttons[mode].setChecked(True)
 
         groups = {
             Mode.RANGE_AROUND: self._range_widgets,
@@ -492,11 +476,14 @@ class ZPlanWidget(QWidget):
         self._on_change()
 
     def mode(self) -> Mode:
-        """Return the current Z-plan definition mode."""
+        """Return the current mode.
+
+        One of "top_bottom", "range_around", or "above_below".
+        """
         return self._mode
 
     def setSuggestedStep(self, value: float | None) -> None:
-        """Set the suggested Z step size and update its optional action."""
+        """Set the suggested z step size and update the button text."""
         self._suggested = value
         if value is not None and value > 0:
             self._use_suggested_btn.setText(f"{value:g} {UM}")
@@ -506,11 +493,11 @@ class ZPlanWidget(QWidget):
             self._use_suggested_btn.hide()
 
     def suggestedStep(self) -> float | None:
-        """Return the suggested Z step size."""
+        """Return suggested z step size."""
         return float(self._suggested) if self._suggested is not None else None
 
     def useSuggestedStep(self) -> None:
-        """Apply the suggested Z step size to the step field."""
+        """Apply the suggested z step size to the step field."""
         if self._suggested is not None and self._suggested > 0:
             self.step.setValue(float(self._suggested))
 
@@ -556,7 +543,7 @@ class ZPlanWidget(QWidget):
         self.setGoUp(value.go_up)
 
     def isGoUp(self) -> bool:
-        """Return whether acquisition proceeds from bottom to top."""
+        """Return True if the acquisition direction is up (bottom to top)."""
         return bool(self._direction.currentData())
 
     def setGoUp(self, up: bool) -> None:
@@ -578,12 +565,7 @@ class ZPlanWidget(QWidget):
     def _on_mode_toggled(self, button: QRadioButton, checked: bool) -> None:
         if not checked:
             return
-        modes = {
-            self._btn_range: Mode.RANGE_AROUND,
-            self._button_above_below: Mode.ABOVE_BELOW,
-            self._btn_top_bot: Mode.TOP_BOTTOM,
-        }
-        self.setMode(modes[button])
+        self.setMode(next(m for m, b in self._mode_buttons.items() if b is button))
 
     def _sync_visual_height(self) -> None:
         self._grid_layout.activate()
@@ -616,9 +598,8 @@ class ZPlanWidget(QWidget):
                 self.steps.setValue(0 if value is None else value.num_positions())
 
         z_range = self.currentZRange()
-        slices = self.steps.value()
         self._summary_label.setText(f"Range: {z_range:.3f} {UM}")
-        self._update_visualization(z_range, max(1, slices))
+        self._update_visualization(z_range, self.steps.value())
         self.valueChanged.emit(value)
 
     def _update_visualization(self, z_range: float, slices: int) -> None:

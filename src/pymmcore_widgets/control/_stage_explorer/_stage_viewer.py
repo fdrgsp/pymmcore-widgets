@@ -94,8 +94,6 @@ class StageViewer(QWidget):
         # Image nodes are frozen; weak mappings hold caches without retaining nodes.
         _WorldRect = tuple[float, float, float, float]
         self._world_rects: WeakKeyDictionary[Image, _WorldRect] = WeakKeyDictionary()
-        # Vispy does not cull off-screen images itself.
-        self._cull_offscreen: bool = True
         # Retain full-resolution sources while displaying downsampled textures.
         self._sources: WeakKeyDictionary[Image, _TileSource] = WeakKeyDictionary()
         self._downsample: bool = True
@@ -203,10 +201,8 @@ class StageViewer(QWidget):
                 raise ValueError("Transform must be a 4x4 matrix.")
             if np.allclose(transform[-1], (0, 0, 0, 1)):
                 transform = transform.T
-        elif (source := self._sources.get(frame)) is not None:
-            transform = source.matrix
-        else:  # pragma: no cover - every node is added through add_image
-            transform = np.array(frame.transform.matrix)
+        else:
+            transform = self._sources[frame].matrix
         shown, matrix, factor = self._display(img, transform)
         frame.set_data(shown)
         frame.transform = scene.MatrixTransform(matrix=matrix)
@@ -257,34 +253,20 @@ class StageViewer(QWidget):
     def _show_context_menu(self, pos: Any) -> None:
         menu = QMenu(self)
 
-        flip_x, flip_y, *_ = self.view.camera.flip
-
-        flip_x_action = menu.addAction("Flip X")
-        flip_x_action.setCheckable(True)
-        flip_x_action.setChecked(flip_x)
-        flip_x_action.toggled.connect(lambda checked: self._set_flip(x=checked))
-
-        flip_y_action = menu.addAction("Flip Y")
-        flip_y_action.setCheckable(True)
-        flip_y_action.setChecked(flip_y)
-        flip_y_action.toggled.connect(lambda checked: self._set_flip(y=checked))
+        for axis, name in enumerate("XY"):
+            action = menu.addAction(f"Flip {name}")
+            action.setCheckable(True)
+            action.setChecked(self.view.camera.flip[axis])
+            action.toggled.connect(lambda on, a=axis: self._set_flip(a, on))
 
         menu.exec(self.canvas.native.mapToGlobal(pos))
 
-    def _set_flip(self, x: bool | None = None, y: bool | None = None) -> None:
-        cur_x, cur_y, cur_z = self.view.camera.flip
-        self.view.camera.flip = (
-            x if x is not None else cur_x,
-            y if y is not None else cur_y,
-            cur_z,
-        )
+    def _set_flip(self, axis: int, on: bool) -> None:
+        flip = list(self.view.camera.flip)
+        flip[axis] = on
+        self.view.camera.flip = tuple(flip)
 
     # --------------------CULLING--------------------
-
-    def set_cull_offscreen(self, enabled: bool) -> None:
-        """Hide (or stop hiding) images that don't intersect the viewport."""
-        self._cull_offscreen = enabled
-        self.cull_to_view()
 
     def _on_scene_transform_changed(self, event: Any = None) -> None:
         del event
@@ -359,18 +341,13 @@ class StageViewer(QWidget):
 
         Visibility skips draw calls without changing the bounds used by zoom_to_fit.
         """
-        if not self._cull_offscreen:
-            for child in self._get_images():
-                child.visible = True
-            return
         rect = self._culling_rect()
         for child in self._get_images():
             child.visible = self._rect_intersects(child, rect)
 
     def _apply_cull(self, frame: Image) -> None:
         """Set the initial visibility of a newly added/updated image."""
-        if self._cull_offscreen:
-            frame.visible = self._rect_intersects(frame, self._culling_rect())
+        frame.visible = self._rect_intersects(frame, self._culling_rect())
 
     def _culling_rect(self) -> Any:
         """The world-space extent actually rendered on screen.

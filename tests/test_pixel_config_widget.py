@@ -503,3 +503,28 @@ def test_pixel_config_apply_marks_clean(qtbot: QtBot, global_mmcore: CMMCorePlus
 
     assert wdg.isClean()
     assert not wdg._apply_btn.isEnabled()
+
+
+@pytest.mark.parametrize("visible", [False, True])
+def test_pixel_size_edit_updates_its_own_affine(qtbot, visible) -> None:
+    widget = PixelConfigurationWidget()
+    qtbot.addWidget(widget)
+    widget.setValue(
+        [
+            PixelSizePreset("first", [], 0.5, (0.5, 0, 0, 0, 0.5, 0)),
+            PixelSizePreset("second", [], 2.0, (2, 0, 0, 0, 2, 0)),
+        ]
+    )
+    if visible:
+        widget.show()
+        qtbot.waitExposed(widget)
+    table = widget._px_table.table()
+    table.selectRow(0)
+    table.cellWidget(1, 1).setValue(3.0)
+
+    first, second = widget.value()
+    assert first.pixel_size_um == 0.5
+    assert first.affine == (0.5, 0, 0, 0, 0.5, 0)
+    assert second.pixel_size_um == 3.0
+    assert second.affine == (3, 0, 0, 0, 3, 0)
+    assert widget._affine_table.value() == first.affine

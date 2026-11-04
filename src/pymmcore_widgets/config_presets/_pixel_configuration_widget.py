@@ -249,7 +249,7 @@ class PixelConfigurationWidget(QWidget):
         self._resID_map.clear()
 
         if not value:
-            self._clear_property_view()
+            self._refresh_property_view()
             self.setClean()
             return
 
@@ -325,12 +325,6 @@ class PixelConfigurationWidget(QWidget):
 
     # -------------- property selection / editing --------------
 
-    def _clear_property_view(self) -> None:
-        """Empty and disable the right-hand property value table."""
-        self._value_table.setSettings([])
-        self._value_table.view.setEnabled(False)
-        self._value_table.act_edit_props.setEnabled(False)
-
     def _settings_for_row(self, row: int) -> list[DevicePropertySetting]:
         """Return the settings of resolutionID `row` enriched with property metadata.
 
@@ -352,17 +346,13 @@ class PixelConfigurationWidget(QWidget):
 
     def _refresh_property_view(self) -> None:
         """Show the properties of the currently selected resolutionID."""
-        if (row := self._selected_row()) is None:
-            self._value_table.setSettings([])
-            self._value_table.view.setEnabled(False)
-            # "Edit Properties" acts on every resolutionID, so it stays usable
-            # as long as there is one, even with nothing selected
-            self._value_table.act_edit_props.setEnabled(bool(self._resID_map))
-            return
-
-        self._value_table.setSettings(self._settings_for_row(row))
-        self._value_table.view.setEnabled(True)
-        self._value_table.act_edit_props.setEnabled(True)
+        row = self._selected_row()
+        settings = [] if row is None else self._settings_for_row(row)
+        self._value_table.setSettings(settings)
+        self._value_table.view.setEnabled(row is not None)
+        # "Edit Properties" acts on every resolutionID, so it stays usable
+        # as long as there is one, even with nothing selected
+        self._value_table.act_edit_props.setEnabled(bool(self._resID_map))
 
     @Slot()
     def _on_property_value_edited(self) -> None:
@@ -511,20 +501,24 @@ class PixelConfigurationWidget(QWidget):
         """Update the pixel size value in the configuration map."""
         spin = cast("QDoubleSpinBox", self.sender())
         table = cast("DataTable", self.sender().parent().parent())
-        row = table.indexAt(spin.pos()).row()
-        self._resID_map[row].pixel_size_um = spin.value()
-        self._update_affine_transformations(spin.value())
-        # these spin boxes are connected per row as rows are created, so they
-        # aren't covered by the shared signal hookups in __init__
-        self._update_clean_state()
-
-    def _update_affine_transformations(self, px_value: float) -> None:
-        """Update the affine transformations."""
-        self._affine_table.setValue([px_value, 0.0, 0.0, 0.0, px_value, 0.0])
-        affine = self._affine_table.value()
-        if (row := self._selected_row()) is None:
+        row = next(
+            (
+                row
+                for row in range(table.rowCount())
+                if table.cellWidget(row, 1) is spin
+            ),
+            None,
+        )
+        if row is None:
             return
-        self._resID_map[row].affine = affine
+        preset = self._resID_map[row]
+        value = float(spin.value())
+        preset.pixel_size_um = value
+        preset.affine = (value, 0.0, 0.0, 0.0, value, 0.0)
+        if self._selected_row() == row:
+            with signals_blocked(self._affine_table):
+                self._affine_table.setValue(preset.affine)
+        self._update_clean_state()
 
     @Slot()
     def _on_affine_value_changed(self) -> None:
@@ -539,7 +533,7 @@ class PixelConfigurationWidget(QWidget):
         # if the table is empty clear the configuration map and the value table
         if not self._px_table.value():
             self._resID_map.clear()
-            self._clear_property_view()
+            self._refresh_property_view()
             self._affine_table.setValue(DEFAULT_AFFINE)
             return
 

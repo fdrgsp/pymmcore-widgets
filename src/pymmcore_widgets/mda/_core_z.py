@@ -48,30 +48,26 @@ def _read_z_position(core: CMMCorePlus) -> tuple[str, float | None]:
     return device, core.getPosition(device) if device else None
 
 
+def _tool_button(
+    glyph: str, tooltip: str, parent: QWidget | None = None
+) -> QToolButton:
+    button = QToolButton(parent)
+    button.setIcon(QIconifyIcon(glyph))
+    button.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
+    button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    button.setToolTip(tooltip)
+    button.setAttribute(Qt.WidgetAttribute.WA_LayoutUsesWidgetRect)
+    return button
+
+
 class MarkVisit(QWidget):
-    def __init__(
-        self,
-        mark_top: bool = True,
-        icon_size: int = ICON_SIZE,
-        parent: QWidget | None = None,
-    ):
-        super().__init__(parent)
+    def __init__(self, mark_top: bool = True):
+        super().__init__()
 
         mode = "top" if mark_top else "bottom"
 
-        self.mark = QToolButton()
-        self.mark.setIcon(QIconifyIcon(ICONS_MARK_V2[mode]))
-        self.mark.setIconSize(QSize(icon_size, icon_size))
-        self.mark.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.mark.setToolTip(f"Mark {mode}.")
-        self.mark.setAttribute(Qt.WidgetAttribute.WA_LayoutUsesWidgetRect)
-
-        self.visit = QToolButton()
-        self.visit.setIcon(QIconifyIcon(ICONS_GO[mode]))
-        self.visit.setIconSize(QSize(icon_size, icon_size))
-        self.visit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.visit.setToolTip(f"Move to {mode}.")
-        self.visit.setAttribute(Qt.WidgetAttribute.WA_LayoutUsesWidgetRect)
+        self.mark = _tool_button(ICONS_MARK_V2[mode], f"Mark {mode}.")
+        self.visit = _tool_button(ICONS_GO[mode], f"Move to {mode}.")
 
         layout = QHBoxLayout(self)
         layout.setSpacing(5)
@@ -100,16 +96,16 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         self.bottom_btn = MarkVisit(mark_top=False)
         self.top_btn = MarkVisit(mark_top=True)
         self._move_buttons = QWidget()
-        self.center_btn = QToolButton(self._move_buttons)
-        self.center_btn.setIcon(QIconifyIcon("mingcute:dividing-line-fill"))
-        self.center_btn.setToolTip("Move to center of range.")
-        self.reference_btn = QToolButton(self._move_buttons)
-        self.reference_btn.setIcon(QIconifyIcon("mdi:restore"))
-        self.reference_btn.setToolTip("Return to reference Z (starting position).")
-        for button in (self.center_btn, self.reference_btn):
-            button.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
-            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            button.setAttribute(Qt.WidgetAttribute.WA_LayoutUsesWidgetRect)
+        self.center_btn = _tool_button(
+            "mingcute:dividing-line-fill",
+            "Move to center of range.",
+            self._move_buttons,
+        )
+        self.reference_btn = _tool_button(
+            "mdi:restore",
+            "Return to reference Z (starting position).",
+            self._move_buttons,
+        )
         self._reference_z: float | None = None
         self._last_visit_z: float | None = None
         self._live_z: float | None = None
@@ -214,12 +210,11 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
             self.reference_btn,
         ):
             self._move_layout.removeWidget(widget)
+        self._move_layout.addWidget(self.top_btn, 0, 0)
         if self._mode is not Mode.RANGE_AROUND:
-            self._move_layout.addWidget(self.top_btn, 0, 0)
             self._move_layout.addWidget(self.bottom_btn, 1, 0)
             self._move_layout.addWidget(self.center_btn, 0, 1, 2, 1)
         else:
-            self._move_layout.addWidget(self.top_btn, 0, 0)
             self._move_layout.addWidget(self.bottom_btn, 0, 1)
             self._move_layout.addWidget(self.center_btn, 0, 2)
         self.reference_btn.setVisible(self._mode is Mode.ABOVE_BELOW)
@@ -392,7 +387,7 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         else:
             current = self._mmc.getZPosition()
             # Keep the live preview anchored. Outside polling, an external move
-            # establishes a new relative reference, as before.
+            # establishes a new relative reference.
             if self._reference_z is None or (
                 not self.poll_z.isChecked()
                 and (

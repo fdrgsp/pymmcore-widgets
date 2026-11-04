@@ -1,17 +1,4 @@
-"""Collapsible-sections presentation of the core-connected MDA widget.
-
-``MDAWidgetCollapsible`` is a drop-in [`MDAWidget`][pymmcore_widgets.MDAWidget]
-that presents the acquisition axes as compact, collapsible sections in a
-scrollable body, rather than as checkable tabs.  It subclasses ``MDAWidget`` and
-reuses all of its behavior (``value``/``setValue``, ``prepare_mda``/``run_mda``,
-``save``/``load``, editor enablement, core awareness) and its Settings/Autofocus
-cards and execution footer; only the axis container differs.
-
-The widget is theme-agnostic: sizes come from a :class:`SectionMetrics` value
-(sensible defaults, overridable with :meth:`MDAWidgetCollapsible.set_section_metrics`)
-and every part carries an ``objectName`` so a downstream application can restyle
-it with a stylesheet.
-"""
+"""Collapsible-sections presentation of the core-connected MDA widget."""
 
 from __future__ import annotations
 
@@ -29,7 +16,6 @@ from qtpy.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QTabBar,
-    QTableWidget,
     QTabWidget,
     QToolButton,
     QVBoxLayout,
@@ -89,29 +75,13 @@ class SectionMetrics:
     body_margin_bottom: int = 8
     body_spacing: int = 8
     content_spacing: int = 4
-    content_margin_h: int = 8
-    """Inset of the sections (and the settings card) from the widget's edges."""
     footer_margin_h: int = 8
     footer_margin_top: int = 4
     footer_margin_bottom: int = 8
 
 
 class _ClickableLabel(QLabel):
-    """A clickable header label without native button decoration."""
-
-    clicked = Signal()
-
-    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
-        super().__init__(text, parent)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-
-    def mousePressEvent(self, ev: QMouseEvent | None) -> None:
-        if ev is not None and ev.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit()
-            # Stop propagation to the header, which would toggle again.
-            ev.accept()
-        else:
-            super().mousePressEvent(ev)
+    """Section header label, identified by hosts when tinting header icons."""
 
 
 class _ClickableFrame(QFrame):
@@ -132,7 +102,7 @@ class _ClickableFrame(QFrame):
 
 
 class CollapsibleAcquisitionSection(QWidget):
-    """A disclosure section with an optional, independent enable checkbox."""
+    """A disclosure section with an independent acquisition checkbox."""
 
     checkedChanged = Signal(bool)
 
@@ -140,16 +110,14 @@ class CollapsibleAcquisitionSection(QWidget):
         self,
         title: str,
         *,
-        checked: bool | None = None,
-        summary: str = "",
-        expanded: bool = False,
+        checked: bool,
         metrics: SectionMetrics | None = None,
         icon: str | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._title = title
-        self._expanded = expanded
+        self._expanded = False
         self._metrics = metrics or SectionMetrics()
         self._content_widget: QWidget | None = None
 
@@ -157,48 +125,39 @@ class CollapsibleAcquisitionSection(QWidget):
         self._header.setObjectName("mdaSectionHeader")
         self._header.clicked.connect(self.toggle)
         self._header_layout = QHBoxLayout(self._header)
-        self._header_layout.setContentsMargins(0, 0, 0, 0)
 
         self._disclosure = QToolButton()
         self._disclosure.setObjectName("mdaSectionDisclosure")
         self._disclosure.setAutoRaise(True)
         self._disclosure.setProperty("variant", "ghost")
-        self._disclosure.setAccessibleName(f"Expand {title}")
         self._disclosure.clicked.connect(self.toggle)
         self._header_layout.addWidget(self._disclosure)
 
         # Fixed policies keep the header aligned when its summary is hidden.
-        self._checkbox: QCheckBox | None
-        if checked is None:
-            self._checkbox = None
-        else:
-            checkbox = self._checkbox = QCheckBox()
-            checkbox.setChecked(checked)
-            checkbox.setAccessibleName(f"Use {title} in the acquisition")
-            checkbox.toggled.connect(self._on_checkbox_toggled)
-            checkbox.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-            self._header_layout.addWidget(checkbox)
-            # Native checkbox styles may omit right-hand padding.
-            self._header_layout.addSpacing(self._metrics.header_spacing)
+        self._checkbox = QCheckBox()
+        self._checkbox.setChecked(checked)
+        self._checkbox.setAccessibleName(f"Use {title} in the acquisition")
+        self._checkbox.toggled.connect(self._on_checkbox_toggled)
+        self._checkbox.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self._header_layout.addWidget(self._checkbox)
+        # Native checkbox styles may omit right-hand padding.
+        self._header_layout.addSpacing(self._metrics.header_spacing)
 
         if icon:
             icon_label = _ClickableLabel()
             icon_label.setPixmap(QIconifyIcon(icon).pixmap(_ICON_SIZE, _ICON_SIZE))
-            icon_label.clicked.connect(self.toggle)
             icon_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             self._header_layout.addWidget(icon_label)
 
         self._title_label = title_label = _ClickableLabel(title)
-        title_label.clicked.connect(self.toggle)
         title_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._header_layout.addWidget(
             title_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
 
-        self._summary_text = summary
-        self._summary = _ClickableLabel(summary)
+        self._summary_text = ""
+        self._summary = _ClickableLabel()
         self._summary.setObjectName("mdaSectionSummary")
-        self._summary.clicked.connect(self.toggle)
         self._summary.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
@@ -225,7 +184,7 @@ class CollapsibleAcquisitionSection(QWidget):
         layout.addWidget(self._card)
 
         self._apply_metrics()
-        self._on_disclosure_toggled(expanded)
+        self._on_disclosure_toggled(False)
 
     @property
     def title(self) -> str:
@@ -238,13 +197,13 @@ class CollapsibleAcquisitionSection(QWidget):
         return self._expanded
 
     @property
-    def checked(self) -> bool | None:
-        """Return the acquisition checkbox state, or ``None`` when absent."""
-        return self._checkbox.isChecked() if self._checkbox is not None else None
+    def checked(self) -> bool:
+        """Return the acquisition checkbox state."""
+        return bool(self._checkbox.isChecked())
 
     @property
-    def checkbox(self) -> QCheckBox | None:
-        """Return the acquisition checkbox, if this section has one."""
+    def checkbox(self) -> QCheckBox:
+        """Return the acquisition checkbox."""
         return self._checkbox
 
     @property
@@ -257,11 +216,6 @@ class CollapsibleAcquisitionSection(QWidget):
         """Return the original widget hosted by this section."""
         return self._content_widget
 
-    @property
-    def content_visible(self) -> bool:
-        """Return whether the section body is currently visible."""
-        return not self._body.isHidden()
-
     def set_content_widget(self, widget: QWidget) -> None:
         """Put ``widget`` directly in the section body."""
         if self._content_widget is not None:
@@ -270,10 +224,6 @@ class CollapsibleAcquisitionSection(QWidget):
         self._body_layout.addWidget(widget)
         # Reparenting does not clear a removed tab page's hidden state.
         widget.show()
-
-    def add_widget(self, widget: QWidget, stretch: int = 0) -> None:
-        """Append a supporting widget to a non-axis section."""
-        self._body_layout.addWidget(widget, stretch)
 
     def set_expanded(self, expanded: bool) -> None:
         """Expand or collapse the body without changing acquisition state."""
@@ -289,8 +239,6 @@ class CollapsibleAcquisitionSection(QWidget):
 
     def set_checked(self, checked: bool) -> None:
         """Set the acquisition state without changing disclosure state."""
-        if self._checkbox is None:
-            raise TypeError(f"{self._title!r} is not a checkable section")
         self._checkbox.setChecked(checked)
 
     def _on_checkbox_toggled(self, checked: bool) -> None:
@@ -312,8 +260,7 @@ class CollapsibleAcquisitionSection(QWidget):
 
     def set_checkbox_enabled(self, enabled: bool) -> None:
         """Enable or disable the acquisition checkbox."""
-        if self._checkbox is not None:
-            self._checkbox.setEnabled(enabled)
+        self._checkbox.setEnabled(enabled)
 
     def apply_metrics(self, metrics: SectionMetrics) -> None:
         """Adopt new pixel sizes and re-apply them."""
@@ -366,12 +313,10 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
     def __init__(
         self, parent: QWidget | None = None, core: CMMCorePlus | None = None
     ) -> None:
-        self._sections_ready = False
         self._metrics = SectionMetrics()
         self._section_by_widget: dict[QWidget, CollapsibleAcquisitionSection] = {}
         self._logical_index_by_widget: dict[QWidget, int] = {}
         self._widget_by_logical_index: dict[int, QWidget] = {}
-        self._supporting_sections_added = False
         self._editor_enabled = True
         super().__init__(parent, core)
 
@@ -382,19 +327,19 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         self._min_heights_timer.setInterval(0)
         self._min_heights_timer.timeout.connect(self._apply_editor_min_heights)
 
-        for widget, section in self._section_by_widget.items():
+        for _, attr in self._AXES:
+            widget = getattr(self, attr)
+            section = self._section_by_widget[widget]
             section.checkedChanged.connect(
                 lambda checked, axis_widget=widget: self._on_section_checked(
                     axis_widget, checked
                 )
             )
-            value_changed = getattr(widget, "valueChanged", None)
-            if value_changed is not None:
-                value_changed.connect(
-                    lambda *_args, axis_widget=widget: self._update_axis_summary(
-                        axis_widget
-                    )
+            widget.valueChanged.connect(
+                lambda *_args, axis_widget=widget: self._update_axis_summary(
+                    axis_widget
                 )
+            )
         self.refresh_summaries()
 
     def _build_tabs(self) -> None:
@@ -431,24 +376,17 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         self._scroll.setObjectName("mdaSectionsScrollArea")
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._scroll.setWidget(self._content)
         QTabWidget.addTab(self, self._scroll, "")
         if tab_bar := self.tabBar():
             tab_bar.hide()
         self.setDocumentMode(True)
-        self._sections_ready = True
 
     def showEvent(self, a0: QShowEvent | None) -> None:
         # size hints are only fully reliable once the widget is realized, so
-        # re-derive the editor heights here (the grid editor especially reports
-        # a not-yet-settled hint during construction).
+        # re-derive the editor heights now and again one event-loop cycle later,
+        # once the layout has settled.
         super().showEvent(a0)
-        self._schedule_editor_min_heights()
-
-    def _schedule_editor_min_heights(self, *_: object) -> None:
-        # run now and again one event-loop cycle later, so a just-switched grid
-        # mode has settled its layout before we measure the content height.
         self._apply_editor_min_heights()
         self._min_heights_timer.start()
 
@@ -472,27 +410,9 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
 
     def indexOf(self, widget: QWidget | None) -> int:
         """Return the original logical tab index for an axis widget."""
-        if self._sections_ready and widget in self._logical_index_by_widget:
+        if widget in self._logical_index_by_widget:
             return self._logical_index_by_widget[widget]
         return int(QTabWidget.indexOf(self, widget))
-
-    def removeTab(self, index: int) -> None:
-        """Remove a logical axis from the collapsible presentation.
-
-        ``MDATabs`` consumers use ``removeTab(indexOf(axis_widget))`` to omit an
-        axis entirely, notably the per-position sub-sequence editor.  The
-        collapsible presentation has only one physical ``QTabWidget`` page, so
-        route logical axis indices to their section instead.
-        """
-        if not self._sections_ready:
-            super().removeTab(index)
-            return
-        if (widget := self._widget_by_logical_index.get(index)) is not None:
-            section = self._section_by_widget[widget]
-            section.set_checked(False)
-            section.hide()
-            return
-        QTabWidget.removeTab(self, index)
 
     def isChecked(
         self,
@@ -500,12 +420,10 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         position: QTabBar.ButtonPosition = QTabBar.ButtonPosition.LeftSide,
     ) -> bool | None:
         """Return whether an MDA axis participates in the sequence."""
-        if not self._sections_ready:
-            return super().isChecked(cast("int | QWidget", key), position)
         widget = self._resolve_widget(key)
         if widget is None:
             return None
-        return bool(self._section_by_widget[widget].checked)
+        return self._section_by_widget[widget].checked
 
     def setChecked(
         self,
@@ -514,9 +432,6 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         position: QTabBar.ButtonPosition = QTabBar.ButtonPosition.LeftSide,
     ) -> None:
         """Set whether an MDA axis participates in the sequence."""
-        if not self._sections_ready:
-            super().setChecked(cast("int | QWidget", key), checked, position)
-            return
         widget = self._resolve_widget(key)
         if widget is None:
             raise ValueError(f"Unknown MDA axis: {key!r}")
@@ -529,13 +444,9 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
 
     def add_supporting_sections(self, *, save_info: SaveGroupBox) -> None:
         """Append the Saving section after the five axes."""
-        if self._supporting_sections_added:
-            return
-
         self.saving_section = CollapsibleAcquisitionSection(
             "Saving",
             checked=save_info.isChecked(),
-            expanded=False,
             metrics=self._metrics,
             icon=MDA_ICONS.get("saving"),
             parent=self._content,
@@ -573,35 +484,24 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
 
     def _apply_editor_min_heights(self) -> None:
         """Keep tables usable while the outer scroll area handles overflow."""
-        for widget in self._section_by_widget:
-            table_getter = getattr(widget, "table", None)
-            if callable(table_getter) and isinstance(
-                table := table_getter(), QTableWidget
-            ):
-                # if the user dragged the table's resize grip, that height wins
-                grip = getattr(widget, "_resize_grip", None)
-                if grip is not None and grip.isUserResized():
-                    continue
-                row_h = table.verticalHeader().defaultSectionSize()
-                h_header = table.horizontalHeader()
-                header_h = max(h_header.height(), h_header.sizeHint().height())
-                table.setMinimumHeight(
-                    header_h + row_h * self._MIN_TABLE_ROWS + 2 * table.frameWidth()
-                )
-
-    def set_editor_enabled(self, enabled: bool) -> None:
-        """Enable or disable MDA editing while retaining disclosure access."""
-        self._editor_enabled = enabled
-        for widget, section in self._section_by_widget.items():
-            section.set_checkbox_enabled(enabled)
-            widget.setEnabled(enabled and bool(section.checked))
-        if self._supporting_sections_added:
-            self.saving_section.set_checkbox_enabled(enabled)
-            self._save_info.setEnabled(enabled)
+        for widget in (self.channels, self.stage_positions, self.time_plan):
+            # if the user dragged the table's resize grip, that height wins
+            if widget._resize_grip.isUserResized():
+                continue
+            table = widget.table()
+            row_h = table.verticalHeader().defaultSectionSize()
+            h_header = table.horizontalHeader()
+            header_h = max(h_header.height(), h_header.sizeHint().height())
+            table.setMinimumHeight(
+                header_h + row_h * self._MIN_TABLE_ROWS + 2 * table.frameWidth()
+            )
 
     def _enable_tabs(self, enable: bool) -> None:
-        """Implement the upstream acquisition enable/disable contract."""
-        self.set_editor_enabled(enable)
+        """Enable or disable MDA editing while retaining disclosure access."""
+        self._editor_enabled = enable
+        for section in self.sections:
+            section.set_checkbox_enabled(enable)
+        super()._enable_tabs(enable)
 
     def _resolve_widget(self, key: str | int | QWidget) -> QWidget | None:
         if isinstance(key, str):
@@ -642,7 +542,8 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
                 )
                 for channel in channels
             ]
-            return _compact_items(labels, "channels")
+            head = " · ".join(labels[:2])
+            return f"{head} · +{len(labels) - 2}" if len(labels) > 2 else head
 
         if widget is self.stage_positions:
             count = len(self.stage_positions.value())
@@ -672,13 +573,8 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
                 # interval is 0 (e.g. user is mid-edit); nothing sensible to show
                 loops = None
             if loops is not None and interval is not None:
-                seconds = (
-                    interval.total_seconds()
-                    if hasattr(interval, "total_seconds")
-                    else interval
-                )
                 point_label = "point" if loops == 1 else "points"
-                return f"{loops} {point_label} · {seconds:g} s"
+                return f"{loops} {point_label} · {interval.total_seconds():g} s"
             return type(time_plan).__name__.removeprefix("T")
 
         return ""
@@ -732,14 +628,6 @@ class MDAWidgetCollapsible(MDAWidget):
             metrics.footer_margin_bottom,
         )
         cast("QVBoxLayout", self.layout()).setSpacing(0)
-
-
-def _compact_items(items: list[str], noun: str) -> str:
-    if not items:
-        return f"No {noun}"
-    if len(items) <= 2:
-        return " · ".join(items)
-    return f"{' · '.join(items[:2])} · +{len(items) - 2}"
 
 
 __all__ = [

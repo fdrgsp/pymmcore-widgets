@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import ExitStack
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -51,8 +52,6 @@ def load_custom_plate_database(
     Returns an empty dict if the file doesn't exist or can't be parsed.
     """
     path = Path(path)
-    if not path.is_file():
-        return {}
     try:
         db = json.loads(path.read_text())
     except (json.JSONDecodeError, OSError):
@@ -190,7 +189,6 @@ class CustomPlateWidget(QDialog):
 
         # LAYOUT ---------------------------------------------------------------
 
-        # Let the buttons span the panel instead of just the field column.
         btn_row = QWidget()
         btn_row_layout = QHBoxLayout(btn_row)
         btn_row_layout.setContentsMargins(0, 0, 0, 0)
@@ -214,15 +212,12 @@ class CustomPlateWidget(QDialog):
         for label, _ in rows:
             label.setFixedWidth(label_width)
 
-        form_grid = QVBoxLayout()
-        form_grid.setSpacing(8)
-        for _, row in rows:
-            form_grid.addWidget(row)
-        form_grid.addWidget(btn_row)
-
         form_box = QGroupBox("Plate Definition")
         form_layout = QVBoxLayout(form_box)
-        form_layout.addLayout(form_grid)
+        form_layout.setSpacing(8)
+        for _, row in rows:
+            form_layout.addWidget(row)
+        form_layout.addWidget(btn_row)
 
         list_box = QGroupBox("Available Plates")
         list_layout = QVBoxLayout(list_box)
@@ -238,29 +233,27 @@ class CustomPlateWidget(QDialog):
         left_layout.addWidget(list_box, 1)
         left_layout.addWidget(form_box, 0)
 
-        top = QHBoxLayout()
+        top = QHBoxLayout(self)
         top.addWidget(left, 0)
         top.addWidget(preview_box, 1)
-
-        main_layout = QVBoxLayout(self)
-        main_layout.addLayout(top)
 
         self.setMinimumSize(760, 580)
 
         # CONNECTIONS -----------------------------------------------------------
 
-        self._new_btn.clicked.connect(self._on_new_clicked)
+        self._new_btn.clicked.connect(self._clear_form)
         self._save_btn.clicked.connect(self._on_save_clicked)
         self._delete_btn.clicked.connect(self._on_delete_clicked)
         self._plate_list.currentTextChanged.connect(self._on_selection_changed)
-        for wdg in (
+        self._spin_boxes = (
             self._rows,
             self._columns,
             self._well_size_x,
             self._well_size_y,
             self._spacing_x,
             self._spacing_y,
-        ):
+        )
+        for wdg in self._spin_boxes:
             wdg.valueChanged.connect(self._update_preview)
         self._circular.toggled.connect(self._update_preview)
 
@@ -280,15 +273,18 @@ class CustomPlateWidget(QDialog):
         )
 
     def _set_form(self, plate: useq.WellPlate) -> None:
-        with signals_blocked(self._name):
-            self._name.setText(plate.name)
-        self._rows.setValue(plate.rows)
-        self._columns.setValue(plate.columns)
-        self._well_size_x.setValue(plate.well_size[0])
-        self._well_size_y.setValue(plate.well_size[1])
-        self._spacing_x.setValue(plate.well_spacing[0])
-        self._spacing_y.setValue(plate.well_spacing[1])
-        self._circular.setChecked(plate.circular_wells)
+        self._name.setText(plate.name)
+        # each setter would otherwise redraw the whole plate preview
+        with ExitStack() as stack:
+            for wdg in (*self._spin_boxes, self._circular):
+                stack.enter_context(signals_blocked(wdg))
+            self._rows.setValue(plate.rows)
+            self._columns.setValue(plate.columns)
+            self._well_size_x.setValue(plate.well_size[0])
+            self._well_size_y.setValue(plate.well_size[1])
+            self._spacing_x.setValue(plate.well_spacing[0])
+            self._spacing_y.setValue(plate.well_spacing[1])
+            self._circular.setChecked(plate.circular_wells)
         self._update_preview()
 
     def _clear_form(self) -> None:
@@ -314,9 +310,6 @@ class CustomPlateWidget(QDialog):
         with signals_blocked(self._plate_list):
             self._plate_list.clear()
             self._plate_list.addItems(names)
-        # the rows were repopulated with signals blocked, so ask the view for a
-        # relayout/repaint explicitly rather than relying on it having noticed
-        self._plate_list.viewport().update()
         self._schedule_repaint()
         if select:
             items = self._plate_list.findItems(select, Qt.MatchFlag.MatchExactly)
@@ -357,9 +350,6 @@ class CustomPlateWidget(QDialog):
             return
         # works for built-ins too, since they're registered with useq as well
         self._set_form(useq.WellPlate.from_str(key))
-
-    def _on_new_clicked(self) -> None:
-        self._clear_form()
 
     def _on_save_clicked(self) -> None:
         plate = self._build_plate()

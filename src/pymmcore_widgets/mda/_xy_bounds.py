@@ -36,7 +36,6 @@ if TYPE_CHECKING:
 
 FIXED_POLICY = (QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 CTR = Qt.AlignmentFlag.AlignCenter
-RADIUS = 4
 ICON_SIZE = TRANSLATE_ICON = 24
 if os.name != "nt":
     TRANSLATE_ICON *= 2
@@ -85,7 +84,6 @@ BOUND_LABELS: dict[str, str] = {
     "bottom_left": "Bottom L",
     "bottom_right": "Bottom R",
 }
-_BOUND_KIND = {name: "corner" if "_" in name else "edge" for name in BOUND_LABELS}
 # (field, edge, corner) of each compact row: the bound field it shows, and the
 # bound its Mark/Move buttons act on in Edges and in Corners mode
 _COMPACT_ROWS = (
@@ -130,8 +128,7 @@ class XYBoundsControl(QWidget):
         top_layout = QHBoxLayout()
         top_layout.setContentsMargins(0, 0, 0, 0)
         if compact_layout:
-            self._buttons_widget = self._make_compact_widget()
-            top_layout.addWidget(self._buttons_widget, 1)
+            top_layout.addWidget(self._make_compact_widget(), 1)
             # The compact layout has its own Mark and Move buttons, so neither
             # the direction pad's buttons nor its Move toggle are placed in a
             # layout, and _bounds_wdg only donates its field widgets to the
@@ -152,9 +149,10 @@ class XYBoundsControl(QWidget):
                 widget.setParent(self)
                 widget.hide()
         else:
-            self._buttons_widget = self._make_direction_pad()
             top_layout.setSpacing(15)
-            top_layout.addWidget(self._buttons_widget, 0, Qt.AlignmentFlag.AlignVCenter)
+            top_layout.addWidget(
+                self._make_direction_pad(), 0, Qt.AlignmentFlag.AlignVCenter
+            )
             top_layout.addWidget(self._bounds_wdg, 0, Qt.AlignmentFlag.AlignVCenter)
         top_layout.addStretch()
 
@@ -191,8 +189,7 @@ class XYBoundsControl(QWidget):
         (Top, Bottom, Left, Right), or a corner (Top Left, Bottom Left, Top
         Right, Bottom Right), marking or visiting two edges at once. Each row's
         label names whichever bound its buttons act on. Mark and Move are both
-        always visible -- as in the Z Stack's Top/Bottom rows -- rather than one
-        set of buttons switching between marking and moving.
+        always visible, as in the Z Stack's Top/Bottom rows.
         """
         compact_widget = QWidget()
         compact_widget.setSizePolicy(
@@ -259,14 +256,8 @@ class XYBoundsControl(QWidget):
         # corners does not move the fields and buttons beside the labels. The
         # "Bounds by" label shares the width, so the radios line up with them.
         metrics = self.fontMetrics()
-        width = max(
-            metrics.horizontalAdvance(text)
-            for texts in (
-                *(texts for _, *texts in self._compact_field_labels),
-                [self._bounds_by_label.text()],
-            )
-            for text in texts
-        )
+        texts = (*BOUND_LABELS.values(), self._bounds_by_label.text())
+        width = max(metrics.horizontalAdvance(text) for text in texts)
         for label in (
             self._bounds_by_label,
             *(label for label, *_ in self._compact_field_labels),
@@ -302,7 +293,8 @@ class XYBoundsControl(QWidget):
         ):
             label.setText(corner_text if corners else edge_text)
             bound = corner if corners else edge
-            label.setToolTip(f"The {bound.replace('_', ' ')} {_BOUND_KIND[bound]}.")
+            kind = "corner" if "_" in bound else "edge"
+            label.setToolTip(f"The {bound.replace('_', ' ')} {kind}.")
 
     def _update_buttons_icon(self, state: bool) -> None:
         """Switch the icon of the buttons between `mark` and `visit`."""
@@ -332,13 +324,8 @@ class CoreXYBoundsControl(XYBoundsControl):
         self.left = self._bounds_wdg.left
         self.right = self._bounds_wdg.right
         self.bottom = self._bounds_wdg.bottom
-        for key, field in (
-            ("top", self.top),
-            ("bottom", self.bottom),
-            ("left", self.left),
-            ("right", self.right),
-        ):
-            field.valueChanged.connect(
+        for key in ("top", "bottom", "left", "right"):
+            getattr(self, key).valueChanged.connect(
                 lambda _=0.0, k=key: self._raw_marks.pop(k, None)
             )
         self._bound_fields = (self.top, self.bottom, self.left, self.right)
@@ -438,11 +425,8 @@ class CoreXYBoundsControl(XYBoundsControl):
         the outward direction, independently of the stage's axis orientation.
         """
         exact_other_raw = self._raw_marks.get(other_key)
-        if exact_other_raw is None:
-            # Until both centers are marked, infer direction from the other field.
-            reference = other_wdg.value()
-        else:
-            reference = exact_other_raw
+        # Until both centers are marked, infer direction from the other field.
+        reference = other_wdg.value() if exact_other_raw is None else exact_other_raw
         outward = extent / 2 if raw >= reference else -extent / 2
         wdg.setValue(raw + outward)
         if exact_other_raw is not None:
@@ -518,35 +502,25 @@ class _MarkVisitButton(QPushButton):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._name = name
-        self._visit_icon = QIconifyIcon(ICONS_GO[self._name])
-        glyph, flip = ICONS_MARK[self._name]
+        self._label = name.replace("_", " ")
+        self._visit_icon = QIconifyIcon(ICONS_GO[name])
+        glyph, flip = ICONS_MARK[name]
         self._mark_icon = QIconifyIcon(glyph, flip=flip)
 
         self.setIcon(self._mark_icon)
         self.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setToolTip(f"Mark the {self.label} bound.")
-
-    @property
-    def name(self) -> str:
-        """The bound this button marks/visits, e.g. 'top_left'."""
-        return self._name
-
-    @property
-    def label(self) -> str:
-        """Human-readable version of `name`, e.g. 'top left'."""
-        return self._name.replace("_", " ")
+        self.setToolTip(f"Mark the {self._label} bound.")
 
     def setMark(self) -> None:
         """Set the icon to the mark icon."""
         self.setIcon(self._mark_icon)
-        self.setToolTip(f"Mark the {self.label} bound.")
+        self.setToolTip(f"Mark the {self._label} bound.")
 
     def setVisit(self) -> None:
         """Set the icon to the visit icon."""
         self.setIcon(self._visit_icon)
-        self.setToolTip(f"Move to the {self.label} bound.")
+        self.setToolTip(f"Move to the {self._label} bound.")
 
 
 if __name__ == "__main__":

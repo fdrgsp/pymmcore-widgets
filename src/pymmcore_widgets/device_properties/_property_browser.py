@@ -1,13 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-from pymmcore_plus import CMMCorePlus, DeviceType
+from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import Slot
 from qtpy.QtWidgets import QLineEdit, QVBoxLayout, QWidget
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable
 
 from ._device_property_table import DevicePropertyTable
 from ._device_type_toolbar import DeviceButtonToolbar
@@ -32,17 +27,12 @@ class PropertyBrowser(QWidget):
         *,
         parent: QWidget | None = None,
         mmcore: CMMCorePlus | None = None,
-        exclude_device_types: Iterable[DeviceType] = (),
     ):
         super().__init__(parent=parent)
         self._mmc = mmcore or CMMCorePlus.instance()
 
         self._prop_table = DevicePropertyTable(mmcore=self._mmc)
         self._device_toolbar = DeviceButtonToolbar()
-        if exclude_device_types:
-            self._device_toolbar.setVisibleDeviceTypes(
-                set(DeviceType) - set(exclude_device_types)
-            )
         self._device_toolbar.checkedDevicesChanged.connect(self._update_filter)
         self._device_toolbar.readOnlyToggled.connect(self._update_filter)
         self._device_toolbar.preInitToggled.connect(self._update_filter)

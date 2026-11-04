@@ -100,9 +100,6 @@ class CoreMDATabs(MDATabs):
 
         Sync the tab checkbox with SaveGroupBox and hide its duplicated header.
         """
-        if self._supporting_sections_added:
-            return
-
         self._save_info = save_info
         self._add_tab(
             save_info, "Saving", "saving", checked=save_info.isChecked(), card=True
@@ -125,8 +122,6 @@ class CoreMDATabs(MDATabs):
 
     def apply_save_body_style(self) -> None:
         """Hide the native header; the containing tab or section supplies a toggle."""
-        if not self._supporting_sections_added:
-            return
         self._save_info.setTitle("")
         self._save_info.setFlat(True)
         self._save_info.setObjectName("mdaSaveInfoBody")

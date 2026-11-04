@@ -165,18 +165,14 @@ class ConfigWizard(QWizard):
             *self._model.config_groups.values(),
             self._model.pixel_size_group,
         ):
-            presets_to_remove: list[str] = []
             for preset in group.presets.values():
                 preset.settings = [
                     s for s in preset.settings if s.device_name in device_names
                 ]
-                if not preset.settings:
-                    presets_to_remove.append(preset.name)
-            for name in presets_to_remove:
-                del group.presets[name]
-        for name, group in list(self._model.config_groups.items()):
-            if not group.presets:
-                del self._model.config_groups[name]
+            group.presets = {n: p for n, p in group.presets.items() if p.settings}
+        self._model.config_groups = {
+            n: g for n, g in self._model.config_groups.items() if g.presets
+        }
 
     def _update_step(self, current_index: int) -> None:
         """Change text on the left when the page changes."""
