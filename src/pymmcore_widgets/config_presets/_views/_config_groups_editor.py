@@ -473,7 +473,7 @@ class ConfigGroupsEditor(QWidget):
         lay = QVBoxLayout(dialog)
         lay.addWidget(selector)
         lay.addLayout(bottom_row)
-        dialog.resize(int(self.width() * 0.8), int(self.height() * 0.8))
+        dialog.resize(int(self.width() * 0.5), int(self.height() * 0.8))
 
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
