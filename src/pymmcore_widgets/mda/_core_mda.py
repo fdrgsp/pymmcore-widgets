@@ -596,7 +596,7 @@ class MDAWidget(MDASequenceWidget):
         """
         self.tabs._enable_tabs(enable)
         self._settings_box.setEnabled(enable)
-        self._af_box.setEnabled(enable)
+        self.af_axis.setEnabled(enable)
         self._save_button.setEnabled(enable)
         self._load_button.setEnabled(enable)
 

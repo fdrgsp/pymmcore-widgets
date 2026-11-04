@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pytest
 import useq
 from qtpy.QtCore import Qt
+from qtpy.QtWidgets import QStyle, QStyleOptionGroupBox
 
 from pymmcore_widgets.useq_widgets import MDASequenceWidget
 from pymmcore_widgets.useq_widgets._mda_sequence import AutofocusAxis
@@ -39,6 +41,8 @@ def test_autofocus_is_off_until_enabled(qtbot: QtBot) -> None:
     af = AutofocusAxis()
     qtbot.addWidget(af)
     assert not af.isChecked()
+    assert af.isCheckable()
+    assert af.title() == "Autofocus"
     assert af.kind() is None
     # ... and no mode can be picked while there is no autofocus to configure
     assert not af.use_hardware.isEnabled()
@@ -55,6 +59,27 @@ def test_autofocus_is_off_until_enabled(qtbot: QtBot) -> None:
     af.setChecked(False)
     assert not af.use_hardware.isEnabled()
     assert not af.use_software.isEnabled()
+
+
+def test_card_title_checkbox_toggles_controls(qtbot: QtBot) -> None:
+    af = AutofocusAxis()
+    qtbot.addWidget(af)
+    af.show()
+    qtbot.waitExposed(af)
+    option = QStyleOptionGroupBox()
+    af.initStyleOption(option)
+    checkbox = af.style().subControlRect(
+        QStyle.ComplexControl.CC_GroupBox,
+        option,
+        QStyle.SubControl.SC_GroupBoxCheckBox,
+        af,
+    )
+    for checked in (True, False, True):
+        with qtbot.waitSignal(af.toggled):
+            qtbot.mouseClick(af, Qt.MouseButton.LeftButton, pos=checkbox.center())
+        assert af.isChecked() is checked
+        assert af.use_af_p.isEnabled() is checked
+        assert af.use_hardware.isEnabled() is checked
 
 
 def test_hardware_option_follows_the_available_devices(qtbot: QtBot) -> None:
@@ -129,18 +154,71 @@ def test_each_kind_shows_only_its_own_options(qtbot: QtBot) -> None:
     af.setChecked(True)
     af.setSoftwareMethods(["oughtafocus"])
 
-    assert not af.search_below_um.isHidden()
-    assert af.every_n_timepoints.isHidden()
+    assert af.search_below_um.isVisibleTo(af)
+    assert not af.every_n_timepoints.isVisibleTo(af)
 
     af.use_software.setChecked(True)
-    assert af.search_below_um.isHidden()
-    assert af.search_above_um.isHidden()
-    assert af.search_step_um.isHidden()
-    assert not af.every_n_timepoints.isHidden()
+    assert not af.search_below_um.isVisibleTo(af)
+    assert not af.search_above_um.isVisibleTo(af)
+    assert not af.search_step_um.isVisibleTo(af)
+    assert af.every_n_timepoints.isVisibleTo(af)
 
     af.use_hardware.setChecked(True)
-    assert not af.search_below_um.isHidden()
-    assert af.every_n_timepoints.isHidden()
+    assert af.search_below_um.isVisibleTo(af)
+    assert not af.every_n_timepoints.isVisibleTo(af)
+
+
+@pytest.mark.parametrize("initial_kind", ["hardware", "software"])
+@pytest.mark.parametrize("font_size", [None, 18])
+def test_switching_kind_keeps_layout_size(
+    qtbot: QtBot, initial_kind: str, font_size: int | None
+) -> None:
+    af = AutofocusAxis()
+    qtbot.addWidget(af)
+    af.setSoftwareMethods(["oughtafocus"])
+    af.setKind(initial_kind)
+    if font_size is not None:
+        font = af.font()
+        font.setPointSize(font_size)
+        af.setFont(font)
+    af.show()
+    qtbot.waitExposed(af)
+    af.adjustSize()
+    size_hint = af.sizeHint()
+    minimum_size_hint = af.minimumSizeHint()
+    size = af.size()
+    options_y = af._kind_stack.currentWidget().y()
+    line_centers = None
+
+    for kind in ("software", "hardware", "software", "hardware"):
+        af.setKind(kind)
+        af.adjustSize()
+        assert af.sizeHint() == size_hint
+        assert af.minimumSizeHint() == minimum_size_hint
+        assert af.size() == size
+        assert af._kind_stack.currentWidget().y() == options_y
+        option = QStyleOptionGroupBox()
+        af.initStyleOption(option)
+        title = af.style().subControlRect(
+            QStyle.ComplexControl.CC_GroupBox,
+            option,
+            QStyle.SubControl.SC_GroupBoxLabel,
+            af,
+        )
+        labels = (
+            af.label,
+            af._mode_label,
+            af._method_label if kind == "software" else af._search_label,
+        )
+        centers = [
+            title.center().y(),
+            *(label.mapTo(af, label.rect().center()).y() for label in labels),
+        ]
+        gaps = [b - a for a, b in itertools.pairwise(centers)]
+        assert max(gaps) - min(gaps) <= 1
+        if line_centers is not None:
+            assert centers == line_centers
+        line_centers = centers
 
 
 def test_kind_change_emits_value_changed(qtbot: QtBot) -> None:

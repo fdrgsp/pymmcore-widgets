@@ -25,6 +25,7 @@ from qtpy.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSpinBox,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -110,9 +111,11 @@ def _humanize(name: str) -> str:
     return f"{text} ({unit})" if unit else text
 
 
-def _settings_button(tooltip: str) -> QPushButton:
+def _settings_button(
+    tooltip: str, *, compact: bool = False
+) -> QPushButton | QToolButton:
     """A compact gear button, matching the icons the MDA sections use."""
-    button = QPushButton()
+    button = QToolButton() if compact else QPushButton()
     button.setIcon(StandardIcon.SETTINGS.icon())
     button.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
     button.setToolTip(tooltip)

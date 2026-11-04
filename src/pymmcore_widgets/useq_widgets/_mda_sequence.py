@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from importlib.util import find_spec
-from itertools import permutations
+from itertools import pairwise, permutations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import useq
-from qtpy.QtCore import Qt, Signal
+from qtpy.QtCore import QEvent, Qt, Signal
 from qtpy.QtGui import QIcon
 from qtpy.QtWidgets import (
     QApplication,
@@ -17,15 +17,19 @@ from qtpy.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFrame,
-    QGroupBox,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QMessageBox,
     QPushButton,
     QRadioButton,
     QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QStackedLayout,
+    QStyle,
+    QStyleOptionGroupBox,
     QTabBar,
     QTabWidget,
     QVBoxLayout,
@@ -46,6 +50,7 @@ from pymmcore_widgets.useq_widgets._axis_tabs import (
     MDA_ICONS,
     _AxisTabBar,
     _AxisTabButton,
+    _CheckableCard,
     _wrap_in_card,
 )
 from pymmcore_widgets.useq_widgets._channels import ChannelTable
@@ -57,6 +62,8 @@ from pymmcore_widgets.useq_widgets._z import Mode, ZPlanWidget
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from qtpy.QtGui import QShowEvent
 
 
 def _check_order(x: str, first: str, second: str) -> bool:
@@ -466,17 +473,16 @@ def _installed_software_methods() -> tuple[dict[str, type], dict[str, str]]:
     )
 
 
-class AutofocusAxis(QGroupBox):
+class AutofocusAxis(_CheckableCard):
     """Autofocus settings: whether to use it, which kind, when, and how it searches.
 
-    A checkable group box, so Qt's own semantics switch the whole thing on and off:
+    A checkable group box, whose header switches the controls on and off:
     `isChecked()` says whether autofocus will run, and unchecking it disables the
     controls inside. `Hardware` and `Software` are exclusive, since an acquisition
     carries a single autofocus plan; `Software` stays disabled until software
     autofocus methods are available (see `setSoftwareMethods`).
 
-    It is drawn flat: the MDA widgets already wrap it in a card, and a group box's
-    own frame renders inconsistently across platforms.
+    The rows keep the same compact spacing in both autofocus modes.
     """
 
     valueChanged = Signal()
@@ -487,7 +493,6 @@ class AutofocusAxis(QGroupBox):
         self.setTitle("Autofocus")
         self.setCheckable(True)
         self.setChecked(False)
-        self.setFlat(True)
         self.setToolTip(AF_ENABLE_TOOLTIP)
 
         self.label = QLabel("On Axis:")
@@ -519,7 +524,7 @@ class AutofocusAxis(QGroupBox):
         # --- software only: which routine, and its settings ---
         self._method_label = QLabel("Method:")
         self.method = QComboBox()
-        self.settings_button = _settings_button(AF_SETTINGS_TOOLTIP)
+        self.settings_button = _settings_button(AF_SETTINGS_TOOLTIP, compact=True)
         # each method keeps its own settings, so switching back and forth does not
         # discard what was configured
         self._method_models: dict[str, type] = {}
@@ -545,10 +550,20 @@ class AutofocusAxis(QGroupBox):
         self._hardware_plan: useq.AxesBasedAF | None = None
         self._software_plan: useq.SoftwareAxesBasedAF | None = None
 
-        axis_row = _row(self.label, self.use_af_p, self.use_af_t, self.use_af_g)
-        mode_row = _row(self._mode_label, self.use_hardware, self.use_software)
-        search_row = _row(
+        # one label column for the three rows, so their controls line up
+        _labels = (
+            self.label,
+            self._mode_label,
             self._search_label,
+            self._method_label,
+        )
+        label_width = max(w.sizeHint().width() for w in _labels)
+        for w in _labels:
+            w.setFixedWidth(label_width)
+
+        axis_row = _row(self.use_af_p, self.use_af_t, self.use_af_g)
+        mode_row = _row(self.use_hardware, self.use_software)
+        search_row = _row(
             self.search_below_um,
             self.search_above_um,
             self.search_step_um,
@@ -556,19 +571,48 @@ class AutofocusAxis(QGroupBox):
 
         software_row = QHBoxLayout()
         software_row.setSpacing(10)
-        software_row.addWidget(self._method_label)
         software_row.addWidget(self.method, 1)
         software_row.addWidget(self.settings_button)
         software_row.addWidget(self._every_n_label)
         software_row.addWidget(self.every_n_timepoints)
 
-        layout = QVBoxLayout(self)
-        layout.setSpacing(5)
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.addLayout(axis_row)
-        layout.addLayout(mode_row)
-        layout.addLayout(search_row)
-        layout.addLayout(software_row)
+        # Reserve the larger size of the two modes, including the hidden page.
+        self._kind_stack = QStackedLayout()
+        for row in (search_row, software_row):
+            page = QWidget()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+            page.setLayout(row)
+            self._kind_stack.addWidget(page)
+
+        options = QWidget()
+        options.setLayout(self._kind_stack)
+        self._kind_labels = QStackedLayout()
+        self._kind_labels.addWidget(self._search_label)
+        self._kind_labels.addWidget(self._method_label)
+        kind_label = QWidget()
+        kind_label.setLayout(self._kind_labels)
+        controls = []
+        for row in (axis_row, mode_row):
+            page = QWidget()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+            page.setLayout(row)
+            controls.append(page)
+        self._rows = (
+            (self.label, controls[0]),
+            (self._mode_label, controls[1]),
+            (kind_label, options),
+        )
+
+        layout = QGridLayout(self)
+        layout.setHorizontalSpacing(10)
+        layout.setVerticalSpacing(0)
+        layout.setContentsMargins(5, 5, 5, 0)
+        layout.setColumnStretch(1, 1)
+        for i, row_widgets in enumerate(self._rows):
+            for column, widget in enumerate(row_widgets):
+                layout.addWidget(widget, 2 * i, column)
 
         self.toggled.connect(self._on_af_state_changed)
         self.use_af_p.toggled.connect(self.valueChanged)
@@ -584,19 +628,41 @@ class AutofocusAxis(QGroupBox):
         self.method.currentTextChanged.connect(self._on_method_changed)
         self.settings_button.clicked.connect(self._edit_settings)
 
-        # one label column for the three rows, so their controls line up
-        _labels = (
-            self.label,
-            self._mode_label,
-            self._search_label,
-            self._method_label,
-        )
-        label_width = max(w.sizeHint().width() for w in _labels)
-        for w in _labels:
-            w.setFixedWidth(label_width)
-
         self._update_kind_widgets()
         self.setSoftwareMethods(*_installed_software_methods())
+        self._update_row_spacing()
+
+    def _update_row_spacing(self) -> None:
+        layout = cast("QGridLayout", self.layout())
+        heights = [
+            max(layout.itemAtPosition(2 * i, c).sizeHint().height() for c in (0, 1))
+            for i in range(len(self._rows))
+        ]
+        # Taller controls need less space around them to keep the text lines
+        # equally spaced. Reserve both modes without padding every row to match.
+        pitch = max((a + b + 1) // 2 for a, b in pairwise(heights))
+        for i, (a, b) in enumerate(pairwise(heights)):
+            layout.setRowMinimumHeight(2 * i + 1, pitch - (a + b) // 2)
+        option = QStyleOptionGroupBox()
+        self.initStyleOption(option)
+        title = self.style().subControlRect(
+            QStyle.ComplexControl.CC_GroupBox,
+            option,
+            QStyle.SubControl.SC_GroupBoxLabel,
+            self,
+        )
+        top = title.center().y() + pitch - self.contentsRect().top() - heights[0] // 2
+        layout.setContentsMargins(5, max(0, top), 5, 0)
+        layout.activate()
+
+    def event(self, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.LayoutRequest:
+            self._update_row_spacing()
+        return bool(super().event(event))
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self._update_row_spacing()
 
     def _search_spin(self, prefix: str, tooltip: str) -> QDoubleSpinBox:
         spin = QDoubleSpinBox()
@@ -758,19 +824,14 @@ class AutofocusAxis(QGroupBox):
             self.valueChanged.emit()
 
     def _on_af_state_changed(self) -> None:
-        # Qt re-enables the children, but each mode's own controls carry an enabled
-        # state of their own that has to be reapplied on top of that
         self._update_kind_widgets()
         self.valueChanged.emit()
 
     def _update_kind_widgets(self) -> None:
         """Apply every enabled and visible state in one place.
 
-        A control is enabled only if the microscope can actually use it *and*
-        autofocus is switched on: Qt re-enables a checkable group box's children
-        wholesale when it is checked, so each control's own state has to be
-        reapplied on top of that -- and nothing may re-enable a control while the
-        group is off.
+        A control is enabled only if the microscope can actually use it and
+        autofocus is switched on.
 
         The Z search is a hardware-autofocus recovery; skipping time points matters
         for software autofocus, where each run costs many images.
@@ -797,30 +858,16 @@ class AutofocusAxis(QGroupBox):
             tooltip = self._software_unavailable_reason or AF_NO_SOFTWARE_TOOLTIP
         self.use_software.setToolTip(tooltip)
 
-        hardware = self.use_hardware.isChecked()
-        hardware_only: tuple[QWidget, ...] = (
-            self._search_label,
-            self.search_below_um,
-            self.search_above_um,
-            self.search_step_um,
-        )
-        software_only: tuple[QWidget, ...] = (
-            self._method_label,
-            self.method,
-            self.settings_button,
-            self._every_n_label,
-            self.every_n_timepoints,
-        )
-        for wdg in hardware_only:
-            wdg.setVisible(hardware)
-        for wdg in software_only:
-            wdg.setVisible(not hardware)
+        index = 0 if self.use_hardware.isChecked() else 1
+        self._kind_stack.setCurrentIndex(index)
+        self._kind_labels.setCurrentIndex(index)
         # "Run every N" qualifies the time-point trigger, so it applies only when
         # autofocus is actually set to run on the t axis
         on_t = self.use_af_t.isChecked()
         for wdg in (self._every_n_label, self.every_n_timepoints):
             wdg.setEnabled(on and on_t)
             wdg.setToolTip(AF_EVERY_N_TOOLTIP if on_t else AF_EVERY_N_NO_T_TOOLTIP)
+        self._update_row_spacing()
 
     # ------------------------------- value --------------------------------
 
@@ -1010,15 +1057,10 @@ class MDASequenceWidget(QWidget):
         settings_layout.addLayout(axis_layout)
         settings_layout.addWidget(self.keep_shutter_open)
         self._settings_box = _wrap_in_card(settings_widget)
-        # Autofocus gets a card of its own below: it has more controls than the
-        # settings above it, and which ones apply depends on the kind selected.
-        # same total inset as the settings card above, so the two line up
-        self._af_box = _wrap_in_card(self.af_axis, margin=10)
-
         self._settings_row = settings_row = QVBoxLayout()
         settings_row.setSpacing(5)
         settings_row.addWidget(self._settings_box)
-        settings_row.addWidget(self._af_box)
+        settings_row.addWidget(self.af_axis)
 
         footer = QFrame()
         footer.setObjectName("mdaExecutionFooter")

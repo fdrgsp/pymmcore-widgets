@@ -76,10 +76,11 @@ def test_mda_widget_uses_top_tabs(qtbot: QtBot) -> None:
     assert wdg._settings_widget not in tabs._page_for
     assert wdg._settings_box.isAncestorOf(wdg.axis_order)
     assert wdg._settings_box.isAncestorOf(wdg.keep_shutter_open)
-    # Autofocus sits in a card of its own, below the settings card.
+    # Autofocus is its own checkable group box below the settings card.
     assert not wdg._settings_box.isAncestorOf(wdg.af_axis)
-    assert wdg._af_box.isAncestorOf(wdg.af_axis)
-    assert wdg._af_box is not wdg._settings_box
+    assert wdg._settings_row.itemAt(1).widget() is wdg.af_axis
+    assert wdg.af_axis.isCheckable()
+    assert not wdg.af_axis.isFlat()
 
     # Saving is a tab, checkable like an axis: its tab checkbox and
     # SaveGroupBox's own checkable state drive each other, and the native
