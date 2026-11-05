@@ -24,7 +24,7 @@ It has no requested point count and no Randomize button.
 ## 2. Recommended ownership: schema plus widgets
 
 **Recommendation:** implement deterministic geometry and a serializable relative
-point plan in `useq-schema`, then implement the selector and visualization in
+point plan in `useq-schema` (in the cite branch, there is a local copy of it), then implement the selector and visualization in
 `pymmcore-widgets`. Tentative schema name: `GridFromShape`; tentative widget name:
 `AreaCoverageWidget`. Names can change during implementation.
 
