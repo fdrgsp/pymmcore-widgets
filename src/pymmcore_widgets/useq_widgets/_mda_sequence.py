@@ -162,13 +162,10 @@ AF_NO_SOFTWARE_TOOLTIP = (
     "No software autofocus methods are available in this installation."
 )
 AF_EVERY_N_TOOLTIP = (
-    "Autofocus only on every Nth time point.\n"
+    "Autofocus only on every Nth time point, starting with the first.\n"
     "\n"
-    "A software autofocus run costs several images each time, so on a long time\n"
-    "series it is often enough to refocus occasionally. 1 means every time point."
-)
-AF_EVERY_N_NO_T_TOOLTIP = (
-    'Only applies when autofocus runs on the t axis: check "t" above.'
+    "Applies to hardware and software autofocus, including position and grid\n"
+    "triggers. 1 means every time point. Has no effect without a time series."
 )
 AF_SEARCH_TOOLTIP = (
     "What to do when the autofocus device cannot lock where it starts.\n"
@@ -524,7 +521,7 @@ class AutofocusAxis(_CheckableCard):
         # --- software only: which routine, and its settings ---
         self._method_label = QLabel("Method:")
         self.method = QComboBox()
-        self.settings_button = _settings_button(AF_SETTINGS_TOOLTIP, compact=True)
+        self.settings_button = _settings_button(AF_SETTINGS_TOOLTIP)
         # each method keeps its own settings, so switching back and forth does not
         # discard what was configured
         self._method_models: dict[str, type] = {}
@@ -538,8 +535,8 @@ class AutofocusAxis(_CheckableCard):
         self._hardware_devices_ok = True
         self._hardware_unavailable_reason = ""
 
-        # --- software only: skipping time points, since each run costs many images ---
-        self._every_n_label = QLabel("Run every:")
+        # --- shared schedule: which time points allow autofocus ---
+        self._every_n_label = QLabel("every:")
         self.every_n_timepoints = QSpinBox()
         self.every_n_timepoints.setRange(1, 10000)
         self.every_n_timepoints.setValue(1)
@@ -561,7 +558,13 @@ class AutofocusAxis(_CheckableCard):
         for w in _labels:
             w.setFixedWidth(label_width)
 
-        axis_row = _row(self.use_af_p, self.use_af_t, self.use_af_g)
+        axis_row = _row(
+            self.use_af_p,
+            self.use_af_g,
+            self.use_af_t,
+            self._every_n_label,
+            self.every_n_timepoints,
+        )
         mode_row = _row(self.use_hardware, self.use_software)
         search_row = _row(
             self.search_below_um,
@@ -569,12 +572,7 @@ class AutofocusAxis(_CheckableCard):
             self.search_step_um,
         )
 
-        software_row = QHBoxLayout()
-        software_row.setSpacing(10)
-        software_row.addWidget(self.method, 1)
-        software_row.addWidget(self.settings_button)
-        software_row.addWidget(self._every_n_label)
-        software_row.addWidget(self.every_n_timepoints)
+        software_row = _row(self.method, self.settings_button)
 
         # Reserve the larger size of the two modes, including the hidden page.
         self._kind_stack = QStackedLayout()
@@ -839,8 +837,8 @@ class AutofocusAxis(_CheckableCard):
         A control is enabled only if the microscope can actually use it and
         autofocus is switched on.
 
-        The Z search is a hardware-autofocus recovery; skipping time points matters
-        for software autofocus, where each run costs many images.
+        The Z search is a hardware-autofocus recovery; the time-point schedule
+        applies to both kinds and all axis triggers.
         """
         on = self.isChecked()
         self.settings_button.setEnabled(
@@ -867,12 +865,13 @@ class AutofocusAxis(_CheckableCard):
         index = 0 if self.use_hardware.isChecked() else 1
         self._kind_stack.setCurrentIndex(index)
         self._kind_labels.setCurrentIndex(index)
-        # "Run every N" qualifies the time-point trigger, so it applies only when
-        # autofocus is actually set to run on the t axis
         on_t = self.use_af_t.isChecked()
+        frequency_tooltip = AF_EVERY_N_TOOLTIP
+        if not on_t:
+            frequency_tooltip += '\n\nCheck "t" to edit this setting.'
         for wdg in (self._every_n_label, self.every_n_timepoints):
-            wdg.setEnabled(on and on_t)
-            wdg.setToolTip(AF_EVERY_N_TOOLTIP if on_t else AF_EVERY_N_NO_T_TOOLTIP)
+            wdg.setEnabled(on and on_t and self.kind() is not None)
+            wdg.setToolTip(frequency_tooltip)
         self._update_row_spacing()
 
     # ------------------------------- value --------------------------------
@@ -905,9 +904,11 @@ class AutofocusAxis(_CheckableCard):
         `kwargs` are extra fields for the plan (e.g. `autofocus_motor_offset`), and
         take precedence over the values carried by the last plan this widget was given.
         """
-        updates: dict = {"axes": axes}
+        updates: dict = {
+            "axes": axes,
+            "every_n_timepoints": self.every_n_timepoints.value(),
+        }
         if self.kind() == "software":
-            updates["every_n_timepoints"] = self.every_n_timepoints.value()
             if method := self.softwareMethod():
                 updates["method"] = method
                 updates["settings"] = self.softwareSettings()
@@ -925,9 +926,9 @@ class AutofocusAxis(_CheckableCard):
             self.setKind(None)
             return
         with signals_blocked(self):
+            self.every_n_timepoints.setValue(plan.every_n_timepoints)
             if isinstance(plan, useq.SoftwareAxesBasedAF):
                 self._software_plan = plan
-                self.every_n_timepoints.setValue(plan.every_n_timepoints)
                 if plan.method:
                     if self.method.findText(plan.method) < 0:
                         # a routine this installation does not have: keep it, so the

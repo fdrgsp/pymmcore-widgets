@@ -148,14 +148,14 @@ def test_software_disabled_until_methods_exist(qtbot: QtBot) -> None:
 
 
 def test_each_kind_shows_only_its_own_options(qtbot: QtBot) -> None:
-    """The Z search recovers a hardware lock; skipping time points saves images."""
+    """The search/method options change; the schedule stays visible in both modes."""
     af = AutofocusAxis()
     qtbot.addWidget(af)
     af.setChecked(True)
     af.setSoftwareMethods(["oughtafocus"])
 
     assert af.search_below_um.isVisibleTo(af)
-    assert not af.every_n_timepoints.isVisibleTo(af)
+    assert af.every_n_timepoints.isVisibleTo(af)
 
     af.use_software.setChecked(True)
     assert not af.search_below_um.isVisibleTo(af)
@@ -165,7 +165,7 @@ def test_each_kind_shows_only_its_own_options(qtbot: QtBot) -> None:
 
     af.use_hardware.setChecked(True)
     assert af.search_below_um.isVisibleTo(af)
-    assert not af.every_n_timepoints.isVisibleTo(af)
+    assert af.every_n_timepoints.isVisibleTo(af)
 
 
 @pytest.mark.parametrize("initial_kind", ["hardware", "software"])
@@ -313,11 +313,16 @@ def test_search_is_editable(qtbot: QtBot) -> None:
 # ----------------------------- every N timepoints -----------------------------
 
 
-def test_every_n_timepoints_round_trips_for_software(qtbot: QtBot) -> None:
-    """Skipping time points is a software-autofocus setting: each run costs images."""
+@pytest.mark.parametrize("kind", ["hardware", "software"])
+def test_every_n_timepoints_round_trips(qtbot: QtBot, kind: str) -> None:
+    """Both kinds restore and serialize edits to the shared schedule."""
     wdg = _wdg(qtbot)
-    plan = useq.SoftwareAxesBasedAF(
-        axes=("t",), method="oughtafocus", every_n_timepoints=3
+    plan = (
+        useq.SoftwareAxesBasedAF(
+            axes=("t",), method="oughtafocus", every_n_timepoints=3
+        )
+        if kind == "software"
+        else useq.AxesBasedAF(axes=("t",), every_n_timepoints=3)
     )
     wdg.setValue(useq.MDASequence(stage_positions=[(0, 0)], autofocus_plan=plan))
     assert wdg.af_axis.every_n_timepoints.value() == 3
@@ -329,12 +334,16 @@ def test_every_n_timepoints_round_trips_for_software(qtbot: QtBot) -> None:
     assert out.every_n_timepoints == 5
 
 
-def test_hardware_plan_keeps_its_own_every_n(qtbot: QtBot) -> None:
-    """The widget does not offer this for hardware, so it must not overwrite it."""
-    wdg = _wdg(qtbot)
-    plan = useq.AxesBasedAF(axes=("t",), every_n_timepoints=4)
-    wdg.setValue(useq.MDASequence(stage_positions=[(0, 0)], autofocus_plan=plan))
-    assert wdg.value().autofocus_plan == plan
+def test_every_n_is_shared_when_switching_kind(qtbot: QtBot) -> None:
+    af = AutofocusAxis()
+    qtbot.addWidget(af)
+    af.setKind("hardware")
+    af.every_n_timepoints.setValue(4)
+    af.setKind("software")
+    assert af.plan(("t",)).every_n_timepoints == 4
+    af.every_n_timepoints.setValue(2)
+    af.setKind("hardware")
+    assert af.plan(("t",)).every_n_timepoints == 2
 
 
 # ----------------------------- software plans -----------------------------
@@ -538,22 +547,40 @@ def test_changing_method_emits_value_changed(qtbot: QtBot) -> None:
         af.method.setCurrentText("b")
 
 
-def test_run_every_needs_the_t_axis(qtbot: QtBot) -> None:
-    """It qualifies the time-point trigger, so it applies only when t is checked."""
+@pytest.mark.parametrize("kind", ["hardware", "software"])
+@pytest.mark.parametrize("axis", ["p", "g"])
+def test_run_every_filters_other_axis_triggers(
+    qtbot: QtBot, kind: str, axis: str
+) -> None:
+    """The shared schedule also filters position/grid AF without a t trigger."""
     wdg = _wdg(qtbot)
     af = wdg.af_axis
-    af.setChecked(True)
-    af.use_software.setChecked(True)
+    af.setKind(kind)
+    af.setValue((axis,))
 
     assert not af.use_af_t.isChecked()
     assert not af.every_n_timepoints.isEnabled()
-    assert 'check "t"' in af.every_n_timepoints.toolTip()
-
-    af.use_af_t.setChecked(True)
-    assert af.every_n_timepoints.isEnabled()
     assert "every Nth time point" in af.every_n_timepoints.toolTip()
+    af.every_n_timepoints.setValue(3)
+    plan = af.plan((axis,))
+    assert plan.should_autofocus(useq.MDAEvent(index={"t": 0, axis: 0}))
+    assert not plan.should_autofocus(useq.MDAEvent(index={"t": 1, axis: 1}))
+    assert plan.should_autofocus(useq.MDAEvent(index={"t": 3, axis: 2}))
 
-    af.use_af_t.setChecked(False)
+    af.setChecked(False)
+    assert not af.every_n_timepoints.isEnabled()
+
+
+@pytest.mark.parametrize("kind", ["hardware", "software"])
+def test_run_every_can_only_be_edited_with_t(qtbot: QtBot, kind: str) -> None:
+    af = AutofocusAxis()
+    qtbot.addWidget(af)
+    af.setKind(kind)
+    for checked in (False, True, False, True):
+        af.use_af_t.setChecked(checked)
+        assert af.every_n_timepoints.isEnabled() == checked
+        assert af._every_n_label.isEnabled() == checked
+    af.setChecked(False)
     assert not af.every_n_timepoints.isEnabled()
 
 

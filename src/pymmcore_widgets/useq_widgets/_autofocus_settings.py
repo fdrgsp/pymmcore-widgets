@@ -13,7 +13,7 @@ import types
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
-from qtpy.QtCore import QSize, Qt, Signal
+from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -25,10 +25,10 @@ from qtpy.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSpinBox,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
+from superqt.iconify import QIconifyIcon
 from superqt.utils import create_worker, signals_blocked
 
 from pymmcore_widgets._icons import StandardIcon
@@ -48,8 +48,6 @@ TEST_TOOLTIP = (
 
 UNCHANGED = "unchanged"
 _MAX = 1_000_000.0
-# same size as the icons beside the MDA section titles
-_ICON_SIZE = 18
 
 
 class _Unset:
@@ -111,13 +109,10 @@ def _humanize(name: str) -> str:
     return f"{text} ({unit})" if unit else text
 
 
-def _settings_button(
-    tooltip: str, *, compact: bool = False
-) -> QPushButton | QToolButton:
-    """A compact gear button, matching the icons the MDA sections use."""
-    button = QToolButton() if compact else QPushButton()
-    button.setIcon(StandardIcon.SETTINGS.icon())
-    button.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
+def _settings_button(tooltip: str) -> QPushButton:
+    """An icon-only settings button using the application's push-button style."""
+    button = QPushButton()
+    button.setIcon(QIconifyIcon(StandardIcon.SETTINGS))
     button.setToolTip(tooltip)
     # an icon-only button still needs a name for a screen reader
     button.setAccessibleName("Settings")
