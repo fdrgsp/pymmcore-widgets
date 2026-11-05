@@ -917,3 +917,26 @@ def test_scan_uses_pixel_size_affine(qtbot, global_mmcore):
         assert "Ready to scan" in auto._status.text()
     finally:
         global_mmcore.setPixelSizeAffine(config, [1, 0, 0, 0, 1, 0])
+
+
+def test_save_scan_roundtrip(qtbot, global_mmcore, tmp_path):
+    # TEMPORARY: scan export for offline evaluation of detection methods.
+    from pymmcore_widgets.hcs import HCSWizard
+
+    wizard = HCSWizard(mmcore=global_mmcore)
+    qtbot.addWidget(wizard)
+    wizard.calibration_page.widget.setValue("96-well")
+    auto = wizard.calibration_page.automated
+    _prepare_area(auto)
+    assert not auto._save_scan.isEnabled()
+    auto._geometry = auto._read_geometry()
+    auto._tiles = (SurveyTile(np.ones(auto._geometry.shape, np.uint16), (1, 2)),)
+    auto._update_controls()
+    assert auto._save_scan.isEnabled()
+    path = tmp_path / "scan.npz"
+    auto.save_scan(str(path))
+    data = np.load(path)
+    assert data["images"].shape == (1, *auto._geometry.shape)
+    assert tuple(data["xy"][0]) == (1, 2)
+    assert useq.WellPlate.model_validate_json(str(data["plate"])) == auto._plate
+    assert data["selected"].tolist() == [[0, 0], [0, 1], [1, 0]]

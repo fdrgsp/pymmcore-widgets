@@ -33,8 +33,11 @@ class SurveyCanvas(StageViewer):
             anchor_x="left",
             anchor_y="bottom",
         )
-        for visual in (self._outlines, self._centers, self._labels):
+        self._overlay = (self._outlines, self._centers, self._labels)
+        for visual in self._overlay:
             visual.set_gl_state("translucent", depth_test=False)
+            # Nothing to draw yet: drawing empty buffers crashes some GL drivers.
+            visual.visible = False
 
     def add_tile(self, tile: SurveyTile, geometry: SurveyGeometry) -> None:
         """Display a raw frame at its stage location as soon as it is acquired."""
@@ -51,9 +54,10 @@ class SurveyCanvas(StageViewer):
     ) -> None:
         """Replace only detection visuals, keeping acquired image textures intact."""
         if not wells:
-            self._outlines.set_data(pos=np.empty((0, 2), dtype=np.float32))
-            self._centers.set_data(pos=np.empty((0, 2), dtype=np.float32))
-            self._labels.text = ""
+            # Hide rather than upload empty arrays: glDrawElements on a zero-length
+            # index buffer is a null read on some drivers (e.g. NVIDIA on Windows).
+            for visual in self._overlay:
+                visual.visible = False
             return
         outlines = [well.outline() for well in wells]
         points = np.concatenate(outlines)
@@ -66,6 +70,8 @@ class SurveyCanvas(StageViewer):
         self._centers.set_data(pos=centers, face_color=GREEN, edge_width=0, size=6)
         self._labels.text = labels
         self._labels.pos = centers
+        for visual in self._overlay:
+            visual.visible = True
 
     def set_detection_visible(self, visible: bool) -> None:
         """Show or hide the overlay without altering image visibility."""

@@ -45,6 +45,8 @@ def test_image_transform_and_independent_overlay(qtbot, monkeypatch):
     assert viewer.add_image.call_count == 1
     viewer.set_detection_visible(True)
     assert viewer._detections.visible
+    assert all(visual.visible for visual in viewer._overlay)
     viewer.set_detections((), [])
-    assert viewer._labels.text == ""
+    # Empty overlays are hidden, never drawn from zero-length GL buffers.
+    assert not any(visual.visible for visual in viewer._overlay)
     assert viewer.add_image.call_count == 1

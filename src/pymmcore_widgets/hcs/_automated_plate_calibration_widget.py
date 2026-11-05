@@ -11,6 +11,7 @@ from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
     QDoubleSpinBox,
+    QFileDialog,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -182,11 +183,15 @@ class AutomatedPlateCalibrationWidget(QWidget):
         self._show_detection = QCheckBox("Show detection")
         self._show_detection.setChecked(True)
         self._apply = QPushButton("Apply Calibration")
+        # TEMPORARY: export real scans to evaluate detection methods offline.
+        self._save_scan = QPushButton("Save Scan")
+        self._save_scan.setToolTip("Save the scan images and geometry (.npz)")
         controls = QHBoxLayout()
         controls.addWidget(self._detect)
         controls.addWidget(self._settings_button)
         controls.addWidget(self._show_detection)
         controls.addStretch()
+        controls.addWidget(self._save_scan)
         controls.addWidget(self._apply)
         scan = QWidget()
         scan_layout = QVBoxLayout(scan)
@@ -234,6 +239,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
         self._settings_button.clicked.connect(self._edit_settings)
         self._show_detection.toggled.connect(self._toggle_detection)
         self._apply.clicked.connect(self._apply_centers)
+        self._save_scan.clicked.connect(self._on_save_scan)
         self._corners.cornersChanged.connect(self._corners_changed)
         self._memory_limit.valueChanged.connect(self._memory_limit_changed)
         self._plate_view.selectionChanged.connect(self._selection_changed)
@@ -449,6 +455,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
         )
         self._settings_button.setEnabled(idle and supported)
         self._apply.setEnabled(idle and self._labels_ready())
+        self._save_scan.setEnabled(idle and bool(self._tiles))
         self._plate_test.setEnabled(idle)
         self._plate_view.setEnabled(idle)
         ready = self._scan_ready() and calibrated and supported
@@ -661,3 +668,32 @@ class AutomatedPlateCalibrationWidget(QWidget):
         assert self._plate is not None
         fit = fit_plate_calibration(self._calibration_centers(), self._plate)
         self._status.setCalibration(self._plate, *fit, note=note)
+
+    # TEMPORARY: scan export for offline evaluation of detection methods.
+    def _on_save_scan(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Scan", "plate_scan.npz", "NumPy archive (*.npz)"
+        )
+        if path:
+            self.save_scan(path)
+
+    def save_scan(self, path: str) -> None:
+        """Save tiles, stage positions, geometry, plate and selection to `.npz`."""
+        if not self._tiles or self._geometry is None or self._plate is None:
+            raise ValueError("No scan to save.")
+        g = self._geometry
+        np.savez_compressed(
+            path,
+            images=np.stack([tile.image for tile in self._tiles]),
+            xy=np.array([tile.xy for tile in self._tiles]),
+            bounds=np.array(g.bounds),
+            shape=np.array(g.shape),
+            pixel_to_stage=np.array(g.pixel_to_stage),
+            overlap=g.overlap,
+            binning=g.binning,
+            plate=self._plate.model_dump_json(),
+            selected=np.array(self._plate_view.selectedIndices()).reshape(-1, 2),
+            camera_pixel_um=self._mmc.getPixelSizeUm(),
+            pixel_size_affine=np.array(self._mmc.getPixelSizeAffine()),
+        )
+        self._status.setText(f"Scan saved to {path}")
