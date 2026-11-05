@@ -33,6 +33,8 @@ from ._core_mda import MDAWidget
 from ._core_tabs import CoreMDATabs
 
 _ICON_SIZE = 18
+# Shared left/right inset for the sections, settings cards, and footer.
+_MARGIN = 7
 
 if TYPE_CHECKING:
     import useq
@@ -75,7 +77,7 @@ class SectionMetrics:
     body_margin_bottom: int = 8
     body_spacing: int = 8
     content_spacing: int = 4
-    footer_margin_h: int = 8
+    footer_margin_h: int = _MARGIN
     footer_margin_top: int = 4
     footer_margin_bottom: int = 8
 
@@ -131,7 +133,9 @@ class CollapsibleAcquisitionSection(QWidget):
         self._disclosure.setAutoRaise(True)
         self._disclosure.setProperty("variant", "ghost")
         self._disclosure.clicked.connect(self.toggle)
-        self._header_layout.addWidget(self._disclosure)
+        self._header_layout.addWidget(
+            self._disclosure, 0, Qt.AlignmentFlag.AlignVCenter
+        )
 
         # Fixed policies keep the header aligned when its summary is hidden.
         self._checkbox = QCheckBox()
@@ -280,7 +284,7 @@ class CollapsibleAcquisitionSection(QWidget):
         # the card border.
         self._header_layout.setContentsMargins(m.header_spacing, 0, m.header_spacing, 0)
         self._header_layout.setSpacing(m.header_spacing)
-        self._disclosure.setFixedSize(m.disclosure_width, m.header_height)
+        self._disclosure.setFixedSize(m.disclosure_width, m.disclosure_width)
         self._body_layout.setContentsMargins(
             m.body_margin_h, m.body_margin_top, m.body_margin_h, m.body_margin_bottom
         )
@@ -347,7 +351,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         self._content = QWidget()
         self._content.setObjectName("mdaSectionsContent")
         self._content_layout = QVBoxLayout(self._content)
-        self._content_layout.setContentsMargins(0, 0, 0, 0)
+        self._content_layout.setContentsMargins(_MARGIN, _MARGIN, _MARGIN, _MARGIN)
         self._content_layout.setSpacing(self._metrics.content_spacing)
 
         for logical_index, (title, attr) in enumerate(self._AXES):
@@ -476,7 +480,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         """Adopt new pixel sizes for every section and the content spacing."""
         self._metrics = metrics
         self._content_layout.setSpacing(metrics.content_spacing)
-        self._content_layout.setContentsMargins(3, 0, 3, 0)
+        self._content_layout.setContentsMargins(_MARGIN, _MARGIN, _MARGIN, _MARGIN)
         for section in self.sections:
             section.apply_metrics(metrics)
         # heights scale with the font, so re-derive the editor minimums too.
@@ -620,7 +624,7 @@ class MDAWidgetCollapsible(MDAWidget):
         metrics = self.tabs._metrics
         # Line the cards up with the sections above them, and keep them clear of
         # both the sections and the footer.
-        self._settings_row.setContentsMargins(3, 10, 3, 10)
+        self._settings_row.setContentsMargins(_MARGIN, _MARGIN, _MARGIN, _MARGIN)
         self._footer_layout.setContentsMargins(
             metrics.footer_margin_h,
             metrics.footer_margin_top,

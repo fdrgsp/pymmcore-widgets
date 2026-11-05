@@ -1064,7 +1064,7 @@ class MDASequenceWidget(QWidget):
         settings_layout.addWidget(self.keep_shutter_open)
         self._settings_box = _wrap_in_card(settings_widget)
         self._settings_row = settings_row = QVBoxLayout()
-        settings_row.setSpacing(5)
+        settings_row.setSpacing(10)
         settings_row.addWidget(self._settings_box)
         settings_row.addWidget(self.af_axis)
 
