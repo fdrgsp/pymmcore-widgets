@@ -287,6 +287,7 @@ class WellCalibrationWidget(QWidget):
         main_layout.setSpacing(5)
         main_layout.addLayout(labels)
         main_layout.addWidget(self._summary)
+        main_layout.addSpacing(20)
         main_layout.addLayout(mode_row)
         main_layout.addWidget(self._table)
         main_layout.addWidget(self._set_button)
