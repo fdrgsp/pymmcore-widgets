@@ -123,7 +123,7 @@ DEFAULT_AF_SEARCH_STEP_UM = 5.0
 AF_ON_AXIS_TOOLTIP = (
     "When to autofocus: every time one of these axes changes.\n"
     "\n"
-    "p - at every stage position (the usual choice: each position drifts its own way)\n"
+    "p - at every stage position\n"
     "t - at every time point\n"
     "g - at every tile of a grid"
 )
