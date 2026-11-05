@@ -8,6 +8,7 @@ import useq
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import QSize, Slot
 from qtpy.QtWidgets import QFileDialog, QVBoxLayout, QWidget, QWizard, QWizardPage
+from superqt.iconify import QIconifyIcon
 from useq import WellPlatePlan
 
 from pymmcore_widgets.useq_widgets import PointsPlanWidget, WellPlateWidget
@@ -56,12 +57,14 @@ class HCSWizard(QWizard):
         self.setOption(QWizard.WizardOption.HaveCustomButton1, True)
         if save_btn := self.button(QWizard.WizardButton.CustomButton1):
             save_btn.setText("Save")
+            save_btn.setIcon(QIconifyIcon("mdi:content-save-outline"))
             save_btn.clicked.connect(self.save)
             save_btn.setEnabled(False)
         # add custom button to load
         self.setOption(QWizard.WizardOption.HaveCustomButton2, True)
         if load_btn := self.button(QWizard.WizardButton.CustomButton2):
             load_btn.setText("Load")
+            load_btn.setIcon(QIconifyIcon("material-symbols:upload-rounded"))
             load_btn.clicked.connect(self.load)
 
         # CONNECTIONS ---------------------------
