@@ -15,7 +15,10 @@ from pymmcore_widgets.useq_widgets import MDASequenceWidget
 from pymmcore_widgets.useq_widgets._mda_sequence import AutofocusAxis
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from pytestqt.qtbot import QtBot
+    from qtpy.QtWidgets import QApplication
 
 
 def _wdg(qtbot: QtBot) -> MDASequenceWidget:
@@ -168,6 +171,19 @@ def test_each_kind_shows_only_its_own_options(qtbot: QtBot) -> None:
     assert af.every_n_timepoints.isVisibleTo(af)
 
 
+@pytest.fixture(params=[None, "Fusion", "Windows"])
+def _autofocus_style(
+    qapp: QApplication, request: pytest.FixtureRequest
+) -> Iterator[None]:
+    previous = qapp.style().objectName()
+    if request.param is not None:
+        qapp.setStyle(request.param)
+    yield
+    if request.param is not None:
+        qapp.setStyle(previous)
+
+
+@pytest.mark.usefixtures("_autofocus_style")
 @pytest.mark.parametrize("initial_kind", ["hardware", "software"])
 @pytest.mark.parametrize("font_size", [None, 9, 18])
 def test_switching_kind_keeps_layout_size(

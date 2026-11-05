@@ -104,10 +104,7 @@ def populate_axis_order_combo(combo: QComboBox, used_axes: Sequence[str]) -> Non
         combo.setEnabled(combo.count() > 1)
 
 
-AF_AXIS_TOOLTIP = (
-    "Refocus during the acquisition, so that slow drift, a tilted sample or a\n"
-    "stage that does not return exactly does not blur the later time points."
-)
+AF_AXIS_TOOLTIP = ""
 AF_DISABLED_TOOLTIP = (
     "Autofocus cannot be used with absolute Z positions (TOP_BOTTOM mode).\n"
     "It corrects the focus position, which an absolute Z plan would then override.\n"
@@ -131,7 +128,7 @@ AF_MODE_TOOLTIP = (
     "Which kind of autofocus to run. An acquisition uses one or the other,\nnever both."
 )
 AF_HARDWARE_TOOLTIP = (
-    "Use the microscope's autofocus device, e.g. Nikon PFS or Zeiss Definite Focus.\n"
+    "Use the microscope's autofocus device, e.g. Nikon PFS.\n"
     "\n"
     "It reflects light off the coverslip, so it is fast, takes no camera images and\n"
     "does not expose the sample -- but it holds a fixed distance from the coverslip\n"
@@ -640,7 +637,7 @@ class AutofocusAxis(_CheckableCard):
         # actual center-to-center steps rather than averaging adjacent heights.
         centers = [(height - 1) // 2 for height in heights]
         steps = [
-            height + after - before
+            height + after - before + layout.verticalSpacing()
             for height, (before, after) in zip(heights, pairwise(centers), strict=False)
         ]
         option = QStyleOptionGroupBox()
