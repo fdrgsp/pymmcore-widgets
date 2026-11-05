@@ -122,15 +122,21 @@ def acquire_survey(
             "Raise the limit or select fewer wells."
         )
 
-    def camera_state() -> tuple:
-        return (
-            core.getCameraDevice(),
-            core.getCurrentPixelSizeConfig(),
-            core.getROI(),
-            core.getPixelSizeUm(),
-            core.getExposure(),
-            core.getPosition() if core.getFocusDevice() else None,
-        )
+    # Settings that define tile geometry and intensity. Focus (Z) is deliberately
+    # excluded: drive readouts jitter and hardware autofocus moves it, while the
+    # XY calibration does not depend on it.
+    def camera_state() -> dict[str, object]:
+        return {
+            "camera": core.getCameraDevice(),
+            "pixel size configuration": core.getCurrentPixelSizeConfig(),
+            "camera ROI": core.getROI(),
+            "pixel size": core.getPixelSizeUm(),
+            "exposure": core.getExposure(),
+        }
+
+    def changed_settings() -> str:
+        current = camera_state()
+        return ", ".join(k for k, v in initial.items() if current[k] != v)
 
     initial = camera_state()
     shutter = core.getShutterDevice()
@@ -143,17 +149,16 @@ def acquire_survey(
                 raise InterruptedError(
                     "Survey cancelled; previous calibration retained."
                 )
-            current = camera_state()
-            if current != initial or core.mda.is_running() or core.isSequenceRunning():
-                raise ValueError(
-                    "Camera settings changed or another acquisition started."
-                )
+            if core.mda.is_running() or core.isSequenceRunning():
+                raise ValueError("Another acquisition started during the scan.")
+            if changed := changed_settings():
+                raise ValueError(f"Changed during the scan: {changed}. Scan again.")
             core.setXYPosition(*xy)
             core.waitForSystem()
             x, y = core.getXYPosition()
             image = np.array(core.snap(), copy=True)
-            if camera_state() != initial:
-                raise ValueError("Microscope settings changed during exposure.")
+            if changed := changed_settings():
+                raise ValueError(f"Changed during exposure: {changed}. Scan again.")
             if not np.allclose(core.getXYPosition(), (x, y), rtol=0, atol=1):
                 raise ValueError("The stage moved during exposure. Repeat the survey.")
             if image.ndim == 2:

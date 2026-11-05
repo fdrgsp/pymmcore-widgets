@@ -190,7 +190,7 @@ def test_last_frame_settings_change_is_rejected():
     core.getBytesPerPixel.return_value = 2
     core.getExposure.side_effect = [10, 10, 20]
     core.snap.return_value = np.zeros((16, 16), dtype=np.uint16)
-    with pytest.raises(ValueError, match="changed during exposure"):
+    with pytest.raises(ValueError, match="Changed during exposure: exposure"):
         acquire_survey(
             core,
             SurveyGeometry((0, 0, 100, 100), (16, 16), (10, 0, 0, 10)),
@@ -891,3 +891,18 @@ def test_instructions_are_info_tooltips(qtbot, global_mmcore):
     assert "opposite corners" in corners._info_button.toolTip()
     assert "Select Wells" in corners._info_button.toolTip()
     corners._info_button.click()  # clicking also shows the tooltip
+
+
+def test_focus_drift_does_not_abort_scan(global_mmcore):
+    # Focus readouts jitter and hardware autofocus moves Z; XY tiles stay valid.
+    px = global_mmcore.getPixelSizeUm()
+    h, w = global_mmcore.getImageHeight(), global_mmcore.getImageWidth()
+    geometry = SurveyGeometry((0, 0, 3 * w * px, h * px), (h, w), (px, 0, 0, px))
+    z = global_mmcore.getPosition()
+
+    def drift(*_):
+        global_mmcore.setPosition(global_mmcore.getPosition() + 0.01)
+
+    tiles = acquire_survey(global_mmcore, geometry, Event(), drift)
+    assert len(tiles) == len(geometry.positions()) > 1
+    global_mmcore.setPosition(z)
