@@ -77,6 +77,7 @@ class SectionMetrics:
     body_margin_bottom: int = 8
     body_spacing: int = 8
     content_spacing: int = 4
+    # Shared horizontal inset for sections, settings cards, and the footer.
     footer_margin_h: int = _MARGIN
     footer_margin_top: int = 4
     footer_margin_bottom: int = 8
@@ -351,7 +352,8 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         self._content = QWidget()
         self._content.setObjectName("mdaSectionsContent")
         self._content_layout = QVBoxLayout(self._content)
-        self._content_layout.setContentsMargins(_MARGIN, _MARGIN, _MARGIN, _MARGIN)
+        margin_h = self._metrics.footer_margin_h
+        self._content_layout.setContentsMargins(margin_h, _MARGIN, margin_h, _MARGIN)
         self._content_layout.setSpacing(self._metrics.content_spacing)
 
         for logical_index, (title, attr) in enumerate(self._AXES):
@@ -480,7 +482,8 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         """Adopt new pixel sizes for every section and the content spacing."""
         self._metrics = metrics
         self._content_layout.setSpacing(metrics.content_spacing)
-        self._content_layout.setContentsMargins(_MARGIN, _MARGIN, _MARGIN, _MARGIN)
+        margin_h = metrics.footer_margin_h
+        self._content_layout.setContentsMargins(margin_h, _MARGIN, margin_h, _MARGIN)
         for section in self.sections:
             section.apply_metrics(metrics)
         # heights scale with the font, so re-derive the editor minimums too.
@@ -624,7 +627,8 @@ class MDAWidgetCollapsible(MDAWidget):
         metrics = self.tabs._metrics
         # Line the cards up with the sections above them, and keep them clear of
         # both the sections and the footer.
-        self._settings_row.setContentsMargins(_MARGIN, _MARGIN, _MARGIN, _MARGIN)
+        margin_h = metrics.footer_margin_h
+        self._settings_row.setContentsMargins(margin_h, _MARGIN, margin_h, _MARGIN)
         self._footer_layout.setContentsMargins(
             metrics.footer_margin_h,
             metrics.footer_margin_top,

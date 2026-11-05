@@ -11,12 +11,14 @@ from qtpy.QtGui import QCursor
 from qtpy.QtWidgets import (
     QApplication,
     QCheckBox,
+    QHBoxLayout,
     QMessageBox,
     QPushButton,
     QWidget,
     QWidgetAction,
     QWizard,
 )
+from superqt import QIconifyIcon
 from superqt.utils import signals_blocked
 from useq import WellPlatePlan
 
@@ -78,22 +80,25 @@ class CoreConnectedPositionTable(PositionTable):
         self._hcs_wizard: HCSWizard | None = None
         self._plate_plan: WellPlatePlan | None = None
 
-        self._hcs_button = QPushButton("Well Plate...")
-        # self._hcs_button.setIcon(QIconifyIcon('mdi:view-comfy'))
+        self._hcs_button = QPushButton("HCS")
+        self._hcs_button.setIcon(QIconifyIcon("iconoven:baking-dish-sharp"))
         self._hcs_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._hcs_button.setToolTip("Open the HCS wizard.")
         self._hcs_button.clicked.connect(self._show_hcs)
 
-        self._edit_hcs_pos = QPushButton("Make Editable")
+        self._edit_hcs_pos = QPushButton("Editable")
+        self._edit_hcs_pos.setIcon(QIconifyIcon("mdi:playlist-edit"))
         self._edit_hcs_pos.setToolTip(
             "Convert HCS positions to regular editable positions."
         )
-        self._edit_hcs_pos.setStyleSheet("color: red")
         self._edit_hcs_pos.hide()
         self._edit_hcs_pos.clicked.connect(self._show_pos_editing_dialog)
 
-        self._btn_row.insertWidget(3, self._hcs_button)
-        self._btn_row.insertWidget(3, self._edit_hcs_pos)
+        hcs_buttons = QHBoxLayout()
+        hcs_buttons.setSpacing(5)
+        hcs_buttons.addWidget(self._edit_hcs_pos)
+        hcs_buttons.addWidget(self._hcs_button)
+        self._position_actions.insertLayout(0, hcs_buttons)
         # ------------------------------------------
 
         self.move_to_selection = QCheckBox("Move Stage to Selected Point")

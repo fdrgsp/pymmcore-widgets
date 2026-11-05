@@ -1036,10 +1036,12 @@ class MDASequenceWidget(QWidget):
         )
         self._duration_label.setWordWrap(True)
 
-        self._save_button = QPushButton("Save Settings")
+        self._save_button = QPushButton("Save MDA Settings")
+        self._save_button.setIcon(QIconifyIcon("mdi:content-save-outline"))
         self._save_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._save_button.clicked.connect(self.save)
-        self._load_button = QPushButton("Load Settings")
+        self._load_button = QPushButton("Load MDA Settings")
+        self._load_button.setIcon(QIconifyIcon("material-symbols:upload-rounded"))
         self._load_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._load_button.clicked.connect(self.load)
 
