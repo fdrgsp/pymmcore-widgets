@@ -477,26 +477,16 @@ def test_selected_b2_area_calculates_rotation(
     assert auto._tab_wdg.isTabEnabled(2)
 
 
-def test_canvas_initialization_is_not_reentrant(qtbot, global_mmcore, monkeypatch):
-    from qtpy.QtGui import QShowEvent
-
+def test_canvas_created_before_show(qtbot, global_mmcore):
+    # Adding the first OpenGL widget to a visible window makes Qt recreate it
+    # (flicker/move), so the canvas must exist before the wizard is shown.
     from pymmcore_widgets.hcs import HCSWizard
-    from pymmcore_widgets.hcs import _automated_plate_calibration_widget as module
 
     wizard = HCSWizard(mmcore=global_mmcore)
     qtbot.addWidget(wizard)
     auto = wizard.calibration_page.automated
-
-    class ReentrantCanvas(_Canvas):
-        def __init__(self, parent=None):
-            super().__init__(parent)
-            # A native VisPy canvas can process Qt show events during construction.
-            auto.showEvent(QShowEvent())
-
-    monkeypatch.setattr(module, "SurveyCanvas", ReentrantCanvas)
-    viewer = auto._ensure_viewer()
-    assert auto._canvas_layout.count() == 1
-    assert viewer is auto._ensure_viewer()
+    assert isinstance(auto._viewer, _Canvas)
+    assert auto._canvas_layout.indexOf(auto._viewer) == 0
 
 
 def test_selection_gates_scan_and_retains_images(qtbot, global_mmcore, monkeypatch):

@@ -135,8 +135,6 @@ class AutomatedPlateCalibrationWidget(QWidget):
         self._result: DetectionResult | None = None
         self._assigned: dict[tuple[int, int], DetectedWell] = {}
         self._detection_settings = DetectionSettings()
-        self._viewer: SurveyCanvas | None = None
-        self._creating_viewer = False
         self.destroyed.connect(self._cancel.set)
 
         self._corners = _ScanAreaWidget(mmcore, self)
@@ -171,6 +169,11 @@ class AutomatedPlateCalibrationWidget(QWidget):
         self._canvas_layout = QVBoxLayout(self._canvas_host)
         self._canvas_layout.setContentsMargins(0, 0, 0, 0)
         self._canvas_host.setMinimumSize(320, 240)
+        # Create the OpenGL canvas now, before the window is shown: adding the first
+        # QOpenGLWidget to a visible window makes Qt recreate the native window,
+        # which flickers and can move it (as the other vispy widgets do).
+        self._viewer = SurveyCanvas(self._canvas_host)
+        self._canvas_layout.addWidget(self._viewer)
         self._detect = QPushButton("Detect Wells")
         self._settings_button = QPushButton()
         self._settings_button.setIcon(QIconifyIcon(StandardIcon.SETTINGS))
@@ -248,20 +251,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
-        if self._tab_wdg.currentIndex() == 1 and not self._creating_viewer:
-            self._ensure_viewer()
         self._update_controls()
-
-    def _ensure_viewer(self) -> SurveyCanvas:
-        if self._viewer is None:
-            self._creating_viewer = True
-            try:
-                self._viewer = SurveyCanvas(self._canvas_host)
-            finally:
-                self._creating_viewer = False
-            self._canvas_layout.addWidget(self._viewer)
-            self._viewer.set_detection_visible(self._show_detection.isChecked())
-        return self._viewer
 
     def setPlate(self, plate: useq.WellPlate) -> None:
         """Discard scan drafts when the selected plate model changes."""
@@ -304,11 +294,10 @@ class AutomatedPlateCalibrationWidget(QWidget):
         if clear_images:
             self._tiles = ()
             self._geometry = None
-        if self._viewer is not None:
-            if clear_images:
-                self._viewer.clear()
-            else:
-                self._viewer.set_detections((), [])
+        if clear_images:
+            self._viewer.clear()
+        else:
+            self._viewer.set_detections((), [])
         self._update_controls()
 
     def _corners_changed(self) -> None:
@@ -398,8 +387,6 @@ class AutomatedPlateCalibrationWidget(QWidget):
         return self._corners.wellCenter() is not None and self._valid_selection()
 
     def _on_tab_changed(self, index: int) -> None:
-        if index == 1 and not self._creating_viewer:
-            self._ensure_viewer()
         self._update_controls()
 
     def _fov_changed(self) -> None:
@@ -512,7 +499,6 @@ class AutomatedPlateCalibrationWidget(QWidget):
             self._invalidate()
             self._geometry = geometry
             self._tab_wdg.setCurrentIndex(1)
-            self._ensure_viewer()
             generation = self._generation
 
             def progress(value: int, total: int) -> None:
@@ -542,7 +528,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
 
     def _on_tile(self, generation: int, tile: SurveyTile) -> None:
         if generation == self._generation and self._geometry is not None:
-            self._ensure_viewer().add_tile(tile, self._geometry)
+            self._viewer.add_tile(tile, self._geometry)
 
     def _on_progress(self, generation: int, value: int, total: int) -> None:
         if generation == self._generation:
@@ -625,11 +611,10 @@ class AutomatedPlateCalibrationWidget(QWidget):
         labels = [
             names.get(id(well), str(i + 1)) for i, well in enumerate(self._result.wells)
         ]
-        self._ensure_viewer().set_detections(self._result.wells, labels)
+        self._viewer.set_detections(self._result.wells, labels)
 
     def _toggle_detection(self, visible: bool) -> None:
-        if self._viewer is not None:
-            self._viewer.set_detection_visible(visible)
+        self._viewer.set_detection_visible(visible)
 
     def _edit_settings(self) -> None:
         if self.isBusy():
