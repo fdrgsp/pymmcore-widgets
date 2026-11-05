@@ -906,3 +906,24 @@ def test_focus_drift_does_not_abort_scan(global_mmcore):
     tiles = acquire_survey(global_mmcore, geometry, Event(), drift)
     assert len(tiles) == len(geometry.positions()) > 1
     global_mmcore.setPosition(z)
+
+
+def test_scan_uses_pixel_size_affine(qtbot, global_mmcore):
+    from pymmcore_widgets.hcs import HCSWizard
+
+    wizard = HCSWizard(mmcore=global_mmcore)
+    qtbot.addWidget(wizard)
+    wizard.calibration_page.widget.setValue("96-well")
+    auto = wizard.calibration_page.automated
+    _prepare_area(auto)
+    config = global_mmcore.getCurrentPixelSizeConfig()
+    px = global_mmcore.getPixelSizeUm()
+    # Camera Y flipped relative to the stage, as configured in the pixel affine.
+    global_mmcore.setPixelSizeAffine(config, [px, 0, 0, 0, -px, 0])
+    try:
+        geometry = auto._read_geometry()
+        b = geometry.binning
+        assert geometry.pixel_to_stage == pytest.approx((px * b, 0, 0, -px * b))
+        assert "Ready to scan" in auto._status.text()
+    finally:
+        global_mmcore.setPixelSizeAffine(config, [1, 0, 0, 0, 1, 0])

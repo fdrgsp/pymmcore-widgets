@@ -5,6 +5,7 @@ from threading import Event
 from typing import TYPE_CHECKING
 
 import numpy as np
+from pymmcore_plus import Keyword
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import (
     QCheckBox,
@@ -24,6 +25,7 @@ from superqt.utils import create_worker, signals_blocked
 
 from pymmcore_widgets._icons import StandardIcon
 from pymmcore_widgets._util import SeparatorWidget, memory_limit_defaults
+from pymmcore_widgets.control._stage_explorer._stage_explorer import AffineState
 from pymmcore_widgets.useq_widgets._well_plate_widget import WellPlateView
 
 from ._plate_calibration import (
@@ -59,6 +61,14 @@ if TYPE_CHECKING:
     import useq
     from pymmcore_plus import CMMCorePlus
     from qtpy.QtGui import QShowEvent
+
+
+# Camera properties that change the field of view or its orientation.
+_CAMERA_GEOMETRY = {
+    "Binning",
+    Keyword.Transpose_MirrorX.value,
+    Keyword.Transpose_MirrorY.value,
+}
 
 
 class _ScanAreaWidget(WellCalibrationWidget):
@@ -232,6 +242,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
         self._mmc.events.pixelSizeChanged.connect(self._fov_changed)
         self._mmc.events.systemConfigurationLoaded.connect(self._fov_changed)
         self._mmc.events.roiSet.connect(self._fov_changed)
+        self._mmc.events.pixelSizeAffineChanged.connect(self._fov_changed)
         self._mmc.events.propertyChanged.connect(self._on_property_changed)
         self._update_controls()
 
@@ -338,11 +349,11 @@ class AutomatedPlateCalibrationWidget(QWidget):
         geometry = self._read_geometry()
         nx, ny = geometry.grid()
         h, w = geometry.shape
-        px = geometry.pixel_to_stage[0]
+        px_x, px_y = np.linalg.norm(geometry.matrix(), axis=0)
         nbytes = nx * ny * h * w * self._mmc.getBytesPerPixel()
         size = (
             f"{nx} x {ny} = {nx * ny} tiles at a field of view of "
-            f"{w * px / 1000:.2f} x {h * px / 1000:.2f} mm "
+            f"{w * px_x / 1000:.2f} x {h * px_y / 1000:.2f} mm "
             f"({nbytes / 1024**3:.2f} GB)"
         )
         if nx * ny > MAX_TILES:
@@ -396,7 +407,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
         self._show_ready_message()
 
     def _on_property_changed(self, device: str, prop: str, value: object) -> None:
-        if prop == "Binning" and device == self._mmc.getCameraDevice():
+        if device == self._mmc.getCameraDevice() and prop in _CAMERA_GEOMETRY:
             self._fov_changed()
 
     def _read_geometry(self) -> SurveyGeometry:
@@ -414,10 +425,13 @@ class AutomatedPlateCalibrationWidget(QWidget):
         well_um = max(self._plate.well_size) * 1000 if self._plate else 0
         b = storage_binning(px, well_um)
         h, w = self._mmc.getImageHeight(), self._mmc.getImageWidth()
+        # Same camera-to-stage mapping as the Stage Explorer: the pixel-size
+        # affine when configured (rotation/flip), plus camera mirror settings.
+        linear = AffineState(self._mmc).system_affine[:2, :2] * b
         geometry = SurveyGeometry(
             (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)),
             (h // b, w // b),
-            (px * b, 0, 0, px * b),
+            tuple(float(v) for v in linear.ravel()),  # type: ignore[arg-type]
             binning=b,
         )
         geometry.grid()  # validate the corners
