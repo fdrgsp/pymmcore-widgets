@@ -70,10 +70,17 @@ class CalibrationInfo(QWidget):
         well_spacing: tuple[float, float],
         rotation: float,
         note: str = "",
+        warning: str = "",
     ) -> None:
-        """Summarize a calibration, warning if spacing differs >5% from the plate."""
+        """Summarize a calibration, warning if spacing differs >5% from the plate.
+
+        `warning` adds a caller-specific problem (in red, with a warning icon).
+        """
         txt = "<strong>Plate calibrated.</strong>"
         ico = QIconifyIcon(CALIBRATED_ICON, color=GREEN)
+        if warning:
+            txt += f"<font color='red'>   {warning}</font>"
+            ico = self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
         if plate is not None:
             plate_sp = plate.well_spacing[0]
             # if spacing is more than 5% different from the plate spacing...

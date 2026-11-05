@@ -43,8 +43,9 @@ from ._plate_survey import (
     SurveyTile,
     acquire_survey,
     storage_binning,
+    survey_mosaic,
 )
-from ._survey_canvas import SurveyCanvas
+from ._survey_canvas import MOSAIC_MAX_PX, SurveyCanvas
 from ._well_calibration_widget import COMBO_ROLE, TWO, Mode, WellCalibrationWidget
 from ._well_detection import (
     DetectedWell,
@@ -70,6 +71,26 @@ _CAMERA_GEOMETRY = {
     Keyword.Transpose_MirrorX.value,
     Keyword.Transpose_MirrorY.value,
 }
+
+
+def _scan_and_stitch(
+    core: CMMCorePlus,
+    geometry: SurveyGeometry,
+    cancel: Event,
+    progress: Callable[[int, int], None],
+    on_tile: Callable[[SurveyTile], None],
+    max_bytes: float,
+) -> tuple[tuple[SurveyTile, ...], Any]:
+    """Acquire the scan, then stitch a display mosaic off the GUI thread."""
+    tiles = acquire_survey(core, geometry, cancel, progress, on_tile, max_bytes)
+    if not tiles:
+        return tiles, None
+    return tiles, survey_mosaic(tiles, geometry, 0, max_side=MOSAIC_MAX_PX)
+
+
+INF = float("inf")
+# Above this deviation from the plate grid, the calibration is applied with a warning.
+WARN_ERROR_UM = 100.0
 
 
 class _ScanAreaWidget(WellCalibrationWidget):
@@ -501,6 +522,8 @@ class AutomatedPlateCalibrationWidget(QWidget):
         if not self._scan_ready():
             self._show_ready_message()
             return
+        if self._mmc.isSequenceRunning():
+            self._mmc.stopSequenceAcquisition()  # live mode: stop it and scan
         try:
             geometry = self._read_geometry()
             self._invalidate()
@@ -519,7 +542,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
             self._progress_bar.show()
             self._status.setText("Scanning… Images appear as they are acquired.")
             self._start_worker(
-                acquire_survey,
+                _scan_and_stitch,
                 (
                     self._mmc,
                     geometry,
@@ -542,9 +565,12 @@ class AutomatedPlateCalibrationWidget(QWidget):
             self._progress_bar.setRange(0, total)
             self._progress_bar.setValue(value)
 
-    def _on_scan_complete(self, tiles: tuple[SurveyTile, ...]) -> None:
+    def _on_scan_complete(self, result: tuple[tuple[SurveyTile, ...], Any]) -> None:
         if self._run_generation == self._generation and not self._cancel.is_set():
-            self._tiles = tiles
+            self._tiles, mosaic = result
+            if mosaic is not None:
+                image, _, origin, scale = mosaic
+                self._viewer.show_mosaic(image, origin, scale)
             self._status.setText(
                 "Scan complete. Set detection parameters with the gear, "
                 "then select Detect Wells."
@@ -593,13 +619,9 @@ class AutomatedPlateCalibrationWidget(QWidget):
             self._assigned = match_selected_wells(
                 result.wells, self._plate, self._plate_view.selectedIndices()
             )
-            _, max_error = validated_calibration_plan(
-                self._plate, self._calibration_centers(), 100
-            )
             self._show_calibration(
-                f"Detected {len(result.wells)} wells matching the selection "
-                f"(maximum error {max_error:.1f} µm). "
-                "Check the overlay and apply calibration."
+                f"Detected {len(result.wells)} wells matching the selection. "
+                "Check the labels on the overlay and apply calibration."
             )
         except ValueError as error:
             self._assigned.clear()
@@ -641,7 +663,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
         if self._result is None or self._plate is None:
             return False
         try:
-            validated_calibration_plan(self._plate, self._calibration_centers(), 100)
+            validated_calibration_plan(self._plate, self._calibration_centers(), INF)
         except ValueError:
             return False
         return True
@@ -654,20 +676,30 @@ class AutomatedPlateCalibrationWidget(QWidget):
             return
         try:
             centers = self._calibration_centers()
-            _, max_error = validated_calibration_plan(self._plate, centers, 100)
-            self.centersAccepted.emit(centers, 100)
+            # Apply is never blocked by the fit error; _show_calibration warns.
+            self.centersAccepted.emit(centers, INF)
             self._show_calibration(
-                f"Calibration applied from {len(centers)} wells "
-                f"(maximum error {max_error:.1f} µm). "
+                f"Calibration applied from {len(centers)} wells. "
                 "Use Test Calibration to check other wells."
             )
         except ValueError as error:
             self._status.setText(str(error), warning=True)
 
     def _show_calibration(self, note: str) -> None:
+        """Show the fitted calibration; warn when wells deviate from the grid."""
         assert self._plate is not None
-        fit = fit_plate_calibration(self._calibration_centers(), self._plate)
-        self._status.setCalibration(self._plate, *fit, note=note)
+        centers = self._calibration_centers()
+        fit = fit_plate_calibration(centers, self._plate)
+        _, max_error = validated_calibration_plan(self._plate, centers, INF)
+        warning = ""
+        if max_error > WARN_ERROR_UM:
+            warning = (
+                f"Wells deviate up to {max_error:.0f} µm from the plate grid "
+                f"(more than {WARN_ERROR_UM:.0f} µm). Check the well labels and "
+                "use Test Calibration; a larger block of wells averages this out."
+            )
+        note = f"Maximum deviation {max_error:.1f} µm. {note}"
+        self._status.setCalibration(self._plate, *fit, note=note, warning=warning)
 
     # TEMPORARY: scan export for offline evaluation of detection methods.
     def _on_save_scan(self) -> None:

@@ -50,3 +50,45 @@ def test_image_transform_and_independent_overlay(qtbot, monkeypatch):
     # Empty overlays are hidden, never drawn from zero-length GL buffers.
     assert not any(visual.visible for visual in viewer._overlay)
     assert viewer.add_image.call_count == 1
+
+
+def test_large_tiles_are_downsampled_for_display(qtbot, monkeypatch):
+    from pymmcore_widgets.hcs._survey_canvas import DISPLAY_MAX_PX, StageViewer
+
+    def init(self, parent=None):  # no native GL surface in tests
+        QWidget.__init__(self, parent)
+        self.view = SimpleNamespace(scene=scene.Node())
+        self.canvas = Mock()
+
+    monkeypatch.setattr(StageViewer, "__init__", init)
+    monkeypatch.setattr(StageViewer, "add_image", Mock())
+    monkeypatch.setattr(StageViewer, "zoom_to_fit", Mock())
+    viewer = SurveyCanvas()
+    qtbot.addWidget(viewer)
+    geometry = SurveyGeometry((0, 0, 4000, 4000), (2048, 2048), (2, 0, 0, -2))
+    viewer.add_tile(SurveyTile(np.ones((2048, 2048), np.uint16), (100, 200)), geometry)
+    image, transform = viewer.add_image.call_args.args
+    assert max(image.shape) <= DISPLAY_MAX_PX
+    # The displayed tile still maps its center to the stage XY.
+    h, w = image.shape
+    np.testing.assert_allclose(transform @ [w / 2, h / 2, 0, 1], [100, 200, 0, 1])
+
+
+def test_mosaic_replaces_tiles_and_clear_releases_them(qtbot):
+    import gc
+
+    viewer = SurveyCanvas()  # real VisPy canvas
+    qtbot.addWidget(viewer)
+    geometry = SurveyGeometry((0, 0, 500, 100), (64, 64), (2, 0, 0, 2))
+    for i in range(5):
+        tile = SurveyTile(np.ones((64, 64), np.uint16), (i * 100.0, 0.0))
+        viewer.add_tile(tile, geometry)
+    assert len(list(viewer._get_images())) == 5
+    # A finished scan is shown as a single stitched image.
+    viewer.show_mosaic(np.ones((10, 50), np.float32), (0.0, 0.0), 10.0)
+    assert len(list(viewer._get_images())) == 1
+    # A new scan clears everything; nothing keeps the old images alive.
+    viewer.clear()
+    gc.collect()
+    assert not list(viewer._get_images())
+    assert len(viewer._sources) == 0

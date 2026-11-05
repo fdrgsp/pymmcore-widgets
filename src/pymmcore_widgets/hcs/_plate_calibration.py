@@ -68,8 +68,9 @@ def validated_calibration_plan(
             "Select three or more wells in one row/column, "
             "or a non-collinear group (a 2 x 2 block is recommended)."
         )
-    if not np.isfinite(max_error_um) or max_error_um <= 0:
-        raise ValueError("Position tolerance must be positive and finite.")
+    # max_error_um=inf only measures the error (callers then warn instead).
+    if np.isnan(max_error_um) or max_error_um <= 0:
+        raise ValueError("Position tolerance must be positive.")
     for (row, col), xy in centers.items():
         if not (0 <= row < plate.rows and 0 <= col < plate.columns):
             raise ValueError("A well label is outside the selected plate.")

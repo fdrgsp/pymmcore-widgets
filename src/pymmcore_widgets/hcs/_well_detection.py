@@ -239,6 +239,19 @@ def _outline_template(
     return np.asarray(template / template.sum())
 
 
+def _imaged(
+    points: np.ndarray, tiles: tuple[SurveyTile, ...], geometry: SurveyGeometry
+) -> bool:
+    """Whether every stage point lies inside at least one tile's footprint."""
+    inverse = np.linalg.inv(geometry.matrix())
+    half = np.array(geometry.shape[::-1]) / 2
+    covered = np.zeros(len(points), dtype=bool)
+    for tile in tiles:
+        uv = (points - tile.xy) @ inverse.T
+        covered |= np.all(np.abs(uv) <= half, axis=1)
+    return bool(covered.all())
+
+
 def _propose_shapes(
     edges: np.ndarray,
     half_px: tuple[float, float],
@@ -389,9 +402,9 @@ def detect_wells(
         coverage = len(np.unique(sectors)) / 36
         if coverage < settings.min_coverage:
             continue
-        x0, y0, x1, y1 = geometry.bounds
-        (lx, ly), (hx, hy) = well.outline().min(axis=0), well.outline().max(axis=0)
-        if not (x0 <= lx and hx <= x1 and y0 <= ly and hy <= y1):
+        # The whole rim must have been imaged. Frames extend past the scan corners,
+        # so test against the tiles' footprints, not the corner rectangle.
+        if not _imaged(well.outline(), tiles, geometry):
             continue
         if any(np.hypot(xc - w.xy[0], yc - w.xy[1]) < radius_um for w in wells):
             continue

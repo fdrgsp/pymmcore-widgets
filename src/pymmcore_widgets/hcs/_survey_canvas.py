@@ -8,6 +8,15 @@ from vispy import scene
 from pymmcore_widgets._util import GREEN
 from pymmcore_widgets.control._stage_explorer._stage_viewer import StageViewer
 
+from ._plate_survey import bin_image
+
+# The canvas is a preview: cap displayed tiles so large scans fit in GPU memory
+# (81 full 2048 px frames are ~1.3 GB of float textures).
+DISPLAY_MAX_PX = 512
+# A finished scan is shown as one stitched image of at most this many pixels per
+# side: one texture and draw call instead of hundreds keeps pan/zoom smooth.
+MOSAIC_MAX_PX = 4096
+
 if TYPE_CHECKING:
     from qtpy.QtWidgets import QWidget
 
@@ -40,13 +49,25 @@ class SurveyCanvas(StageViewer):
             visual.visible = False
 
     def add_tile(self, tile: SurveyTile, geometry: SurveyGeometry) -> None:
-        """Display a raw frame at its stage location as soon as it is acquired."""
+        """Display a frame at its stage location as soon as it is acquired."""
+        factor = max(1, int(np.ceil(max(tile.image.shape) / DISPLAY_MAX_PX)))
+        image = bin_image(tile.image, factor)  # center-preserving crop and average
+        linear = geometry.matrix() * factor
         matrix = np.eye(4)
-        matrix[:2, :2] = geometry.matrix()
-        matrix[:2, 3] = np.asarray(tile.xy) - geometry.matrix() @ (
-            np.array(geometry.shape[::-1]) / 2
-        )
-        self.add_image(tile.image, matrix)
+        matrix[:2, :2] = linear
+        matrix[:2, 3] = np.asarray(tile.xy) - linear @ (np.array(image.shape[::-1]) / 2)
+        self.add_image(image, matrix)
+        self.zoom_to_fit()
+
+    def show_mosaic(
+        self, image: np.ndarray, origin: tuple[float, float], scale: float
+    ) -> None:
+        """Replace the per-tile previews with one stitched image of the scan."""
+        super().clear()
+        matrix = np.diag([scale, scale, 1.0, 1.0])
+        # mosaic pixel (c, r) is centered at origin + (c, r) * scale
+        matrix[:2, 3] = np.asarray(origin) - scale / 2
+        self.add_image(image, matrix)
         self.zoom_to_fit()
 
     def set_detections(

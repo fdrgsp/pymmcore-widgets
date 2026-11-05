@@ -185,24 +185,32 @@ def acquire_survey(
 
 
 def survey_mosaic(
-    tiles: tuple[SurveyTile, ...], geometry: SurveyGeometry, diameter_um: float
+    tiles: tuple[SurveyTile, ...],
+    geometry: SurveyGeometry,
+    diameter_um: float,
+    max_side: int = 1024,
 ) -> tuple[np.ndarray, np.ndarray, tuple[float, float], float]:
-    """Create a bounded stage-registered overview and explicit valid-data mask."""
+    """Create a stage-registered overview of everything imaged, plus a valid mask.
+
+    The overview spans the tiles' footprints, not just the scan corners: frames
+    extend past the corners, and wells there are fully imaged.
+    """
     from scipy.ndimage import map_coordinates
 
-    x0, y0, x1, y1 = geometry.bounds
+    h, w = geometry.shape
+    footprint = np.array(
+        [(-w / 2, -h / 2), (-w / 2, h / 2), (w / 2, -h / 2), (w / 2, h / 2)]
+    )
+    all_corners = [footprint @ geometry.matrix().T + tile.xy for tile in tiles]
+    x0, y0 = np.min(all_corners, axis=(0, 1))
+    x1, y1 = np.max(all_corners, axis=(0, 1))
     pixel_um = max(np.linalg.svd(geometry.matrix(), compute_uv=False))
-    scale = max(pixel_um, diameter_um / 200, (x1 - x0) / 1024, (y1 - y0) / 1024)
+    scale = max(pixel_um, diameter_um / 200, (x1 - x0) / max_side, (y1 - y0) / max_side)
     shape = (int(np.ceil((y1 - y0) / scale)) + 1, int(np.ceil((x1 - x0) / scale)) + 1)
     image = np.zeros(shape, dtype=np.float32)
     weights = np.zeros(shape, dtype=np.uint16)
     inverse = np.linalg.inv(geometry.matrix())
-    h, w = geometry.shape
-    for tile in tiles:
-        footprint = np.array(
-            [(-w / 2, -h / 2), (-w / 2, h / 2), (w / 2, -h / 2), (w / 2, h / 2)]
-        )
-        corners = footprint @ geometry.matrix().T + tile.xy
+    for tile, corners in zip(tiles, all_corners, strict=True):
         lo = np.maximum(0, np.floor((corners.min(axis=0) - [x0, y0]) / scale)).astype(
             int
         )

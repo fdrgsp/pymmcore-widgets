@@ -42,6 +42,9 @@ class _Canvas(QWidget):
     def set_detection_visible(self, visible):
         self.detection_visible = visible
 
+    def show_mosaic(self, image, origin, scale):
+        self.mosaic = (image, origin, scale)
+
     def clear(self):
         self.tiles.clear()
         self.wells = ()
@@ -130,8 +133,13 @@ def test_tiled_rim_detection(matrix):
             image -= 150 * np.exp(-(((distance - 500) / 30) ** 2))
         image += np.random.default_rng(0).normal(0, 0.3, image.shape)
         tiles.append(SurveyTile(image.astype(np.float32), xy))
-    overview, valid, _, _ = survey_mosaic(tuple(tiles), geometry, 1000)
-    assert valid[2:-2, 2:-2].all()
+    overview, valid, origin, scale = survey_mosaic(tuple(tiles), geometry, 1000)
+    # The overview spans the imaged footprints; the scan rectangle is fully covered.
+    x0, y0, x1, y1 = geometry.bounds
+    (c0, r0), (c1, r1) = (
+        ((np.array(p) - origin) / scale).astype(int) for p in ((x0, y0), (x1, y1))
+    )
+    assert valid[r0 + 2 : r1 - 2, c0 + 2 : c1 - 2].all()
     assert overview.max() > overview.min()
     result = detect_wells(tuple(tiles), geometry, _plate(), Event())
     assert len(result.wells) == 3
@@ -940,3 +948,67 @@ def test_save_scan_roundtrip(qtbot, global_mmcore, tmp_path):
     assert tuple(data["xy"][0]) == (1, 2)
     assert useq.WellPlate.model_validate_json(str(data["plate"])) == auto._plate
     assert data["selected"].tolist() == [[0, 0], [0, 1], [1, 0]]
+
+
+def test_rim_imaged_beyond_scan_corners():
+    # Frames extend past the corner rectangle: a well whose rim pokes slightly out
+    # of the corners but is fully imaged must still be detected.
+    pytest.importorskip("skimage")
+    plate = useq.WellPlate(rows=2, columns=2, well_spacing=1.5, well_size=1)
+    selected = ((0, 0), (0, 1), (1, 0), (1, 1))
+    tiles, geometry = _shape_tiles(plate, selected, 0)
+    x0, y0, x1, y1 = geometry.bounds
+    # corners 600 um inside the outermost rims (rims at 500 um from the centers)
+    tight = SurveyGeometry(
+        (x0 + 650, y0 + 650, x1 - 650, y1 - 650),
+        geometry.shape,
+        geometry.pixel_to_stage,
+    )
+    result = detect_wells(tiles, tight, plate, Event())
+    assert len(result.wells) == 4
+
+
+def test_start_scan_stops_live_mode(qtbot, global_mmcore, monkeypatch):
+    from pymmcore_widgets.hcs import HCSWizard
+    from pymmcore_widgets.hcs import _automated_plate_calibration_widget as module
+
+    monkeypatch.setattr(module, "acquire_survey", lambda *args: ())
+    wizard = HCSWizard(mmcore=global_mmcore)
+    qtbot.addWidget(wizard)
+    wizard.calibration_page.widget.setValue("96-well")
+    auto = wizard.calibration_page.automated
+    _prepare_area(auto, ((1, 1), (1, 2), (2, 1)))
+    auto._corners._table._set_row(0, 0, 0)
+    auto._corners._table._set_row(1, 3000, -3000)
+    global_mmcore.startContinuousSequenceAcquisition()
+    try:
+        auto._acquire()
+        assert not global_mmcore.isSequenceRunning()
+        qtbot.waitUntil(lambda: not auto.isBusy())
+        assert "Stop live" not in auto._status.text()
+    finally:
+        if global_mmcore.isSequenceRunning():
+            global_mmcore.stopSequenceAcquisition()
+
+
+def test_apply_allowed_with_warning_for_large_deviation(qtbot, global_mmcore):
+    from pymmcore_widgets.hcs import HCSWizard
+
+    wizard = HCSWizard(mmcore=global_mmcore)
+    qtbot.addWidget(wizard)
+    page = wizard.calibration_page
+    page.widget.setValue("96-well")
+    auto = page.automated
+    indices = ((1, 1), (1, 2), (2, 1), (2, 2))
+    _prepare_area(auto, indices)
+    # one well 300 um off the 9 mm grid (e.g. plate tolerance or meniscus)
+    xy = {(1, 1): (0, 0), (1, 2): (9000, 0), (2, 1): (0, -9000), (2, 2): (9300, -9000)}
+    wells = tuple(DetectedWell(xy[i], 3200, 1, 1) for i in indices)
+    auto._run_generation = auto._generation
+    auto._cancel.clear()
+    auto._on_result(DetectionResult(np.zeros((10, 10)), (0, 0), 1, wells))
+    assert "deviate up to" in auto._status.text()
+    assert auto._apply.isEnabled()
+    auto._apply.click()
+    assert page.isComplete()
+    assert "deviate up to" in auto._status.text()  # still warned after applying
