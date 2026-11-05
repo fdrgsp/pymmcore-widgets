@@ -16,6 +16,8 @@ from qtpy.QtWidgets import (
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -234,17 +236,26 @@ class WellCalibrationWidget(QWidget):
 
         # calibration mode
         self._calibration_mode_wdg = _CalibrationModeWidget(self)
-        self._instruction = QLabel(
+        # instructions are a tooltip: hover (or click) the info button to read them
+        self._info_button = QToolButton()
+        self._info_button.setIcon(QIconifyIcon("mdi:information-outline"))
+        self._info_button.setAutoRaise(True)
+        self._info_button.setAccessibleName("Calibration Instructions")
+        self._info_button.clicked.connect(self._show_instructions)
+        # one-line purpose under the title; details live in the info tooltip
+        self._summary = QLabel()
+        self._summary.setWordWrap(True)
+        # wrap to the panel width instead of widening it
+        policy = self._summary.sizePolicy()
+        policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+        self._summary.setSizePolicy(policy)
+        self.setInstructions(
+            "Record points on the selected well to find its center.",
             "First, select the well on the plate diagram and choose a method. "
             "Then move the stage to the <b>well's center</b>, <b>edge points</b>, or "
             "<b>opposite corners</b>, as required by that method, "
-            "and click <b>Set</b> to record each point."
+            "and click <b>Set</b> to record each point.",
         )
-        self._instruction.setWordWrap(True)
-        self._instruction.setAlignment(Qt.AlignmentFlag.AlignJustify)
-        instruction_policy = self._instruction.sizePolicy()
-        instruction_policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
-        self._instruction.setSizePolicy(instruction_policy)
 
         # calibration table and buttons
         self._table = _CalibrationTable(self)
@@ -259,7 +270,9 @@ class WellCalibrationWidget(QWidget):
         labels = QHBoxLayout()
         labels.setContentsMargins(0, 0, 0, 0)
         labels.addWidget(self._calibration_icon)
-        labels.addWidget(self.well_label, 1)
+        labels.addWidget(self.well_label)
+        labels.addStretch()
+        labels.addWidget(self._info_button)
 
         mode_row = QHBoxLayout()
         mode_row.addWidget(QLabel("Method:"))
@@ -273,7 +286,7 @@ class WellCalibrationWidget(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(5)
         main_layout.addLayout(labels)
-        main_layout.addWidget(self._instruction)
+        main_layout.addWidget(self._summary)
         main_layout.addLayout(mode_row)
         main_layout.addWidget(self._table)
         main_layout.addWidget(self._set_button)
@@ -286,6 +299,19 @@ class WellCalibrationWidget(QWidget):
         self._clear_button.clicked.connect(self._table.clear_selected)
         self._clear_all_button.clicked.connect(self._table.clear_all)
         self._table.itemChanged.connect(self._validate_calibration)
+
+    def setInstructions(self, summary: str, details: str) -> None:
+        """Set the one-line summary and the info-button tooltip instructions."""
+        self._summary.setText(summary)
+        # <p> makes Qt treat the tooltip as rich text, which word-wraps.
+        self._info_button.setToolTip(f"<p>{details}</p>")
+
+    def _show_instructions(self) -> None:
+        QToolTip.showText(
+            self._info_button.mapToGlobal(self._info_button.rect().bottomLeft()),
+            self._info_button.toolTip(),
+            self._info_button,
+        )
 
     def wellCenter(self) -> tuple[float, float] | None:
         """Return the center of the well, or None if not calibrated."""

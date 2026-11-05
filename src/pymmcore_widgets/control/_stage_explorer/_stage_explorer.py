@@ -42,6 +42,7 @@ from qtpy.QtWidgets import (
 from superqt import QEnumComboBox, QIconifyIcon, QLabeledRangeSlider
 from useq import OrderMode
 
+from pymmcore_widgets._util import memory_limit_defaults
 from pymmcore_widgets.control._q_stage_controller import QStageMoveAccumulator
 from pymmcore_widgets.control._rois.roi_manager import GRAY, SceneROIManager
 
@@ -74,30 +75,9 @@ SNAP_DEDUP_FOV_FRACTION = 0.01
 # (vispy holds a reference, it does not copy) plus the GL-side copy.
 TILE_MEMORY_FACTOR = 2
 
-# Leave room for the acquisition store and the rest of the application.
-MAP_MEMORY_DEFAULT_FRACTION = 0.2
-
-# Minimum default budget; an explicit user choice may be smaller.
-MAP_MEMORY_DEFAULT_FLOOR_GB = 0.5
-
 # Recheck free system RAM before adding each new location, regardless of budget.
 LOW_SYSTEM_MEMORY_FLOOR_MB = 512.0
 _GL_OUT_OF_MEMORY = 0x0505
-
-
-def _map_memory_defaults() -> tuple[float, float, float]:
-    """Return (min, max, default) map-memory limits in GB, bounded by physical RAM."""
-    vm = psutil.virtual_memory()
-    total_gb = round(vm.total / 1024**3, 1)
-    available_gb = vm.available / 1024**3
-    default_gb = min(
-        max(
-            MAP_MEMORY_DEFAULT_FLOOR_GB,
-            round(available_gb * MAP_MEMORY_DEFAULT_FRACTION, 1),
-        ),
-        total_gb,
-    )
-    return (0.1, total_gb, default_gb)
 
 
 def _is_allocation_error(exc: BaseException) -> bool:
@@ -341,7 +321,7 @@ class StageExplorer(QWidget):
         self._frame_relay_timer.setSingleShot(True)
         self._frame_relay_timer.setInterval(REDRAW_INTERVAL_MS)
         self._frame_relay_timer.timeout.connect(self._on_frames_pending)
-        self._max_map_memory_mb: float = _map_memory_defaults()[2] * 1000.0
+        self._max_map_memory_mb: float = memory_limit_defaults()[2] * 1000.0
         self._map_memory_exceeded: bool = False
         # Whether the poller was running when hideEvent last paused it, so
         # showEvent knows whether to restart it (see hideEvent/showEvent).
@@ -1448,7 +1428,7 @@ class MapMemoryMenu(QMenu):
     """Menu widget that exposes the map's memory budget (see `max_map_memory_mb`).
 
     Both the spinbox's range and its initial value scale with this machine's
-    real RAM (see `_map_memory_defaults`) rather than a flat, one-size-fits-
+    real RAM (see `memory_limit_defaults`) rather than a flat, one-size-fits-
     none number.
     """
 
@@ -1460,7 +1440,7 @@ class MapMemoryMenu(QMenu):
         form = QFormLayout(opts_widget)
         form.setContentsMargins(8, 8, 8, 8)
 
-        minimum, maximum, default = _map_memory_defaults()
+        minimum, maximum, default = memory_limit_defaults()
         self._limit_spin = QDoubleSpinBox(opts_widget)
         self._limit_spin.setRange(minimum, maximum)
         self._limit_spin.setDecimals(1)

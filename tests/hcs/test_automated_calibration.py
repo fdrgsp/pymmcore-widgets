@@ -11,6 +11,7 @@ from qtpy.QtWidgets import QWidget
 from pymmcore_widgets.hcs._plate_calibration import validated_calibration_plan
 from pymmcore_widgets.hcs._plate_calibration_widget import PlateCalibrationWidget
 from pymmcore_widgets.hcs._plate_survey import (
+    MAX_TILES,
     SurveyGeometry,
     SurveyTile,
     acquire_survey,
@@ -276,7 +277,7 @@ def test_worker_cancel_defers_wizard_close(qtbot, global_mmcore, monkeypatch):
 
     entered, release = Event(), Event()
 
-    def survey(core, geometry, cancel, progress, on_tile=None):
+    def survey(core, geometry, cancel, progress, on_tile=None, max_bytes=None):
         entered.set()
         assert release.wait(5)
         assert cancel.is_set()
@@ -335,9 +336,12 @@ def test_corner_editor_and_pixel_size(qtbot, global_mmcore, monkeypatch):
     # Identity/unset affine is irrelevant; scan spacing uses configured pixel size.
     geometry = auto._read_geometry()
     px = global_mmcore.getPixelSizeUm()
-    assert geometry.pixel_to_stage == (px, 0, 0, px)
+    b = geometry.binning
+    assert geometry.pixel_to_stage == (px * b, 0, 0, px * b)
+    h, w = global_mmcore.getImageHeight(), global_mmcore.getImageWidth()
+    assert geometry.shape == (h // b, w // b)
     global_mmcore.setPixelSizeUm(global_mmcore.getCurrentPixelSizeConfig(), 0)
-    auto._pixel_size_changed()
+    auto._fov_changed()
     assert not auto._start.isEnabled()
     assert "pixel size" in auto._status.text()
     with pytest.raises(ValueError, match="pixel size"):
@@ -362,7 +366,7 @@ def test_stream_scan_detect_and_rerun(qtbot, global_mmcore, monkeypatch):
     result = DetectionResult(np.zeros((100, 100)), (-700, -2200), 30, wells)
     scan_calls, detection_calls = [], []
 
-    def scan(core, geo, cancel, progress, on_tile):
+    def scan(core, geo, cancel, progress, on_tile, max_bytes):
         scan_calls.append(geo)
         for i, tile in enumerate(tiles):
             on_tile(tile)
@@ -806,3 +810,84 @@ def test_rotated_rectangular_wells(rotation):
     result = detect_wells(tiles, geometry, plate, Event())
     assert len(result.wells) == 4
     assert all(w.rotation_deg == pytest.approx(rotation, abs=0.5) for w in result.wells)
+
+
+def test_scan_size_follows_fov(qtbot, global_mmcore):
+    from pymmcore_widgets.hcs import HCSWizard
+
+    wizard = HCSWizard(mmcore=global_mmcore)
+    qtbot.addWidget(wizard)
+    wizard.calibration_page.widget.setValue("96-well")
+    auto = wizard.calibration_page.automated
+    auto._plate_view.setSelectedIndices([(1, 1), (1, 2), (2, 1)])
+    auto._corners._table._set_row(0, 0, 0)
+    auto._corners._table._set_row(1, 3000, -3000)
+    assert "Ready to scan" in auto._status.text()
+    assert auto._start.isEnabled()
+    # A smaller camera ROI shrinks the field of view: the scan no longer fits.
+    global_mmcore.setROI(0, 0, 32, 32)
+    assert f"limit is {MAX_TILES} tiles" in auto._status.text()
+    assert not auto._start.isEnabled()
+    global_mmcore.clearROI()
+    # CMMCore.clearROI emits nothing; the camera ROI widget emits roiSet after it.
+    cam = global_mmcore.getCameraDevice()
+    global_mmcore.events.roiSet.emit(cam, *global_mmcore.getROI())
+    assert "Ready to scan" in auto._status.text()
+    # So does switching to a higher magnification (smaller pixel size).
+    global_mmcore.setPixelSizeUm(global_mmcore.getCurrentPixelSizeConfig(), 0.01)
+    assert f"limit is {MAX_TILES} tiles" in auto._status.text()
+    assert not auto._start.isEnabled()
+
+
+def test_survey_stores_binned_tiles(global_mmcore):
+    from pymmcore_widgets.hcs._plate_survey import bin_image, storage_binning
+
+    image = np.arange(7 * 9, dtype=np.uint16).reshape(7, 9)
+    binned = bin_image(image, 2)
+    assert binned.shape == (3, 4)
+    assert binned.dtype == np.uint16
+    # 12-well wells (22 mm) at 4x on a 1.625 um/px camera: ~6.8 um stored pixels.
+    assert storage_binning(1.625, 22_000) == 6
+    assert storage_binning(1.625, 1_000) == 1
+    px = global_mmcore.getPixelSizeUm()
+    h, w = global_mmcore.getImageHeight(), global_mmcore.getImageWidth()
+    geometry = SurveyGeometry(
+        (0, 0, 100, 100), (h // 4, w // 4), (px * 4, 0, 0, px * 4), binning=4
+    )
+    tiles = acquire_survey(global_mmcore, geometry, Event(), Mock())
+    assert tiles[0].image.shape == (h // 4, w // 4)
+    with pytest.raises(ValueError, match="memory limit"):
+        acquire_survey(global_mmcore, geometry, Event(), Mock(), max_bytes=10)
+
+
+def test_memory_limit_gates_scan(qtbot, global_mmcore):
+    from pymmcore_widgets.hcs import HCSWizard
+
+    wizard = HCSWizard(mmcore=global_mmcore)
+    qtbot.addWidget(wizard)
+    wizard.calibration_page.widget.setValue("96-well")
+    auto = wizard.calibration_page.automated
+    auto._plate_view.setSelectedIndices([(1, 1), (1, 2), (2, 1)])
+    auto._corners._table._set_row(0, 0, 0)
+    auto._corners._table._set_row(1, 3000, -3000)
+    assert auto._start.isEnabled()
+    auto._memory_limit.setValue(auto._memory_limit.minimum())
+    auto._max_bytes = lambda: 1.0  # below any real scan
+    auto._memory_limit_changed()
+    assert "above the memory limit" in auto._status.text()
+    assert not auto._start.isEnabled()
+
+
+def test_instructions_are_info_tooltips(qtbot, global_mmcore):
+    from pymmcore_widgets.hcs import HCSWizard
+
+    wizard = HCSWizard(mmcore=global_mmcore)
+    qtbot.addWidget(wizard)
+    page = wizard.calibration_page
+    page.widget.setValue("96-well")
+    manual = page.widget._current_calibration_widget()
+    assert "well's center" in manual._info_button.toolTip()
+    corners = page.automated._corners
+    assert "opposite corners" in corners._info_button.toolTip()
+    assert "Select Wells" in corners._info_button.toolTip()
+    corners._info_button.click()  # clicking also shows the tooltip

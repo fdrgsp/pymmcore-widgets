@@ -11,15 +11,43 @@ if TYPE_CHECKING:
 
     from pymmcore_plus import CMMCorePlus
 
+# Sanity bound on scan time; memory is bounded separately by the user's limit.
+MAX_TILES = 2500
+MAX_BYTES = 512 * 1024**2
+# Stored tiles keep ~2000 pixels across a well: detection needs ~1000.
+PIXELS_PER_WELL = 2000
+
+
+def storage_binning(pixel_um: float, well_um: float) -> int:
+    """Camera-pixel block size averaged per stored pixel for this well size."""
+    return max(1, int(well_um / PIXELS_PER_WELL / pixel_um))
+
+
+def bin_image(image: np.ndarray, binning: int) -> np.ndarray:
+    """Average `binning` x `binning` blocks, cropping the remainder symmetrically."""
+    if binning == 1:
+        return image
+    h, w = (n // binning * binning for n in image.shape)
+    y0, x0 = (image.shape[0] - h) // 2, (image.shape[1] - w) // 2
+    blocks = image[y0 : y0 + h, x0 : x0 + w].reshape(
+        h // binning, binning, w // binning, binning
+    )
+    return np.asarray(blocks.mean(axis=(1, 3)).astype(image.dtype))
+
 
 @dataclass(frozen=True)
 class SurveyGeometry:
-    """Immutable physical survey bounds and verified raw-pixel-to-stage mapping."""
+    """Immutable physical survey bounds and verified pixel-to-stage mapping.
+
+    `shape` and `pixel_to_stage` describe the stored tiles: camera frames are
+    averaged in `binning` x `binning` blocks during acquisition.
+    """
 
     bounds: tuple[float, float, float, float]
     shape: tuple[int, int]
     pixel_to_stage: tuple[float, float, float, float]
     overlap: float = 0.2
+    binning: int = 1
 
     def matrix(self) -> np.ndarray:
         """Return the linear map from raw (column, row) pixels to stage µm."""
@@ -28,26 +56,34 @@ class SurveyGeometry:
             raise ValueError("A valid camera-to-stage affine calibration is required.")
         return matrix
 
-    def positions(self) -> list[tuple[float, float]]:
-        """Cover the stage rectangle with overlapping, possibly rotated frames."""
+    def grid(self) -> tuple[int, int]:
+        """Return the (columns, rows) of overlapping frames covering the bounds."""
         x0, y0, x1, y1 = self.bounds
         if not np.isfinite(self.bounds).all() or x1 <= x0 or y1 <= y0:
             raise ValueError("Record two different opposing scan corners.")
         h, w = self.shape
         if min(h, w) <= 0 or not 0 <= self.overlap < 1:
             raise ValueError("Invalid image size or overlap.")
-        matrix = self.matrix()
-        center = np.array([(x0 + x1) / 2, (y0 + y1) / 2])
         corners = np.array([(x0, y0), (x0, y1), (x1, y0), (x1, y1)])
-        uv = (corners - center) @ np.linalg.inv(matrix).T
-        span = np.ptp(uv, axis=0)
+        span = np.ptp(corners @ np.linalg.inv(self.matrix()).T, axis=0)
         steps = np.array([w, h]) * (1 - self.overlap)
         counts = np.maximum(1, np.ceil(np.maximum(0, span - [w, h]) / steps) + 1)
         nx, ny = (int(x) for x in counts)
-        if nx * ny > 256:
+        return nx, ny
+
+    def positions(self) -> list[tuple[float, float]]:
+        """Cover the stage rectangle with overlapping, possibly rotated frames."""
+        nx, ny = self.grid()
+        if nx * ny > MAX_TILES:
             raise ValueError(
-                "Survey exceeds 256 tiles. Reduce the area or magnification."
+                f"The scan needs {nx} x {ny} = {nx * ny} tiles; the limit is "
+                f"{MAX_TILES}. Use a lower magnification or select fewer wells."
             )
+        x0, y0, x1, y1 = self.bounds
+        h, w = self.shape
+        matrix = self.matrix()
+        center = np.array([(x0 + x1) / 2, (y0 + y1) / 2])
+        steps = np.array([w, h]) * (1 - self.overlap)
         result = []
         for row in range(ny):
             for col in range(nx) if row % 2 == 0 else reversed(range(nx)):
@@ -74,14 +110,17 @@ def acquire_survey(
     cancel: Event,
     progress: Callable[[int, int], None],
     on_tile: Callable[[SurveyTile], None] | None = None,
+    max_bytes: float = MAX_BYTES,
 ) -> tuple[SurveyTile, ...]:
     """Acquire at current brightfield settings, without changing objective or Z."""
     if core.mda.is_running() or core.isSequenceRunning():
         raise ValueError("Stop live view or the running acquisition before surveying.")
     positions = geometry.positions()
-    byte_limit = 512 * 1024**2
-    if len(positions) * np.prod(geometry.shape) * core.getBytesPerPixel() > byte_limit:
-        raise ValueError("Survey exceeds 512 MiB. Use binning or a smaller scan area.")
+    if len(positions) * np.prod(geometry.shape) * core.getBytesPerPixel() > max_bytes:
+        raise ValueError(
+            f"The scan exceeds the {max_bytes / 1024**3:.1f} GB memory limit. "
+            "Raise the limit or select fewer wells."
+        )
 
     def camera_state() -> tuple:
         return (
@@ -117,13 +156,15 @@ def acquire_survey(
                 raise ValueError("Microscope settings changed during exposure.")
             if not np.allclose(core.getXYPosition(), (x, y), rtol=0, atol=1):
                 raise ValueError("The stage moved during exposure. Repeat the survey.")
+            if image.ndim == 2:
+                image = bin_image(image, geometry.binning)
             if image.ndim != 2 or image.shape != geometry.shape:
                 raise ValueError(
                     "Use a monochrome camera with unchanged frame dimensions."
                 )
             used_bytes += image.nbytes
-            if used_bytes > byte_limit:
-                raise ValueError("Survey exceeded its 512 MiB image buffer.")
+            if used_bytes > max_bytes:
+                raise ValueError("The scan exceeded its memory limit.")
             tile = SurveyTile(image, (x, y))
             tiles.append(tile)
             if on_tile is not None:

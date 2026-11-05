@@ -12,6 +12,7 @@ from qtpy.QtWidgets import QMessageBox, QToolButton
 from vispy.app.canvas import MouseEvent
 from vispy.scene.visuals import Image
 
+from pymmcore_widgets import _util as util_mod
 from pymmcore_widgets.control._rois.roi_model import RectangleROI
 from pymmcore_widgets.control._stage_explorer import (
     _stage_explorer as stage_explorer_mod,
@@ -1303,8 +1304,8 @@ def test_autozoom_check_is_skipped_when_disabled(qtbot: QtBot) -> None:
 
 def test_map_memory_defaults_range_bounded_by_total_ram() -> None:
     vm = MagicMock(total=16 * 1024**3, available=4 * 1024**3)
-    with patch.object(stage_explorer_mod.psutil, "virtual_memory", return_value=vm):
-        lo, hi, default = stage_explorer_mod._map_memory_defaults()
+    with patch.object(util_mod.psutil, "virtual_memory", return_value=vm):
+        lo, hi, default = util_mod.memory_limit_defaults()
     assert lo == 0.1
     assert hi == 16.0
     assert default == 0.8  # 20% of 4 GB available
@@ -1318,9 +1319,9 @@ def test_map_memory_defaults_floored_under_severe_memory_pressure() -> None:
     which still runs independently of whatever this default gets set to.
     """
     vm = MagicMock(total=16 * 1024**3, available=2 * 1024**3)  # 20% would be 0.4 GB
-    with patch.object(stage_explorer_mod.psutil, "virtual_memory", return_value=vm):
-        _, _, default = stage_explorer_mod._map_memory_defaults()
-    assert default == stage_explorer_mod.MAP_MEMORY_DEFAULT_FLOOR_GB
+    with patch.object(util_mod.psutil, "virtual_memory", return_value=vm):
+        _, _, default = util_mod.memory_limit_defaults()
+    assert default == util_mod.MEMORY_DEFAULT_FLOOR_GB
 
 
 def test_map_memory_defaults_scale_with_available_ram() -> None:
@@ -1333,8 +1334,8 @@ def test_map_memory_defaults_scale_with_available_ram() -> None:
     technically support it.
     """
     vm = MagicMock(total=64 * 1024**3, available=20 * 1024**3)
-    with patch.object(stage_explorer_mod.psutil, "virtual_memory", return_value=vm):
-        lo, hi, default = stage_explorer_mod._map_memory_defaults()
+    with patch.object(util_mod.psutil, "virtual_memory", return_value=vm):
+        lo, hi, default = util_mod.memory_limit_defaults()
     assert (lo, hi) == (0.1, 64.0)
     assert default == 4.0  # 20% of 20 GB available, not of the 64 GB total
 

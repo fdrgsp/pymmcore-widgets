@@ -9,12 +9,12 @@ from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
+    QDoubleSpinBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QProgressBar,
     QPushButton,
-    QSizePolicy,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -23,7 +23,7 @@ from superqt.iconify import QIconifyIcon
 from superqt.utils import create_worker, signals_blocked
 
 from pymmcore_widgets._icons import StandardIcon
-from pymmcore_widgets._util import SeparatorWidget
+from pymmcore_widgets._util import SeparatorWidget, memory_limit_defaults
 from pymmcore_widgets.useq_widgets._well_plate_widget import WellPlateView
 
 from ._plate_calibration import (
@@ -34,7 +34,13 @@ from ._plate_calibration import (
     validated_calibration_plan,
 )
 from ._plate_calibration_widget import CalibrationInfo
-from ._plate_survey import SurveyGeometry, SurveyTile, acquire_survey
+from ._plate_survey import (
+    MAX_TILES,
+    SurveyGeometry,
+    SurveyTile,
+    acquire_survey,
+    storage_binning,
+)
 from ._survey_canvas import SurveyCanvas
 from ._well_calibration_widget import COMBO_ROLE, TWO, Mode, WellCalibrationWidget
 from ._well_detection import (
@@ -62,8 +68,17 @@ class _ScanAreaWidget(WellCalibrationWidget):
 
     def __init__(self, mmcore: CMMCorePlus, parent: QWidget) -> None:
         super().__init__(parent, mmcore)
-        self._instruction.hide()
         self.well_label.setText("Scan Area")
+        self.setInstructions(
+            "Record two opposite corners of an area containing the selected wells.",
+            "First, select the wells on the plate diagram in the "
+            "<b>Select Wells</b> tab. "
+            "Then move the stage to two <b>opposite corners</b> of a scan area that "
+            "contains all selected wells, including their complete rims, "
+            "and record each corner with <b>Set</b>. "
+            "It is preferable to use a low magnification objective (e.g., 4x, 10x) "
+            "and transmitted light to focus on the well rims.",
+        )
         self.setCircularWell(False)
         mode = Mode("2 Opposing Corners", 2, TWO)
         with signals_blocked(self._calibration_mode_wdg):
@@ -116,21 +131,18 @@ class AutomatedPlateCalibrationWidget(QWidget):
 
         self._corners = _ScanAreaWidget(mmcore, self)
         self._corners.layout().setContentsMargins(0, 0, 0, 0)
-        instruction = QLabel(
-            "First, select the wells on the plate diagram in the "
-            "<b>Select Wells</b> tab. "
-            "Then move the stage to two <b>opposite corners</b> of a scan area that "
-            "contains all selected wells, including their complete rims, "
-            "and record each corner with <b>Set</b>. "
-            "It is preferable to use a low magnification objective (e.g., 4x, 10x) "
-            "and transmitted light to focus on the well rims."
-        )
-        instruction.setWordWrap(True)
-        instruction.setAlignment(Qt.AlignmentFlag.AlignJustify)
-        instruction_policy = instruction.sizePolicy()
-        instruction_policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
-        instruction.setSizePolicy(instruction_policy)
-        self._corners.layout().insertWidget(1, instruction)
+        # Same RAM-based range and default as the Stage Explorer map memory limit.
+        minimum, maximum, default = memory_limit_defaults()
+        self._memory_limit = QDoubleSpinBox()
+        self._memory_limit.setRange(minimum, maximum)
+        self._memory_limit.setDecimals(1)
+        self._memory_limit.setSingleStep(0.5)
+        self._memory_limit.setSuffix(" GB")
+        self._memory_limit.setValue(default)
+        self._memory_limit.setToolTip("Maximum memory used by the scan images.")
+        memory = QHBoxLayout()
+        memory.addWidget(QLabel("Memory limit:"))
+        memory.addWidget(self._memory_limit, 1)
         self._start = QPushButton("Start Scan")
         self._start.setEnabled(False)
         self._stop = QPushButton("Cancel")
@@ -140,6 +152,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
         left_layout.setContentsMargins(5, 5, 5, 5)
         left_layout.addWidget(self._corners)
         left_layout.addWidget(SeparatorWidget())
+        left_layout.addLayout(memory)
         left_layout.addWidget(self._start)
         left_layout.addWidget(self._stop)
         left_layout.addStretch()
@@ -209,13 +222,17 @@ class AutomatedPlateCalibrationWidget(QWidget):
         self._show_detection.toggled.connect(self._toggle_detection)
         self._apply.clicked.connect(self._apply_centers)
         self._corners.cornersChanged.connect(self._corners_changed)
+        self._memory_limit.valueChanged.connect(self._memory_limit_changed)
         self._plate_view.selectionChanged.connect(self._selection_changed)
         self._tab_wdg.currentChanged.connect(self._on_tab_changed)
         self._progress.connect(self._on_progress)
         self._tileReady.connect(self._on_tile)
         self._plate_test.positionDoubleClicked.connect(self.testPositionRequested.emit)
-        self._mmc.events.pixelSizeChanged.connect(self._pixel_size_changed)
-        self._mmc.events.systemConfigurationLoaded.connect(self._pixel_size_changed)
+        # The scan size depends on the field of view: objective, ROI, and binning.
+        self._mmc.events.pixelSizeChanged.connect(self._fov_changed)
+        self._mmc.events.systemConfigurationLoaded.connect(self._fov_changed)
+        self._mmc.events.roiSet.connect(self._fov_changed)
+        self._mmc.events.propertyChanged.connect(self._on_property_changed)
         self._update_controls()
 
     def showEvent(self, event: QShowEvent) -> None:
@@ -285,11 +302,11 @@ class AutomatedPlateCalibrationWidget(QWidget):
 
     def _corners_changed(self) -> None:
         self._invalidate()
-        self._status.setText(self._ready_message())
+        self._show_ready_message()
 
     def _selection_changed(self) -> None:
         self._invalidate(clear_images=False)
-        self._status.setText(self._ready_message())
+        self._show_ready_message()
 
     def _valid_selection(self) -> bool:
         min_wells = min_calibration_wells(self._plate) if self._plate else 3
@@ -297,12 +314,61 @@ class AutomatedPlateCalibrationWidget(QWidget):
             self._plate_view.selectedIndices(), min_wells
         )
 
-    def _ready_message(self) -> str:
+    def _show_ready_message(self) -> None:
+        """Show the next setup step, or the scan size at the current FOV."""
+        warning = False
         if not self._valid_selection():
-            return self._selection_hint()
-        if self._corners.wellCenter() is None:
-            return "Set two opposite corners of the scan area."
-        return "Ready to scan the selected wells."
+            text = self._selection_hint()
+        elif self._corners.wellCenter() is None:
+            text = "Set two opposite corners of the scan area."
+        else:
+            try:
+                text, fits = self._scan_size()
+                warning = not fits
+            except ValueError as error:
+                text, warning = str(error), True
+        self._status.setText(text, warning=warning)
+        self._update_controls()  # missing detector/pixel size take precedence
+
+    def _max_bytes(self) -> float:
+        return float(self._memory_limit.value() * 1024**3)
+
+    def _scan_size(self) -> tuple[str, bool]:
+        """Describe the scan at the current objective, ROI, and binning."""
+        geometry = self._read_geometry()
+        nx, ny = geometry.grid()
+        h, w = geometry.shape
+        px = geometry.pixel_to_stage[0]
+        nbytes = nx * ny * h * w * self._mmc.getBytesPerPixel()
+        size = (
+            f"{nx} x {ny} = {nx * ny} tiles at a field of view of "
+            f"{w * px / 1000:.2f} x {h * px / 1000:.2f} mm "
+            f"({nbytes / 1024**3:.2f} GB)"
+        )
+        if nx * ny > MAX_TILES:
+            return (
+                f"The scan needs {size}; the limit is {MAX_TILES} tiles. "
+                "Use a lower magnification or select fewer wells."
+            ), False
+        if nbytes > self._max_bytes():
+            return (
+                f"The scan needs {size}, above the memory limit. "
+                "Raise the limit or select fewer wells."
+            ), False
+        return f"Ready to scan {size}.", True
+
+    def _memory_limit_changed(self) -> None:
+        # Keep scan and detection results on screen; only refresh the setup step.
+        if self._tiles or self._result is not None:
+            self._update_controls()
+        else:
+            self._show_ready_message()
+
+    def _scan_fits(self) -> bool:
+        try:
+            return self._scan_size()[1]
+        except ValueError:
+            return False
 
     def _selection_hint(self) -> str:
         rims = " whose complete rims are included in the scan area."
@@ -325,9 +391,13 @@ class AutomatedPlateCalibrationWidget(QWidget):
             self._ensure_viewer()
         self._update_controls()
 
-    def _pixel_size_changed(self) -> None:
+    def _fov_changed(self) -> None:
         self._invalidate()
-        self._update_controls()
+        self._show_ready_message()
+
+    def _on_property_changed(self, device: str, prop: str, value: object) -> None:
+        if prop == "Binning" and device == self._mmc.getCameraDevice():
+            self._fov_changed()
 
     def _read_geometry(self) -> SurveyGeometry:
         points = self._corners.corners()
@@ -339,12 +409,18 @@ class AutomatedPlateCalibrationWidget(QWidget):
         if not np.isfinite(px) or px <= 0:
             raise ValueError("Set the pixel size before using automated calibration.")
         (x0, y0), (x1, y1) = points
+        # Store tiles at a well-relative resolution: enough for detection, and
+        # small enough that 4x/10x scans of large wells fit in memory.
+        well_um = max(self._plate.well_size) * 1000 if self._plate else 0
+        b = storage_binning(px, well_um)
+        h, w = self._mmc.getImageHeight(), self._mmc.getImageWidth()
         geometry = SurveyGeometry(
             (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)),
-            (self._mmc.getImageHeight(), self._mmc.getImageWidth()),
-            (px, 0, 0, px),
+            (h // b, w // b),
+            (px * b, 0, 0, px * b),
+            binning=b,
         )
-        geometry.positions()
+        geometry.grid()  # validate the corners
         return geometry
 
     def _update_controls(self) -> None:
@@ -355,7 +431,12 @@ class AutomatedPlateCalibrationWidget(QWidget):
         idle = not self.isBusy()
         self._corners.setEnabled(idle and self._tab_wdg.currentIndex() != 2)
         self._start.setEnabled(
-            idle and supported and installed and calibrated and self._scan_ready()
+            idle
+            and supported
+            and installed
+            and calibrated
+            and self._scan_ready()
+            and self._scan_fits()
         )
         self._stop.setVisible(not idle)
         self._detect.setEnabled(
@@ -410,7 +491,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
         if self.isBusy() or self._plate is None:
             return
         if not self._scan_ready():
-            self._status.setText(self._ready_message())
+            self._show_ready_message()
             return
         try:
             geometry = self._read_geometry()
@@ -432,7 +513,14 @@ class AutomatedPlateCalibrationWidget(QWidget):
             self._status.setText("Scanning… Images appear as they are acquired.")
             self._start_worker(
                 acquire_survey,
-                (self._mmc, geometry, self._cancel, progress, on_tile),
+                (
+                    self._mmc,
+                    geometry,
+                    self._cancel,
+                    progress,
+                    on_tile,
+                    self._max_bytes(),
+                ),
                 self._on_scan_complete,
             )
         except (ValueError, RuntimeError) as error:

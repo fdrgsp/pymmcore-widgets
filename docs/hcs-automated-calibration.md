@@ -58,8 +58,11 @@ Circular, elliptical, square, and rectangular wells are detected; the detector
 is chosen from the plate model, so no selector is shown. Plates with fewer than
 three wells need every well: a two-well plate is calibrated along its row or
 column, and a single round or elliptical well fixes only the A1 center (no
-rotation). Surveys
-are limited to 256 tiles and 512 MiB of raw images. No automatic XY return is
+rotation). Scan images are stored at about 2000 pixels per well diameter (camera
+pixels are averaged in blocks), so 4x and 10x scans of large wells stay
+small. The status line shows the tile count, field of view, and memory for
+the current objective, ROI, and binning. Scans are bounded by the **Memory
+limit** (same default as the Stage Explorer) and by 2500 tiles. No automatic XY return is
 performed. Survey images/settings are not stored in plan JSON.
 
 This feature has synthetic software tests and still needs representative

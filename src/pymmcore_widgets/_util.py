@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+import psutil
 from psygnal import SignalGroup, SignalInstance
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import QEvent, QMarginsF, QObject, Qt, QTimer
@@ -344,6 +345,28 @@ def disable_wheel_scroll_recursive(widget: QWidget) -> None:
 QWIDGETSIZE_MAX = (1 << 24) - 1
 
 # matches pymmcore-gui's status_green/status_red/status_yellow accents
+# Default image-memory budget: leave room for the acquisition store and the
+# rest of the application.
+MEMORY_DEFAULT_FRACTION = 0.2
+# Minimum default budget; an explicit user choice may be smaller.
+MEMORY_DEFAULT_FLOOR_GB = 0.5
+
+
+def memory_limit_defaults() -> tuple[float, float, float]:
+    """Return (min, max, default) image-memory limits in GB, bounded by RAM.
+
+    Shared by the Stage Explorer map and the automated plate-calibration scan.
+    """
+    vm = psutil.virtual_memory()
+    total_gb = round(vm.total / 1024**3, 1)
+    available_gb = vm.available / 1024**3
+    default_gb = min(
+        max(MEMORY_DEFAULT_FLOOR_GB, round(available_gb * MEMORY_DEFAULT_FRACTION, 1)),
+        total_gb,
+    )
+    return (0.1, total_gb, default_gb)
+
+
 GREEN = "#4caf50"
 RED = "#ef5350"
 YELLOW = "#ffff00"
