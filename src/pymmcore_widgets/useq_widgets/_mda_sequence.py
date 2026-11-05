@@ -605,7 +605,7 @@ class AutofocusAxis(_CheckableCard):
 
         layout = QGridLayout(self)
         layout.setHorizontalSpacing(10)
-        layout.setVerticalSpacing(0)
+        layout.setVerticalSpacing(5)
         layout.setContentsMargins(5, 5, 5, 0)
         layout.setColumnStretch(1, 1)
         for i, row_widgets in enumerate(self._rows):
