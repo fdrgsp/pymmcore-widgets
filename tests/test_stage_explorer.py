@@ -456,10 +456,13 @@ def test_stage_explorer_update_actions_enabled(qtbot: QtBot) -> None:
     explorer = StageExplorer()
     qtbot.addWidget(explorer)
     tb = explorer._toolbar
+    tb.stop_scan_action.setEnabled(False)
+    explorer._update_actions_enabled()
     assert tb.snap_action.isEnabled()
     assert tb.poll_stage_action.isEnabled()
     assert tb.scan_action.isEnabled()
     assert tb.delete_rois_action.isEnabled()
+    assert tb.stop_scan_action.isEnabled()
     for action in explorer.roi_manager.mode_actions.actions():
         assert action.isEnabled()
 
@@ -467,15 +470,18 @@ def test_stage_explorer_update_actions_enabled(qtbot: QtBot) -> None:
 def test_stage_explorer_update_actions_disabled_without_devices(
     qtbot: QtBot,
 ) -> None:
-    """Toolbar actions are all disabled when no devices are loaded."""
+    """Device-dependent actions are disabled, but Stop Scan remains available."""
     mmc = CMMCorePlus()  # empty core - only the 'Core' device
     explorer = StageExplorer(mmcore=mmc)
     qtbot.addWidget(explorer)
     tb = explorer._toolbar
+    tb.stop_scan_action.setEnabled(False)
+    explorer._update_actions_enabled()
     assert not tb.snap_action.isEnabled()
     assert not tb.poll_stage_action.isEnabled()
     assert not tb.scan_action.isEnabled()
     assert not tb.delete_rois_action.isEnabled()
+    assert tb.stop_scan_action.isEnabled()
     for action in explorer.roi_manager.mode_actions.actions():
         assert not action.isEnabled()
 

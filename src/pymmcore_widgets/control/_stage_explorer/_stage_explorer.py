@@ -558,6 +558,7 @@ class StageExplorer(QWidget):
         tb.poll_stage_action.setEnabled(has_devices)
         tb.scan_action.setEnabled(has_devices)
         tb.delete_rois_action.setEnabled(has_devices)
+        tb.stop_scan_action.setEnabled(True)
         for action in self.roi_manager.mode_actions.actions():
             action.setEnabled(has_devices)
 
