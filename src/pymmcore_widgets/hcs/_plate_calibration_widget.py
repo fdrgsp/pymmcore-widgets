@@ -20,6 +20,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 from superqt.iconify import QIconifyIcon
+from superqt.utils import signals_blocked
 
 from pymmcore_widgets._util import GREEN, SeparatorWidget
 from pymmcore_widgets.hcs._well_calibration_widget import (
@@ -28,8 +29,71 @@ from pymmcore_widgets.hcs._well_calibration_widget import (
 )
 from pymmcore_widgets.useq_widgets._well_plate_widget import WellPlateView
 
+from ._plate_calibration import (
+    fit_collinear_calibration,
+    fit_plate_calibration,
+    validated_calibration_plan,
+)
+from ._plate_calibration import well_coords_affine as well_coords_affine
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+
+class CalibrationInfo(QWidget):
+    """Icon and message shown below a plate calibration view."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._icon = QLabel()
+        self._label = QLabel()
+        self._label.setWordWrap(True)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._icon, 0)
+        layout.addWidget(self._label, 1)
+
+    def text(self) -> str:
+        return str(self._label.text())
+
+    def setText(self, text: str, *, warning: bool = False) -> None:
+        """Show a message with an information (or warning) icon."""
+        pix = QStyle.StandardPixmap
+        icon = pix.SP_MessageBoxWarning if warning else pix.SP_MessageBoxInformation
+        self._icon.setPixmap(self.style().standardIcon(icon).pixmap(42))
+        self._label.setText(text)
+
+    def setCalibration(
+        self,
+        plate: useq.WellPlate | None,
+        a1_center_xy: tuple[float, float],
+        well_spacing: tuple[float, float],
+        rotation: float,
+        note: str = "",
+    ) -> None:
+        """Summarize a calibration, warning if spacing differs >5% from the plate."""
+        txt = "<strong>Plate calibrated.</strong>"
+        ico = QIconifyIcon(CALIBRATED_ICON, color=GREEN)
+        if plate is not None:
+            plate_sp = plate.well_spacing[0]
+            # if spacing is more than 5% different from the plate spacing...
+            if plate_sp > 0 and abs(well_spacing[0] - plate_sp) > 0.05 * plate_sp:
+                txt += (
+                    "<font color='red'>   Expected well spacing of "
+                    f"{plate_sp:.2f} mm, "
+                    f"calibrated at {well_spacing[0]:.2f}</font>"
+                )
+                ico = self.style().standardIcon(
+                    QStyle.StandardPixmap.SP_MessageBoxWarning
+                )
+        x0, y0 = a1_center_xy
+        txt += f"<br>A1 Center [mm]: ({x0 / 1000:.2f}, {y0 / 1000:.2f}),   "
+        txt += f"Well Spacing [mm]: ({well_spacing[0]:.2f}, {well_spacing[1]:.2f}),   "
+        txt += f"Rotation: {rotation}°"
+        if note:
+            txt += f"<br>{note}"
+        self._icon.setPixmap(ico.pixmap(42))
+        self._label.setText(txt)
 
 
 class PlateCalibrationWidget(QWidget):
@@ -89,8 +153,7 @@ class PlateCalibrationWidget(QWidget):
         self._calibration_widgets: dict[tuple[int, int], WellCalibrationWidget] = {}
         self._calibration_widget_stack = QStackedWidget()
 
-        self._info = QLabel("Please calibrate at least three wells.")
-        self._info_icon = QLabel()
+        self._info = CalibrationInfo()
         self._update_info()
 
         # LAYOUT -------------------------------------------------------------
@@ -107,13 +170,9 @@ class PlateCalibrationWidget(QWidget):
         top.addWidget(right_wdg, 0)
         top.addWidget(self._tab_wdg, 1)
 
-        info_layout = QHBoxLayout()
-        info_layout.addWidget(self._info_icon, 0)
-        info_layout.addWidget(self._info, 1)
-
         main = QVBoxLayout(self)
         main.addLayout(top)
-        main.addLayout(info_layout)
+        main.addWidget(self._info)
 
         # CONNECTIONS ---------------------------------------------------------
 
@@ -155,6 +214,12 @@ class PlateCalibrationWidget(QWidget):
         elif isinstance(plate_or_plan, useq.WellPlate):
             plate = plate_or_plan
 
+        self._calibrated_wells.clear()
+        if not calibrated:
+            self._a1_center_xy = (0.0, 0.0)
+            self._rotation = None
+            self._well_spacing = None
+            self._tab_wdg.setCurrentIndex(0)
         self._current_plate = plate
         self._plate_view.drawPlate(plate)
 
@@ -191,6 +256,28 @@ class PlateCalibrationWidget(QWidget):
             a1_center_xy=self._a1_center_xy,
             rotation=self._rotation,
         )
+
+    def setCalibratedWellCenters(
+        self,
+        centers: Mapping[tuple[int, int], tuple[float, float]],
+        *,
+        max_error_um: float = 100,
+    ) -> None:
+        """Atomically apply validated indexed centers and populate manual controls."""
+        if self._current_plate is None:
+            raise ValueError("No plate set.")
+        plan, _ = validated_calibration_plan(self._current_plate, centers, max_error_um)
+        # Validate before replacing a previous, usable calibration.
+        with signals_blocked(self):
+            self.setValue(plan)
+            self._calibrated_wells = dict(centers)
+            for idx, center in centers.items():
+                wdg = self._get_or_create_well_calibration_widget(idx)
+                with signals_blocked(wdg):
+                    wdg.setCenterPoint(center)
+                self._plate_view.setWellColor(*idx, QColor(GREEN))
+            self._on_plate_selection_changed()
+        self.calibrationChanged.emit(True)
 
     # ---------------------------PRIVATE API----------------------------------
 
@@ -250,7 +337,9 @@ class PlateCalibrationWidget(QWidget):
         """Hide or show the well calibration widget based on the selected tab."""
         if well_wdg := self._current_calibration_widget():
             well_wdg.setEnabled(idx == 0)  # enable when calibrate tab is selected
-        self._test_well_btn.setEnabled(idx == 0)
+        self._test_well_btn.setEnabled(
+            idx == 0 and self._selected_well_index() in self._calibrated_wells
+        )
 
     def _origin_spacing_rotation(
         self,
@@ -291,86 +380,21 @@ class PlateCalibrationWidget(QWidget):
             # Collinear: 2+ wells all in one row or one column
             return self._fit_collinear(len(rows_set) == 1)
 
-        # Non-collinear: 3+ wells, use full affine transformation
+        # Non-collinear centers share the automated calibration calculation.
         try:
-            params = well_coords_affine(self._calibrated_wells)
+            return fit_plate_calibration(self._calibrated_wells)
         except ValueError:
-            return None  # collinear points (e.g. diagonal)
-
-        a, b, ty, c, d, tx = params
-        unit_y = np.hypot(a, c) / 1000  # convert to mm
-        unit_x = np.hypot(b, d) / 1000  # convert to mm
-        rotation = round(np.rad2deg(np.arctan2(-c, a)), 2)
-
-        return (round(tx, 4), round(ty, 4)), (unit_x, unit_y), rotation
+            return None
 
     def _fit_collinear(
         self, is_single_row: bool
     ) -> tuple[tuple[float, float], tuple[float, float], float] | None:
-        """Fit calibration parameters when all calibrated wells are collinear.
-
-        Uses a reduced linear model (4 parameters) for the varying axis, and derives
-        the missing axis parameters from the plate spec assuming a rigid plate
-        (orthogonal axes).
-
-        Parameters
-        ----------
-        is_single_row : bool
-            True if all calibrated wells share the same row (varying column),
-            False if they share the same column (varying row).
-        """
-        plate = self._current_plate
-        if plate is None:  # pragma: no cover
+        """Fit a row/column using the shared nominal-perpendicular-spacing model."""
+        if self._current_plate is None:
             return None
-
-        indices = list(self._calibrated_wells.keys())
-        centers = np.array(list(self._calibrated_wells.values()))
-
-        # Build the varying-axis indices and identify the fixed-axis index
-        if is_single_row:  # varying column, fixed row
-            varying = np.array([c for _, c in indices], dtype=float)
-            fixed_idx = indices[0][0]
-            other_spacing = plate.well_spacing[1]
-        else:  # varying row, fixed column
-            varying = np.array([-r for r, _ in indices], dtype=float)
-            fixed_idx = indices[0][1]
-            other_spacing = plate.well_spacing[0]
-
-        # Fit linear model: x = slope_x * v + tx,  y = slope_y * v + ty
-        design = np.column_stack([varying, np.ones(len(varying))])
-        coefficients, *_ = np.linalg.lstsq(design, centers, rcond=None)
-        (slope_x, slope_y), (tx, ty) = coefficients
-
-        # Measured spacing along the varying axis
-        measured_spacing = np.hypot(slope_y, slope_x) / 1000  # mm
-        if measured_spacing < 1e-6:
-            return None  # wells are coincident
-
-        # Compute rotation and assign spacings per axis
-        if is_single_row:
-            # Column axis direction is (slope_x, slope_y) in world (x, y)
-            rot_rad = np.arctan2(slope_y, slope_x)
-            unit_x, unit_y = measured_spacing, max(other_spacing, 0.0)
-
-            # Extrapolate A1 center to row=0
-            if fixed_idx != 0:
-                other_um = other_spacing * 1000
-                ty += other_um * np.cos(rot_rad) * fixed_idx
-                tx -= other_um * np.sin(rot_rad) * fixed_idx
-        else:
-            # Row axis direction is (slope_x, slope_y) in world (x, y)
-            rot_rad = np.arctan2(-slope_x, slope_y)
-            unit_x, unit_y = max(other_spacing, 0.0), measured_spacing
-
-            # Extrapolate A1 center to col=0
-            if fixed_idx != 0:
-                other_um = other_spacing * 1000
-                tx -= other_um * np.cos(rot_rad) * fixed_idx
-                ty -= other_um * np.sin(rot_rad) * fixed_idx
-
-        rotation = round(float(np.rad2deg(rot_rad)), 2)
-
-        return (round(float(tx), 4), round(float(ty), 4)), (unit_x, unit_y), rotation
+        return fit_collinear_calibration(
+            self._current_plate, self._calibrated_wells, is_single_row
+        )
 
     def _get_or_create_well_calibration_widget(
         self, idx: tuple[int, int]
@@ -439,70 +463,23 @@ class PlateCalibrationWidget(QWidget):
         self.calibrationChanged.emit(fully_calibrated)
 
     def _update_info(self) -> None:
-        style = self.style()
         if self._rotation is not None:
-            spacing = self._well_spacing or (0, 0)
-            txt = "<strong>Plate calibrated.</strong>"
-            ico = QIconifyIcon(CALIBRATED_ICON, color=GREEN)
-            if self._current_plate is not None:
-                plate_sp = self._current_plate.well_spacing[0]
-                spacing_diff = abs(spacing[0] - plate_sp)
-                # if spacing is more than 5% different from the plate spacing...
-                if plate_sp > 0 and spacing_diff > 0.05 * plate_sp:
-                    txt += (
-                        "<font color='red'>   Expected well spacing of "
-                        f"{plate_sp:.2f} mm, "
-                        f"calibrated at {spacing[0]:.2f}</font>"
-                    )
-                    ico = style.standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
-            txt += "<br>"
-            x0, y0 = self._a1_center_xy
-            txt += f"\nA1 Center [mm]: ({x0 / 1000:.2f}, {y0 / 1000:.2f}),   "
-            txt += f"Well Spacing [mm]: ({spacing[0]:.2f}, {spacing[1]:.2f}),   "
-            txt += f"Rotation: {self._rotation}°"
+            self._info.setCalibration(
+                self._current_plate,
+                self._a1_center_xy,
+                self._well_spacing or (0, 0),
+                self._rotation,
+            )
         elif len(self._calibrated_wells) < self._min_wells_required:
-            txt = f"Please calibrate at least {self._min_wells_required} wells."
-            ico = style.standardIcon(QStyle.StandardPixmap.SP_MessageBoxInformation)
+            self._info.setText(
+                f"Please calibrate at least {self._min_wells_required} wells."
+            )
         else:
-            txt = "Could not calibrate. Ensure points are not collinear."
-            ico = style.standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
-        self._info_icon.setPixmap(ico.pixmap(42))
-        self._info.setText(txt)
+            self._info.setText(
+                "Could not calibrate. Ensure points are not collinear.", warning=True
+            )
 
     def _selected_well_index(self) -> tuple[int, int] | None:
         if selected := self._plate_view.selectedIndices():
             return selected[0]
         return None
-
-
-def well_coords_affine(
-    index_coordinates: Mapping[tuple[int, int], tuple[float, float]],
-) -> tuple[float, float, float, float, float, float]:
-    """Return best-fit transformation that maps well plate indices to world coordinates.
-
-    Parameters
-    ----------
-    index_coordinates : Mapping[tuple[int, int], tuple[float, float]]
-        A mapping of grid indices to world coordinates.
-
-    Returns
-    -------
-    np.ndarray: The affine transformation matrix of shape (3, 3).
-    """
-    A: list[list[int]] = []
-    B: list[float] = []
-    for (row, col), (x, y) in index_coordinates.items():
-        # well plate indices go up in row as we go down in y
-        # so we have to negate the row to get the correct transformation
-        A.append([-row, col, 1, 0, 0, 0])
-        A.append([0, 0, 0, -row, col, 1])
-        # row corresponds to y, col corresponds to x
-        B.extend((y, x))
-
-    # Solve the least squares problem to find the affine transformation parameters
-    params, _, rank, _ = np.linalg.lstsq(np.array(A), np.array(B), rcond=None)
-
-    if rank != 6:
-        raise ValueError("Underdetermined system of equations. Are points collinear?")
-
-    return tuple(params)

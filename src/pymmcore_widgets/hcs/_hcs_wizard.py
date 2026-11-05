@@ -7,12 +7,21 @@ from pathlib import Path
 import useq
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import QSize, Slot
-from qtpy.QtWidgets import QFileDialog, QVBoxLayout, QWidget, QWizard, QWizardPage
+from qtpy.QtWidgets import (
+    QFileDialog,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+    QWizard,
+    QWizardPage,
+)
 from superqt.iconify import QIconifyIcon
 from useq import WellPlatePlan
 
 from pymmcore_widgets.useq_widgets import PointsPlanWidget, WellPlateWidget
 
+from ._automated_plate_calibration_widget import AutomatedPlateCalibrationWidget
+from ._plate_calibration import supports_automated_calibration
 from ._plate_calibration_widget import PlateCalibrationWidget
 
 
@@ -37,6 +46,7 @@ class HCSWizard(QWizard):
         super().__init__(parent)
         self._mmc = mmcore or CMMCorePlus.instance()
         self._calibrated: bool = False
+        self._pending_done: int | None = None
 
         self.setWizardStyle(QWizard.WizardStyle.ModernStyle)
         self.setWindowTitle("HCS Wizard")
@@ -74,9 +84,33 @@ class HCSWizard(QWizard):
         self.calibration_page.widget.calibrationChanged.connect(
             self._on_calibration_changed
         )
+        self.calibration_page.automated.busyChanged.connect(self._on_survey_busy)
 
     def sizeHint(self) -> QSize:
         return QSize(880, 690)
+
+    def done(self, result: int) -> None:
+        """Wait for a cancelled survey to release hardware before closing."""
+        if self.calibration_page.automated.isBusy():
+            self._pending_done = result
+            self.calibration_page.automated.cancel()
+            return
+        super().done(result)
+
+    def _on_survey_busy(self, busy: bool) -> None:
+        self.plate_page.setEnabled(not busy)
+        self.calibration_page.widget.setEnabled(not busy)
+        for button in (
+            QWizard.WizardButton.BackButton,
+            QWizard.WizardButton.CustomButton1,
+            QWizard.WizardButton.CustomButton2,
+        ):
+            self.button(button).setEnabled(not busy)
+        if not busy:
+            self._on_calibration_changed(self._calibrated)
+            if self._pending_done is not None:
+                result, self._pending_done = self._pending_done, None
+                self.done(result)
 
     def value(self) -> useq.WellPlatePlan | None:
         """Return the current well plate plan, or None if the plan is uncalibrated."""
@@ -184,7 +218,9 @@ class HCSWizard(QWizard):
     @Slot(bool)
     def _on_calibration_changed(self, calibrated: bool) -> None:
         self._calibrated = calibrated
-        self.button(QWizard.WizardButton.CustomButton1).setEnabled(calibrated)
+        self.button(QWizard.WizardButton.CustomButton1).setEnabled(
+            calibrated and not self.calibration_page.automated.isBusy()
+        )
 
 
 # ---------------------------------- PAGES ---------------------------------------
@@ -210,17 +246,39 @@ class _PlateCalibrationPage(QWizardPage):
 
         self._is_complete = False
         self.widget = PlateCalibrationWidget(mmcore=mmcore)
+        self.automated = AutomatedPlateCalibrationWidget(mmcore, self)
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self.widget, "Manual")
+        self.tabs.addTab(self.automated, "Automated")
+        self.automated.testPositionRequested.connect(self.widget._move_to_xy_position)
+        self.automated.centersAccepted.connect(self._apply_automated_centers)
+        self.automated.busyChanged.connect(self._on_busy_changed)
         self.widget.calibrationChanged.connect(self._on_calibration_changed)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.widget)
+        layout.addWidget(self.tabs)
 
     def isComplete(self) -> bool:
-        return self._is_complete
+        return self._is_complete and not self.automated.isBusy()
+
+    def _apply_automated_centers(
+        self, centers: dict[tuple[int, int], tuple[float, float]], tolerance: float
+    ) -> None:
+        self.widget.setCalibratedWellCenters(centers, max_error_um=tolerance)
+
+    def _on_busy_changed(self, busy: bool) -> None:
+        self.completeChanged.emit()
 
     @Slot(bool)
     def _on_calibration_changed(self, calibrated: bool) -> None:
         self._is_complete = calibrated
+        if plan := self.widget.value():
+            show_automated = supports_automated_calibration(plan.plate)
+            if not show_automated:
+                self.tabs.setCurrentIndex(0)
+            self.tabs.setTabVisible(1, show_automated)
+            self.automated.setPlate(plan.plate)
+            self.automated.setCalibration(plan if calibrated else None)
         self.completeChanged.emit()
 
 

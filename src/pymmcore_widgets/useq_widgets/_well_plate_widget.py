@@ -559,10 +559,18 @@ class WellPlateView(ResizingGraphicsView):
         well_height = plate.well_size[1] * 1000
 
         # calculate radius for the _PresetPositionItem based on well spacing and size
-        half_sx = plate.well_spacing[0] * 1000 / 2
-        half_sy = plate.well_spacing[1] * 1000 / 2
-        width, height = half_sx - well_width / 2, half_sy - well_height / 2
-        width = min(width, height)
+        # A strip can have zero spacing on its unused axis. Only real neighboring
+        # wells limit the marker size; otherwise the test spots can have negative
+        # dimensions and become impossible to click.
+        gaps = []
+        if plate.columns > 1:
+            gaps.append((plate.well_spacing[0] * 1000 - well_width) / 2)
+        if plate.rows > 1:
+            gaps.append((plate.well_spacing[1] * 1000 - well_height) / 2)
+        fallback = min(well_width, well_height) / 10
+        width = min(gaps, default=fallback)
+        if width <= 0:
+            width = fallback
 
         # central point
         cx, cy = rect.center().x(), rect.center().y()

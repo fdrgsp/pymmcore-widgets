@@ -61,6 +61,10 @@ dependencies = [
 [project.optional-dependencies]
 PySide6 = ["PySide6 >=6.9.0"]
 PyQt6 = ["PyQt6 >=6.4.2"]
+hcs-auto = [
+    "scikit-image>=0.25",
+    "scipy>=1.11",
+]
 
 [project.urls]
 Homepage = "https://github.com/pymmcore-plus/pymmcore-widgets"
@@ -166,6 +170,15 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = ["vispy.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["scipy.*", "skimage.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["pymmcore_widgets.hcs._well_detection"]
+# The optional image-processing APIs do not yet expose complete type annotations.
+disallow_untyped_calls = false
 
 
 # https://coverage.readthedocs.io/en/6.4/config.html

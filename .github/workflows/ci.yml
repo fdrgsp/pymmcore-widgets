@@ -59,7 +59,7 @@ jobs:
       - uses: pyvista/setup-headless-display-action@v4
 
       - name: Install dependencies
-        run: uv sync --no-dev --group test --extra ${{ matrix.backend }}
+        run: uv sync --no-dev --group test --extra ${{ matrix.backend }} --extra hcs-auto
 
       - if: matrix.nano == 'true'
         name: Install pymmcore-nano

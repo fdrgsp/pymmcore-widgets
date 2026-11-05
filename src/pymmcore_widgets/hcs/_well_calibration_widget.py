@@ -9,9 +9,11 @@ from qtpy.QtGui import QIcon
 from qtpy.QtWidgets import (
     QComboBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -20,7 +22,7 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
-from pymmcore_widgets._util import GREEN, YELLOW, use_combo_row_height
+from pymmcore_widgets._util import GREEN, YELLOW
 
 from ._util import find_circle_center, find_rectangle_center
 
@@ -105,7 +107,12 @@ class _CalibrationTable(QTableWidget):
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        use_combo_row_height(self)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.verticalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.verticalHeader().sectionResized.connect(self.updateGeometry)
+        self.horizontalHeader().geometriesChanged.connect(self.updateGeometry)
 
         hdr = self.horizontalHeader()
         hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -113,6 +120,20 @@ class _CalibrationTable(QTableWidget):
 
         self.setHorizontalHeaderLabels(["X [µm]", "Y [µm]"])
         self.selectionModel().selectionChanged.connect(self._on_selection_changed)
+
+    def sizeHint(self) -> QSize:
+        size = super().sizeHint()
+        size.setHeight(
+            self.horizontalHeader().sizeHint().height()
+            + self.verticalHeader().length()
+            + 2 * self.frameWidth()
+        )
+        return size
+
+    def minimumSizeHint(self) -> QSize:
+        size = super().minimumSizeHint()
+        size.setHeight(self.sizeHint().height())
+        return size
 
     def _on_selection_changed(
         self, selected: QItemSelection, deselected: QItemSelection
@@ -179,9 +200,11 @@ class _CalibrationTable(QTableWidget):
         with signals_blocked(self):
             self.clearContents()
             self.setRowCount(num)
+            self.resizeRowsToContents()
             # select the first row
             self.setCurrentCell(0, 0)
         self.itemChanged.emit(self.item(0, 0))
+        self.updateGeometry()
 
 
 class WellCalibrationWidget(QWidget):
@@ -211,6 +234,17 @@ class WellCalibrationWidget(QWidget):
 
         # calibration mode
         self._calibration_mode_wdg = _CalibrationModeWidget(self)
+        self._instruction = QLabel(
+            "First, select the well on the plate diagram and choose a method. "
+            "Then move the stage to the <b>well's center</b>, <b>edge points</b>, or "
+            "<b>opposite corners</b>, as required by that method, "
+            "and click <b>Set</b> to record each point."
+        )
+        self._instruction.setWordWrap(True)
+        self._instruction.setAlignment(Qt.AlignmentFlag.AlignJustify)
+        instruction_policy = self._instruction.sizePolicy()
+        instruction_policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+        self._instruction.setSizePolicy(instruction_policy)
 
         # calibration table and buttons
         self._table = _CalibrationTable(self)
@@ -239,6 +273,7 @@ class WellCalibrationWidget(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(5)
         main_layout.addLayout(labels)
+        main_layout.addWidget(self._instruction)
         main_layout.addLayout(mode_row)
         main_layout.addWidget(self._table)
         main_layout.addWidget(self._set_button)
@@ -268,6 +303,13 @@ class WellCalibrationWidget(QWidget):
             icn = QIconifyIcon(CALIBRATED_ICON, color=GREEN)
         self._calibration_icon.setPixmap(icn.pixmap(ICON_SIZE))
         self.calibrationChanged.emit(center is not None)
+
+    def setCenterPoint(self, center: tuple[float, float]) -> None:
+        """Populate the direct-center mode from a measured well center."""
+        self._calibration_mode_wdg.setCurrentIndex(0)
+        self._table.resetRowCount(1)
+        self._table._set_row(0, *center)
+        self.setWellCenter(center)
 
     def setCircularWell(self, circular: bool) -> None:
         """Update the calibration widget for circular or rectangular wells."""

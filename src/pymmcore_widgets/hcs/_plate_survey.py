@@ -1,0 +1,180 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+import numpy as np
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from threading import Event
+
+    from pymmcore_plus import CMMCorePlus
+
+
+@dataclass(frozen=True)
+class SurveyGeometry:
+    """Immutable physical survey bounds and verified raw-pixel-to-stage mapping."""
+
+    bounds: tuple[float, float, float, float]
+    shape: tuple[int, int]
+    pixel_to_stage: tuple[float, float, float, float]
+    overlap: float = 0.2
+
+    def matrix(self) -> np.ndarray:
+        """Return the linear map from raw (column, row) pixels to stage µm."""
+        matrix = np.asarray(self.pixel_to_stage).reshape(2, 2)
+        if not np.isfinite(matrix).all() or abs(np.linalg.det(matrix)) < 1e-12:
+            raise ValueError("A valid camera-to-stage affine calibration is required.")
+        return matrix
+
+    def positions(self) -> list[tuple[float, float]]:
+        """Cover the stage rectangle with overlapping, possibly rotated frames."""
+        x0, y0, x1, y1 = self.bounds
+        if not np.isfinite(self.bounds).all() or x1 <= x0 or y1 <= y0:
+            raise ValueError("Record two different opposing scan corners.")
+        h, w = self.shape
+        if min(h, w) <= 0 or not 0 <= self.overlap < 1:
+            raise ValueError("Invalid image size or overlap.")
+        matrix = self.matrix()
+        center = np.array([(x0 + x1) / 2, (y0 + y1) / 2])
+        corners = np.array([(x0, y0), (x0, y1), (x1, y0), (x1, y1)])
+        uv = (corners - center) @ np.linalg.inv(matrix).T
+        span = np.ptp(uv, axis=0)
+        steps = np.array([w, h]) * (1 - self.overlap)
+        counts = np.maximum(1, np.ceil(np.maximum(0, span - [w, h]) / steps) + 1)
+        nx, ny = (int(x) for x in counts)
+        if nx * ny > 256:
+            raise ValueError(
+                "Survey exceeds 256 tiles. Reduce the area or magnification."
+            )
+        result = []
+        for row in range(ny):
+            for col in range(nx) if row % 2 == 0 else reversed(range(nx)):
+                offset = (
+                    (col - (nx - 1) / 2) * steps[0],
+                    (row - (ny - 1) / 2) * steps[1],
+                )
+                x, y = center + matrix @ offset
+                result.append((float(x), float(y)))
+        return result
+
+
+@dataclass(frozen=True)
+class SurveyTile:
+    """An owned raw frame and its settled stage position."""
+
+    image: np.ndarray
+    xy: tuple[float, float]
+
+
+def acquire_survey(
+    core: CMMCorePlus,
+    geometry: SurveyGeometry,
+    cancel: Event,
+    progress: Callable[[int, int], None],
+    on_tile: Callable[[SurveyTile], None] | None = None,
+) -> tuple[SurveyTile, ...]:
+    """Acquire at current brightfield settings, without changing objective or Z."""
+    if core.mda.is_running() or core.isSequenceRunning():
+        raise ValueError("Stop live view or the running acquisition before surveying.")
+    positions = geometry.positions()
+    byte_limit = 512 * 1024**2
+    if len(positions) * np.prod(geometry.shape) * core.getBytesPerPixel() > byte_limit:
+        raise ValueError("Survey exceeds 512 MiB. Use binning or a smaller scan area.")
+
+    def camera_state() -> tuple:
+        return (
+            core.getCameraDevice(),
+            core.getCurrentPixelSizeConfig(),
+            core.getROI(),
+            core.getPixelSizeUm(),
+            core.getExposure(),
+            core.getPosition() if core.getFocusDevice() else None,
+        )
+
+    initial = camera_state()
+    shutter = core.getShutterDevice()
+    was_open = core.getShutterOpen() if shutter else False
+    tiles = []
+    used_bytes = 0
+    try:
+        for index, xy in enumerate(positions):
+            if cancel.is_set():
+                raise InterruptedError(
+                    "Survey cancelled; previous calibration retained."
+                )
+            current = camera_state()
+            if current != initial or core.mda.is_running() or core.isSequenceRunning():
+                raise ValueError(
+                    "Camera settings changed or another acquisition started."
+                )
+            core.setXYPosition(*xy)
+            core.waitForSystem()
+            x, y = core.getXYPosition()
+            image = np.array(core.snap(), copy=True)
+            if camera_state() != initial:
+                raise ValueError("Microscope settings changed during exposure.")
+            if not np.allclose(core.getXYPosition(), (x, y), rtol=0, atol=1):
+                raise ValueError("The stage moved during exposure. Repeat the survey.")
+            if image.ndim != 2 or image.shape != geometry.shape:
+                raise ValueError(
+                    "Use a monochrome camera with unchanged frame dimensions."
+                )
+            used_bytes += image.nbytes
+            if used_bytes > byte_limit:
+                raise ValueError("Survey exceeded its 512 MiB image buffer.")
+            tile = SurveyTile(image, (x, y))
+            tiles.append(tile)
+            if on_tile is not None:
+                on_tile(tile)
+            progress(index + 1, len(positions))
+    finally:
+        # Preserve manually opened shutters too, including on snap failure.
+        if shutter:
+            core.setShutterOpen(shutter, was_open)
+    if cancel.is_set():
+        raise InterruptedError("Survey cancelled; previous calibration retained.")
+    return tuple(tiles)
+
+
+def survey_mosaic(
+    tiles: tuple[SurveyTile, ...], geometry: SurveyGeometry, diameter_um: float
+) -> tuple[np.ndarray, np.ndarray, tuple[float, float], float]:
+    """Create a bounded stage-registered overview and explicit valid-data mask."""
+    from scipy.ndimage import map_coordinates
+
+    x0, y0, x1, y1 = geometry.bounds
+    pixel_um = max(np.linalg.svd(geometry.matrix(), compute_uv=False))
+    scale = max(pixel_um, diameter_um / 200, (x1 - x0) / 1024, (y1 - y0) / 1024)
+    shape = (int(np.ceil((y1 - y0) / scale)) + 1, int(np.ceil((x1 - x0) / scale)) + 1)
+    image = np.zeros(shape, dtype=np.float32)
+    weights = np.zeros(shape, dtype=np.uint16)
+    inverse = np.linalg.inv(geometry.matrix())
+    h, w = geometry.shape
+    for tile in tiles:
+        footprint = np.array(
+            [(-w / 2, -h / 2), (-w / 2, h / 2), (w / 2, -h / 2), (w / 2, h / 2)]
+        )
+        corners = footprint @ geometry.matrix().T + tile.xy
+        lo = np.maximum(0, np.floor((corners.min(axis=0) - [x0, y0]) / scale)).astype(
+            int
+        )
+        hi = np.minimum(
+            shape[::-1], np.ceil((corners.max(axis=0) - [x0, y0]) / scale) + 1
+        ).astype(int)
+        xx, yy = np.meshgrid(np.arange(lo[0], hi[0]), np.arange(lo[1], hi[1]))
+        stage = np.stack([xx * scale + x0 - tile.xy[0], yy * scale + y0 - tile.xy[1]])
+        uv = (
+            np.einsum("ij,jkl->ikl", inverse, stage)
+            + np.array([w / 2, h / 2])[:, None, None]
+        )
+        valid = (uv[0] >= 0) & (uv[0] < w - 1) & (uv[1] >= 0) & (uv[1] < h - 1)
+        data = map_coordinates(
+            tile.image.astype(np.float32), uv[::-1], order=1, mode="nearest"
+        )
+        slc = np.s_[lo[1] : hi[1], lo[0] : hi[0]]
+        image[slc] += data * valid
+        weights[slc] += valid
+    np.divide(image, weights, out=image, where=weights > 0)
+    return image, weights > 0, (x0, y0), float(scale)

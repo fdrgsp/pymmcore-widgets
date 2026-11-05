@@ -1,6 +1,7 @@
 # HCS automated plate calibration: research and implementation plan
 
-Status: proposal; no feature code implemented. Updated: 2026-11-05.
+Status: experimental first implementation; hardware/data validation pending.
+Updated: 2026-11-05. See section 11 for the implementation checkpoint.
 
 ## 1. Intended behavior and recommendation
 
@@ -512,3 +513,59 @@ useq plan, not a duplicate of the solver's formula.
 The first deliverable is a reproducible comparison on representative images and
 a validated coordinate mapping. The UI and detector implementation should follow
 that evidence while retaining Manual as the existing calibration method.
+
+## 11. Current implementation checkpoint
+
+The initial experimental workflow has been simplified following UI review:
+
+- Manual and Automated have matching left/right layouts. Automated reuses the
+  manual point editor, fixed to two opposing corners, its square-corner icon,
+  Set/Clear controls, and green completion tick. Start Scan sits below it.
+- Automated has Select Wells, Calibrate Plate, and Test Calibration tabs. The
+  first tab uses the manual plate drawing with multiple selection. Start Scan
+  and Calibrate Plate enable after a valid selection and both corners. A 2 x 2
+  block is recommended; 3+ wells in a single row/column and other non-collinear
+  groups are supported. This includes single-row/column strips. Start Scan
+  switches to Calibrate Plate.
+- The image canvas reuses the Stage Explorer VisPy viewer and displays each tile
+  during acquisition. Rims, centers, and labels use a separate toggleable layer.
+- Detection runs only when the user clicks Detect Wells after setting parameters
+  with the gear dialog. It never starts automatically after a scan. Repeating
+  detection uses retained raw tiles without reacquisition. There is one detector,
+  so no method selector. Settings use label-and-spin rows with fixed label widths
+  based on the longest label; spin boxes align across all rows.
+- The preselected wells provide identity. The detected count and measured lattice
+  must match that selection before applying a calibration. There is no Identify
+  Wells button/dialog and no rotation input. Normal holder orientation is assumed
+  and rotation is measured from the centers. Selection changes retain scan images
+  but discard detection drafts, allowing detection against a corrected selection.
+- Apply Calibration feeds the reviewed centers into the shared solver. Test
+  Calibration follows the same applied plan as Manual, including loaded plans.
+- A row/column uses the existing manual collinear solver, now shared as a pure
+  function. It measures position and rotation along the line and assumes nominal
+  perpendicular spacing and orthogonal axes. Strips can have zero spacing on the
+  unused axis. Test-view markers ignore that unused spacing when sizing spots.
+- A configured pixel size is the imaging-geometry prerequisite. The widget uses
+  it directly for scan spacing and stage placement of raw image pixels; the
+  previous affine-calibration prerequisite and geometry confirmation boxes are
+  removed. No pixel-size calibration routine is introduced here.
+
+Install optional processing dependencies with `uv sync --extra hcs-auto`.
+Manual and loaded plan testing remain available without this extra. The user
+sets the objective, brightfield exposure/illumination, and rim focus outside the
+wizard. Surveys are bounded to 256 tiles and 512 MiB of raw images, with no
+automatic XY return. Raw images/settings are not persisted in plan JSON.
+
+Software tests cover tiled rims, shared calibration, two-corner completion and
+pixel-size gating, streamed tiles, manual detection, detection-only reruns,
+overlay visibility, settings, shared calibration testing, stale results, and
+cancellation. These establish software behavior, not microscope accuracy. There
+are no real plate benchmarks yet, so the workflow remains experimental.
+
+Remaining research/production work includes the threshold/contour comparison,
+representative brightfield datasets, objective transfer and plate-wide accuracy,
+constrained seam registration if needed, evidence export, and other plate shapes.
+The current tolerance applies to measured calibration wells; it is not an
+independent guarantee for distant wells. Earlier research sections describe the
+broader design considerations; this checkpoint records the current UI and the
+user's pixel-size-only prerequisite.
