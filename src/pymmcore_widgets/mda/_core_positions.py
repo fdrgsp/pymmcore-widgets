@@ -23,6 +23,7 @@ from superqt.utils import signals_blocked
 from useq import WellPlatePlan
 
 from pymmcore_widgets import HCSWizard
+from pymmcore_widgets._busy import BusyOverlay, busy
 from pymmcore_widgets.useq_widgets import PositionTable
 from pymmcore_widgets.useq_widgets._column_info import (
     ButtonColumn,
@@ -67,6 +68,7 @@ class CoreConnectedPositionTable(PositionTable):
         )
         super().__init__(rows, parent)
         self._mmc = mmcore or CMMCorePlus.instance()
+        self._import_overlay = BusyOverlay(self)
 
         # add event filter for the af_per_position checkbox
         self.af_per_position.installEventFilter(self)
@@ -224,7 +226,8 @@ class CoreConnectedPositionTable(PositionTable):
 
     def _update_table_positions(self, plan: WellPlatePlan) -> None:
         """Update the table with the positions from the HCS wizard."""
-        self.setValue(plan)
+        with busy(self._import_overlay, "Creating position list…"):
+            self.setValue(plan)
 
     def _rename_hcs_position_button(self, text: str) -> None:
         if wiz := self._hcs_wizard:
