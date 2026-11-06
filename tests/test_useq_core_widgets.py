@@ -1267,6 +1267,99 @@ def test_relative_z_with_no_include_z(global_mmcore: CMMCorePlus, qtbot: QtBot):
     assert wdg.value().stage_positions[1].z == 30
 
 
+def _plate_sequence(**kwargs: object) -> useq.MDASequence:
+    plate = useq.WellPlatePlan(
+        plate=96, a1_center_xy=(0, 0), selected_wells=([0], [0, 1])
+    )
+    return useq.MDASequence(
+        channels=[{"config": "DAPI", "exposure": 1}], stage_positions=plate, **kwargs
+    )
+
+
+@pytest.mark.parametrize("include_z", [True, False])
+def test_plate_relative_z_anchored_at_run(
+    global_mmcore: CMMCorePlus, qtbot: QtBot, include_z: bool
+) -> None:
+    """A relative z plan of a plate plan is centered on the current z when run.
+
+    The plate plan itself is kept (in value() and in the run sequence), and its
+    positions have no z, so they never move the focus stage to z=0.
+    """
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    wdg.setValue(_plate_sequence(z_plan=useq.ZRangeAround(range=2.0, step=1.0)))
+    wdg.stage_positions.include_z.setChecked(include_z)
+    global_mmcore.setZPosition(30)
+    global_mmcore.waitForSystem()
+
+    # value() (e.g. Save MDA Settings) keeps the plate plan and the relative z plan
+    value = wdg.value()
+    assert isinstance(value.stage_positions, useq.WellPlatePlan)
+    assert isinstance(value.z_plan, useq.ZRangeAround)
+
+    with patch.object(global_mmcore, "run_mda") as run_mda:
+        wdg.execute_mda(None)
+    seq = run_mda.call_args.args[0]
+    assert isinstance(seq.stage_positions, useq.WellPlatePlan)
+    assert isinstance(seq.z_plan, useq.ZTopBottom)
+    assert {p.z for p in seq.stage_positions} == {None}
+    assert sorted({e.z_pos for e in seq}) == [29, 30, 31]
+
+
+def test_plate_shows_z_info_instead_of_include_z(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    wdg.show()
+    pos = wdg.stage_positions
+    # (isHidden: the positions tab may not be the current one)
+    assert pos._hcs_z_info.isHidden()
+    wdg.setValue(_plate_sequence())
+    assert not pos._hcs_z_info.isHidden()
+    assert "run time" in pos._hcs_z_info.text()
+    assert pos.include_z.isHidden()
+    # back to regular positions
+    wdg.setValue(useq.MDASequence(stage_positions=[(0, 0, 0)]))
+    assert pos._hcs_z_info.isHidden()
+    assert not pos.include_z.isHidden()
+
+
+def test_plate_without_z_plan_does_not_move_z(
+    global_mmcore: CMMCorePlus, qtbot: QtBot
+) -> None:
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    wdg.setValue(_plate_sequence())
+    with patch.object(global_mmcore, "run_mda") as run_mda:
+        wdg.execute_mda(None)
+    seq = run_mda.call_args.args[0]
+    assert isinstance(seq.stage_positions, useq.WellPlatePlan)
+    assert seq.z_plan is None
+    assert {e.z_pos for e in seq} == {None}
+
+
+@pytest.mark.parametrize(
+    "z_plan",
+    [
+        useq.ZRangeAround(range=4, step=1),
+        useq.ZRangeAround(range=4.3, step=0.7, go_up=False),
+        useq.ZAboveBelow(above=3, below=1.5, step=0.5),
+        useq.ZRelativePositions(relative=[0, -2, 5]),
+        useq.ZRelativePositions(relative=[1, 2], go_up=False),
+    ],
+)
+@pytest.mark.parametrize("center", [0.0, 30.0, -1234.567])
+def test_absolute_z_plan(z_plan: useq.ZPlan, center: float) -> None:
+    from pymmcore_widgets.mda._core_mda import absolute_z_plan
+
+    absolute = absolute_z_plan(z_plan, center)  # type: ignore[arg-type]
+    assert not absolute.is_relative
+    assert list(absolute) == pytest.approx([center + z for z in z_plan])
+    if hasattr(z_plan, "step"):
+        assert isinstance(absolute, useq.ZTopBottom)
+
+
 def test_mda_no_pos_set(global_mmcore: CMMCorePlus, qtbot: QtBot):
     wdg = MDAWidget()
     qtbot.addWidget(wdg)

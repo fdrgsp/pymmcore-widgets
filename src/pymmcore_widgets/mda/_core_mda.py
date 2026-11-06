@@ -15,7 +15,15 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 from superqt.iconify import QIconifyIcon
-from useq import AxesBasedAF, MDAEvent, MDASequence, Position
+from useq import (
+    AxesBasedAF,
+    MDAEvent,
+    MDASequence,
+    Position,
+    WellPlatePlan,
+    ZAbsolutePositions,
+    ZTopBottom,
+)
 
 from pymmcore_widgets._util import get_next_available_path
 from pymmcore_widgets.useq_widgets import MDASequenceWidget
@@ -40,6 +48,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
     from pymmcore_plus.mda import SingleOutput
+    from useq import AnyZPlan
 
     from ._core_channels import CoreConnectedChannelTable
     from ._core_grid import CoreConnectedGridPlanWidget
@@ -204,10 +213,15 @@ class MDAWidget(MDASequenceWidget):
 
         # if the z plan is relative and there are stage positions but the 'include z' is
         # unchecked, use the current z stage position as the relative starting one.
+        # (Plate plans are kept as they are: their positions have no z, and the
+        # relative z plan is anchored to the current z when the MDA runs, see
+        # `_anchor_plate_z_plan`.)
         if (
             val.z_plan
             and val.z_plan.is_relative
-            and (val.stage_positions and not self.stage_positions.include_z.isChecked())
+            and val.stage_positions
+            and not isinstance(val.stage_positions, WellPlatePlan)
+            and not self.stage_positions.include_z.isChecked()
         ):
             z = self._mmc.getZPosition() if self._mmc.getFocusDevice() else None
             replace["stage_positions"] = tuple(
@@ -344,7 +358,7 @@ class MDAWidget(MDASequenceWidget):
 
     def execute_mda(self, output: SingleOutput | Sequence[SingleOutput] | None) -> None:
         """Execute the MDA experiment corresponding to the current value."""
-        sequence = self.value()
+        sequence = self._anchor_plate_z_plan(self.value())
         if self._disable_af_on_run:
             self._disable_af_on_run = False
             self._disable_continuous_focus()
@@ -363,6 +377,26 @@ class MDAWidget(MDASequenceWidget):
         self.execute_mda(save_path)
 
     # ------------------- private Methods ----------------------
+
+    def _anchor_plate_z_plan(self, sequence: MDASequence) -> MDASequence:
+        """Anchor a relative z plan of a plate plan to the current z, to run it.
+
+        Plate positions have no z ("don't move z"), so a relative z plan would be
+        centered on z=0. Replacing it with the equivalent *absolute* plan around the
+        current focus position keeps the `WellPlatePlan` itself intact (which output
+        writers use for the plate layout), unlike setting z on every position.
+        """
+        z_plan = sequence.z_plan
+        if (
+            not isinstance(sequence.stage_positions, WellPlatePlan)
+            or z_plan is None
+            or not z_plan.is_relative
+            or not self._mmc.getFocusDevice()
+        ):
+            return sequence
+        return sequence.replace(
+            z_plan=absolute_z_plan(z_plan, self._mmc.getZPosition())
+        )
 
     @Slot()
     def _on_sys_config_loaded(self) -> None:
@@ -716,3 +750,27 @@ class _MDAControlButtons(QWidget):
             self._mmc.mda.events.sequenceStarted.disconnect(self._on_mda_started)
             self._mmc.mda.events.sequenceFinished.disconnect(self._on_mda_finished)
             self._mmc.mda.events.eventStarted.disconnect(self._on_event_started)
+
+
+def absolute_z_plan(z_plan: AnyZPlan, center: float) -> AnyZPlan:
+    """Return an absolute z plan visiting `z_plan`'s relative positions around `center`.
+
+    Range plans become a `ZTopBottom` (keeping the step), if it visits exactly the
+    same positions; otherwise (or for explicit relative positions) the positions are
+    listed in a `ZAbsolutePositions`.
+    """
+    if not z_plan.is_relative:
+        return z_plan
+    absolute = [center + z for z in z_plan.positions()]
+    step = getattr(z_plan, "step", None)
+    if step is not None and absolute:
+        top_bottom = ZTopBottom(
+            bottom=absolute[0], top=absolute[-1], step=step, go_up=z_plan.go_up
+        )
+        visited = list(top_bottom.positions())
+        if len(visited) == len(absolute) and all(
+            abs(a - b) <= 1e-9 * max(1.0, abs(a))
+            for a, b in zip(visited, absolute, strict=True)
+        ):
+            return top_bottom
+    return ZAbsolutePositions(absolute=absolute, go_up=z_plan.go_up)

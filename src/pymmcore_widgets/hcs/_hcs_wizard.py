@@ -26,43 +26,38 @@ from ._automated_plate_calibration_widget import AutomatedPlateCalibrationWidget
 from ._plate_calibration import supports_automated_calibration
 from ._plate_calibration_widget import PlateCalibrationWidget
 
-# Wizard save files are a versioned envelope around the WellPlatePlan, with an
-# "editor" section for editor-only state that is not part of the plan (currently
-# empty: everything the wizard needs is in the plan). Bare WellPlatePlan files
-# (written by older versions, or by other tools) still load.
+# Wizard save files are a versioned envelope around the WellPlatePlan, so that
+# wizard-only state can be added later. Bare WellPlatePlan files (written by older
+# versions, or by other tools) still load.
 WIZARD_FILE_FORMAT = "pymmcore-widgets.hcs-wizard"
 WIZARD_FILE_VERSION = 1
 
 
-def write_wizard_file(
-    path: str | Path, plan: useq.WellPlatePlan, editor: dict[str, Any]
-) -> None:
-    """Write a versioned HCS wizard file: the plan plus editor-only state."""
+def write_wizard_file(path: str | Path, plan: useq.WellPlatePlan) -> None:
+    """Write a versioned HCS wizard file."""
     data = {
         "format": WIZARD_FILE_FORMAT,
         "version": WIZARD_FILE_VERSION,
         "well_plate_plan": json.loads(plan.model_dump_json(exclude_unset=True)),
-        "editor": editor,
     }
     Path(path).write_text(json.dumps(data, indent=2))
 
 
-def read_wizard_file(path: str | Path) -> tuple[useq.WellPlatePlan, dict[str, Any]]:
-    """Read an HCS wizard file, or a bare WellPlatePlan file (no editor state)."""
+def read_wizard_file(path: str | Path) -> useq.WellPlatePlan:
+    """Read an HCS wizard file, or a bare WellPlatePlan file."""
     path = Path(path)
     data: Any = None
     if path.suffix == ".json":
         data = json.loads(path.read_text())
     if not (isinstance(data, dict) and data.get("format") == WIZARD_FILE_FORMAT):
-        return WellPlatePlan.from_file(path), {}
+        return WellPlatePlan.from_file(path)
     version = data.get("version")
     if not isinstance(version, int) or version > WIZARD_FILE_VERSION:
         raise ValueError(
             f"Unsupported HCS wizard file version {version!r} (this version of "
             f"pymmcore-widgets reads up to version {WIZARD_FILE_VERSION})."
         )
-    plan = WellPlatePlan.model_validate(data["well_plate_plan"])
-    return plan, dict(data.get("editor") or {})
+    return WellPlatePlan.model_validate(data["well_plate_plan"])
 
 
 class HCSWizard(QWizard):
@@ -196,7 +191,7 @@ class HCSWizard(QWizard):
         elif not path.endswith(".json"):  # pragma: no cover
             raise ValueError("Path must end with '.json'")
         if path and (value := self.value()):
-            write_wizard_file(path, value, {})
+            write_wizard_file(path, value)
 
     @Slot()
     def load(self, path: str | None = None) -> None:
@@ -206,8 +201,7 @@ class HCSWizard(QWizard):
                 self, "Load Well Plate Plan", "", "JSON (*.json)"
             )
         if path:
-            plan, _editor = read_wizard_file(path)
-            self.setValue(plan)
+            self.setValue(read_wizard_file(path))
 
     @Slot(object)
     def _on_plate_changed(self, plate_plan: useq.WellPlatePlan) -> None:
@@ -388,8 +382,10 @@ class _PointsPlanPage(QWizardPage):
         self._on_px_size_changed()
 
     def isComplete(self) -> bool:
-        if self.widget._selector.active_plan_type is useq.GridFromShape:
-            if not self.widget.cover_area_wdg.isValid():
+        # (the Cover Area widget is always valid on its Grid tab)
+        cover_area = self.widget.cover_area_wdg
+        if self.widget._selector._active_plan_widget is cover_area:
+            if not cover_area.isValid():
                 return False
         return bool(super().isComplete())
 

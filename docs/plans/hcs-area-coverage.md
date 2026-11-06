@@ -1,8 +1,8 @@
 # HCS Cover Area mode: implementation plan
 
-Status: implemented (pending: push useq `cite` and update the lockfile). Schema
-(`useq.GridFromShape`, v1 only) and widgets (`CoverAreaWidget`, selector, preview,
-wizard, versioned save files). Updated: 2026-11-05.
+Status: implemented. Schema (`useq.GridFromShape`, v1 only) and widgets
+(`CoverAreaWidget`, selector, preview, wizard, versioned save files), on the
+`cite` branches of useq-schema and pymmcore-widgets. Updated: 2026-11-06.
 
 Implementation notes (deviations/additions to the proposal below):
 
@@ -34,9 +34,15 @@ Implementation notes (deviations/additions to the proposal below):
   the "separately named placement policy" anticipated in §4.
 - Persistence decision: versioned wizard envelope
   (`{"format": "pymmcore-widgets.hcs-wizard", "version": 1, "well_plate_plan":
-  ..., "editor": {}}`; the editor section is currently empty since the
-  restriction toggle was removed). Bare `WellPlatePlan` files still load
-  (without editor state); newer versions are rejected with a clear error.
+  ...}`), so wizard-only state can be added later. With the restriction toggle
+  removed there is no editor-only state; bare `WellPlatePlan` files still load,
+  and newer versions are rejected with a clear error.
+- Plate positions and Z (2026-11-06): useq `PositionBase.__add__` again keeps
+  `z=None` when the well center has no z (useq 0.9.0 had made it `0`, moving the
+  focus to z=0 at every well). `MDAWidget.execute_mda` anchors a relative z plan
+  of a plate plan to the current focus (as an equivalent absolute plan, so the
+  `WellPlatePlan` is kept for writers); the position table shows "Z: focus
+  position at run time" in place of Include Z.
 
 ## 1. Intended behavior
 
@@ -306,8 +312,8 @@ surface Z using that plan's ordinary `value()` approach.
 - [x] Add numeric validation and excessive-grid protection without partial output.
 - [x] Add public exports, schema/plate/MDA integration, serialization tests, and a
   headless example (`examples/grid_from_shape.py`).
-- [ ] Release or pin the supporting schema revision (push useq `cite`, then
-  `uv lock --upgrade-package useq-schema` here).
+- [x] Release or pin the supporting schema revision (useq `cite` branch; the
+  widgets `pyproject.toml` tracks it).
 
 ### B. Widgets and HCS integration
 

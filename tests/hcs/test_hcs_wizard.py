@@ -186,7 +186,6 @@ def test_hcs_wizard_file_wrapper(
     data = json.loads(path.read_text())
     assert data["format"] == WIZARD_FILE_FORMAT
     assert data["version"] == 1
-    assert data["editor"] == {}
     saved_plan = useq.WellPlatePlan.model_validate(data["well_plate_plan"])
     assert isinstance(saved_plan.well_points_plan, useq.GridFromShape)
     assert saved_plan.well_points_plan.placement == "inside"

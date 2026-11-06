@@ -12,6 +12,7 @@ from qtpy.QtWidgets import (
     QApplication,
     QCheckBox,
     QHBoxLayout,
+    QLabel,
     QMessageBox,
     QPushButton,
     QWidget,
@@ -95,6 +96,17 @@ class CoreConnectedPositionTable(PositionTable):
         )
         self._edit_hcs_pos.hide()
         self._edit_hcs_pos.clicked.connect(self._show_pos_editing_dialog)
+
+        # replaces "Include Z" (and the AF offsets) while the positions come from the
+        # HCS wizard: plate positions have no z, see `MDAWidget.execute_mda`
+        self._hcs_z_info = QLabel("Z: focus position at run time")
+        self._hcs_z_info.setToolTip(
+            "Plate positions do not set Z: the focus stays where it is (or where the "
+            "autofocus finds it, if enabled).<br>A relative Z stack is centered on "
+            "the focus position when the acquisition starts."
+        )
+        self._hcs_z_info.hide()
+        self._btn_row.insertWidget(0, self._hcs_z_info)
 
         hcs_buttons = QHBoxLayout()
         hcs_buttons.setSpacing(5)
@@ -254,6 +266,7 @@ class CoreConnectedPositionTable(PositionTable):
     def _set_position_table_editable(self, state: bool) -> None:
         """Enable/disable the position table depending on the use of the HCS wizard."""
         self._edit_hcs_pos.setVisible(not state)
+        self._hcs_z_info.setVisible(not state)
         self.include_z.setVisible(state)
         self.af_per_position.setVisible(state)
 

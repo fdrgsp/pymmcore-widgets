@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from qtpy.QtCore import QEvent, QObject, QPoint, Qt, Signal
+from qtpy.QtCore import QEvent, QObject, Qt, Signal
 from qtpy.QtWidgets import (
     QDoubleSpinBox,
     QHBoxLayout,
@@ -18,6 +18,16 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from qtpy.QtWidgets import QLayout
+
+
+def double_spin(low: float, high: float, name: str) -> QDoubleSpinBox:
+    """Return a centered, 1-decimal QDoubleSpinBox with an accessible name."""
+    spin = QDoubleSpinBox()
+    spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    spin.setRange(low, high)
+    spin.setDecimals(1)
+    spin.setAccessibleName(name)
+    return spin
 
 
 def labeled_row(
@@ -108,9 +118,14 @@ class OverlapWidget(QWidget):
         super().__init__(parent)
         self._separate = False
 
-        self.overlap_x = self._spin(minimum, maximum, "Overlap x (%)")
-        self.overlap_y = self._spin(minimum, maximum, "Overlap y (%)")
+        self.overlap_x = double_spin(minimum, maximum, "Overlap x (%)")
+        self.overlap_y = double_spin(minimum, maximum, "Overlap y (%)")
         self.overlap_y.hide()
+        for spin in (self.overlap_x, self.overlap_y):
+            spin.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            spin.customContextMenuRequested.connect(
+                lambda pos, s=spin: self.contextMenu().exec(s.mapToGlobal(pos))
+            )
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -169,21 +184,6 @@ class OverlapWidget(QWidget):
         return menu
 
     # _________________________PRIVATE METHODS_________________________ #
-
-    def _spin(self, low: float, high: float, name: str) -> QDoubleSpinBox:
-        spin = QDoubleSpinBox()
-        spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        spin.setRange(low, high)
-        spin.setDecimals(1)
-        spin.setAccessibleName(name)
-        spin.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        spin.customContextMenuRequested.connect(
-            lambda pos, s=spin: self._show_context_menu(s, pos)
-        )
-        return spin
-
-    def _show_context_menu(self, spin: QDoubleSpinBox, pos: QPoint) -> None:
-        self.contextMenu().exec(spin.mapToGlobal(pos))
 
     def _set_separate(self, separate: bool) -> None:
         self._separate = separate

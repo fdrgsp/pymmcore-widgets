@@ -250,7 +250,6 @@ class RelativePointPlanSelector(QWidget):
                 self.single_radio_btn.setChecked(True)
             else:  # pragma: no cover
                 raise ValueError(f"Invalid plan type: {type(plan)}")
-            self._sync_fov_size()
         self._on_value_changed()
 
     # _________________________PRIVATE METHODS_________________________ #

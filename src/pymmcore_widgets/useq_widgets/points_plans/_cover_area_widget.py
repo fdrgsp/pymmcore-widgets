@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from typing import TYPE_CHECKING, Any
 
 from qtpy.QtCore import Qt, Signal
@@ -16,7 +15,7 @@ from qtpy.QtWidgets import (
 from superqt.utils import signals_blocked
 from useq import GridFromShape, GridRowsColumns, OrderMode, Shape
 
-from ._common import LabelAligner, OverlapWidget, labeled_row
+from ._common import LabelAligner, OverlapWidget, double_spin, labeled_row
 from ._grid_row_column_widget import GridRowColumnWidget
 
 if TYPE_CHECKING:
@@ -90,8 +89,8 @@ class CoverAreaWidget(QWidget):
 
         # COVERAGE TAB -----------------------------------------------------
 
-        self.area_width = _spin(1, _MAX_AREA, "Area width (µm)")
-        self.area_height = _spin(1, _MAX_AREA, "Area height (µm)")
+        self.area_width = _area_spin("Area width (µm)")
+        self.area_height = _area_spin("Area height (µm)")
         self.shape = QComboBox()
         self.shape.addItems([s.value for s in Shape])
         self.shape.setAccessibleName("Area shape")
@@ -202,7 +201,7 @@ class CoverAreaWidget(QWidget):
     @property
     def overlap(self) -> tuple[float, float]:
         """Return the overlap along x and y, in percent."""
-        return self.overlap_x.value(), self.overlap_y.value()
+        return self.overlap_wdg.value()
 
     def setWellGeometry(
         self, shape: Shape | str | None, width_um: float | None, height_um: float | None
@@ -326,7 +325,6 @@ class CoverAreaWidget(QWidget):
         # coverage needs overlap >= 0, a grid can space its FOVs apart. Changing the
         # minimum clamps (visibly) a negative grid overlap.
         self.overlap_wdg.setMinimum(_MIN_GRID_OVERLAP if grid else 0.0)
-        self._sync_common_to_grid()
         # only coverage plans can keep the FOVs inside the area
         self.inside_area.setEnabled(not grid)
 
@@ -355,12 +353,7 @@ class CoverAreaWidget(QWidget):
         self.valueChanged.emit(self.value())
 
     def _coverage_error(self) -> str:
-        fov_w, fov_h = self._fov_size
-        if (
-            not fov_w
-            or not fov_h
-            or not (math.isfinite(fov_w) and math.isfinite(fov_h))
-        ):
+        if not all(self._fov_size):
             return (
                 "The FOV size is unknown: calibrate the pixel size (or set the FOV "
                 "size) to cover the area."
@@ -391,12 +384,8 @@ class CoverAreaWidget(QWidget):
         self.error_label.setVisible(bool(self._error))
 
 
-def _spin(low: float, high: float, name: str) -> QDoubleSpinBox:
-    spin = QDoubleSpinBox()
-    spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    spin.setRange(low, high)
-    spin.setDecimals(1)
+def _area_spin(name: str) -> QDoubleSpinBox:
+    spin = double_spin(1, _MAX_AREA, name)
     spin.setStepType(QDoubleSpinBox.StepType.AdaptiveDecimalStepType)
-    spin.setAccessibleName(name)
     spin.setToolTip(name)
     return spin
