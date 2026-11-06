@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 import useq
-from qtpy.QtWidgets import QWidget
+from qtpy.QtWidgets import QToolTip, QWidget
 
 from pymmcore_widgets.hcs._plate_calibration import (
     fit_plate_calibration,
@@ -356,7 +356,7 @@ def test_corner_editor_and_pixel_size(qtbot, global_mmcore, monkeypatch):
     auto = wizard.calibration_page.automated
     corners = auto._corners
     assert corners._table.rowCount() == 2
-    assert corners._calibration_mode_wdg.count() == 1
+    assert corners._calibration_mode_wdg.count() == 2
     assert corners._calibration_mode_wdg.currentText() == "2 Opposing Corners"
     assert corners.wellCenter() is None
     assert not auto._start.isEnabled()
@@ -389,6 +389,41 @@ def test_corner_editor_and_pixel_size(qtbot, global_mmcore, monkeypatch):
         auto._read_geometry()
     corners._clear_all_button.click()
     assert corners.wellCenter() is None
+
+
+def test_scan_area_from_four_edge_points(qtbot, global_mmcore):
+    from pymmcore_widgets.hcs import HCSWizard
+
+    wizard = HCSWizard(mmcore=global_mmcore)
+    qtbot.addWidget(wizard)
+    wizard.calibration_page.widget.setValue("96-well")
+    auto = wizard.calibration_page.automated
+    auto._plate_view.setSelectedIndices([(0, 0), (0, 1), (1, 0)])
+    area = auto._corners
+    area._calibration_mode_wdg.setCurrentIndex(1)
+    assert area.mode().text == "4 Edge Points"
+    assert area._table.rowCount() == 4
+    assert "4 edge points" in auto._status.text()
+    # left, top, right, bottom: the scan is the rectangle enclosing them
+    for x, y in [(-1000, 50), (200, 800), (3000, -20), (900, -3000)]:
+        assert not auto._start.isEnabled()  # until all four points are recorded
+        global_mmcore.setXYPosition(x, y)
+        global_mmcore.waitForSystem()
+        area._set_button.click()
+    assert area.bounds() == (-1000, -3000, 3000, 800)
+    assert area.wellCenter() is not None
+    assert auto._start.isEnabled()
+    assert auto._read_geometry().bounds == (-1000, -3000, 3000, 800)
+    # all points on one vertical line enclose no area
+    for row in range(4):
+        area._table._set_row(row, 500, row * 100)
+    assert area.bounds() is None
+    assert area.wellCenter() is None
+    assert not auto._start.isEnabled()
+    # switching back to corners clears the points
+    area._calibration_mode_wdg.setCurrentIndex(0)
+    assert area._table.rowCount() == 2
+    assert area.bounds() is None
 
 
 def test_stream_scan_detect_and_rerun(qtbot, global_mmcore, monkeypatch):
@@ -922,6 +957,9 @@ def test_instructions_are_info_tooltips(qtbot, global_mmcore):
     assert "opposite corners" in corners._info_button.toolTip()
     assert "Select Wells" in corners._info_button.toolTip()
     corners._info_button.click()  # clicking also shows the tooltip
+    assert QToolTip.isVisible()
+    QToolTip.hideText()  # the tooltip is a top-level widget: close it
+    qtbot.waitUntil(lambda: not QToolTip.isVisible())
 
 
 def test_focus_drift_does_not_abort_scan(global_mmcore):
@@ -1045,3 +1083,21 @@ def test_apply_allowed_with_warning_for_large_deviation(qtbot, global_mmcore):
     auto._apply.click()
     assert page.isComplete()
     assert "deviate up to" in auto._status.text()  # still warned after applying
+
+
+def test_manual_and_automated_panels_share_width(qtbot, global_mmcore):
+    from qtpy.QtWidgets import QLabel
+
+    from pymmcore_widgets.hcs import HCSWizard
+
+    wizard = HCSWizard(mmcore=global_mmcore)
+    qtbot.addWidget(wizard)
+    page = wizard.calibration_page
+    page.widget.setValue("96-well")
+    manual, auto = page.widget._panel, page.automated._panel
+    width = max(manual.sizeHint().width(), auto.sizeHint().width())
+    assert manual.width() == auto.width() == width
+    # Content that needs more room in either panel widens both.
+    auto.layout().addWidget(QLabel("a wide label " * 8))
+    qtbot.waitUntil(lambda: manual.width() == auto.width() > width)
+    assert manual.minimumWidth() == manual.maximumWidth() == auto.width()

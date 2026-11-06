@@ -44,7 +44,7 @@ class DetectionSettings:
             and 0.5 <= self.min_coverage <= 1
         ):
             raise ValueError(
-                "Invalid edge smoothing, detection threshold, or rim coverage."
+                "Invalid edge smoothing, detection threshold, or edge coverage."
             )
 
 
@@ -94,7 +94,8 @@ def _intensity_range(values: np.ndarray) -> tuple[float, float]:
     lo, hi = np.percentile(values, (1, 99))
     if not np.isfinite([lo, hi]).all() or hi <= lo:
         raise ValueError(
-            "Insufficient image contrast. Adjust brightfield and rim focus."
+            "Insufficient image contrast. "
+            "Adjust brightfield and focus on the well edges."
         )
     return float(lo), float(hi)
 
@@ -317,7 +318,7 @@ def detect_wells(
     edges = canny(overview, sigma=settings.edge_sigma, mask=valid)
     half_px = (half_um[0] / scale, half_um[1] / scale)
     if min(half_px) * 0.85 < 5:
-        raise ValueError("Overview resolution is insufficient for well-rim detection.")
+        raise ValueError("Overview resolution is insufficient for well-edge detection.")
     if cancel.is_set():
         raise InterruptedError("Detection cancelled.")
     num_peaks = min(64, plate.rows * plate.columns)
@@ -412,7 +413,7 @@ def detect_wells(
     if not wells:
         raise ValueError(
             "Found no complete wells. "
-            "Enlarge the scan or improve rim focus/brightfield contrast."
+            "Enlarge the scan or improve well-edge focus/brightfield contrast."
         )
     return DetectionResult(overview, origin, scale, tuple(wells))
 
@@ -490,7 +491,7 @@ def match_selected_wells(
         raise ValueError(
             f"Detected {len(wells)} wells{detected}, but {len(selected)} wells "
             f"are selected{_grid_shape(selected)}. Select every well whose "
-            "complete rim is in the scan area, or adjust detection settings."
+            "entire edge is in the scan area, or adjust detection settings."
         )
     if not valid_calibration_selection(selected, min_calibration_wells(plate)):
         raise ValueError(

@@ -1,7 +1,7 @@
 # Automated HCS plate calibration (experimental)
 
 The calibration page has **Manual** and **Automated** tabs with the same layout.
-Automated has a two-corner table on the left and three tabs on the right:
+Automated has a scan-area table on the left and three tabs on the right:
 **Select Wells**, **Calibrate Plate**, and **Test Calibration**. A configured
 pixel size is required.
 A single square or rectangular well (e.g. a coverslip) shows only Manual.
@@ -14,30 +14,37 @@ uv sync --extra hcs-auto
 ```
 
 1. Select a plate, then open **Automated**. Set a
-   low-magnification objective, brightfield illumination, and focus on the rims.
+   low-magnification objective, brightfield illumination, and focus on the well edges.
    Stop live view before scanning.
-2. In **Select Wells**, select every well whose complete rim will be included in
+2. In **Select Wells**, select every well whose entire edge will be included in
    the scan area. A **2 x 2 block is recommended**, such as B2/B3/C2/C3.
    Alternatively, select **three or more wells in a single row or column**;
    single-row and single-column strips are supported. Other non-collinear groups
    of three or more wells also work. Click wells or drag a selection rectangle.
-3. Use **Set** in the left table to record two opposing stage corners enclosing
-   those wells. The green tick indicates a valid area. **Clear** and **Clear All**
-   work as they do in Manual. Start Scan and Calibrate Plate enable only after
-   both corners and a valid well selection are provided. A diagonal line alone
-   is insufficient.
+3. Use **Set** in the left table to record the scan area enclosing those wells,
+   in one of two modes:
+   - **2 Opposing Corners**: two opposite corners of the area.
+   - **4 Edge Points**: one point on each side (left, right, top, bottom), e.g.
+     just outside the outermost well edges. Useful when the corners, which lie between
+     wells, are hard to find.
+
+   The scan covers the rectangle enclosing all recorded points. The green tick
+   indicates a valid area. **Clear** and **Clear All** work as they do in Manual,
+   and changing the mode clears the points. Start Scan and Calibrate Plate enable
+   only after the area and a valid well selection are provided. Points on one
+   line enclose no area and are insufficient.
 4. Select **Start Scan**. The widget switches to **Calibrate Plate** and shows
    each acquired image in the VisPy canvas. Spacing and placement use the
    configured pixel size. Cancel stops between operations and retains the last
    applied calibration. Detection does not run automatically.
 5. Open the gear dialog to set edge smoothing, detection threshold, and minimum
-   rim coverage, then click **Detect Wells**. Detection can be repeated on the
+   edge coverage, then click **Detect Wells**. Detection can be repeated on the
    retained images without another scan. Settings use aligned label-and-spin rows.
 6. The selected plate wells supply the labels, and the measured grid supplies
    rotation. There is no Identify Wells button or manual rotation input. The
    usual mounting orientation is assumed (columns roughly along positive stage
    X). The detected count and arrangement must match the selection; otherwise
-   adjust the settings or selection. All detected rims remain visible for review.
+   adjust the settings or selection. All detected well edges remain visible for review.
 7. Use **Show detection** to toggle the overlay. When the result matches the
    selection and passes calibration checks, choose **Apply Calibration**.
 8. Open **Test Calibration** and double-click points to test the result. The

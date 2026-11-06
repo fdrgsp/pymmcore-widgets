@@ -19,6 +19,7 @@ from qtpy.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -29,10 +30,12 @@ from pymmcore_widgets._util import GREEN, ResizingGraphicsView
 
 from ._custom_plate_widget import CustomPlateWidget, register_custom_plates
 
+CLEAR_SELECTION_ICON = "mdi:selection-off"
+
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-    from qtpy.QtGui import QMouseEvent
+    from qtpy.QtGui import QMouseEvent, QResizeEvent
 
     Index = int | list[int] | tuple[int] | slice
     IndexExpression = tuple[Index, ...] | Index
@@ -100,12 +103,9 @@ class WellPlateWidget(QWidget):
         )
         self._custom_plate_button.setAutoDefault(False)
 
-        # clear selection button
-        self._clear_button = QPushButton(text="Clear Selection")
-        self._clear_button.setAutoDefault(False)
-
-        # plate view
+        # plate view, with a "clear selection" button over its top-right corner
         self._view = WellPlateView(self)
+        self._view.setClearButtonVisible(True)
 
         self._show_rotation_cb = QCheckBox("Show Rotation", self._view)
         self._show_rotation_cb.setStyleSheet("background: transparent;")
@@ -120,7 +120,6 @@ class WellPlateWidget(QWidget):
         top_layout.addWidget(QLabel("WellPlate:"), 0)
         top_layout.addWidget(self.plate_name, 1)
         top_layout.addWidget(self._custom_plate_button, 0)
-        top_layout.addWidget(self._clear_button, 0)
 
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(15)
@@ -130,7 +129,6 @@ class WellPlateWidget(QWidget):
 
         # connect
         self._view.selectionChanged.connect(self._on_value_changed)
-        self._clear_button.clicked.connect(self._view.clearSelection)
         self.plate_name.currentTextChanged.connect(self._on_plate_name_changed)
         self._show_rotation_cb.toggled.connect(self._update_view)
         self._custom_plate_button.clicked.connect(self._show_custom_plate_dialog)
@@ -299,6 +297,18 @@ class WellPlateView(ResizingGraphicsView):
         self._scene = QGraphicsScene()
         super().__init__(self._scene, parent)
         self._selection_mode = QAbstractItemView.SelectionMode.MultiSelection
+        # optional "clear selection" button overlaid on the top-right corner
+        self._clear_overlay = QToolButton(self)
+        # dark enough to read on the grey plate background
+        self._clear_overlay.setIcon(QIconifyIcon(CLEAR_SELECTION_ICON, color="#222"))
+        self._clear_overlay.setIconSize(QSize(22, 22))
+        self._clear_overlay.setToolTip("Clear selection")
+        self._clear_overlay.setAccessibleName("Clear Selection")
+        self._clear_overlay.setCursor(Qt.CursorShape.ArrowCursor)
+        self._clear_overlay.clicked.connect(self.clearSelection)
+        self._clear_overlay.setEnabled(False)
+        self._clear_overlay.hide()
+        self.selectionChanged.connect(self._update_clear_overlay)
         self._selected_color: QColor | Qt.GlobalColor = QColor(GREEN)
         self._unselected_color = Qt.GlobalColor.transparent
         self._draw_labels: bool = True
@@ -449,6 +459,24 @@ class WellPlateView(ResizingGraphicsView):
     def clearSelection(self) -> None:
         """Clear the current selection."""
         self._change_selection((), self._selected_items)
+
+    def setClearButtonVisible(self, visible: bool) -> None:
+        """Show a "clear selection" button over the top-right corner of the view."""
+        self._clear_overlay.setVisible(visible)
+        self._place_clear_overlay()
+
+    def resizeEvent(self, event: QResizeEvent | None) -> None:
+        super().resizeEvent(event)
+        self._place_clear_overlay()
+
+    def _place_clear_overlay(self) -> None:
+        button = self._clear_overlay
+        button.adjustSize()
+        button.move(self.width() - button.width() - 6, 6)
+        button.raise_()
+
+    def _update_clear_overlay(self) -> None:
+        self._clear_overlay.setEnabled(bool(self._selected_items))
 
     def changeEvent(self, event: QEvent | None) -> None:
         super().changeEvent(event)

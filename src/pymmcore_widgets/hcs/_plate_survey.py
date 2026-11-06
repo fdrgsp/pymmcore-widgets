@@ -60,7 +60,7 @@ class SurveyGeometry:
         """Return the (columns, rows) of overlapping frames covering the bounds."""
         x0, y0, x1, y1 = self.bounds
         if not np.isfinite(self.bounds).all() or x1 <= x0 or y1 <= y0:
-            raise ValueError("Record two different opposing scan corners.")
+            raise ValueError("The scan area needs a positive width and height.")
         h, w = self.shape
         if min(h, w) <= 0 or not 0 <= self.overlap < 1:
             raise ValueError("Invalid image size or overlap.")

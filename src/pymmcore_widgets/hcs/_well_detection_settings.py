@@ -31,7 +31,7 @@ class WellDetectionSettingsDialog(QDialog):
         self._threshold.setRange(0.01, 1)
         self._threshold.setSingleStep(0.05)
         self._threshold.setValue(settings.hough_threshold)
-        self._threshold.setToolTip("Lower values propose more circular rims.")
+        self._threshold.setToolTip("Lower values propose more candidate wells.")
         self._coverage = QDoubleSpinBox()
         self._coverage.setRange(50, 100)
         self._coverage.setValue(settings.min_coverage * 100)
@@ -45,7 +45,7 @@ class WellDetectionSettingsDialog(QDialog):
         rows = [
             (QLabel("Edge smoothing:", self), self._sigma),
             (QLabel("Detection threshold:", self), self._threshold),
-            (QLabel("Minimum rim coverage:", self), self._coverage),
+            (QLabel("Minimum edge coverage:", self), self._coverage),
         ]
         label_width = max(label.sizeHint().width() for label, _ in rows)
         for label, spin in rows:

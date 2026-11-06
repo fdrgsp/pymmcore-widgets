@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import suppress
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import useq
@@ -13,7 +13,7 @@ from qtpy.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QStackedWidget,
+    QSizePolicy,
     QStyle,
     QTabWidget,
     QVBoxLayout,
@@ -25,6 +25,8 @@ from superqt.utils import signals_blocked
 from pymmcore_widgets._util import GREEN, SeparatorWidget
 from pymmcore_widgets.hcs._well_calibration_widget import (
     CALIBRATED_ICON,
+    ICON_GRAY,
+    TEST_ICON,
     WellCalibrationWidget,
 )
 from pymmcore_widgets.useq_widgets._well_plate_widget import WellPlateView
@@ -37,6 +39,44 @@ from ._plate_calibration import well_coords_affine as well_coords_affine
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+
+class _PageStack(QWidget):
+    """Show one page at a time, sized to that page alone.
+
+    Unlike QStackedWidget, whose height-for-width is the tallest page's (hidden
+    pages included), switching to a page with fewer table rows moves the
+    widgets below up instead of stretching the page.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._current: QWidget | None = None
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        # never taller than the page: spare panel height goes below the buttons
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+
+    def addWidget(self, widget: QWidget) -> None:
+        self.layout().addWidget(widget)
+        widget.setVisible(self._current is None)
+        if self._current is None:
+            self._current = widget
+
+    def removeWidget(self, widget: QWidget) -> None:
+        self.layout().removeWidget(widget)
+        widget.hide()
+        if widget is self._current:
+            self._current = None
+
+    def currentWidget(self) -> QWidget | None:
+        return self._current
+
+    def setCurrentWidget(self, widget: QWidget) -> None:
+        if self._current is not None and self._current is not widget:
+            self._current.hide()
+        self._current = widget
+        widget.show()
 
 
 class CalibrationInfo(QWidget):
@@ -151,29 +191,32 @@ class PlateCalibrationWidget(QWidget):
         self._tab_wdg.setTabEnabled(1, False)
 
         self._test_well_btn = QPushButton("Test Well", self)
+        self._test_well_btn.setIcon(QIconifyIcon(TEST_ICON, color=ICON_GRAY))
+        self._test_well_btn.setToolTip("Move the stage to a point on the well edge.")
         self._test_well_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._test_well_btn.setEnabled(False)
 
         # mapping of well index (r, c) to calibration widget
         # these are created on demand in _get_or_create_well_calibration_widget
         self._calibration_widgets: dict[tuple[int, int], WellCalibrationWidget] = {}
-        self._calibration_widget_stack = QStackedWidget()
+        self._calibration_widget_stack = _PageStack()
 
         self._info = CalibrationInfo()
         self._update_info()
 
         # LAYOUT -------------------------------------------------------------
 
-        right_wdg = QGroupBox()
-        right_layout = QVBoxLayout(right_wdg)
-        right_layout.setContentsMargins(5, 5, 5, 5)
-        right_layout.addWidget(self._calibration_widget_stack)
-        right_layout.addWidget(SeparatorWidget())
-        right_layout.addWidget(self._test_well_btn)
-        right_layout.addStretch()
+        # the side panel with the point table (same width as Automated's)
+        self._panel = QGroupBox()
+        panel_layout = QVBoxLayout(self._panel)
+        panel_layout.setContentsMargins(5, 5, 5, 5)
+        panel_layout.addWidget(self._calibration_widget_stack)
+        panel_layout.addWidget(SeparatorWidget())
+        panel_layout.addWidget(self._test_well_btn)
+        panel_layout.addStretch()
 
         top = QHBoxLayout()
-        top.addWidget(right_wdg, 0)
+        top.addWidget(self._panel, 0)
         top.addWidget(self._tab_wdg, 1)
 
         main = QVBoxLayout(self)
@@ -407,7 +450,10 @@ class PlateCalibrationWidget(QWidget):
         return wdg
 
     def _current_calibration_widget(self) -> WellCalibrationWidget | None:
-        return self._calibration_widget_stack.currentWidget()  # type: ignore
+        return cast(
+            "WellCalibrationWidget | None",
+            self._calibration_widget_stack.currentWidget(),
+        )
 
     def _on_plate_selection_changed(self) -> None:
         """A well has been selected in the plate view."""

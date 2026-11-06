@@ -57,6 +57,15 @@ def test_plate_widget_selection(qtbot: QtBot) -> None:
     selection = wdg.currentSelection()
     assert selection == ((0, 1), (0, 2), (2, 1), (2, 2))
 
+    # the "clear selection" button sits over the view's top-right corner
+    button = wdg._view._clear_overlay
+    assert button.isVisible() and button.isEnabled()
+    assert button.geometry().right() < wdg._view.width()
+    assert button.geometry().left() > wdg._view.width() / 2
+    button.click()
+    assert wdg.currentSelection() == ()
+    assert not button.isEnabled()
+
 
 @pytest.mark.skipif(qtpy.QT5, reason="QMouseEvent API changed")
 def test_plate_mouse_press(qtbot: QtBot) -> None:

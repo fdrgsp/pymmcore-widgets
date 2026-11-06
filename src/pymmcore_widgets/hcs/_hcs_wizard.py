@@ -6,7 +6,7 @@ from pathlib import Path
 
 import useq
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtCore import QSize, Slot
+from qtpy.QtCore import QEvent, QObject, QSize, Slot
 from qtpy.QtWidgets import (
     QFileDialog,
     QTabWidget,
@@ -239,6 +239,36 @@ class _PlatePage(QWizardPage):
         layout.addWidget(self.widget)
 
 
+class _SameWidth(QObject):
+    """Keep widgets at the widest one's preferred width, as their content changes.
+
+    Used so the Manual and Automated side panels (and their point tables) do not
+    change size when switching tabs.
+    """
+
+    def __init__(self, *widgets: QWidget) -> None:
+        super().__init__(widgets[0])
+        self._widgets = widgets
+        for widget in widgets:
+            widget.installEventFilter(self)
+        self.apply()
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        if a1 is not None and a1.type() in (
+            QEvent.Type.LayoutRequest,
+            QEvent.Type.FontChange,
+            QEvent.Type.StyleChange,
+        ):
+            self.apply()
+        return False
+
+    def apply(self) -> None:
+        width = max(w.sizeHint().width() for w in self._widgets)
+        for widget in self._widgets:
+            if (widget.minimumWidth(), widget.maximumWidth()) != (width, width):
+                widget.setFixedWidth(width)
+
+
 class _PlateCalibrationPage(QWizardPage):
     def __init__(self, mmcore: CMMCorePlus, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -257,6 +287,7 @@ class _PlateCalibrationPage(QWizardPage):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.tabs)
+        self._panel_width = _SameWidth(self.widget._panel, self.automated._panel)
 
     def isComplete(self) -> bool:
         return self._is_complete and not self.automated.isBusy()

@@ -78,7 +78,15 @@ def test_well_calibration_widget_positions(
     wdg.show()
 
     wdg.setCircularWell(True)
+    # default methods: 3 edge points (round), 2 corners (square/rectangular)
+    assert wdg._calibration_mode_wdg.currentText() == "3 Edge points"
+    assert wdg._table.rowCount() == 3
+    wdg.setCircularWell(False)
+    assert wdg._calibration_mode_wdg.currentText() == "2 Corners"
+    assert wdg._table.rowCount() == 2
+    wdg.setCircularWell(True)
 
+    wdg._calibration_mode_wdg.setCurrentIndex(0)  # 1 center point
     assert get_icon_color(wdg._calibration_icon) == YELLOW
 
     assert wdg._table.rowCount() == 1

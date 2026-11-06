@@ -23,6 +23,7 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
+from pymmcore_widgets._icons import StandardIcon
 from pymmcore_widgets._util import GREEN, YELLOW, use_combo_row_height
 
 from ._util import find_circle_center, find_rectangle_center
@@ -40,6 +41,12 @@ FOUR = QIcon(str(ICON_PATH / "square-edges.svg"))
 NON_CALIBRATED_ICON = "mdi:circle"
 CALIBRATED_ICON = "mdi:check-circle"
 ICON_SIZE = QSize(30, 30)
+# Button icons and colors shared with the MDA tables and MDA run controls.
+ICON_GREEN, ICON_RED, ICON_GRAY = "#3A3", "#C33", "#666"
+SET_ICON = "mdi:map-marker-plus-outline"
+RUN_ICON = "mdi:play-circle-outline"
+CANCEL_ICON = "mdi:stop-circle-outline"
+TEST_ICON = "mdi:target"
 
 
 class Mode(NamedTuple):
@@ -94,6 +101,8 @@ class _CalibrationModeWidget(QComboBox):
             for idx, mode in enumerate(MODES[self._is_circular]):
                 self.addItem(mode.icon, mode.text)
                 self.setItemData(idx, mode, COMBO_ROLE)
+            # default: 3 edge points for round wells, 2 corners for square ones
+            self.setCurrentIndex(1)
         self.modeChanged.emit(self.currentMode())
 
     def currentMode(self) -> Mode:
@@ -258,8 +267,18 @@ class WellCalibrationWidget(QWidget):
 
         # add and remove buttons
         self._set_button = QPushButton("Set")
+        self._set_button.setIcon(QIconifyIcon(SET_ICON, color=ICON_GREEN))
+        self._set_button.setToolTip("Record the current stage position.")
         self._clear_button = QPushButton("Clear")
+        self._clear_button.setIcon(StandardIcon.DELETE.icon(ICON_RED))
+        self._clear_button.setToolTip("Clear the selected point.")
         self._clear_all_button = QPushButton("Clear All")
+        self._clear_all_button.setIcon(StandardIcon.DELETE_ALL.icon(ICON_RED))
+        self._clear_all_button.setToolTip("Clear all points.")
+        # no focus, so the dialog's Enter key and default highlight skip them
+        for button in (self._set_button, self._clear_button, self._clear_all_button):
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.setAutoDefault(False)
 
         # LAYOUT --------------------------------------------------------------
 
@@ -283,11 +302,13 @@ class WellCalibrationWidget(QWidget):
         main_layout.setSpacing(5)
         main_layout.addLayout(labels)
         main_layout.addWidget(self._summary)
-        main_layout.addSpacing(20)
+        main_layout.addSpacing(10)
         main_layout.addLayout(mode_row)
         main_layout.addWidget(self._table)
         main_layout.addWidget(self._set_button)
         main_layout.addLayout(remove_btns)
+        # keep the rows at the top when the panel is taller than the content
+        main_layout.addStretch()
 
         # CONNECTIONS ---------------------------------------------------------
 

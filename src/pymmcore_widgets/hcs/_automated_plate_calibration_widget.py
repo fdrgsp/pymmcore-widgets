@@ -46,7 +46,17 @@ from ._plate_survey import (
     survey_mosaic,
 )
 from ._survey_canvas import MOSAIC_MAX_PX, SurveyCanvas
-from ._well_calibration_widget import COMBO_ROLE, TWO, Mode, WellCalibrationWidget
+from ._well_calibration_widget import (
+    CANCEL_ICON,
+    COMBO_ROLE,
+    FOUR,
+    ICON_GREEN,
+    ICON_RED,
+    RUN_ICON,
+    TWO,
+    Mode,
+    WellCalibrationWidget,
+)
 from ._well_detection import (
     DetectedWell,
     DetectionResult,
@@ -93,8 +103,15 @@ INF = float("inf")
 WARN_ERROR_UM = 100.0
 
 
+# Ways to define the scan rectangle: it is the bounding box of the points.
+SCAN_AREA_MODES = (
+    Mode("2 Opposing Corners", 2, TWO),
+    Mode("4 Edge Points", 4, FOUR),
+)
+
+
 class _ScanAreaWidget(WellCalibrationWidget):
-    """The manual point editor, fixed to two opposing survey corners."""
+    """The manual point editor, recording the corners or edges of the scan area."""
 
     cornersChanged = Signal()
 
@@ -102,41 +119,60 @@ class _ScanAreaWidget(WellCalibrationWidget):
         super().__init__(parent, mmcore)
         self.well_label.setText("Scan Area")
         self.setInstructions(
-            "Record two opposite corners of an area containing the selected wells.",
+            "Record the corners or edges of an area containing the selected wells.",
             "First, select the wells on the plate diagram in the "
             "<b>Select Wells</b> tab. "
-            "Then move the stage to two <b>opposite corners</b> of a scan area that "
-            "contains all selected wells, including their complete rims, "
-            "and record each corner with <b>Set</b>. "
+            "Then define a scan area that contains all selected wells, including "
+            "their entire edges, and record each point with <b>Set</b>:<br>"
+            "- <b>2 Opposing Corners</b>: move the stage to two opposite corners "
+            "of the area.<br>"
+            "- <b>4 Edge Points</b>: move the stage to one point on each side of "
+            "the area (left, right, top and bottom), e.g. just outside the "
+            "outermost well edges. Useful when the corners are hard to find, "
+            "since they lie between wells.<br>"
+            "The scan covers the rectangle enclosing all recorded points. "
             "It is preferable to use a low magnification objective (e.g., 4x, 10x) "
-            "and transmitted light to focus on the well rims.",
+            "and transmitted light to focus on the well edges.",
         )
         self.setCircularWell(False)
-        mode = Mode("2 Opposing Corners", 2, TWO)
         with signals_blocked(self._calibration_mode_wdg):
             self._calibration_mode_wdg.clear()
-            self._calibration_mode_wdg.addItem(mode.icon, mode.text)
-            self._calibration_mode_wdg.setItemData(0, mode, COMBO_ROLE)
-        self._on_mode_changed(mode)
-        self._table.itemChanged.connect(self.cornersChanged.emit)
+            for i, mode in enumerate(SCAN_AREA_MODES):
+                self._calibration_mode_wdg.addItem(mode.icon, mode.text)
+                self._calibration_mode_wdg.setItemData(i, mode, COMBO_ROLE)
+        self._on_mode_changed(SCAN_AREA_MODES[0])
+        self._table.itemChanged.connect(self._on_points_changed)
+
+    def _on_points_changed(self, _item: object) -> None:
+        # PySide6 rejects forwarding itemChanged's argument to a no-argument signal
+        self.cornersChanged.emit()
+
+    def mode(self) -> Mode:
+        """Return how the scan area is being recorded."""
+        return self._calibration_mode_wdg.currentMode()
 
     def corners(self) -> tuple[tuple[float, float], ...]:
-        """Return recorded corners in table order."""
+        """Return recorded points in table order."""
         return tuple((x, y) for _, x, y in self._table.positions())
 
-    def _validate_calibration(self) -> None:
+    def bounds(self) -> tuple[float, float, float, float] | None:
+        """Return the (x0, y0, x1, y1) rectangle enclosing every recorded point."""
         points = self.corners()
-        ready = (
-            len(points) == 2
-            and points[0][0] != points[1][0]
-            and points[0][1] != points[1][1]
-        )
+        if len(points) != self.mode().points:
+            return None
+        (x0, y0), (x1, y1) = np.min(points, axis=0), np.max(points, axis=0)
+        if x1 <= x0 or y1 <= y0:
+            return None
+        return float(x0), float(y0), float(x1), float(y1)
+
+    def _validate_calibration(self) -> None:
         # This sets the same green completion tick as manual well calibration.
-        self.setWellCenter(points[0] if ready else None)
+        bounds = self.bounds()
+        self.setWellCenter(bounds[:2] if bounds else None)
 
 
 class AutomatedPlateCalibrationWidget(QWidget):
-    """Scan two corners, view images live, then detect and test plate calibration."""
+    """Scan an area, view images live, then detect and test plate calibration."""
 
     centersAccepted = Signal(object, float)
     testPositionRequested = Signal(object)
@@ -174,10 +210,13 @@ class AutomatedPlateCalibrationWidget(QWidget):
         memory.addWidget(QLabel("Memory limit:"))
         memory.addWidget(self._memory_limit, 1)
         self._start = QPushButton("Start Scan")
+        self._start.setIcon(QIconifyIcon(RUN_ICON, color=ICON_GREEN))
         self._start.setEnabled(False)
         self._stop = QPushButton("Cancel")
+        self._stop.setIcon(QIconifyIcon(CANCEL_ICON, color=ICON_RED))
         self._stop.hide()
-        left = QGroupBox()
+        # the side panel with the point table (same width as Manual's)
+        self._panel = left = QGroupBox()
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(5, 5, 5, 5)
         left_layout.addWidget(self._corners)
@@ -232,6 +271,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
         self._plate_view = WellPlateView()
         self._plate_view.setSelectionMode(WellPlateView.SelectionMode.MultiSelection)
         self._plate_view.setSelectedColor(Qt.GlobalColor.yellow)
+        self._plate_view.setClearButtonVisible(True)
         selection = QWidget()
         selection_layout = QVBoxLayout(selection)
         selection_layout.setContentsMargins(0, 0, 0, 0)
@@ -347,7 +387,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
         if not self._valid_selection():
             text = self._selection_hint()
         elif self._corners.wellCenter() is None:
-            text = "Set two opposite corners of the scan area."
+            text = f"Record the {self._corners.mode().text.lower()} of the scan area."
         else:
             try:
                 text, fits = self._scan_size()
@@ -398,7 +438,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
             return False
 
     def _selection_hint(self) -> str:
-        rims = " whose complete rims are included in the scan area."
+        rims = " whose edges are fully inside the scan area."
         if self._plate is not None:
             if (n := self._plate.rows * self._plate.columns) < 3:
                 return f"Select {'the well' if n == 1 else 'both wells'}" + rims
@@ -425,15 +465,14 @@ class AutomatedPlateCalibrationWidget(QWidget):
             self._fov_changed()
 
     def _read_geometry(self) -> SurveyGeometry:
-        points = self._corners.corners()
-        if len(points) != 2:
-            raise ValueError("Set two opposing corners first.")
+        bounds = self._corners.bounds()
+        if bounds is None:
+            raise ValueError("Record the scan area first.")
         if not self._mmc.getCameraDevice() or not self._mmc.getXYStageDevice():
             raise ValueError("A camera and motorized XY stage are required.")
         px = self._mmc.getPixelSizeUm()
         if not np.isfinite(px) or px <= 0:
             raise ValueError("Set the pixel size before using automated calibration.")
-        (x0, y0), (x1, y1) = points
         # Store tiles at a well-relative resolution: enough for detection, and
         # small enough that 4x/10x scans of large wells fit in memory.
         well_um = max(self._plate.well_size) * 1000 if self._plate else 0
@@ -443,7 +482,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
         # affine when configured (rotation/flip), plus camera mirror settings.
         linear = AffineState(self._mmc).system_affine[:2, :2] * b
         geometry = SurveyGeometry(
-            (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)),
+            bounds,
             (h // b, w // b),
             tuple(float(v) for v in linear.ravel()),  # type: ignore[arg-type]
             binning=b,
@@ -587,7 +626,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
         self._invalidate(clear_images=False)
         self._progress_bar.setRange(0, 0)
         self._progress_bar.show()
-        self._status.setText("Detecting well rims…")
+        self._status.setText("Detecting well edges…")
         self._start_worker(
             detect_wells,
             (
