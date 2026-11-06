@@ -32,6 +32,7 @@ from pymmcore_widgets.useq_widgets._mda_sequence import (
     AF_DISABLED_TOOLTIP,
     AF_PER_POS_SOFTWARE_TOOLTIP,
     PYMMCW_METADATA_KEY,
+    SURFACE_HARDWARE_TOOLTIP,
 )
 from pymmcore_widgets.useq_widgets._positions import AF_PER_POS_TOOLTIP
 from pymmcore_widgets.useq_widgets._z import Mode
@@ -222,6 +223,7 @@ class MDAWidget(MDASequenceWidget):
             and val.stage_positions
             and not isinstance(val.stage_positions, WellPlatePlan)
             and not self.stage_positions.include_z.isChecked()
+            and val.focus_surface is None
         ):
             z = self._mmc.getZPosition() if self._mmc.getFocusDevice() else None
             replace["stage_positions"] = tuple(
@@ -245,6 +247,9 @@ class MDAWidget(MDASequenceWidget):
             # (they're meaningless and useq will warn if they're included)
             if val.grid_plan is not None and not val.grid_plan.is_relative:
                 pos = pos.replace(x=None, y=None)
+            # a position's own z would win over the focus surface
+            if val.focus_surface is not None:
+                pos = pos.replace(z=None)
             replace["stage_positions"] = (pos,)
             # if "p" is not in the axis order, we need to add it or the position will
             # not be in the event
@@ -392,6 +397,8 @@ class MDAWidget(MDASequenceWidget):
             or z_plan is None
             or not z_plan.is_relative
             or not self._mmc.getFocusDevice()
+            # the surface gives each plate position its Z
+            or sequence.focus_surface is not None
         ):
             return sequence
         return sequence.replace(
@@ -468,7 +475,9 @@ class MDAWidget(MDASequenceWidget):
 
         # per-position autofocus offsets are a hardware-autofocus feature
         self.stage_positions.af_per_position.setEnabled(
-            has_hardware and not self.af_axis.use_software.isChecked()
+            has_hardware
+            and not self.af_axis.use_software.isChecked()
+            and not self.stage_positions.surface_focus.isChecked()
         )
         # set tooltip af_per_position
         self.stage_positions.af_per_position.setToolTip(
@@ -497,6 +506,8 @@ class MDAWidget(MDASequenceWidget):
             return AF_AXIS_TOOLTIP
         # if the widget is the autofocus per position, return the autofocus per position
         if wdg is self.stage_positions.af_per_position:
+            if self.stage_positions.surface_focus.isChecked():
+                return SURFACE_HARDWARE_TOOLTIP
             if self.af_axis.use_software.isChecked():
                 return AF_PER_POS_SOFTWARE_TOOLTIP
             return AF_PER_POS_TOOLTIP

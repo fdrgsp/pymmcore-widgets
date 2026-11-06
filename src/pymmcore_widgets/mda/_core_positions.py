@@ -32,13 +32,26 @@ from pymmcore_widgets.useq_widgets._column_info import (
 from pymmcore_widgets.useq_widgets._positions import AF_PER_POS_TOOLTIP
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from useq import Position
 
 UPDATE_POSITIONS = "Update Positions List"
 ADD_POSITIONS = "Add to Positions List"
 AF_UNAVAILABLE = "AutoFocus device unavailable."
+SURFACE_UNAVAILABLE = "Surface Focus needs an XY stage and a focus device."
+# the text and tooltip of the label replacing "Include Z" in HCS mode
+HCS_Z_INFO = (
+    "Z: focus position at run time",
+    "Plate positions do not set Z: the focus stays where it is (or where the "
+    "autofocus finds it, if enabled).<br>A relative Z stack is centered on "
+    "the focus position when the acquisition starts.",
+)
+HCS_SURFACE_Z_INFO = (
+    "Z: from Surface Focus",
+    "Each plate position gets its Z from the focus surface.<br>A relative Z stack "
+    "is centered on it.",
+)
 
 
 class CoreConnectedPositionTable(PositionTable):
@@ -63,12 +76,13 @@ class CoreConnectedPositionTable(PositionTable):
         mmcore: CMMCorePlus | None = None,
         parent: QWidget | None = None,
     ):
-        # must come before __init__ since it is used in super()._on_use_af_toggled
+        # must come before __init__ since they are used in super()._on_use_af_toggled
+        # and super()._update_surface_focus
         self._af_btn_col = ButtonColumn(
             key="af_btn", glyph="mdi:arrow-left", on_click=self._set_af_from_core
         )
-        super().__init__(rows, parent)
         self._mmc = mmcore or CMMCorePlus.instance()
+        super().__init__(rows, parent)
         self._import_overlay = BusyOverlay(self)
 
         # add event filter for the af_per_position checkbox
@@ -99,12 +113,9 @@ class CoreConnectedPositionTable(PositionTable):
 
         # replaces "Include Z" (and the AF offsets) while the positions come from the
         # HCS wizard: plate positions have no z, see `MDAWidget.execute_mda`
-        self._hcs_z_info = QLabel("Z: focus position at run time")
-        self._hcs_z_info.setToolTip(
-            "Plate positions do not set Z: the focus stays where it is (or where the "
-            "autofocus finds it, if enabled).<br>A relative Z stack is centered on "
-            "the focus position when the acquisition starts."
-        )
+        self._hcs_z_info = QLabel()
+        self._update_hcs_z_info(self.surface_focus.isChecked())
+        self.surface_focus.toggled.connect(self._update_hcs_z_info)
         self._hcs_z_info.hide()
         self._btn_row.insertWidget(0, self._hcs_z_info)
 
@@ -269,6 +280,8 @@ class CoreConnectedPositionTable(PositionTable):
         self._hcs_z_info.setVisible(not state)
         self.include_z.setVisible(state)
         self.af_per_position.setVisible(state)
+        # "Include Z" and the AF offsets only rule Surface Focus out when shown
+        self._update_surface_focus()
 
         # Hide or show all columns that are irrelevant when using the HCS wizard
         table = self.table()
@@ -340,6 +353,25 @@ class CoreConnectedPositionTable(PositionTable):
             elif prop == "AutoFocus":
                 self._update_autofocus_enablement()
 
+    def _update_hcs_z_info(self, surface: bool) -> None:
+        text, tooltip = HCS_SURFACE_Z_INFO if surface else HCS_Z_INFO
+        self._hcs_z_info.setText(text)
+        self._hcs_z_info.setToolTip(tooltip)
+
+    def _has_xyz_stages(self) -> bool:
+        return bool(self._mmc.getXYStageDevice() and self._mmc.getFocusDevice())
+
+    def _surface_focus_problem(self) -> str:
+        if not self._has_xyz_stages():
+            return SURFACE_UNAVAILABLE
+        return super()._surface_focus_problem()
+
+    def _surface_capture(self) -> Callable[[], tuple[float, float, float]] | None:
+        if not self._has_xyz_stages():
+            return None
+        mmc = self._mmc
+        return lambda: (mmc.getXPosition(), mmc.getYPosition(), mmc.getZPosition())
+
     def _update_xy_enablement(self) -> None:
         """Enable/disable the XY columns and button."""
         xy_device = self._mmc.getXYStageDevice()
@@ -349,15 +381,17 @@ class CoreConnectedPositionTable(PositionTable):
         self.table().setColumnHidden(x_col, not bool(xy_device))
         self.table().setColumnHidden(y_col, not bool(xy_device))
         self.table().setColumnHidden(xy_btn_col, not bool(xy_device))
+        self._update_surface_focus()
 
     def _update_z_enablement(self) -> None:
         """Enable/disable the Z columns and button."""
-        z_device = bool(self._mmc.getFocusDevice())
-        self.include_z.setEnabled(z_device)
-        if not z_device:
-            # but don't recheck it if it's already unchecked
-            self.include_z.setChecked(False)
-        self.include_z.setToolTip("" if z_device else "Focus device unavailable.")
+        self._update_include_z()
+        self._update_surface_focus()
+
+    def _include_z_problem(self) -> str:
+        if not self._mmc.getFocusDevice():
+            return "Focus device unavailable."
+        return super()._include_z_problem()
 
     def _update_autofocus_enablement(self) -> None:
         """Update the autofocus per position checkbox state and tooltip."""

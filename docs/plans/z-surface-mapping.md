@@ -1,9 +1,8 @@
 # Z surface mapping: research and implementation plan
 
-Status: proposal; no feature code implemented. Updated: 2026-11-06 (Surface Focus
-checkbox + gear in the position table's bottom row, not a card under Autofocus;
-combinable with software autofocus, exclusive with hardware autofocus; see §4 and
-the decision log).
+Status: first implementation in progress (2026-11-06): surface model, dialog,
+position-table controls, autofocus/Z-plan coordination, per-event Z for positions,
+grids and plates, and settings round-trip. See the checklist (§8) and the decision log.
 
 This is an editable working plan. Check off implementation tasks and record changes
 in the decision log below. Recommendations are engineering judgments based on the
@@ -15,9 +14,9 @@ Store manually focused XYZ reference points, estimate a surface `z = f(x, y)`, a
 add a **Surface Focus** checkbox with an adjacent gear button to the bottom row of
 the MDA position table, next to "Include Z" and "HAF Offset". The
 gear opens a dialog holding all the surface settings. When the checkbox is
-checked, `MDAWidget.value()` returns a sequence whose positions have
-`z = f(position.x, position.y)`. Update copies of the returned positions, preserving
-the editable table and the existing acquisition engine.
+checked, every acquisition event gets `z = f(event.x, event.y)` plus its relative
+offsets (Z stack, channel), computed as the events are iterated (§6). The
+editable table and the existing acquisition engine are unchanged.
 
 Surface Focus can be combined with **software** autofocus (the surface gives each
 position's starting Z, the image-based routine refines it), but not with
@@ -27,19 +26,14 @@ second, conflicting definition of the focus).
 
 **Recommended first release:** triangulated linear interpolation by default, an
 explicit fitted-plane alternative, at least three non-collinear reference points,
-and no extrapolation outside the sampled region. Do not automatically switch
+and extrapolation outside the sampled region that follows the fitted plane's
+slope (§5, item 6). Do not automatically switch
 methods when a fit fails. Nearest neighbour is not the recommended default.
 
-The user's clarified approach is **one surface-derived Z per final position**,
-computed in `value()`. When grids are present, expand their tiles into individual
-absolute stage positions first, then compute surface Z at every tile's XY. Remove
-the grids from the returned acquisition sequence. Keep the original editable rows
-and grid definitions in the widget and saved editor metadata.
-
-HCS well plate plans are supported the same way: a `WellPlatePlan` is expanded
-into its image positions (every selected well × every point of its
-`well_points_plan`), and each gets the surface Z at its XY (§6, "Plate plans").
-Plates are a primary use case: plate bow and tilt are what a surface map corrects.
+Every grid tile and every HCS plate image position gets the surface Z at its own
+XY, in any axis order. `value()` keeps the sequence as edited (positions without
+Z, grids, plate plans) and stores the surface in its metadata (§6, §7). Plates are
+a primary use case: plate bow and tilt are what a surface map corrects.
 
 ## 2. What the current code already does
 
@@ -238,20 +232,19 @@ selected, even with the card unchecked):
 
 | Condition | Proposed result |
 | --- | --- |
-| Include Z checked | Surface Focus cannot be checked (tooltip says why). Keep the stored map. |
+| Include Z checked | Surface Focus cannot be checked (tooltip says why). Keep the stored map. Symmetrically, checking Surface Focus unchecks and disables Include Z ("Cannot use while 'Surface Focus' is checked.") until Surface Focus is unchecked; positions loaded meanwhile keep their Z, unused. |
 | Autofocus card checked in Hardware mode | Surface Focus disabled: "Cannot use while hardware 'Autofocus' is checked." |
 | "HAF Offset" checked | Surface Focus disabled: "Cannot use while 'HAF Offset' is checked." |
 | Autofocus card checked in Software mode | Surface Focus available: surface Z is the starting point, software autofocus refines it. |
 | Surface Focus checked | Autofocus Hardware option and "HAF Offset" disabled: "Hardware autofocus cannot be used while 'Surface Focus' is checked." Software autofocus stays available. |
 | Autofocus device loaded but Autofocus unchecked | Surface Focus available. Existing run preparation handles a physically engaged continuous-focus device before acquisition. |
 | No XY or focus device | Disable activation and capture, retaining references. The gear still opens the dialog for inspecting/editing/importing the map. |
-| Invalid or incomplete surface | Disable activation and explain the problem; the gear stays available to fix it. |
-| Position axis unchecked or no selected acquisition positions | A selected grid can still be expanded: absolute grids provide XY directly; relative grids use a snapshot of the current XY as origin. Without a grid or selected positions, retain the existing implicit-current-position fallback without applying the surface. |
+| Invalid or incomplete surface | The checkbox stays enabled but cannot be checked: clicking it opens the setup dialog, and it is checked once the surface is valid. The tooltip explains the problem. |
+| Position axis unchecked or no selected acquisition positions | `MDAWidget` uses the current stage position (a relative grid is centered on it); an absolute grid gives its tiles' XY. The base widget, without a stage, needs positions or an absolute grid. |
 | Absolute Z plan selected | Disable surface mode: an absolute stack ignores the surface baseline. Relative stacks remain supported. |
-| Global absolute grid or selected row with an absolute sub-grid | Allow by expanding the actual grid coordinates into positions; never evaluate disabled display-only row XY. |
+| Global absolute grid or selected row with an absolute sub-grid | Allow: each tile's event has its XY; never evaluate disabled display-only row XY. |
 | Relative grid | Allow by adding each tile's XY offset to its parent/origin XY and evaluating surface Z there. |
-| Axis order that cannot be preserved by the supported grid-to-position expansion | Explain the restriction and require a supported order. Do not silently reorder acquisition. |
-| HCS `WellPlatePlan` | Allow: `value()` expands the plate plan into its image positions and sets each one's surface Z (§6, "Plate plans"). The checkbox stays visible in HCS mode; `_hcs_z_info` explains where Z comes from. The editor keeps the plate plan (it is not converted to editable rows). |
+| HCS `WellPlatePlan` | Allow: each image position's events get the surface Z at its XY; the plate plan is kept (§6). The checkbox stays visible in HCS mode; `_hcs_z_info` explains where Z comes from. |
 | Acquisition running | Disable edits and capture using the existing run lifecycle. Restore correct enablement afterwards. |
 
 If a conflicting option (Include Z, an absolute Z plan) becomes active while
@@ -262,20 +255,23 @@ Z-plan widgets.
 
 ### Setup dialog (gear)
 
-- Method selector: **Local linear surface** (default), **Fitted plane**.
-- Editable reference table: optional name, X [µm], Y [µm], Z [µm]. Store finite
-  float values at full precision regardless of display rounding.
-- **Add current XYZ** captures all coordinates from the same configured devices
-  after a manual focus adjustment. **Update selected from current XYZ**, remove,
-  clear, and manual entry support refinement. Reading/capturing does not move
+- Numbered reference table on the left: X [µm], Y [µm], Z [µm] (no names). Store
+  finite float values at full precision regardless of display rounding.
+- As in the position table, with a stage the **+** button adds a row at the
+  current XYZ, and an arrow column sets a row to it, after a manual focus
+  adjustment. Remove, clear, and manual entry support refinement. Reading/capturing does not move
   stages; do not add implicit movement when a sample row is selected.
 - Import/export a versioned surface JSON file, independent of position-list JSON.
 - Read-only summary: valid reference count, XY coverage, Z range, fit validity,
   and plane residuals where applicable, plus why the checkbox cannot be checked,
-  if it cannot. An optional XY plot shows samples, hull, and expanded acquisition
-  locations; it is more useful initially than a 3D view.
-- Show uncovered acquisition positions/tiles by name/index and the number affected.
-  Preview the final expanded XY coordinates, using the same expansion as `value()`.
+  if it cannot, with a status icon (green check if valid, red cross if not).
+- On the right, the method selector above a color-coded 2D map of the surface Z
+  (numbered points, colorbar, hover tooltip with X/Y/Z), drawn with QPainter; it
+  is more useful than a 3D view and needs no OpenGL. Still open: overlay the
+  acquisition locations.
+- The map outlines the measured area (the points' hull) and dims the extrapolated
+  area around it. Still open: show the acquisition positions/tiles on it, flagging
+  extrapolated ones, from the events' XY.
 - OK commits valid edits atomically; Cancel discards changes. Dialog edits cannot
   change an in-progress acquisition snapshot. Opening or accepting the dialog does
   not automatically check Surface Focus.
@@ -294,12 +290,11 @@ Create a Qt-independent module, tentatively `src/pymmcore_widgets/_z_surface.py`
 with a validated serializable definition and a separate compiled interpolator.
 
 ```text
-SurfacePoint: name?, x_um, y_um, z_um
+SurfacePoint: x_um, y_um, z_um
 ZSurfaceDefinition:
     schema_version = 1
     points: list[SurfacePoint]
     method: "linear" | "plane"
-    outside_hull: "error"
     context: XY device, focus device, optional configuration/objective identity
 CompiledZSurface:
     evaluate(xy_array) -> z_array
@@ -328,9 +323,12 @@ Validation and numerical policy:
 5. Catch triangulation failures and explain them. [SciPy's Delaunay documentation](https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.Delaunay.html)
    describes degeneracy and finite-precision caveats. Test hull edges and sample
    vertices explicitly; do not hide invalid geometry with random jitter.
-6. Default coverage is the reference points' convex hull for **both** methods.
-   Include boundary points within a documented numerical tolerance. Even though
-   a plane equation is evaluable everywhere, refuse unsampled extrapolation.
+6. Inside the reference points' convex hull (with a documented numerical
+   tolerance), the methods interpolate. Outside it, Z is extrapolated: the plane
+   is evaluated as is, and the linear surface continues from the nearest point of
+   the hull with the fitted plane's slope, so it has no step at the hull and
+   follows the sample tilt (3 points give exactly the plane). The dialog marks the
+   extrapolated area.
 7. An interior location can still be poorly supported. Show large triangle spans
    and nearest-reference distance; consider a user-set maximum support span after
    initial measurement trials. Do not invent a universal distance cutoff.
@@ -345,181 +343,60 @@ Validation and numerical policy:
    Stage re-zeroing, sample replacement, or changed optics can invalidate it even
    if device labels match. Provide a clear way to reset/revalidate its context.
 
-Recommended dependency choice: add SciPy explicitly for maintained triangulation
-and interpolation, and declare NumPy directly if the new module imports it.
-Choose supported minimum versions against this project's Python/OS matrix and
-update `uv.lock` with `uv`; do not rely on transitive installations. Avoid writing
-a triangulation implementation. If SciPy's footprint proves unacceptable, make
-that a documented design revision rather than quietly changing the default to
-nearest neighbour.
+Dependency choice (revised 2026-11-06): the surface lives in useq-schema, which
+depends only on NumPy, so its triangulation is NumPy-only (`useq/_focus_surface.py`):
+a sweep over the points sorted by (x, y), then Lawson edge flips. In general
+position the Delaunay triangulation is unique, and the interpolation matches
+SciPy's `LinearNDInterpolator` to ~1e-13 (300 random sets checked). Cocircular
+points (rectangle corners, regular grids) have several Delaunay triangulations:
+Qhull's choice is an implementation detail, ours keeps the sweep's split, so it
+does not depend on the order of the points. No SciPy dependency is needed.
 
-## 6. Sequence construction: implement the user's `value()` approach
+## 6. Sequence construction: `MDASequence.focus_surface` (useq-schema)
 
-Keep the ordinary return type and existing `run_mda(sequence)` path. There is no
-surface event adapter or engine customization in this scope.
+The surface is part of the schema: `useq.FocusSurface(points=[(x, y, z), ...],
+method="linear" | "plane")` in `MDASequence.focus_surface`. useq validates it
+(at least 3 points, no duplicate XY, not on a line) and rejects it with an
+absolute Z plan. While iterating (`useq/_iter_sequence.py::_xyzpos`), an event at
+a position without its own `z` gets the surface Z at the event's XY as its base
+Z, then the relative Z plan and channel offsets are added as usual. A position's
+own `z` wins. Surface Z is computed once per distinct XY. So any runner
+(pymmcore-plus or other) follows the surface from a plain saved sequence, and:
 
-Conceptual change inside `MDAWidget.value()`:
+- **Grids:** every tile gets the surface Z at its own XY, in **any** axis order
+  (e.g. `t,p,c,g,z`), with the `g` axis and grid indices intact.
+- **Autofocus:** any software autofocus schedule (`p`, `g`, intervals) works
+  unchanged: the event Z is where the routine starts, and the pymmcore-plus engine
+  keeps its result as a per-position correction. Hardware autofocus is not
+  combined with Surface Focus (§4); that is the widget's rule, not useq's.
+- **Plate plans:** each image position gets the surface Z at its XY, and the
+  `WellPlatePlan` is kept, so writers get the full plate layout and FOV indices.
 
-```python
-val = super().value()
-replace = {}
+In pymmcore-widgets, `MDASequenceWidget.value()` sets `focus_surface` while
+Surface Focus is checked and keeps positions without Z. `MDAWidget` gives the
+current stage position no Z when it adds it (no positions), does not fill the
+positions' Z from the current focus, and does not anchor a plate's relative stack
+to the current Z. `_z_surface.ZSurface` is the editor's state (possibly incomplete,
+e.g. 2 points); `ZSurface.focus_surface()` builds the useq model and `problem()`
+returns useq's validation message.
 
-if surface_is_active_for_selected_positions_or_grid:
-    validate_surface_and_sequence_compatibility(val)
-    # a WellPlatePlan expands to its image positions; grids to their tiles
-    expanded = expand_grids_to_positions(val, origin=origin_snapshot_if_needed)
-    xy = require_explicit_finite_xy(expanded.stage_positions)
-    zs = compiled_surface.evaluate(xy)  # raises on uncovered positions/tiles
-    replace["stage_positions"] = tuple(
-        pos.replace(z=float(z))
-        for pos, z in zip(expanded.stage_positions, zs, strict=True)
-    )
-    replace["grid_plan"] = None
-    replace["axis_order"] = expanded.axis_order
-    # Also use expanded AF/shutter settings if their axes were remapped.
-elif existing_relative_stack_without_include_z_condition:
-    # Existing behavior: use current stage Z as the shared baseline.
-    ...
-
-# Existing autofocus/current-position/save metadata/channel-property handling.
-# Preserve the computed stage_positions when applying subsequent replacements.
-...
-```
-
-This is pseudocode, not an instruction to call hardware during interpolation.
-Read the surface model from committed UI state; `value()` must not update widgets,
-move stages, run autofocus, or overwrite the position table's manual Z cells.
-
-For no stack: `event Z = surface Z + channel Z offset`.
-For a relative stack: `event Z = surface Z + relative stack Z + channel Z offset`.
-Preserve existing channel `do_stack=False` semantics. Let useq apply these offsets
-once; do not add them into the saved reference heights or position Z yourself.
-
-With **software autofocus**, no extra code is needed: the event Z (surface Z plus
-offsets) is where the routine starts, and the pymmcore-plus engine keeps its result
-as a per-position correction (`z_after - z_before`, keyed by the `p` index) that it
-adds to that position's later events, including stack planes. Positions/timepoints
-where autofocus does not run (e.g. AF every N timepoints) use surface Z plus that
-position's last correction. Hardware autofocus is not combined with Surface Focus
-(§4).
-
-### Expand grids into ordinary positions
-
-This is the preferred way to obtain per-tile surface following while keeping
-`value()` responsible for constructing a normal acquisition sequence. For example,
-a row named `Area A` with three tiles becomes `Area A / tile 0000`,
-`Area A / tile 0001`, and `Area A / tile 0002`, each with its own absolute XYZ.
-If the tile centers predict 10 and 15 µm, those tiles receive 10 and 15 µm rather
-than sharing the parent's Z.
-
-1. Expand only the selected spatial plans, not the full time/channel/Z event
-   product. An ordinary row without a grid yields one position. A row's sub-grid
-   overrides the global grid for that row, matching current useq precedence.
-2. For a relative grid, add tile offsets to the parent XY. For an absolute grid,
-   use the tile XY directly. With no selected parent rows, expand the global grid
-   once; capture current XY once if a relative origin is needed. Reject missing
-   required coordinates instead of substituting zero.
-3. Resolve actual FOV size/overlap before expansion, using the same geometry as
-   acquisition. Reject missing/zero calibration when required. The engine cannot
-   update spacing later after the grid has been removed. Invalidate cached tiles
-   after relevant pixel-size, ROI, objective, origin, or grid changes.
-4. Iterate the grid in its native scan order, including snake/spiral order and
-   polygon-selected tiles. Preserve duplicate locations from distinct input rows;
-   deduplicating them would change acquisition intent.
-5. Copy parent position properties and supported non-grid sub-sequence settings
-   to each resulting position, remove its sub-grid, and remove the global grid.
-   Drop an empty child sequence. Retain plate/grid row and column information
-   where available, with deterministic unique tile names and explicit provenance
-   mapping `new p -> original p, original g, source name` in metadata.
-6. Collapse spatial axes into one `p` axis. Initially support the normal adjacent
-   `p,g` order (among active axes), plus grid-only plans where `g` becomes `p`.
-   For example `t,p,g,c,z` becomes `t,p,c,z`. Orders such as `p,c,g` cannot generally
-   retain their visitation order by simply making parent-major tile positions;
-   reject unsupported orders with a clear message instead of rearranging them.
-7. Software autofocus on `g` becomes autofocus on the flattened `p`. Software
-   autofocus on the original parent `p` would now run per tile if mapped naively,
-   so explicitly label/choose the resulting schedule or reject that combination in
-   the initial implementation. Engine corrections are keyed by `p`, so each tile
-   keeps its own. (Hardware autofocus is never combined with Surface Focus.) Remap
-   or reject shutter-open axis settings as well: separate parent/grid boundary
-   behavior cannot always be represented by one axis.
-8. Existing UI-generated child sequences are grid-only. Imported sequences with
-   additional child axes/actions need explicit preservation tests before support;
-   reject unsupported combinations instead of discarding their settings.
-9. Saving now sees more `p` positions and no `g` dimension. Show the resulting
-   position count and verify output writers, stage navigation/progress labels,
-   and any downstream assumptions about mosaic/grid indices. Metadata preserves
-   tile provenance but does not itself guarantee automatic mosaic reconstruction.
-
-Keep expansion in a pure helper and test it independently from interpolation.
-It creates a regular useq sequence, so the existing channel-property sequence
-handling can still wrap the completed result without a surface event adapter.
-
-A small check against the installed useq on 2026-11-04 verified the basic approach:
-two parent positions with 2-by-2 relative grids became eight absolute positions.
-With two channels and a three-plane relative stack, all 48 events retained XY and
-visitation order, with the expected tile-specific planar surface Z plus stack and
-channel offsets. This validates the common `p,g,c,z -> p,c,z` case, not all grid,
-AF, shutter, writer, or settings-restoration behavior listed above.
-
-### Plate plans (HCS)
-
-A `WellPlatePlan` already acquires as a single `p` axis: iterating it yields
-`image_positions`, i.e. every selected well × every point of its
-`well_points_plan` (one centre point, a grid, random points, or the Cover Area
-`GridFromShape`), in stage coordinates after the plate calibration
-(`a1_center_xy`, rotation). So the expansion is simpler than for grids:
-
-1. Replace `stage_positions` with `tuple(plan)`, setting `z` on each position from
-   the surface at its XY. The `p` count, order and indices do not change, so the
-   axis order, the autofocus schedule (including `every_n_positions`), and the
-   shutter settings need no remapping. Expanded positions keep their names
-   (`A1_0000`, …) and `plate_row`/`plate_col`.
-2. A `WellPlatePlan` cannot be combined with a global `grid_plan` (the HCS
-   wizard uses `well_points_plan`; ome-writers rejects the combination), so no
-   second expansion is needed. Reject it if a programmatic sequence has one.
-3. Once positions carry Z, `_anchor_plate_z_plan` must not run (it is skipped
-   anyway, since `stage_positions` is no longer a `WellPlatePlan`), and the
-   existing "plate positions have no Z" behavior does not apply: a relative
-   stack is centered on each position's surface Z.
-4. Coverage: image positions are spread over each well, so references at well
-   centres can leave the outer FOVs of edge wells outside the hull, which is an
-   error (§5). The dialog's uncovered-position list must name these by well and
-   FOV, and the user guide should suggest placing references near the outer edge
-   of the outermost selected wells. Do not extrapolate to cover them.
-5. The surface uses the calibrated stage XY, so recalibrating the plate (new
-   A1 centre/rotation) moves the image positions and `value()` re-evaluates Z
-   there. Re-seating the plate, however, invalidates the references themselves
-   (§5, item 9).
-
-Output: the resolved sequence has a tuple of positions rather than a
-`WellPlatePlan`. Checked against the installed ome-writers on 2026-11-06:
-
-- ome-writers infers the plate from `plate_row`/`plate_col` on plain positions,
-  but only up to the highest used row and column, and without the plate name
-  (`96-well`). With the plan it gets the full 8 × 12 layout and the name.
-- `Position.__add__` in useq (used for `well + offset`) drops the offset's
-  `grid_row`/`grid_col`, so expanded positions lose their FOV grid indices
-  within the well, which ome-writers reads from `well_points_plan` when it has
-  the plan.
-
-Recommended: expand anyway (no schema change, and the acquisition is correct),
-and close the metadata gaps separately: fix `Position.__add__` in the useq-schema
-`cite` branch to keep the offset's grid indices, and either store the plate
-definition in the resolved sequence's metadata for writers, or add optional
-per-image-position Z to `WellPlatePlan` in useq-schema so the plan can stay
-intact. Decide between those two before implementing the plate case; verify the
-written plate layout either way.
+Plate coverage: image positions are spread over each well, so references at well
+centres leave the outer FOVs of edge wells outside the hull: their Z is
+extrapolated with the plate tilt (§5). The user guide should still suggest placing
+references near the outer edge of the outermost selected wells. The surface uses
+the calibrated stage XY, so recalibrating the plate moves the image positions and
+their Z follows; re-seating the plate invalidates the references themselves (§5,
+item 9).
 
 ### Validation timing and responsiveness
 
 The application calls `value()` for more than Run. Cache fitting, vectorize
 evaluation, and keep routine enablement checks independent of full sequence
-construction. Cache grid expansion as well as fitting; estimate/bound expansion
-size before allocating huge position lists. Avoid enumerating tiles in every
-enablement slot. Avoid recursive `valueChanged -> value() -> valueChanged` paths.
+construction. Validation does not iterate the events, and the surface Z is
+computed once per distinct XY while iterating. Avoid recursive
+`valueChanged -> value() -> valueChanged` paths.
 
-An active map that becomes invalid or uncovered must not silently revert to
+An active map that becomes invalid must not silently revert to
 current stage Z or output partially resolved positions. Return a clear validation
 error; make preview/save callers display it without crashing. In run preparation,
 validate before creating output destinations or moving hardware. Check the final
@@ -536,10 +413,12 @@ to `value()`; no drift tracking is implied.
 
 ## 7. Persistence and compatibility
 
-Store the map definition and checkbox state under a versioned namespace in
-`MDASequence.metadata["pymmcore_widgets"]["z_surface"]`. Keep resolved numeric
-`Position.z` in the ordinary sequence fields. This makes the acquisition sequence
-usable by a normal useq/pymmcore-plus consumer without this UI's map evaluator.
+An active surface is the sequence's `focus_surface` field (§6), so the saved
+sequence is usable by any useq consumer. A surface that is set up but not used
+(Surface Focus unchecked) is kept in
+`MDASequence.metadata["pymmcore_widgets"]["z_surface"]` (`{"method", "points"}`,
+the same JSON as a `FocusSurface`) so turning the feature off does not discard it.
+The JSON example below is the original proposal, kept for reference.
 
 Illustrative metadata shape (three points shown only as a format example):
 
@@ -548,7 +427,6 @@ Illustrative metadata shape (three points shown only as a format example):
   "schema_version": 1,
   "enabled": true,
   "method": "linear",
-  "outside_hull": "error",
   "units": "um",
   "points": [
     {"x_um": 0.0, "y_um": 0.0, "z_um": 10.0},
@@ -562,14 +440,9 @@ Illustrative metadata shape (three points shown only as a format example):
 - Write this metadata after the base widget builds its fresh metadata. Preserve
   saving settings and per-channel device properties. Serialize the map even when
   disabled so turning the feature off does not discard setup work.
-- Include an unexpanded `source_plan` for editor restoration: original selected
-  positions/sub-grids or `WellPlatePlan`, global grid, axis order, AF schedule,
-  and shutter-axis settings before transformation. Exclude this surface metadata when constructing
-  `source_plan` to avoid recursive embedding. Keep tile-to-source provenance
-  separately. The ordinary sequence fields remain the fully resolved acquisition.
-- On load, reconstruct the editor from `source_plan` when present, rather than
-  showing thousands of generated tiles or expanding a saved grid twice. A saved
-  plate plan reopens in HCS mode, not as editable rows. Restore
+- The sequence fields are the editor's (positions without Z, grids, plate plan),
+  so loading restores the editor directly; no separate source plan is needed. A
+  saved plate plan reopens in HCS mode, not as editable rows. Restore
   rows and AF/Z plans, then restore the map and mode atomically.
   `PositionTable.setValue()` infers Include Z from non-null Z; surface-generated Z
   would otherwise incorrectly reactivate Include Z. When valid enabled surface
@@ -596,46 +469,42 @@ Illustrative metadata shape (three points shown only as a format example):
 
 ### Phase 1: numerical model and evidence
 
-- [ ] Add the serializable definition, compiled model, validation, coverage, and
+- [x] Add the serializable definition, compiled model, validation, coverage, and
   plane/linear evaluators with no Qt dependency.
-- [ ] Declare numerical dependencies and regenerate the lockfile with `uv`.
-- [ ] Add meaningful tests for planar reproduction, reference vertices, hull
-  boundaries, duplicate/non-finite/collinear inputs, and out-of-hull errors.
+- [x] Declare numerical dependencies and regenerate the lockfile with `uv`.
+- [x] Add meaningful tests for planar reproduction, reference vertices, hull
+  boundaries, duplicate/non-finite/collinear inputs, and out-of-hull extrapolation.
 - [ ] Record a reproducible method comparison using held-out points. Keep the
   distinction between synthetic checks and measured microscope accuracy.
 
 ### Phase 2: setup and position-table controls
 
-- [ ] Add the Surface Focus checkbox + gear to the position table's bottom row
+- [x] Add the Surface Focus checkbox + gear to the position table's bottom row
   (after "HAF Offset"), the setup dialog, capture/edit actions,
   and surface JSON.
-- [ ] Allow Surface Focus with software autofocus; make it exclusive with hardware
+- [x] Allow Surface Focus with software autofocus; make it exclusive with hardware
   autofocus (disabled Hardware option / disabled Surface Focus checkbox, mutual
   exclusion with "HAF Offset", Software selected when checking
   Autofocus), with the tooltips from §4, combined with device-based enablement,
   and restored correctly after a run.
-- [ ] Separate core-independent table/dialog state from core capture/device checks;
+- [x] Separate core-independent table/dialog state from core capture/device checks;
   keep MDA-level AF/Z-plan compatibility in the MDA owner.
-- [ ] Implement atomic dialog Apply/Cancel behavior and cached compilation.
-- [ ] Add centralized mode coordination (Autofocus, Include Z, Z plan), descriptive
+- [x] Implement atomic dialog Apply/Cancel behavior and cached compilation.
+- [x] Add centralized mode coordination (Autofocus, Include Z, Z plan), descriptive
   disabled tooltips, the HCS-mode label/visibility, and unsupported-order
   restrictions. Preserve references across mode changes.
 
 ### Phase 3: `value()`, saving, and execution
 
-- [ ] Insert the surface branch ahead of the current-relative-Z fallback and
+- [x] Insert the surface branch ahead of the current-relative-Z fallback and
   preserve existing sequence fields, channel properties, and manual table cells.
-- [ ] Add a pure grid-expansion helper for relative/absolute, global/per-position,
-  polygon, and grid-only cases. Remove all consumed grids from the output, handle
-  geometry calibration, and map supported acquisition order/AF/shutter settings.
-- [ ] Expand `WellPlatePlan`s into their image positions with surface Z (§6,
-  "Plate plans"), skipping `_anchor_plate_z_plan`; keep the plan in the editor.
-  Decide how to keep the plate layout for writers (plan metadata vs per-position
-  Z in useq) and fix `Position.__add__` grid indices in useq-schema.
-- [ ] Support no stack, relative stacks, and channel offsets on every expanded
-  position; retain implicit current-position behavior when no spatial plan is used.
-- [ ] Add metadata round-trip including original editor grids and tile provenance,
-  legacy reset behavior, and resolved position export.
+- [x] Add `useq.FocusSurface` and `MDASequence.focus_surface` to useq-schema
+  (NumPy-only), giving each event the surface Z at its XY plus its offsets, for
+  positions, grids in any axis order and plate plans; use it from the widgets.
+- [x] Support no stack, relative stacks, and channel offsets on every event;
+  retain implicit current-position behavior when no spatial plan is used.
+- [ ] Add metadata round-trip tests for legacy reset behavior, and decide whether
+  to export resolved positions (each with its surface Z).
 - [ ] Add preflight error presentation, final target-range checks where supported,
   and consistent prepared/run snapshots without breaking subclass APIs.
 
@@ -648,28 +517,23 @@ Illustrative metadata shape (three points shown only as a format example):
   never be active together (UI, `setValue`, and `value()`), with the expected
   tooltips, and that software autofocus + Surface Focus is allowed.
 - [ ] With the demo core and a software autofocus routine, verify each position
-  starts at its surface Z, the routine's correction is kept per position (and per
-  tile after flattening), and later events/stack planes use surface Z plus it.
+  starts at its surface Z, the routine's correction is kept per position, and
+  later events/stack planes use surface Z plus it.
 - [ ] With the demo core, verify emitted event Z for multiple positions, relative
   stacks, channel offsets, non-stacking channels, and per-tile grid following.
-- [ ] Verify expansion preserves tile scan order, applicable parent properties,
-  unique names, and supported non-spatial event order/count. Test grid-only plans,
-  mixed gridded/plain rows, absolute sub-grids, polygon tiles, FOV changes, and
-  unsupported-order rejection. Confirm no second grid expansion occurs.
-- [ ] Verify the flattened `p` output with save writers and AF/shutter schedules;
-  repeated load/save must restore the original editor and keep tile counts stable.
+- [ ] Verify the written output (grids, plate layout) with save writers and
+  AF/shutter schedules; repeated load/save must restore the editor unchanged.
 - [ ] With the demo core and an HCS plate plan (single point, grid, and Cover Area
-  per well): verify per-FOV surface Z, unchanged `p` order/count and AF
-  schedule, relative stacks centered on surface Z, uncovered edge-well FOVs
-  reported, `_hcs_z_info` text, and the plate layout in the written output.
+  per well): verify per-FOV surface Z, unchanged event order and AF
+  schedule, relative stacks centered on surface Z, extrapolated edge-well FOVs, `_hcs_z_info` text, and the plate layout in the written output.
 - [ ] Verify channel property events still contain properties.
 - [ ] Verify `value()` leaves widget/manual Z state unchanged, is deterministic
-  for fixed inputs, and raises for uncovered positions/tiles before acquisition
+  for fixed inputs, and raises for unsupported sequences before acquisition
   starts. Test bounded handling of very large grids.
 - [ ] Test JSON/YAML round-trip, map-disabled persistence, conflicting imported
   settings, unknown schema versions, and legacy files without map metadata.
 - [ ] Add a minimal example and user guide explaining reference placement,
-  coverage, grid-to-position expansion, and when refocusing/re-mapping is needed.
+  coverage, extrapolation, and when refocusing/re-mapping is needed.
 - [ ] Run `uv run prek -a && uv run pytest` and require CI to pass before merge.
 
 Existing tests to extend: `tests/test_useq_core_widgets.py` (including
@@ -684,17 +548,15 @@ when implementing; reuse existing table infrastructure where practical.
 
 ## 9. Later extensions and decisions to revisit
 
-- **Preserving separate `p` and `g` axes:** a later event-level approach could
-  retain the original grid dimension and more complex axis/scheduling semantics.
-  The proposed first implementation instead flattens grids in `value()` and
-  documents supported orders. HCS plate plans are expanded too (§6); keeping
-  the `WellPlatePlan` intact with per-position Z is the related open choice.
+- **Z in the sequence itself:** if useq gains per-position/per-tile Z callbacks
+  or fields, the surface could live in the plain sequence instead of a subclass,
+  so a saved sequence would follow it without pymmcore-widgets.
 - **Multiple regions/surfaces:** assign by region/well rather than allowing a
   triangulation to bridge unrelated samples.
 - **Smooth fitting:** introduce a regularized thin-plate or cubic option only
   after independent focus validation, with explicit smoothing and overshoot policy.
-- **Coverage extensions:** extrapolation, nearest fallback, maximum support span,
-  or constant/line maps must be named user choices, not hidden fallbacks.
+- **Coverage extensions:** a maximum extrapolation distance, nearest fallback,
+  maximum support span, or constant/line maps must be named user choices.
 - **Adaptive sampling or drift:** separate static map estimation from automatic
   autofocus sampling and time-dependent correction.
 - **Editor fidelity on settings reload:** decide whether hidden manual Z values
@@ -712,3 +574,11 @@ when implementing; reuse existing table infrastructure where practical.
 | 2026-11-06 | Allow Surface Focus with **software** autofocus; exclude **hardware** autofocus. | Software AF starts from the event Z, so the surface makes its search smaller, faster and more robust (engine keeps per-position corrections). Hardware AF locks to its own reference whatever the start Z (the surface would be discarded, and per-position AF offsets would conflict with it). Tooltips: "Cannot use while hardware 'Autofocus' is checked." / "Hardware autofocus cannot be used while 'Surface Focus' is checked." Revisit "surface pre-focus for hardware AF" if capture range is a problem on real plates. |
 | 2026-11-06 | Go back to a **Surface Focus** checkbox + gear button in the position table's bottom row (next to Include Z and "HAF Offset"); all settings in the gear's dialog. No card under Autofocus. | User decision: the surface is a property of the positions, so it belongs with the position table's Z options. Keeps the software/hardware autofocus rules above; "HAF Offset" and Surface Focus are mutually exclusive. |
 | 2026-11-06 | Support HCS `WellPlatePlan`s instead of deferring them. | User decision: plates are a main use case (plate tilt/bow). A plate plan is already one `p` axis, so `value()` expands it to its image positions with surface Z and no axis/AF remapping. The checkbox stays visible in HCS mode. Open: how to keep the full plate layout and FOV grid indices for writers (see §6, "Plate plans"). |
+| 2026-11-06 | SciPy is an optional extra, `surface` (also kept in `hcs-auto`); NumPy is a direct dependency. | User decision, following `hcs-auto`. SciPy is imported only when a surface is compiled; without it the checkbox is disabled and its tooltip says how to install it. |
+| 2026-11-06 | Core-independent rules and `value()` resolution live in `MDASequenceWidget`, not only `MDAWidget`. | The standalone widget has the same checkbox, so it must behave the same. `MDAWidget` adds device checks, capture, and the current XY as the origin of a relative grid without positions. `AutofocusAxis.setHardwareBlocked` keeps the settings conflict separate from device availability. |
+| 2026-11-06 | Flattened tile names are `<parent>_<tile>` (`Pos<p>_<tile>` for unnamed parents); no separate provenance map yet. | `grid_row`/`grid_col` are kept on each tile. Autofocus is only remapped for "every tile" (`g`, intervals of 1); other `p`/`g` schedules are rejected. A plain position in a mixed list also gets autofocus once `g` becomes `p`. |
+| 2026-11-06 | `metadata["pymmcore_widgets"]["z_surface"]` stores the map, `enabled`, and `source` (positions, grid, axis order, AF plan before expansion); `setValue` restores the editor from `source`. | Invalid or unknown-version metadata, and an enabled surface with hardware autofocus, warn and load with Surface Focus off. Still open: XY plot and uncovered-position preview in the dialog, device context/review (§5.9), resolved position-list export, writer plate layout (§6). |
+| 2026-11-06 | An incomplete surface no longer disables the Surface Focus checkbox: clicking it opens the setup dialog. | User feedback: a disabled checkbox with no points looked broken, and nothing pointed to the gear. Only real conflicts (Include Z, HAF Offset, hardware autofocus, absolute Z, missing devices) disable it. |
+| 2026-11-06 | Extrapolate outside the points' hull instead of refusing those positions: the plane as is, the linear surface from the nearest hull point with the fitted plane's slope. | User decision: e.g. 4 points in one well must still give a good Z just beyond them. Nearest neighbour was considered, but it ignores the tilt. Supersedes the hull-limited coverage of 2026-11-04. The map dims the extrapolated area and its tooltip says so. |
+| 2026-11-06 | Compute Z per event when iterating (`ZSurfaceSequence`) instead of flattening grids and plates in `value()`. | User decision: flattening could not keep orders with other axes between `p` and `g` (e.g. `p,c,g`) nor per-parent AF schedules, and lost the plate layout and grid indices for writers. `value()` now returns the sequence as edited, without Z; supersedes the 2026-11-04 expansion decision and the tile-naming, `source` metadata and AF-remap rows. A saved sequence needs `ZSurfaceSequence` to follow the surface outside the widget. |
+| 2026-11-06 | Move the surface into useq-schema: `useq.FocusSurface` in `MDASequence.focus_surface`, evaluated by useq's event iteration, with a NumPy-only triangulation. | User decision: any runner follows a saved sequence, and the widgets lose `ZSurfaceSequence`, the per-event code, the `enabled` metadata and the SciPy extra. Supersedes the SciPy-extra and `ZSurfaceSequence` rows. Needs the useq-schema `cite` branch pushed and re-locked. |

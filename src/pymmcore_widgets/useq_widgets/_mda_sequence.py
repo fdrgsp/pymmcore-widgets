@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping
 from importlib.util import find_spec
 from itertools import pairwise, permutations
@@ -7,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import useq
+from pydantic import ValidationError
 from qtpy.QtCore import QEvent, Qt, Signal
 from qtpy.QtGui import QIcon
 from qtpy.QtWidgets import (
@@ -41,6 +43,7 @@ from superqt.utils import signals_blocked
 import pymmcore_widgets
 from pymmcore_widgets._humanize import humanize_time
 from pymmcore_widgets._util import QWIDGETSIZE_MAX, disable_wheel_scroll
+from pymmcore_widgets._z_surface import ZSurface
 from pymmcore_widgets.useq_widgets._autofocus_settings import (
     AutofocusSettingsDialog,
     TestRunner,
@@ -71,6 +74,7 @@ def _check_order(x: str, first: str, second: str) -> bool:
 
 
 PYMMCW_METADATA_KEY = "pymmcore_widgets"
+Z_SURFACE_KEY = "z_surface"
 NULL_SEQUENCE = useq.MDASequence()
 AXES = "tpgcz"
 ALLOWED_ORDERS = {"".join(p) for x in range(1, 6) for p in permutations(AXES, x)}
@@ -115,6 +119,11 @@ AF_PER_POS_SOFTWARE_TOOLTIP = (
     "A software routine finds focus from the images, so it has no offset to set."
 )
 AF_ENABLE_TOOLTIP = "Run an autofocus routine during the acquisition."
+SURFACE_HARDWARE_TOOLTIP = (
+    "Hardware autofocus cannot be used while 'Surface Focus' is checked."
+)
+SURFACE_HARDWARE_AF_TOOLTIP = "Cannot use while hardware 'Autofocus' is checked."
+SURFACE_ABSOLUTE_Z_TOOLTIP = "Cannot use with absolute Z positions (TOP_BOTTOM mode)."
 # Filled in when a search range is first asked for; MMStudio's own default.
 DEFAULT_AF_SEARCH_STEP_UM = 5.0
 AF_ON_AXIS_TOOLTIP = (
@@ -541,6 +550,7 @@ class AutofocusAxis(_CheckableCard):
         self._software_unavailable_reason = ""
         self._hardware_devices_ok = True
         self._hardware_unavailable_reason = ""
+        self._hardware_blocked_reason = ""
 
         self.every_n_positions = QSpinBox()
         self.every_n_grid_positions = QSpinBox()
@@ -793,6 +803,16 @@ class AutofocusAxis(_CheckableCard):
         self._hardware_unavailable_reason = reason
         self._update_kind_widgets()
 
+    def setHardwareBlocked(self, reason: str) -> None:
+        """Disable the `Hardware` mode for `reason` (e.g. a conflicting setting).
+
+        Unlike `setHardwareAvailable`, this is about the acquisition's settings, not
+        the microscope: `""` lifts the block.
+        """
+        if reason != self._hardware_blocked_reason:
+            self._hardware_blocked_reason = reason
+            self._update_kind_widgets()
+
     def isHardwareAvailable(self) -> bool:
         """Whether a hardware autofocus device is there to drive."""
         return self._hardware_devices_ok
@@ -867,11 +887,15 @@ class AutofocusAxis(_CheckableCard):
         )
 
         # --- which modes the microscope can run ---
-        self.use_hardware.setEnabled(on and self._hardware_devices_ok)
+        blocked = self._hardware_blocked_reason
+        self.use_hardware.setEnabled(on and self._hardware_devices_ok and not blocked)
         self.use_hardware.setToolTip(
-            AF_HARDWARE_TOOLTIP
-            if self._hardware_devices_ok
-            else (self._hardware_unavailable_reason or AF_HARDWARE_TOOLTIP)
+            blocked
+            or (
+                AF_HARDWARE_TOOLTIP
+                if self._hardware_devices_ok
+                else (self._hardware_unavailable_reason or AF_HARDWARE_TOOLTIP)
+            )
         )
         software = self.isSoftwareAvailable()
         self.use_software.setEnabled(on and software)
@@ -1136,6 +1160,9 @@ class MDASequenceWidget(QWidget):
         # the radios are exclusive, so any change of kind toggles `use_hardware`
         self.af_axis.use_hardware.toggled.connect(self._on_af_kind_toggled)
         self.stage_positions.af_per_position.toggled.connect(self._on_af_toggled)
+        # Surface Focus rules out the (hardware) per-position autofocus offsets
+        self.stage_positions.surface_focus.toggled.connect(self._on_af_kind_toggled)
+        self.valueChanged.connect(self._update_surface_focus)
 
     def _apply_layout_metrics(self) -> None:
         """Set the spacing and insets of the cards and footer around the tabs."""
@@ -1197,6 +1224,14 @@ class MDASequenceWidget(QWidget):
             # otherwise use selected af axes as global autofocus plan
             replace["autofocus_plan"] = self.af_axis.plan(af_axes)
 
+        surface = self.stage_positions.surface()
+        if self.stage_positions.surface_focus.isChecked():
+            replace["focus_surface"] = surface.focus_surface()
+        elif surface.points:
+            # keep the setup of a surface that is not used
+            meta = val.metadata.setdefault(PYMMCW_METADATA_KEY, {})
+            meta[Z_SURFACE_KEY] = surface.model_dump(mode="json")
+
         if replace:
             val = val.replace(**replace)
 
@@ -1210,8 +1245,21 @@ class MDASequenceWidget(QWidget):
         value : useq.MDASequence
             The [`useq.MDASequence`][] to set.
         """
+        if (focus_surface := value.focus_surface) is not None:
+            surface = ZSurface.model_validate(focus_surface.model_dump())
+        else:  # the setup of a surface that is not used, if any
+            meta = value.metadata.get(PYMMCW_METADATA_KEY, {}).get(Z_SURFACE_KEY, {})
+            try:
+                surface = ZSurface.model_validate(meta)
+            except ValidationError as e:
+                msg = f"Ignoring invalid Surface Focus settings: {e}"
+                warnings.warn(msg, stacklevel=2)
+                surface = ZSurface()
+
         # Restore atomically: observers should see only the completed sequence.
         with signals_blocked(self):
+            # off until restored below, so the positions' Z loads as it is
+            self.stage_positions.surface_focus.setChecked(False)
             self.tab_wdg.setValue(value)
 
             keep_shutter_open = value.keep_shutter_open_across
@@ -1238,6 +1286,17 @@ class MDASequenceWidget(QWidget):
                 x for x in value.axis_order if x in self.tab_wdg.usedAxes()
             )
             self.axis_order.setCurrentText(axis_text)
+
+            use_surface = focus_surface is not None
+            if use_surface and isinstance(af_plan, useq.AxesBasedAF):
+                warnings.warn(
+                    "Surface Focus was turned off: it cannot be used with hardware "
+                    "autofocus.",
+                    stacklevel=2,
+                )
+                use_surface = False
+            self.stage_positions.setSurface(surface)
+            self.stage_positions.surface_focus.setChecked(use_surface)
         self.valueChanged.emit()
 
     def _commit_editors(self) -> None:
@@ -1305,6 +1364,32 @@ class MDASequenceWidget(QWidget):
 
     # -------------- Private API --------------
 
+    def _update_surface_focus(self) -> None:
+        """Keep Surface Focus from being used with what it cannot follow.
+
+        Hardware autofocus locks to its own reference whatever the starting Z,
+        while a software routine refines the surface Z: so only the hardware kind
+        is excluded.
+        """
+        af = self.af_axis
+        surface = self.stage_positions.surface_focus.isChecked()
+        af.setHardwareBlocked(SURFACE_HARDWARE_TOOLTIP if surface else "")
+        # e.g. checking Autofocus with the blocked Hardware mode still selected
+        if (
+            surface
+            and af.isChecked()
+            and af.use_hardware.isChecked()
+            and af.isSoftwareAvailable()
+        ):
+            af.use_software.setChecked(True)
+        if self._uses_absolute_z():
+            conflict = SURFACE_ABSOLUTE_Z_TOOLTIP
+        elif af.kind() == "hardware":
+            conflict = SURFACE_HARDWARE_AF_TOOLTIP
+        else:
+            conflict = ""
+        self.stage_positions.setSurfaceFocusConflict(conflict)
+
     def _settings_extensions(self) -> str:
         """Returns the available extensions for MDA settings save/load."""
         if find_spec("yaml") is not None:
@@ -1328,13 +1413,16 @@ class MDASequenceWidget(QWidget):
         rules them out just as an absolute Z plan does.
         """
         software = self.af_axis.use_software.isChecked()
+        surface = self.stage_positions.surface_focus.isChecked()
         if not state:
             af_per_pos_tooltip = AF_DISABLED_TOOLTIP
+        elif surface:
+            af_per_pos_tooltip = SURFACE_HARDWARE_TOOLTIP
         elif software:
             af_per_pos_tooltip = AF_PER_POS_SOFTWARE_TOOLTIP
         else:
             af_per_pos_tooltip = AF_PER_POS_TOOLTIP
-        state = state and not software
+        state = state and not software and not surface
         self.stage_positions.af_per_position.setEnabled(state)
         self.stage_positions.af_per_position.setToolTip(af_per_pos_tooltip)
         # hide the autofocus columns if autofocus per position is disabled

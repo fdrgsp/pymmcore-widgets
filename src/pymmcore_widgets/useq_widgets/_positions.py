@@ -24,12 +24,14 @@ from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
 from pymmcore_widgets._util import use_combo_row_height
+from pymmcore_widgets._z_surface import METHODS, ZSurface
 
+from ._autofocus_settings import _settings_button
 from ._column_info import FloatColumn, TextColumn, WdgGetSet, WidgetColumn
 from ._data_table import DataTableWidget
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from qtpy.QtCore import SignalInstance
     from qtpy.QtGui import QShowEvent
@@ -46,6 +48,13 @@ AF_PER_POS_TOOLTIP = (
     "If checked, the user can set a different Hardware Autofocus Offset for each "
     "Position in the table."
 )
+SURFACE_TOOLTIP = (
+    "Take each position's Z (and each grid tile's) from a surface through manually "
+    "focused reference points.\nSet the points up with the settings button."
+)
+SURFACE_INCLUDE_Z_TOOLTIP = "Cannot use while 'Include Z' is checked."
+SURFACE_HAF_TOOLTIP = "Cannot use while 'HAF Offset' is checked."
+INCLUDE_Z_SURFACE_TOOLTIP = "Cannot use while 'Surface Focus' is checked."
 
 
 class _MDAPopup(QDialog):
@@ -280,6 +289,18 @@ class PositionTable(DataTableWidget):
         self.af_per_position.toggled.connect(self._on_af_per_position_toggled)
         self._on_af_per_position_toggled(self.af_per_position.isChecked())
 
+        self.surface_focus = QCheckBox("Surface Focus")
+        self.surface_focus.toggled.connect(self.valueChanged)
+        self.surface_focus.clicked.connect(self._on_surface_focus_clicked)
+        self._surface_settings = _settings_button("Set up the focus surface.")
+        self._surface_settings.clicked.connect(self._edit_surface)
+        self._surface = ZSurface()
+        # why the owning MDA widget's settings rule Surface Focus out, if they do
+        self._surface_conflict = ""
+        self.include_z.toggled.connect(self._update_surface_focus)
+        self.af_per_position.toggled.connect(self._update_surface_focus)
+        self.surface_focus.toggled.connect(self._update_include_z)
+
         self._save_button = QPushButton("Save")
         self._save_button.setIcon(QIconifyIcon("mdi:content-save-outline"))
         self._save_button.setToolTip("Save positions")
@@ -302,11 +323,17 @@ class PositionTable(DataTableWidget):
         self._btn_row.setSpacing(15)
         self._btn_row.addWidget(self.include_z)
         self._btn_row.addWidget(self.af_per_position)
+        surface_row = QHBoxLayout()
+        surface_row.setSpacing(5)
+        surface_row.addWidget(self.surface_focus)
+        surface_row.addWidget(self._surface_settings)
+        self._btn_row.addLayout(surface_row)
         self._btn_row.addStretch()
         self._btn_row.addLayout(self._position_actions)
 
         layout = cast("QVBoxLayout", self.layout())
         layout.addLayout(self._btn_row)
+        self._update_surface_focus()
 
     # ------------------------- Public API -------------------------
 
@@ -419,7 +446,8 @@ class PositionTable(DataTableWidget):
 
         super().setValue(_values)
         with signals_blocked(self):
-            self.include_z.setChecked(_include_z)
+            # with Surface Focus, the Z is kept but not used
+            self.include_z.setChecked(_include_z and not self.surface_focus.isChecked())
             self.af_per_position.setChecked(_use_af)
         self.valueChanged.emit()
 
@@ -461,6 +489,21 @@ class PositionTable(DataTableWidget):
             self.setValue([useq.Position(**d) for d in data])
         except Exception as e:  # pragma: no cover
             raise ValueError(f"Failed to load MDASequence file: {src}") from e
+
+    def surface(self) -> ZSurface:
+        """Return the focus surface used when Surface Focus is checked."""
+        return self._surface
+
+    def setSurface(self, surface: ZSurface) -> None:
+        """Set the focus surface used when Surface Focus is checked."""
+        self._surface = surface
+        self._update_surface_focus()
+        self.valueChanged.emit()
+
+    def setSurfaceFocusConflict(self, reason: str) -> None:
+        """Rule Surface Focus out for `reason` (e.g. hardware autofocus), or `""`."""
+        self._surface_conflict = reason
+        self._update_surface_focus()
 
     def setXYEnabled(self, enabled: bool) -> None:
         """Disable or enable X/Y columns for all rows (e.g. global absolute grid)."""
@@ -539,6 +582,63 @@ class PositionTable(DataTableWidget):
                 wdg.setToolTip(tip)
 
     # ------------------------- Private API -------------------------
+
+    def _surface_focus_problem(self) -> str:
+        """Return why Surface Focus cannot be used now, or `""`."""
+        if self._is_active(self.include_z):
+            return SURFACE_INCLUDE_Z_TOOLTIP
+        if self._is_active(self.af_per_position):
+            return SURFACE_HAF_TOOLTIP
+        return self._surface_conflict
+
+    def _include_z_problem(self) -> str:
+        """Return why Include Z cannot be used now, or `""`."""
+        return INCLUDE_Z_SURFACE_TOOLTIP if self.surface_focus.isChecked() else ""
+
+    def _update_include_z(self) -> None:
+        """Uncheck and disable Include Z while it cannot be used."""
+        problem = self._include_z_problem()
+        if problem:
+            self.include_z.setChecked(False)
+        self.include_z.setEnabled(not problem)
+        self.include_z.setToolTip(problem)
+
+    def _is_active(self, checkbox: QCheckBox) -> bool:
+        # explicit states only: an ancestor is disabled while an MDA runs
+        return bool(
+            checkbox.isChecked()
+            and checkbox.isEnabledTo(self)
+            and checkbox.isVisibleTo(self)
+        )
+
+    def _update_surface_focus(self) -> None:
+        """Uncheck Surface Focus while it cannot be used, keeping its surface."""
+        conflict = self._surface_focus_problem()
+        incomplete = self._surface.problem()
+        if conflict or incomplete:
+            self.surface_focus.setChecked(False)
+        self.surface_focus.setEnabled(not conflict)
+        # until the surface is set up, a click opens the setup dialog instead
+        self.surface_focus.setCheckable(not incomplete)
+        method, n = METHODS[self._surface.method], len(self._surface.points)
+        status = incomplete or f"{method} through {n} points."
+        self.surface_focus.setToolTip(conflict or f"{SURFACE_TOOLTIP}\n\n{status}")
+
+    def _on_surface_focus_clicked(self) -> None:
+        if not self.surface_focus.isCheckable():
+            self._edit_surface()
+            self.surface_focus.setChecked(True)  # no-op if still incomplete
+
+    def _surface_capture(self) -> Callable[[], tuple[float, float, float]] | None:
+        """Return a function giving the current stage XYZ, if it can be known."""
+        return None
+
+    def _edit_surface(self) -> None:
+        from ._z_surface_dialog import ZSurfaceDialog
+
+        dialog = ZSurfaceDialog(self._surface, self._surface_capture(), self)
+        if dialog.exec():
+            self.setSurface(dialog.value())
 
     def _on_include_z_toggled(self, checked: bool) -> None:
         z_col = self.table().indexOf(self.Z)
