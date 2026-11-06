@@ -8,7 +8,10 @@ import pytest
 import useq
 from qtpy.QtWidgets import QWidget
 
-from pymmcore_widgets.hcs._plate_calibration import validated_calibration_plan
+from pymmcore_widgets.hcs._plate_calibration import (
+    fit_plate_calibration,
+    validated_calibration_plan,
+)
 from pymmcore_widgets.hcs._plate_calibration_widget import PlateCalibrationWidget
 from pymmcore_widgets.hcs._plate_survey import (
     MAX_TILES,
@@ -115,6 +118,36 @@ def test_shared_fit_and_atomic_centers(qtbot, global_mmcore, rotation):
 def test_invalid_calibration(centers):
     with pytest.raises(ValueError):
         validated_calibration_plan(_plate(), centers, 50)
+
+
+@pytest.mark.parametrize(
+    "indices",
+    [((0, 0), (0, 1), (1, 0), (1, 1)), ((1, 0), (1, 1), (1, 2))],
+    ids=["block", "row"],
+)
+def test_fit_uses_nominal_spacing(indices):
+    """A1/rotation are fitted at the spacing the plan uses; spacing is reported."""
+    plate = useq.WellPlate(rows=3, columns=3, well_spacing=9, well_size=6)
+    truth = useq.WellPlatePlan(plate=plate, a1_center_xy=(100, 200), rotation=0.5)
+    positions = {(p.plate_row, p.plate_col): p for p in truth.all_well_positions}
+    centers = {idx: (positions[idx].x, positions[idx].y) for idx in indices}
+    plan, error = validated_calibration_plan(plate, centers, 1)
+    assert error < 0.01
+    assert plan.a1_center_xy == pytest.approx((100, 200), abs=0.01)
+
+    # One well 100 µm off: a free-spacing fit moved A1, and so every well.
+    last = indices[-1]
+    centers[last] = (centers[last][0] + 100, centers[last][1])
+    _, spacing, _ = fit_plate_calibration(centers, plate)
+    assert spacing[0] > 9.02  # the measured spacing still shows the outlier
+    plan, error = validated_calibration_plan(plate, centers, float("inf"))
+    fitted = {(p.plate_row, p.plate_col): p for p in plan.all_well_positions}
+    residuals = np.array(
+        [(fitted[i].x - x, fitted[i].y - y) for i, (x, y) in centers.items()]
+    )
+    # Least squares at the plan's spacing: residuals balance out.
+    assert np.abs(residuals.sum(axis=0)).max() < 1
+    assert error < 100 * (1 - 1 / len(indices)) + 1
 
 
 @pytest.mark.parametrize("matrix", [(15, 0, 0, 15), (13, -7, -7, -13)])

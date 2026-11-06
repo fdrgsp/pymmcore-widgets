@@ -53,6 +53,8 @@ def test_plate_calibration(global_mmcore: CMMCorePlus, qtbot) -> None:
     assert not wdg._tab_wdg.isTabEnabled(1)
 
     ORIGIN = (10, 20)
+    # centers on the plate's nominal grid (rows go down in stage Y)
+    dx, dy = (v * 1000 for v in wdg.value().plate.well_spacing)
     # first well
     wdg._plate_view.setSelectedIndices({(0, 0)})
     with qtbot.waitSignal(wdg.calibrationChanged) as sig:
@@ -64,7 +66,7 @@ def test_plate_calibration(global_mmcore: CMMCorePlus, qtbot) -> None:
     # second well
     wdg._plate_view.setSelectedIndices({(0, 1)})
     with qtbot.waitSignal(wdg.calibrationChanged) as sig:
-        wdg._current_calibration_widget().setWellCenter((ORIGIN[0] + 100, ORIGIN[1]))
+        wdg._current_calibration_widget().setWellCenter((ORIGIN[0] + dx, ORIGIN[1]))
         assert sig.args == [False]
         assert not wdg._origin_spacing_rotation()
         assert not wdg._tab_wdg.isTabEnabled(1)
@@ -73,12 +75,12 @@ def test_plate_calibration(global_mmcore: CMMCorePlus, qtbot) -> None:
     wdg._plate_view.setSelectedIndices({(1, 1)})
     with qtbot.waitSignal(wdg.calibrationChanged) as sig:
         wdg._current_calibration_widget().setWellCenter(
-            (ORIGIN[0] + 100, ORIGIN[1] + 100)
+            (ORIGIN[0] + dx, ORIGIN[1] - dy)
         )
         assert sig.args == [True]
         assert wdg._tab_wdg.isTabEnabled(1)
     assert wdg._origin_spacing_rotation() is not None
-    assert wdg.value().a1_center_xy == (ORIGIN)
+    assert wdg.value().a1_center_xy == pytest.approx(ORIGIN)
 
     # clear third well, show that it becomes uncalibrated
     with qtbot.waitSignal(wdg.calibrationChanged) as sig:

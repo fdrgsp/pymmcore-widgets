@@ -37,7 +37,13 @@ def fit_plate_calibration(
     centers: Mapping[tuple[int, int], tuple[float, float]],
     plate: useq.WellPlate | None = None,
 ) -> tuple[tuple[float, float], tuple[float, float], float]:
-    """Fit indexed centers, using nominal perpendicular spacing for a row/column."""
+    """Fit indexed centers to A1, the measured well spacing, and rotation.
+
+    With a plate, A1 and rotation are fitted at the plate's nominal spacing: the
+    plan lays wells out at that spacing, so fitting it with a measured spacing
+    would shift A1 and every well. The returned spacing is still measured (using
+    the nominal perpendicular spacing for a single row/column), for reporting.
+    """
     if plate is not None and len(centers) == 1:
         # A single well fixes the origin only: nominal spacing, no rotation.
         (row, col), (x, y) = next(iter(centers.items()))
@@ -48,13 +54,48 @@ def fit_plate_calibration(
         result = fit_collinear_calibration(plate, centers, len(rows) == 1)
         if result is None:
             raise ValueError("Well centers are coincident; cannot determine rotation.")
-        return result
-    a, b, ty, c, d, tx = well_coords_affine(centers)
-    return (
-        (round(float(tx), 4), round(float(ty), 4)),
-        (float(np.hypot(b, d) / 1000), float(np.hypot(a, c) / 1000)),
-        round(float(np.rad2deg(np.arctan2(-c, a))), 2),
+        spacing = result[1]
+    else:
+        a, b, ty, c, d, tx = well_coords_affine(centers)
+        if plate is None:
+            return (
+                (round(float(tx), 4), round(float(ty), 4)),
+                (float(np.hypot(b, d) / 1000), float(np.hypot(a, c) / 1000)),
+                round(float(np.rad2deg(np.arctan2(-c, a))), 2),
+            )
+        spacing = (float(np.hypot(b, d) / 1000), float(np.hypot(a, c) / 1000))
+    origin, rotation = fit_plate_pose(centers, plate.well_spacing)
+    return origin, spacing, rotation
+
+
+def fit_plate_pose(
+    centers: Mapping[tuple[int, int], tuple[float, float]],
+    well_spacing: tuple[float, float],
+) -> tuple[tuple[float, float], float]:
+    """Least-squares A1 center (µm) and rotation (degrees) at a fixed spacing (mm).
+
+    Uses `useq.WellPlatePlan`'s model: well (row, col) lies at
+    A1 + R(rotation) @ (col * spacing_x, -row * spacing_y).
+    """
+    indices = np.array(list(centers), dtype=float)
+    measured = np.array(list(centers.values()), dtype=float)
+    nominal = (
+        np.column_stack(
+            [indices[:, 1] * well_spacing[0], -indices[:, 0] * well_spacing[1]]
+        )
+        * 1000
     )
+    u, q = nominal - nominal.mean(axis=0), measured - measured.mean(axis=0)
+    if not np.any(u):
+        raise ValueError("Well centers are coincident; cannot determine rotation.")
+    # 2D Procrustes: the angle that best rotates the nominal onto measured offsets.
+    cross = np.sum(u[:, 0] * q[:, 1] - u[:, 1] * q[:, 0])
+    rotation = round(float(np.rad2deg(np.arctan2(cross, np.sum(u * q)))), 2)
+    # Place A1 for the rounded angle the plan will actually use.
+    theta = np.deg2rad(rotation)
+    rot = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+    tx, ty = measured.mean(axis=0) - rot @ nominal.mean(axis=0)
+    return (round(float(tx), 4), round(float(ty), 4)), rotation
 
 
 def validated_calibration_plan(

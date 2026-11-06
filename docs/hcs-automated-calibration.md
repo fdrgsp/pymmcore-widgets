@@ -49,10 +49,13 @@ so you can run detection again against the corrected selection. Changing the
 corners or plate model clears incompatible scan images. A cancelled or rejected
 result does not replace an already applied calibration.
 
-For a row or column, calibration measures position, rotation, and spacing along
-that line. The perpendicular spacing and orthogonal direction come from the
-plate model; they are not independently measured. A 2 x 2 block measures both
-plate directions and is preferred when available.
+The A1 center and rotation are a least-squares fit of the well centers at the
+plate model's nominal spacing, which is the spacing the exported plan uses. The
+spacing is still measured (only along the line for a row or column) and shown,
+with a warning when it differs from the plate model by more than 5%. The
+maximum deviation is the largest distance between a measured center and its
+plan position; above 100 µm the status line warns, but Apply stays enabled. A
+2 x 2 block measures both plate directions and is preferred when available.
 
 Circular, elliptical, square, and rectangular wells are detected; the detector
 is chosen from the plate model, so no selector is shown. Plates with fewer than

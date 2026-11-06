@@ -30,7 +30,6 @@ from pymmcore_widgets.hcs._well_calibration_widget import (
 from pymmcore_widgets.useq_widgets._well_plate_widget import WellPlateView
 
 from ._plate_calibration import (
-    fit_collinear_calibration,
     fit_plate_calibration,
     validated_calibration_plan,
 )
@@ -379,29 +378,11 @@ class PlateCalibrationWidget(QWidget):
             center = next(iter(self._calibrated_wells.values()))
             return center, self._current_plate.well_spacing, 0.0
 
-        # Check if all calibrated wells are collinear (single row or column)
-        rows_set = {r for r, _ in self._calibrated_wells}
-        cols_set = {c for _, c in self._calibrated_wells}
-
-        if len(rows_set) == 1 or len(cols_set) == 1:
-            # Collinear: 2+ wells all in one row or one column
-            return self._fit_collinear(len(rows_set) == 1)
-
-        # Non-collinear centers share the automated calibration calculation.
+        # Rows/columns and blocks share the automated calibration calculation.
         try:
-            return fit_plate_calibration(self._calibrated_wells)
+            return fit_plate_calibration(self._calibrated_wells, self._current_plate)
         except ValueError:
             return None
-
-    def _fit_collinear(
-        self, is_single_row: bool
-    ) -> tuple[tuple[float, float], tuple[float, float], float] | None:
-        """Fit a row/column using the shared nominal-perpendicular-spacing model."""
-        if self._current_plate is None:
-            return None
-        return fit_collinear_calibration(
-            self._current_plate, self._calibrated_wells, is_single_row
-        )
 
     def _get_or_create_well_calibration_widget(
         self, idx: tuple[int, int]
