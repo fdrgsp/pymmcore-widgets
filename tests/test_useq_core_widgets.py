@@ -707,7 +707,7 @@ def test_core_position_table_checkboxes_toggled(qtbot: QtBot):
 
 def test_core_position_table_disable_does_not_toggle_af(qtbot: QtBot):
     """Disabling the whole table (e.g. while an MDA runs) must not be mistaken
-    for the "Set AF Offset per Position" checkbox itself losing its own
+    for the "HAF Offset" checkbox itself losing its own
     enabled state -- that used to hide the AF column and emit valueChanged as
     a side effect, purely because the checkbox's *effective* isEnabled()
     follows its disabled ancestor.
@@ -1047,7 +1047,7 @@ def test_run_mda_af_engaged_with_absolute_z(qtbot: QtBot):
 def test_af_per_position_enabled_after_run(
     qtbot: QtBot, global_mmcore: CMMCorePlus
 ) -> None:
-    """'Set AF Offset per Position' is enabled again after an MDA run.
+    """'HAF Offset' is enabled again after an MDA run.
 
     The MDA widget disables its tabs while an MDA runs. When the run ends, the
     checkbox, its checked state and the AF column must come back.
@@ -1075,8 +1075,8 @@ def test_af_axes_kept_after_run_with_unchecked_positions(
 ) -> None:
     """The AF axes stay in the sequence after a run with an unchecked Positions tab.
 
-    The content of an unchecked tab must stay disabled after a run. Else 'Set AF
-    Offset per Position' is active, and value() leaves out the AF axes.
+    The content of an unchecked tab must stay disabled after a run. Else 'HAF
+    Offset' is active, and value() leaves out the AF axes.
     """
     wdg = MDAWidget()
     qtbot.addWidget(wdg)

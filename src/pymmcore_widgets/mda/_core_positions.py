@@ -404,15 +404,15 @@ class CoreConnectedPositionTable(PositionTable):
         if not self._mmc.getAutoFocusDevice():
             return  # AF offset automatically set to 0.0
 
-        # 'Set AF Offset per Position' checked but the autofocus isn't locked in focus
+        # 'HAF Offset' checked but the autofocus isn't locked in focus
         if self.af_per_position.isChecked() and not self._mmc.isContinuousFocusLocked():
             # delete last added row
             self.table().removeRow(row)
             # show warning message
-            af = f"'{self._mmc.getAutoFocusDevice()!r}'"
+            af = f"'{self._mmc.getAutoFocusDevice()}'"
             title = f"Warning: {af}"
             msg = (
-                f"'{self.af_per_position.text()!r}' is checked, but the {af} autofocus "
+                f"'{self.af_per_position.text()}' is checked, but the {af} autofocus "
                 f"device is not engaged. \n\nEngage the {af} device before "
                 "adding the position."
             )

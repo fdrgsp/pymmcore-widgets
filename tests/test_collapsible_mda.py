@@ -274,7 +274,7 @@ def test_collapsible_run_preserves_axis_order(qtbot: QtBot) -> None:
 
     Disabling the editors at sequenceStarted (_enable_tabs) disables the
     whole Positions widget, which used to be misread by
-    CoreConnectedPositionTable.eventFilter as its "Set AF Offset per Position"
+    CoreConnectedPositionTable.eventFilter as its "HAF Offset"
     checkbox itself losing its enabled state -- toggling that checkbox off and
     repopulating (and thus resetting) the axis-order combo as a side effect.
     """

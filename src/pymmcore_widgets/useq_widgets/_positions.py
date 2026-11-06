@@ -275,7 +275,7 @@ class PositionTable(DataTableWidget):
         self.include_z.setChecked(True)
         self.include_z.toggled.connect(self._on_include_z_toggled)
 
-        self.af_per_position = QCheckBox("Set AF Offset per Position")
+        self.af_per_position = QCheckBox("HAF Offset")
         self.af_per_position.setToolTip(AF_PER_POS_TOOLTIP)
         self.af_per_position.toggled.connect(self._on_af_per_position_toggled)
         self._on_af_per_position_toggled(self.af_per_position.isChecked())
