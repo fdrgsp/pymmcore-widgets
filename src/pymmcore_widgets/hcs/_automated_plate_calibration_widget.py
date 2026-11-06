@@ -220,11 +220,11 @@ class AutomatedPlateCalibrationWidget(QWidget):
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(5, 5, 5, 5)
         left_layout.addWidget(self._corners)
+        left_layout.addStretch()
         left_layout.addWidget(SeparatorWidget())
         left_layout.addLayout(memory)
         left_layout.addWidget(self._start)
         left_layout.addWidget(self._stop)
-        left_layout.addStretch()
 
         self._canvas_host = QWidget()
         self._canvas_layout = QVBoxLayout(self._canvas_host)

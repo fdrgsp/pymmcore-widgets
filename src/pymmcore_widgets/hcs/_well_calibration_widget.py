@@ -304,10 +304,10 @@ class WellCalibrationWidget(QWidget):
         main_layout.addWidget(self._summary)
         main_layout.addSpacing(10)
         main_layout.addLayout(mode_row)
+        main_layout.addSpacing(10)
         main_layout.addWidget(self._table)
         main_layout.addWidget(self._set_button)
         main_layout.addLayout(remove_btns)
-        # keep the rows at the top when the panel is taller than the content
         main_layout.addStretch()
 
         # CONNECTIONS ---------------------------------------------------------

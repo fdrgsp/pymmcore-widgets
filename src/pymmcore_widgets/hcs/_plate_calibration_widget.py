@@ -211,9 +211,9 @@ class PlateCalibrationWidget(QWidget):
         panel_layout = QVBoxLayout(self._panel)
         panel_layout.setContentsMargins(5, 5, 5, 5)
         panel_layout.addWidget(self._calibration_widget_stack)
+        panel_layout.addStretch()
         panel_layout.addWidget(SeparatorWidget())
         panel_layout.addWidget(self._test_well_btn)
-        panel_layout.addStretch()
 
         top = QHBoxLayout()
         top.addWidget(self._panel, 0)
