@@ -1,8 +1,9 @@
 # Z surface mapping: research and implementation plan
 
 Status: proposal; no feature code implemented. Updated: 2026-11-06 (Surface Focus
-card under Autofocus; combinable with software autofocus, exclusive with hardware
-autofocus; see §4 and the decision log).
+checkbox + gear in the position table's bottom row, not a card under Autofocus;
+combinable with software autofocus, exclusive with hardware autofocus; see §4 and
+the decision log).
 
 This is an editable working plan. Check off implementation tasks and record changes
 in the decision log below. Recommendations are engineering judgments based on the
@@ -11,8 +12,9 @@ linked sources and this checkout, not the results of a microscopy benchmark.
 ## 1. Proposed behavior
 
 Store manually focused XYZ reference points, estimate a surface `z = f(x, y)`, and
-add a checkable **Surface Focus** card to the MDA widget, directly under the
-existing **Autofocus** card. All the surface controls live in that card. When it is
+add a **Surface Focus** checkbox with an adjacent gear button to the bottom row of
+the MDA position table, next to "Include Z" and "HAF Offset". The
+gear opens a dialog holding all the surface settings. When the checkbox is
 checked, `MDAWidget.value()` returns a sequence whose positions have
 `z = f(position.x, position.y)`. Update copies of the returned positions, preserving
 the editable table and the existing acquisition engine.
@@ -34,6 +36,11 @@ absolute stage positions first, then compute surface Z at every tile's XY. Remov
 the grids from the returned acquisition sequence. Keep the original editable rows
 and grid definitions in the widget and saved editor metadata.
 
+HCS well plate plans are supported the same way: a `WellPlatePlan` is expanded
+into its image positions (every selected well × every point of its
+`well_points_plan`), and each gets the surface Z at its XY (§6, "Plate plans").
+Plates are a primary use case: plate bow and tilt are what a surface map corrects.
+
 ## 2. What the current code already does
 
 Paths below are relative to the repository root. Dependency details were checked
@@ -42,11 +49,10 @@ again when implementing because `pyproject.toml` pins custom `cite` branches.
 
 | Location | Relevant behavior / integration consequence |
 | --- | --- |
-| `src/pymmcore_widgets/useq_widgets/_positions.py` | `PositionTable` owns Include Z, per-position hardware AF offsets, the bottom control row, and position-only JSON save/load. Its normal `value()` excludes hidden Z values. |
-| `src/pymmcore_widgets/mda/_core_positions.py` | Adds capture-from-core buttons, device enablement, stage navigation, and HCS-generated positions. `value()` can return a `WellPlatePlan` rather than a tuple. |
-| `src/pymmcore_widgets/useq_widgets/_mda_sequence.py` | Builds the sequence, manages autofocus and axes, saves JSON/YAML, and constructs fresh `pymmcore_widgets` metadata. Global absolute grids clear position XY. The **Autofocus** card (`AutofocusAxis`, `af_axis`) is added to the settings column (`_settings_row`); `_enable_af` sets its enablement/tooltip from device availability. The Surface Focus card goes right after it. |
-| `src/pymmcore_widgets/useq_widgets/_axis_tabs.py` | `_CheckableCard` (a checkable `QGroupBox`) is the base of the Autofocus card; reuse it for Surface Focus so both cards look and behave alike. |
-| `src/pymmcore_widgets/mda/_core_mda.py` | `MDAWidget.value()` currently fills every position Z from the current focus stage for relative stacks when Include Z is unchecked. The surface branch must take precedence over this fallback. Also owns device/AF coordination and run preparation. |
+| `src/pymmcore_widgets/useq_widgets/_positions.py` | `PositionTable` owns Include Z, per-position hardware AF offsets, the bottom control row (`_btn_row`: `include_z`, `af_per_position`, stretch, then `_position_actions` with Save/Load), and position-only JSON save/load. Its normal `value()` excludes hidden Z values. The Surface Focus checkbox + gear go in `_btn_row` right after `af_per_position`. |
+| `src/pymmcore_widgets/mda/_core_positions.py` | Adds capture-from-core buttons, device enablement, stage navigation, and HCS-generated positions. `value()` can return a `WellPlatePlan` rather than a tuple. In HCS mode it inserts `_hcs_z_info` at the start of `_btn_row` and adds HCS buttons to `_position_actions`. Uses an event filter to track `af_per_position`'s own (ancestor-independent) disabled state; Surface Focus needs the same. |
+| `src/pymmcore_widgets/useq_widgets/_mda_sequence.py` | Builds the sequence, manages autofocus and axes, saves JSON/YAML, and constructs fresh `pymmcore_widgets` metadata. Global absolute grids clear position XY. Owns the **Autofocus** card (`AutofocusAxis`, `af_axis`) and its Hardware/Software mode radios. |
+| `src/pymmcore_widgets/mda/_core_mda.py` | `MDAWidget.value()` currently fills every position Z from the current focus stage for relative stacks when Include Z is unchecked. The surface branch must take precedence over this fallback, and over `_anchor_plate_z_plan` (which re-centers a relative stack on the current focus for plate plans, whose positions have no Z). Also owns device/AF coordination and run preparation: `_update_autofocus_enablement` already enables `af_per_position` only for hardware mode, and is where Surface Focus enablement should be computed too. |
 | `src/pymmcore_widgets/mda/_core_tabs.py` | Coordinates the core-connected axis editors. Its position-table subclass disconnects standalone device handlers because `MDAWidget` owns coordination. |
 | `src/pymmcore_widgets/mda/_collapsible_mda.py` | Alternate presentation shares `MDAWidget` behavior; it must inherit the feature without another implementation. |
 | `src/pymmcore_widgets/mda/_channel_properties.py` | Existing sequence subclass applies channel device properties. Preserve its behavior; surface-per-position needs no new event wrapper. |
@@ -143,20 +149,37 @@ universal best method for this microscope or specimen.
 - Do not automatically change the active method as references are added. Persist
   the chosen method and settings so `value()` remains predictable.
 
-## 4. Surface Focus card and setup
+## 4. Surface Focus checkbox, gear, and setup dialog
 
-Add a checkable **Surface Focus** card (same `_CheckableCard` base as the
-Autofocus card) to the MDA widget's settings column, directly **under the
-Autofocus card**. All surface controls go in this card; nothing is added to the
-position table.
+Put the controls together in the position table's existing bottom row, right after
+"HAF Offset" (`PositionTable._btn_row`):
 
 ```text
-[x] Autofocus        (existing card: axes, hardware/software mode, search range)
-[ ] Surface Focus    (new card: method, reference points, status, setup)
+[ ] Include Z   [ ] HAF Offset   [ ] Surface Focus [⚙]      Save  Load
 ```
 
-The card is the single on/off switch for the mode (not a checkbox per row).
-Reference samples are a separate list edited from the card, not acquisition rows.
+The checkbox is the single on/off switch for the mode (not a checkbox in every
+row). The gear opens the setup dialog; it is always available (when the table is),
+even while the checkbox cannot be checked, so the map can be inspected, edited, or
+imported. Reference samples are a separate table in that dialog, not acquisition
+rows. Nothing is added to the Autofocus card or the settings column.
+
+The checkbox and gear belong to `PositionTable` (core-independent: dialog, stored
+map, checked state); capture-from-core and device checks belong to the core
+subclass, and the cross-widget enablement (Autofocus, Z plan) to `MDAWidget`. The
+row is already crowded, so check it at typical widths in both MDA layouts.
+
+In HCS mode, `_set_position_table_editable(False)` hides Include Z and "HAF
+Offset" and shows the `_hcs_z_info` label instead. Surface Focus **stays
+visible** there:
+
+```text
+Z: focus position at run time   [ ] Surface Focus [⚙]      Editable  HCS  Save  Load
+```
+
+While Surface Focus is checked, the label and its tooltip change to say that each
+plate position gets its Z from the surface (e.g. "Z: from Surface Focus"), and
+that a relative Z stack is centered on it.
 
 ### Combination with Autofocus
 
@@ -166,7 +189,7 @@ autofocus:
 - **Software autofocus + Surface Focus (allowed):** each position starts at its
   surface Z and the routine refines it from there (see §6). A good starting point
   allows a much smaller search range (fewer images, less bleaching, faster) and
-  makes locking onto a wrong plane (debris, plate bottom) less likely. The card
+  makes locking onto a wrong plane (debris, plate bottom) less likely. The dialog
   should suggest a small search range in this mode.
 - **Hardware autofocus + Surface Focus (not allowed):** hardware autofocus locks to
   its reference (e.g. the coverslip reflection plus its offset) whatever the
@@ -177,35 +200,39 @@ autofocus:
   later if capture range proves a problem on real (e.g. bowed) plates.
 
 UI rules (the Autofocus card has Hardware/Software mode radio buttons inside it,
-which are disabled while the card is unchecked):
+which are disabled while the card is unchecked; the "HAF Offset" checkbox (per-
+position hardware autofocus offsets) is enabled whenever Hardware mode is
+selected, even with the card unchecked):
 
 - While the **Autofocus** card is checked in **Hardware** mode, the Surface Focus
-  card is disabled with the tooltip **"Cannot use while hardware 'Autofocus' is
-  checked."** In Software mode (or unchecked), Surface Focus is available.
+  checkbox is disabled with the tooltip **"Cannot use while hardware 'Autofocus'
+  is checked."** In Software mode (or unchecked), Surface Focus is available.
+- While **"HAF Offset"** is checked (and enabled), the Surface Focus checkbox is
+  disabled with the tooltip **"Cannot use while 'HAF Offset' is checked."**:
+  per-position offsets request hardware autofocus at each position.
 - While **Surface Focus** is checked:
   - the Autofocus card's **Hardware** option is disabled with the tooltip
     **"Hardware autofocus cannot be used while 'Surface Focus' is checked."**;
   - checking the Autofocus card selects **Software** mode if Hardware was the
     selected (inactive) mode. This is visible in the card, and needed: otherwise
     the unchecked card could neither be checked nor switched to Software;
-  - "Set AF Offset per Position" (hardware offsets) is disabled in the position
-    table, with the same tooltip.
-- Unchecking Surface Focus re-enables the Hardware option and the per-position
-  offsets (restoring their normal tooltips) but does not switch the mode back.
-  Disabling a control never changes the other card's checked state.
-- Device-based enablement still applies on top (e.g. `_enable_af` and a missing
-  autofocus device, which only matters for hardware mode). Keep one function that
-  computes the enabled state and tooltip of each control from (checked states,
-  autofocus mode, devices), rather than separate slots that can overwrite each
-  other.
+  - "HAF Offset" is disabled, with the same tooltip.
+- Unchecking Surface Focus re-enables the Hardware option and "HAF Offset"
+  (restoring their normal tooltips) but does not switch the mode back.
+  Disabling a control never changes another control's checked state.
+- Device-based enablement still applies on top (e.g. a missing autofocus device,
+  which only matters for hardware mode). Keep one function in `MDAWidget` (next to
+  `_update_autofocus_enablement`) that computes the enabled state and tooltip of
+  each control from (checked states, autofocus mode, devices), rather than
+  separate slots that can overwrite each other.
 - Disabled-by-the-other must be distinguished from a disabled ancestor while an MDA
-  runs (see the existing AF-per-position event filter regression), so that all
+  runs (see the existing `af_per_position` event filter regression), so that all
   controls come back in the right state after a run.
-- `setValue()`/settings loads that contain both a **hardware** autofocus plan and
-  enabled surface metadata are invalid: keep the autofocus plan, load the surface
-  with its card unchecked, and report why. A software autofocus plan with an
-  enabled surface is valid. `value()`/run preparation also validate this, since
-  programmatic settings can bypass the UI.
+- `setValue()`/settings loads that contain both a **hardware** autofocus plan (or
+  per-position AF offsets) and enabled surface metadata are invalid: keep the
+  autofocus plan, load the surface with its checkbox unchecked, and report why. A
+  software autofocus plan with an enabled surface is valid. `value()`/run
+  preparation also validate this, since programmatic settings can bypass the UI.
 
 ### Other enablement and precedence
 
@@ -213,38 +240,29 @@ which are disabled while the card is unchecked):
 | --- | --- |
 | Include Z checked | Surface Focus cannot be checked (tooltip says why). Keep the stored map. |
 | Autofocus card checked in Hardware mode | Surface Focus disabled: "Cannot use while hardware 'Autofocus' is checked." |
+| "HAF Offset" checked | Surface Focus disabled: "Cannot use while 'HAF Offset' is checked." |
 | Autofocus card checked in Software mode | Surface Focus available: surface Z is the starting point, software autofocus refines it. |
-| Surface Focus checked | Autofocus Hardware option and "Set AF Offset per Position" disabled: "Hardware autofocus cannot be used while 'Surface Focus' is checked." Software autofocus stays available. |
+| Surface Focus checked | Autofocus Hardware option and "HAF Offset" disabled: "Hardware autofocus cannot be used while 'Surface Focus' is checked." Software autofocus stays available. |
 | Autofocus device loaded but Autofocus unchecked | Surface Focus available. Existing run preparation handles a physically engaged continuous-focus device before acquisition. |
-| No XY or focus device | Disable activation and capture, retaining references. The card's setup controls still allow inspecting/editing/importing the map. |
-| Invalid or incomplete surface | Disable activation and explain the problem; setup controls stay available to fix it. |
+| No XY or focus device | Disable activation and capture, retaining references. The gear still opens the dialog for inspecting/editing/importing the map. |
+| Invalid or incomplete surface | Disable activation and explain the problem; the gear stays available to fix it. |
 | Position axis unchecked or no selected acquisition positions | A selected grid can still be expanded: absolute grids provide XY directly; relative grids use a snapshot of the current XY as origin. Without a grid or selected positions, retain the existing implicit-current-position fallback without applying the surface. |
 | Absolute Z plan selected | Disable surface mode: an absolute stack ignores the surface baseline. Relative stacks remain supported. |
 | Global absolute grid or selected row with an absolute sub-grid | Allow by expanding the actual grid coordinates into positions; never evaluate disabled display-only row XY. |
 | Relative grid | Allow by adding each tile's XY offset to its parent/origin XY and evaluating surface Z there. |
 | Axis order that cannot be preserved by the supported grid-to-position expansion | Explain the restriction and require a supported order. Do not silently reorder acquisition. |
-| HCS `WellPlatePlan` | Defer native support. Explain that the user must convert to editable positions first; do not silently materialize or change a plate plan. (Plate positions have no Z; a relative stack is anchored to the current focus at run time.) |
+| HCS `WellPlatePlan` | Allow: `value()` expands the plate plan into its image positions and sets each one's surface Z (§6, "Plate plans"). The checkbox stays visible in HCS mode; `_hcs_z_info` explains where Z comes from. The editor keeps the plate plan (it is not converted to editable rows). |
 | Acquisition running | Disable edits and capture using the existing run lifecycle. Restore correct enablement afterwards. |
 
 If a conflicting option (Include Z, an absolute Z plan) becomes active while
 Surface Focus is checked, uncheck Surface Focus, retain its map, and update its
-tooltip/status. Do not silently re-check it when the conflict disappears.
-Centralize this coordination to avoid signal loops between the position, autofocus,
-surface, and Z-plan widgets.
+tooltip. Do not silently re-check it when the conflict disappears. Centralize this
+coordination to avoid signal loops between the position, autofocus, surface, and
+Z-plan widgets.
 
-### Surface Focus card contents
-
-The card holds compact controls; the full reference table opens in a dialog when
-it needs more room:
+### Setup dialog (gear)
 
 - Method selector: **Local linear surface** (default), **Fitted plane**.
-- Status: valid reference count, XY coverage, Z range, fit validity (and plane
-  residuals), plus why the card cannot be checked, if it cannot.
-- **Add Current XYZ** (captures a reference point from the current stage and focus
-  position, without moving anything) and **Edit Points…** (opens the dialog below).
-
-### Reference points dialog
-
 - Editable reference table: optional name, X [µm], Y [µm], Z [µm]. Store finite
   float values at full precision regardless of display rounding.
 - **Add current XYZ** captures all coordinates from the same configured devices
@@ -252,18 +270,23 @@ it needs more room:
   clear, and manual entry support refinement. Reading/capturing does not move
   stages; do not add implicit movement when a sample row is selected.
 - Import/export a versioned surface JSON file, independent of position-list JSON.
-- An optional XY plot shows samples, hull, and expanded acquisition locations; it
-  is more useful initially than a 3D view.
+- Read-only summary: valid reference count, XY coverage, Z range, fit validity,
+  and plane residuals where applicable, plus why the checkbox cannot be checked,
+  if it cannot. An optional XY plot shows samples, hull, and expanded acquisition
+  locations; it is more useful initially than a 3D view.
 - Show uncovered acquisition positions/tiles by name/index and the number affected.
   Preview the final expanded XY coordinates, using the same expansion as `value()`.
 - OK commits valid edits atomically; Cancel discards changes. Dialog edits cannot
   change an in-progress acquisition snapshot. Opening or accepting the dialog does
-  not automatically check the Surface Focus card.
+  not automatically check Surface Focus.
+- Give the checkbox a short status tooltip (e.g. "Linear surface, 6 points"), so
+  the current map is visible without opening the dialog.
 
-Use `qtpy` imports, existing icon/button conventions, standard layouts, accessible
-labels/tooltips, and no new `setStyleSheet` calls. Account for the extra card in
-both tabbed and collapsible layouts (`MDAWidget` and `MDAWidgetCollapsible`, and
-pymmcore-gui's subclasses), and in the available height of the settings column.
+Use `qtpy` imports, existing icon/button conventions (`QIconifyIcon`, as the
+software-autofocus settings gear), standard layouts, accessible labels/tooltips,
+and no new `setStyleSheet` calls. Account for the extra controls in both tabbed
+and collapsible layouts (`MDAWidget` and `MDAWidgetCollapsible`, and
+pymmcore-gui's subclasses).
 
 ## 5. Surface model and coverage rules
 
@@ -312,8 +335,12 @@ Validation and numerical policy:
    and nearest-reference distance; consider a user-set maximum support span after
    initial measurement trials. Do not invent a universal distance cutoff.
 8. A hull can bridge gaps, holes, and distinct wells. A single surface is suitable
-   only for one physically coherent region. Native per-well surfaces/masks are
-   future work; nearest XY alone does not identify the correct sample region.
+   only for one physically coherent region. A plate bottom is one: references
+   focused in several wells (e.g. the corners and the centre of the used area)
+   map its tilt and bow across the plate. It is not one when the samples
+   themselves sit at different heights per well (e.g. gels or tissue of varying
+   thickness); native per-well surfaces/masks for that are future work, and
+   nearest XY alone does not identify the correct sample region.
 9. Device/configuration changes mark the map as requiring review before reuse.
    Stage re-zeroing, sample replacement, or changed optics can invalidate it even
    if device labels match. Provide a clear way to reset/revalidate its context.
@@ -339,6 +366,7 @@ replace = {}
 
 if surface_is_active_for_selected_positions_or_grid:
     validate_surface_and_sequence_compatibility(val)
+    # a WellPlatePlan expands to its image positions; grids to their tiles
     expanded = expand_grids_to_positions(val, origin=origin_snapshot_if_needed)
     xy = require_explicit_finite_xy(expanded.stage_positions)
     zs = compiled_surface.evaluate(xy)  # raises on uncovered positions/tiles
@@ -434,6 +462,55 @@ visitation order, with the expected tile-specific planar surface Z plus stack an
 channel offsets. This validates the common `p,g,c,z -> p,c,z` case, not all grid,
 AF, shutter, writer, or settings-restoration behavior listed above.
 
+### Plate plans (HCS)
+
+A `WellPlatePlan` already acquires as a single `p` axis: iterating it yields
+`image_positions`, i.e. every selected well × every point of its
+`well_points_plan` (one centre point, a grid, random points, or the Cover Area
+`GridFromShape`), in stage coordinates after the plate calibration
+(`a1_center_xy`, rotation). So the expansion is simpler than for grids:
+
+1. Replace `stage_positions` with `tuple(plan)`, setting `z` on each position from
+   the surface at its XY. The `p` count, order and indices do not change, so the
+   axis order, the autofocus schedule (including `every_n_positions`), and the
+   shutter settings need no remapping. Expanded positions keep their names
+   (`A1_0000`, …) and `plate_row`/`plate_col`.
+2. A `WellPlatePlan` cannot be combined with a global `grid_plan` (the HCS
+   wizard uses `well_points_plan`; ome-writers rejects the combination), so no
+   second expansion is needed. Reject it if a programmatic sequence has one.
+3. Once positions carry Z, `_anchor_plate_z_plan` must not run (it is skipped
+   anyway, since `stage_positions` is no longer a `WellPlatePlan`), and the
+   existing "plate positions have no Z" behavior does not apply: a relative
+   stack is centered on each position's surface Z.
+4. Coverage: image positions are spread over each well, so references at well
+   centres can leave the outer FOVs of edge wells outside the hull, which is an
+   error (§5). The dialog's uncovered-position list must name these by well and
+   FOV, and the user guide should suggest placing references near the outer edge
+   of the outermost selected wells. Do not extrapolate to cover them.
+5. The surface uses the calibrated stage XY, so recalibrating the plate (new
+   A1 centre/rotation) moves the image positions and `value()` re-evaluates Z
+   there. Re-seating the plate, however, invalidates the references themselves
+   (§5, item 9).
+
+Output: the resolved sequence has a tuple of positions rather than a
+`WellPlatePlan`. Checked against the installed ome-writers on 2026-11-06:
+
+- ome-writers infers the plate from `plate_row`/`plate_col` on plain positions,
+  but only up to the highest used row and column, and without the plate name
+  (`96-well`). With the plan it gets the full 8 × 12 layout and the name.
+- `Position.__add__` in useq (used for `well + offset`) drops the offset's
+  `grid_row`/`grid_col`, so expanded positions lose their FOV grid indices
+  within the well, which ome-writers reads from `well_points_plan` when it has
+  the plan.
+
+Recommended: expand anyway (no schema change, and the acquisition is correct),
+and close the metadata gaps separately: fix `Position.__add__` in the useq-schema
+`cite` branch to keep the offset's grid indices, and either store the plate
+definition in the resolved sequence's metadata for writers, or add optional
+per-image-position Z to `WellPlatePlan` in useq-schema so the plan can stay
+intact. Decide between those two before implementing the plate case; verify the
+written plate layout either way.
+
 ### Validation timing and responsiveness
 
 The application calls `value()` for more than Run. Cache fitting, vectorize
@@ -486,12 +563,13 @@ Illustrative metadata shape (three points shown only as a format example):
   saving settings and per-channel device properties. Serialize the map even when
   disabled so turning the feature off does not discard setup work.
 - Include an unexpanded `source_plan` for editor restoration: original selected
-  positions/sub-grids, global grid, axis order, AF schedule, and shutter-axis
-  settings before transformation. Exclude this surface metadata when constructing
+  positions/sub-grids or `WellPlatePlan`, global grid, axis order, AF schedule,
+  and shutter-axis settings before transformation. Exclude this surface metadata when constructing
   `source_plan` to avoid recursive embedding. Keep tile-to-source provenance
   separately. The ordinary sequence fields remain the fully resolved acquisition.
 - On load, reconstruct the editor from `source_plan` when present, rather than
-  showing thousands of generated tiles or expanding a saved grid twice. Restore
+  showing thousands of generated tiles or expanding a saved grid twice. A saved
+  plate plan reopens in HCS mode, not as editable rows. Restore
   rows and AF/Z plans, then restore the map and mode atomically.
   `PositionTable.setValue()` infers Include Z from non-null Z; surface-generated Z
   would otherwise incorrectly reactivate Include Z. When valid enabled surface
@@ -528,20 +606,20 @@ Illustrative metadata shape (three points shown only as a format example):
 
 ### Phase 2: setup and position-table controls
 
-- [ ] Add the checkable Surface Focus card under the Autofocus card (same
-  `_CheckableCard` base), its compact controls, the reference points dialog,
-  capture/edit actions, and surface JSON.
+- [ ] Add the Surface Focus checkbox + gear to the position table's bottom row
+  (after "HAF Offset"), the setup dialog, capture/edit actions,
+  and surface JSON.
 - [ ] Allow Surface Focus with software autofocus; make it exclusive with hardware
-  autofocus (disabled Hardware option / disabled Surface Focus card, the
-  per-position AF offsets, Software selected when checking Autofocus), with the
-  tooltips from §4, combined with device-based enablement, and restored correctly
-  after a run.
+  autofocus (disabled Hardware option / disabled Surface Focus checkbox, mutual
+  exclusion with "HAF Offset", Software selected when checking
+  Autofocus), with the tooltips from §4, combined with device-based enablement,
+  and restored correctly after a run.
 - [ ] Separate core-independent table/dialog state from core capture/device checks;
   keep MDA-level AF/Z-plan compatibility in the MDA owner.
 - [ ] Implement atomic dialog Apply/Cancel behavior and cached compilation.
 - [ ] Add centralized mode coordination (Autofocus, Include Z, Z plan), descriptive
-  disabled tooltips, and HCS/unsupported-order restrictions. Preserve references
-  across mode changes.
+  disabled tooltips, the HCS-mode label/visibility, and unsupported-order
+  restrictions. Preserve references across mode changes.
 
 ### Phase 3: `value()`, saving, and execution
 
@@ -550,6 +628,10 @@ Illustrative metadata shape (three points shown only as a format example):
 - [ ] Add a pure grid-expansion helper for relative/absolute, global/per-position,
   polygon, and grid-only cases. Remove all consumed grids from the output, handle
   geometry calibration, and map supported acquisition order/AF/shutter settings.
+- [ ] Expand `WellPlatePlan`s into their image positions with surface Z (§6,
+  "Plate plans"), skipping `_anchor_plate_z_plan`; keep the plan in the editor.
+  Decide how to keep the plate layout for writers (plan metadata vs per-position
+  Z in useq) and fix `Position.__add__` grid indices in useq-schema.
 - [ ] Support no stack, relative stacks, and channel offsets on every expanded
   position; retain implicit current-position behavior when no spatial plan is used.
 - [ ] Add metadata round-trip including original editor grids and tile provenance,
@@ -559,7 +641,8 @@ Illustrative metadata shape (three points shown only as a format example):
 
 ### Phase 4: integration validation and documentation
 
-- [ ] Test both MDA presentations and standalone/core-connected table behavior.
+- [ ] Test both MDA presentations and standalone/core-connected table behavior,
+  including the bottom row's layout at typical widths and in HCS mode.
 - [ ] Test device reload, focus/XY removal, mode conflicts, run disable/re-enable,
   and repeated settings loads. Verify hardware autofocus and Surface Focus can
   never be active together (UI, `setValue`, and `value()`), with the expected
@@ -575,6 +658,10 @@ Illustrative metadata shape (three points shown only as a format example):
   unsupported-order rejection. Confirm no second grid expansion occurs.
 - [ ] Verify the flattened `p` output with save writers and AF/shutter schedules;
   repeated load/save must restore the original editor and keep tile counts stable.
+- [ ] With the demo core and an HCS plate plan (single point, grid, and Cover Area
+  per well): verify per-FOV surface Z, unchanged `p` order/count and AF
+  schedule, relative stacks centered on surface Z, uncovered edge-well FOVs
+  reported, `_hcs_z_info` text, and the plate layout in the written output.
 - [ ] Verify channel property events still contain properties.
 - [ ] Verify `value()` leaves widget/manual Z state unchanged, is deterministic
   for fixed inputs, and raises for uncovered positions/tiles before acquisition
@@ -600,7 +687,8 @@ when implementing; reuse existing table infrastructure where practical.
 - **Preserving separate `p` and `g` axes:** a later event-level approach could
   retain the original grid dimension and more complex axis/scheduling semantics.
   The proposed first implementation instead flattens grids in `value()` and
-  documents supported orders. Native HCS plans remain a separate extension.
+  documents supported orders. HCS plate plans are expanded too (§6); keeping
+  the `WellPlatePlan` intact with per-position Z is the related open choice.
 - **Multiple regions/surfaces:** assign by region/well rather than allowing a
   triangulation to bridge unrelated samples.
 - **Smooth fitting:** introduce a regularized thin-plate or cubic option only
@@ -620,5 +708,7 @@ when implementing; reuse existing table infrastructure where practical.
 | 2026-11-04 | Recommend linear triangulation + optional plane. | Predictable local interpolation and an explicit model for slide tilt; validate accuracy on real held-out points. |
 | 2026-11-04 | Expand grids into individual positions before resolving Z. | User proposed flattening in `value()`; this enables per-tile following with ordinary useq sequences. Supersedes the earlier shared-grid-baseline proposal. Preserve source grids in editor metadata and handle axis/scheduling semantics explicitly. |
 | 2026-11-04 | Default to hull-limited coverage and explicit failure. | Avoid silently generating Z from unsupported XY or switching methods. |
-| 2026-11-06 | Put the surface controls in a checkable **Surface Focus** card under the Autofocus card (not in the position table). | One place for the focus strategy, next to Autofocus. Supersedes the table checkbox + gear. |
+| 2026-11-06 | Put the surface controls in a checkable **Surface Focus** card under the Autofocus card (not in the position table). | One place for the focus strategy, next to Autofocus. Supersedes the table checkbox + gear. **Superseded below (same day).** |
 | 2026-11-06 | Allow Surface Focus with **software** autofocus; exclude **hardware** autofocus. | Software AF starts from the event Z, so the surface makes its search smaller, faster and more robust (engine keeps per-position corrections). Hardware AF locks to its own reference whatever the start Z (the surface would be discarded, and per-position AF offsets would conflict with it). Tooltips: "Cannot use while hardware 'Autofocus' is checked." / "Hardware autofocus cannot be used while 'Surface Focus' is checked." Revisit "surface pre-focus for hardware AF" if capture range is a problem on real plates. |
+| 2026-11-06 | Go back to a **Surface Focus** checkbox + gear button in the position table's bottom row (next to Include Z and "HAF Offset"); all settings in the gear's dialog. No card under Autofocus. | User decision: the surface is a property of the positions, so it belongs with the position table's Z options. Keeps the software/hardware autofocus rules above; "HAF Offset" and Surface Focus are mutually exclusive. |
+| 2026-11-06 | Support HCS `WellPlatePlan`s instead of deferring them. | User decision: plates are a main use case (plate tilt/bow). A plate plan is already one `p` axis, so `value()` expands it to its image positions with surface Z and no axis/AF remapping. The checkbox stays visible in HCS mode. Open: how to keep the full plate layout and FOV grid indices for writers (see §6, "Plate plans"). |
