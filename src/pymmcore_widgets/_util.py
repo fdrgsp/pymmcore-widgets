@@ -344,7 +344,6 @@ def disable_wheel_scroll_recursive(widget: QWidget) -> None:
 # it as QtWidgets.QWIDGETSIZE_MAX, but PySide does not
 QWIDGETSIZE_MAX = (1 << 24) - 1
 
-# matches pymmcore-gui's status_green/status_red/status_yellow accents
 # Default image-memory budget: leave room for the acquisition store and the
 # rest of the application.
 MEMORY_DEFAULT_FRACTION = 0.2
@@ -367,6 +366,7 @@ def memory_limit_defaults() -> tuple[float, float, float]:
     return (0.1, total_gb, default_gb)
 
 
+# matches pymmcore-gui's status_green/status_red/status_yellow accents
 GREEN = "#4caf50"
 RED = "#ef5350"
 YELLOW = "#ffff00"

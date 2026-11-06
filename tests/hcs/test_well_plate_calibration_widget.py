@@ -452,7 +452,8 @@ def test_rotated_plate_calibration_recovers_plan(qtbot, rotation, indices) -> No
 
 
 def test_switching_wells_keeps_the_panel_top_still(qtbot, global_mmcore) -> None:
-    """A well with fewer table rows moves only the widgets below the table up."""
+    """Well controls stay at the top and Test Well stays at the panel's bottom."""
+    from qtpy.QtCore import QPoint
     from qtpy.QtWidgets import QApplication
 
     wdg = PlateCalibrationWidget(mmcore=global_mmcore)
@@ -461,18 +462,18 @@ def test_switching_wells_keeps_the_panel_top_still(qtbot, global_mmcore) -> None
     wdg.setValue("12-well")
 
     def positions() -> tuple[int, int]:
-        for _ in range(5):  # nested layouts settle over a few event passes
+        for _ in range(5):  # allow nested layouts to settle
             QApplication.processEvents()
         well = wdg._current_calibration_widget()
-        method = well._calibration_mode_wdg.mapTo(wdg, well._calibration_mode_wdg.pos())
-        clear = well._clear_button.mapTo(wdg, well._clear_button.pos())
-        test = wdg._test_well_btn.mapTo(wdg, wdg._test_well_btn.pos())
-        return method.y(), test.y() - clear.y()
+        method = well._calibration_mode_wdg.mapTo(wdg, QPoint())
+        test = wdg._test_well_btn.mapTo(wdg, QPoint())
+        return method.y(), test.y()
 
     wdg._plate_view.setSelectedIndices({(0, 0)})
     assert wdg._current_calibration_widget()._table.rowCount() == 3  # the default
+    qtbot.waitExposed(wdg)
     three_rows = positions()
     wdg._plate_view.setSelectedIndices({(0, 2)})
     wdg._current_calibration_widget()._calibration_mode_wdg.setCurrentIndex(0)
     assert wdg._current_calibration_widget()._table.rowCount() == 1
-    assert positions() == three_rows
+    qtbot.waitUntil(lambda: positions() == three_rows)

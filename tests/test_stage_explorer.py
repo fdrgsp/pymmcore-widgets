@@ -84,6 +84,22 @@ def test_stage_viewer_reset_view(qtbot: QtBot) -> None:
     assert round(cy) == 150  # image height is 100, center should be Ty + height/2
 
 
+def test_stage_viewer_rotated_bounds(qtbot: QtBot) -> None:
+    viewer = StageViewer()
+    qtbot.addWidget(viewer)
+    transform = np.eye(4)
+    transform[:2, :2] = np.array([[1, -1], [1, 1]]) / np.sqrt(2)
+    node = viewer.add_image(IMG, transform)
+    (x0, x1), (y0, y1), _ = get_vispy_scene_bounds([node])
+    assert (x0, x1, y0, y1) == pytest.approx(
+        (-100 / np.sqrt(2), 50 / np.sqrt(2), 0, 150 / np.sqrt(2))
+    )
+    viewer.zoom_to_fit(margin=0)
+    rect = viewer.view.camera.rect
+    assert rect.contains(x0, y0)
+    assert rect.contains(x1, y1)
+
+
 def _shown_viewer_with_tile(
     qtbot: QtBot, img: np.ndarray | None = None, transform: np.ndarray | None = None
 ) -> tuple[StageViewer, Image, np.ndarray]:

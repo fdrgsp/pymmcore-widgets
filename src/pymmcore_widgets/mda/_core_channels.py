@@ -353,7 +353,7 @@ class CoreConnectedChannelTable(ChannelTable):
         group name and list every ``(device, property)`` pair in the preset --
         setting the intensity broadcasts the same value to all of them.
         """
-        return dict(self._light_sources)
+        return {label: list(props) for label, props in self._light_sources.items()}
 
     # ------------------- Private API -------------------
 

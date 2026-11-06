@@ -361,7 +361,6 @@ class AutomatedPlateCalibrationWidget(QWidget):
         if clear_images:
             self._tiles = ()
             self._geometry = None
-        if clear_images:
             self._viewer.clear()
         else:
             self._viewer.set_detections((), [])
@@ -557,6 +556,11 @@ class AutomatedPlateCalibrationWidget(QWidget):
 
     def _acquire(self) -> None:
         if self.isBusy() or self._plate is None:
+            return
+        if self._mmc.mda.is_running():
+            self._status.setText(
+                "Stop the running acquisition before surveying.", warning=True
+            )
             return
         if not self._scan_ready():
             self._show_ready_message()

@@ -1,9 +1,4 @@
-"""A settings form built from a software autofocus routine's settings dataclass.
-
-Which routines exist is decided by the acquisition engine, not here, so this builds
-a form from whatever dataclass a routine declares.  That way a routine someone
-registers themselves gets a form too, without this widget knowing about it.
-"""
+"""Build settings forms from registered autofocus routines' dataclasses."""
 
 from __future__ import annotations
 
@@ -58,16 +53,7 @@ _UNSET = _Unset()
 
 
 def _config_choices(field: str, values: Mapping[str, Any]) -> list[str] | None:
-    """Offer the microscope's config groups and the chosen group's presets.
-
-    A channel setting is only useful as one of the presets actually loaded, and the
-    presets depend on which group is selected -- so the two are offered together and
-    the second follows the first.
-
-    Returns `None` for a field this does not handle, which is how a field is marked
-    as free text.  An *empty list* still means "choose one of these", so a preset
-    field stays a chooser before a group has been picked.
-    """
+    """Offer config groups and presets; `None` means free text, `[]` no choices."""
     if not (field.endswith("channel_group") or field.endswith("channel")):
         return None
     try:
@@ -120,11 +106,7 @@ def _settings_button(tooltip: str) -> QPushButton:
 
 
 class _StepEditor(QWidget):
-    """Pick one routine and edit its settings: one step of a routine built of others.
-
-    Shown for a settings field that names another routine, so something like `duo`
-    can be set up here rather than only in code.
-    """
+    """Pick and configure one step of a chained autofocus routine."""
 
     valueChanged = Signal()
 
@@ -594,9 +576,6 @@ class AutofocusSettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         self._buttons = buttons
 
-        # Settings are guesswork until they have been tried on the sample, so the
-        # routine can be run from here, on the current position, without having to
-        # start an acquisition.  Needs a microscope: the standalone widget has none.
         self.test_button = QPushButton("Test")
         self.test_button.setToolTip(TEST_TOOLTIP)
         self.test_button.clicked.connect(self._run_test)
@@ -612,8 +591,6 @@ class AutofocusSettingsDialog(QDialog):
         footer.addStretch()
         footer.addWidget(buttons)
 
-        # No blurb at the top: what the routine does belongs on the method picker
-        # that chose it, and repeating it here only pushes the settings down.
         layout = QVBoxLayout(self)
         layout.addWidget(self.form)
         layout.addWidget(self.test_result)

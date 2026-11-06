@@ -416,11 +416,6 @@ class PlateCalibrationWidget(QWidget):
         if self._current_plate is None:
             return None
 
-        if len(self._calibrated_wells) == 1:
-            # Single well: use center, plate spacing, no rotation
-            center = next(iter(self._calibrated_wells.values()))
-            return center, self._current_plate.well_spacing, 0.0
-
         # Rows/columns and blocks share the automated calibration calculation.
         try:
             return fit_plate_calibration(self._calibrated_wells, self._current_plate)
@@ -442,8 +437,7 @@ class PlateCalibrationWidget(QWidget):
         # set calibration widget well name, and circular well state
         well_name = self._current_plate.all_well_names[idx]
         wdg.well_label.setText(well_name)
-        if self._current_plate:
-            wdg.setCircularWell(self._current_plate.circular_wells)
+        wdg.setCircularWell(self._current_plate.circular_wells)
 
         wdg.calibrationChanged.connect(self._on_well_calibration_changed)
         self._calibration_widget_stack.addWidget(wdg)

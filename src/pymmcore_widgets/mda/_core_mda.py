@@ -68,13 +68,7 @@ PAUSE_UNAVAILABLE_HW_SEQUENCED = (
 
 
 def _software_autofocus_runner(core: CMMCorePlus) -> Any:
-    """Return a callable that runs a software routine now, on `core`.
-
-    For the settings dialog's Test button: settings are guesswork until they have
-    been tried on the sample. It closes over the *core* rather than the widget --
-    the autofocus section would otherwise hold a strong reference back to its
-    parent, keeping it alive past the devices its own deferred work needs.
-    """
+    """Run autofocus tests on `core` without retaining the owning widget."""
 
     def run(
         method: str, settings: Mapping[str, Any], should_cancel: Callable[[], bool]
@@ -154,14 +148,7 @@ class MDAWidget(MDASequenceWidget):
         self._mmc.mda.events.sequenceFinished.connect(self._on_mda_finished)
         self._mmc.events.systemConfigurationLoaded.connect(self._on_sys_config_loaded)
         self._mmc.events.propertyChanged.connect(self._on_property_changed)
-        # Recompute what autofocus can do on any change, rather than only when the
-        # configuration loads: this widget may be built after the configuration was
-        # already loaded, in which case that signal never arrives. It reads a few
-        # cached device labels and emits nothing, so it cannot loop.
         self.valueChanged.connect(self._update_autofocus_enablement)
-        # Settings for a software routine are guesswork until they have been tried
-        # on the sample, so the settings dialog can run one; it takes a core-aware
-        # widget to say which microscope.
         self.af_axis.setTestRunner(_software_autofocus_runner(self._mmc))
 
         self.destroyed.connect(self._disconnect)

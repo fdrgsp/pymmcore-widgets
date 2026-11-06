@@ -292,10 +292,6 @@ def detect_wells(
     settings: DetectionSettings | None = None,
 ) -> DetectionResult:
     """Propose rims on an overview and refine using original tile edge evidence."""
-    # Optional imports keep manual calibration independent of the detector extra.
-    from skimage.feature import canny
-    from skimage.transform import hough_circle, hough_circle_peaks
-
     settings = settings or DetectionSettings()
     if not tiles:
         raise ValueError("No survey images were acquired.")
@@ -304,6 +300,9 @@ def detect_wells(
             "A single rectangular well cannot be calibrated automatically. "
             "Use Manual calibration."
         )
+    from skimage.feature import canny
+    from skimage.transform import hough_circle, hough_circle_peaks
+
     half_um = (plate.well_size[0] * 500, plate.well_size[1] * 500)
     circular = plate.circular_wells and np.isclose(*half_um)
     rectangular = not plate.circular_wells

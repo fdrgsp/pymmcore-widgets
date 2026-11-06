@@ -2,17 +2,30 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
+import pytest
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import QHeaderView
 
 from pymmcore_widgets import ChannelSettingsTable
 from pymmcore_widgets._light_sources import IntensitySpinBox
+from pymmcore_widgets.mda import CoreConnectedChannelTable
 
 if TYPE_CHECKING:
     from pymmcore_plus import CMMCorePlus
     from pytestqt.qtbot import QtBot
 
 LS_FLOAT = "Camera · TestProperty2"
+
+
+@pytest.mark.parametrize(
+    "table_type", [ChannelSettingsTable, CoreConnectedChannelTable]
+)
+def test_light_sources_are_independent(table_type, qtbot, global_mmcore) -> None:
+    table = table_type(mmcore=global_mmcore)
+    qtbot.addWidget(table)
+    sources = table.lightSources()
+    sources[LS_FLOAT].clear()
+    assert table.lightSources()[LS_FLOAT] == [("Camera", "TestProperty2")]
 
 
 def _cell(tbl: ChannelSettingsTable, row: int, key: str):  # type: ignore[no-untyped-def]

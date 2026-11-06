@@ -51,19 +51,16 @@ def fit_plate_calibration(
         return (round(x - col * dx, 4), round(y + row * dy, 4)), plate.well_spacing, 0.0
     rows, cols = {r for r, _ in centers}, {c for _, c in centers}
     if plate is not None and (len(rows) == 1 or len(cols) == 1):
-        result = fit_collinear_calibration(plate, centers, len(rows) == 1)
-        if result is None:
-            raise ValueError("Well centers are coincident; cannot determine rotation.")
-        spacing = result[1]
+        spacing = _collinear_spacing(plate, centers, len(rows) == 1)
     else:
         a, b, ty, c, d, tx = well_coords_affine(centers)
+        spacing = (float(np.hypot(b, d) / 1000), float(np.hypot(a, c) / 1000))
         if plate is None:
             return (
                 (round(float(tx), 4), round(float(ty), 4)),
-                (float(np.hypot(b, d) / 1000), float(np.hypot(a, c) / 1000)),
+                spacing,
                 round(float(np.rad2deg(np.arctan2(-c, a))), 2),
             )
-        spacing = (float(np.hypot(b, d) / 1000), float(np.hypot(a, c) / 1000))
     origin, rotation = fit_plate_pose(centers, plate.well_spacing)
     return origin, spacing, rotation
 
@@ -146,7 +143,8 @@ def well_coords_affine(
 
     Returns
     -------
-    np.ndarray: The affine transformation matrix of shape (3, 3).
+    tuple[float, float, float, float, float, float]
+        Coefficients `(a, b, ty, c, d, tx)` mapping `(-row, col)` to `(y, x)`.
     """
     A: list[list[int]] = []
     B: list[float] = []
@@ -167,57 +165,20 @@ def well_coords_affine(
     return tuple(params)
 
 
-def fit_collinear_calibration(
+def _collinear_spacing(
     plate: useq.WellPlate,
     index_coordinates: Mapping[tuple[int, int], tuple[float, float]],
     is_single_row: bool,
-) -> tuple[tuple[float, float], tuple[float, float], float] | None:
-    """Fit a row/column, deriving the perpendicular axis from nominal plate spacing."""
-    indices = list(index_coordinates.keys())
-    centers = np.array(list(index_coordinates.values()))
-
-    # Build the varying-axis indices and identify the fixed-axis index
-    if is_single_row:  # varying column, fixed row
-        varying = np.array([c for _, c in indices], dtype=float)
-        fixed_idx = indices[0][0]
-        other_spacing = plate.well_spacing[1]
-    else:  # varying row, fixed column
-        varying = np.array([-r for r, _ in indices], dtype=float)
-        fixed_idx = indices[0][1]
-        other_spacing = plate.well_spacing[0]
-
-    # Fit linear model: x = slope_x * v + tx,  y = slope_y * v + ty
+) -> tuple[float, float]:
+    """Measure spacing along a row/column, keeping the nominal perpendicular pitch."""
+    varying = np.array([c if is_single_row else -r for r, c in index_coordinates])
     design = np.column_stack([varying, np.ones(len(varying))])
-    coefficients, *_ = np.linalg.lstsq(design, centers, rcond=None)
-    (slope_x, slope_y), (tx, ty) = coefficients
-
-    # Measured spacing along the varying axis
-    measured_spacing = np.hypot(slope_y, slope_x) / 1000  # mm
+    coefficients, *_ = np.linalg.lstsq(
+        design, np.array(list(index_coordinates.values())), rcond=None
+    )
+    measured_spacing = float(np.linalg.norm(coefficients[0]) / 1000)
     if measured_spacing < 1e-6:
-        return None  # wells are coincident
-
-    # Compute rotation and assign spacings per axis
+        raise ValueError("Well centers are coincident; cannot determine rotation.")
     if is_single_row:
-        # Column axis direction is (slope_x, slope_y) in world (x, y)
-        rot_rad = np.arctan2(slope_y, slope_x)
-        unit_x, unit_y = measured_spacing, max(other_spacing, 0.0)
-
-        # Extrapolate A1 center to row=0
-        if fixed_idx != 0:
-            other_um = other_spacing * 1000
-            ty += other_um * np.cos(rot_rad) * fixed_idx
-            tx -= other_um * np.sin(rot_rad) * fixed_idx
-    else:
-        # Row axis direction is (slope_x, slope_y) in world (x, y)
-        rot_rad = np.arctan2(-slope_x, slope_y)
-        unit_x, unit_y = max(other_spacing, 0.0), measured_spacing
-
-        # Extrapolate A1 center to col=0
-        if fixed_idx != 0:
-            other_um = other_spacing * 1000
-            tx -= other_um * np.cos(rot_rad) * fixed_idx
-            ty -= other_um * np.sin(rot_rad) * fixed_idx
-
-    rotation = round(float(np.rad2deg(rot_rad)), 2)
-
-    return (round(float(tx), 4), round(float(ty), 4)), (unit_x, unit_y), rotation
+        return measured_spacing, plate.well_spacing[1]
+    return plate.well_spacing[0], measured_spacing

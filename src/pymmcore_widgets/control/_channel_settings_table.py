@@ -216,7 +216,6 @@ class ChannelSettingsTable(DataTableWidget):
         self._light_sources: dict[str, list[tuple[str, str]]] = {}
         self._light_source_column: ComboColumn = self.LIGHT_SOURCE
         self._syncing = False
-        # the light source columns are shown by default; see setLightSourcesVisible
         # row of the preset active on the microscope, or -1
         self._active_row = -1
 
@@ -372,7 +371,7 @@ class ChannelSettingsTable(DataTableWidget):
         group name and list every ``(device, property)`` pair in the preset --
         setting the intensity broadcasts the same value to all of them.
         """
-        return dict(self._light_sources)
+        return {label: list(props) for label, props in self._light_sources.items()}
 
     def setLightSourcesVisible(self, visible: bool) -> None:
         """Show or hide the Light Source and Intensity columns. On by default.

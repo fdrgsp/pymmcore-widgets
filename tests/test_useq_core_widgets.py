@@ -1453,8 +1453,10 @@ def test_moving_channel_preserves_intensity(
     assert wdg.rowSettings(1) == other
 
 
-def test_core_mda_with_hcs_value(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
-    wdg = MDAWidget()
+def test_core_mda_with_hcs_value(
+    qtbot: QtBot, global_mmcore: CMMCorePlus, core_instance_mock: Mock
+) -> None:
+    wdg = MDAWidget(mmcore=global_mmcore)
     qtbot.addWidget(wdg)
     wdg.show()
 
@@ -1472,8 +1474,10 @@ def test_core_mda_with_hcs_value(qtbot: QtBot, global_mmcore: CMMCorePlus) -> No
 
     mock = Mock()
     wdg.valueChanged.connect(mock)
+    core_instance_mock.reset_mock()
     wdg.setValue(seq)
     mock.assert_called_once()
+    core_instance_mock.assert_not_called()
 
     assert wdg.value().stage_positions == pos
     assert wdg.stage_positions.table().rowCount() == len(pos)

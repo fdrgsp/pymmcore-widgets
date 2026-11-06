@@ -40,7 +40,7 @@ class TimePlanWidget(DataTableWidget):
 
         self._set_mode_column(self.table().indexOf(self.LOOPS))
 
-        self.valueChanged.connect(self._on_value_changed)
+        self.valueChanged.connect(self._resolve_duration)
 
     # ------------------------- Public API -------------------------
 
@@ -108,9 +108,6 @@ class TimePlanWidget(DataTableWidget):
         self._resolve_duration()
 
     # ------------------------- Private API -------------------------
-
-    def _on_value_changed(self) -> None:
-        self._resolve_duration()
 
     def _resolve_duration(self) -> None:
         """Resolve interval, loops, duration based on which column changed.

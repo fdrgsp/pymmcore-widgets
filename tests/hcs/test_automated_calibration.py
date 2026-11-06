@@ -60,10 +60,32 @@ def _mock_survey_canvas(monkeypatch):
     monkeypatch.setattr(
         "pymmcore_widgets.hcs._automated_plate_calibration_widget.SurveyCanvas", _Canvas
     )
+    monkeypatch.setattr(
+        "pymmcore_widgets.hcs._automated_plate_calibration_widget.find_spec",
+        lambda _: True,
+    )
 
 
 def _plate():
     return useq.WellPlate(rows=2, columns=2, well_spacing=1.5, well_size=1)
+
+
+def test_scan_does_not_interrupt_mda(qtbot, global_mmcore):
+    from pymmcore_widgets.hcs import HCSWizard
+
+    wizard = HCSWizard(mmcore=global_mmcore)
+    qtbot.addWidget(wizard)
+    auto = wizard.calibration_page.automated
+    wizard.calibration_page.widget.setValue(_plate())
+    _prepare_area(auto)
+    core = Mock(wraps=global_mmcore)
+    core.mda.is_running.return_value = True
+    core.isSequenceRunning.return_value = True
+    auto._mmc = core
+    auto._acquire()
+    core.stopSequenceAcquisition.assert_not_called()
+    assert not auto.isBusy()
+    assert "Stop the running acquisition" in auto._status.text()
 
 
 @pytest.mark.parametrize("rotation", [0, 17, -53])
@@ -427,6 +449,7 @@ def test_scan_area_from_four_edge_points(qtbot, global_mmcore):
 
 
 def test_stream_scan_detect_and_rerun(qtbot, global_mmcore, monkeypatch):
+    pytest.importorskip("scipy")
     from pymmcore_widgets.hcs import HCSWizard
     from pymmcore_widgets.hcs import _automated_plate_calibration_widget as module
 

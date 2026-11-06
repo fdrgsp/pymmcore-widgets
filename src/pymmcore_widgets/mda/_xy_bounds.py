@@ -486,15 +486,6 @@ def _bound_button(icon: QIconifyIcon, tooltip: str) -> QPushButton:
     return button
 
 
-class _PositionSpinBox(QDoubleSpinBox):
-    def __init__(self) -> None:
-        super().__init__()
-        self.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
-        self.setRange(-99999999, 99999999)
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setSuffix(" µm")
-
-
 class _MarkVisitButton(QPushButton):
     def __init__(
         self,

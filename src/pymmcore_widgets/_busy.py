@@ -1,9 +1,4 @@
-"""A translucent "working…" overlay for blocking operations.
-
-Operations such as position imports and configuration loading run on the GUI
-thread, so the overlay is shown and the event loop flushed *before* the blocking
-call starts — otherwise nothing would ever paint.
-"""
+"""Paint a working overlay before a blocking operation takes the GUI thread."""
 
 from __future__ import annotations
 
@@ -36,15 +31,9 @@ class BusyOverlay(QWidget):
         self.setGeometry(parent.rect())
         self.raise_()
         self.show()
-        # force a paint now: the caller is about to block the event loop
         self.repaint()
         if app := QApplication.instance():
-            # Paint/layout work only -- NOT queued user input. This runs from
-            # inside the very handler that is about to block, so delivering a
-            # click here would re-enter it: a second click on a "Save" button
-            # (which sits in a page toolbar, outside the widget this overlay
-            # covers) would start a nested rewrite of the same core while the
-            # first is still running.
+            # Flush paint/layout events without allowing clicks to re-enter the caller.
             app.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
 
     def stop(self) -> None:

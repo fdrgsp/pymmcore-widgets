@@ -33,6 +33,14 @@ DOWNSAMPLE_DELAY_MS = 150
 Factor = tuple[int, int]  # (rows, columns)
 
 
+def _image_transform(transform: np.ndarray) -> np.ndarray:
+    """Validate an image transform and normalize it to VisPy's row-vector form."""
+    transform = np.asarray(transform)
+    if transform.shape != (4, 4):
+        raise ValueError("Transform must be a 4x4 matrix.")
+    return transform.T if np.allclose(transform[-1], (0, 0, 0, 1)) else transform
+
+
 class _TileSource:
     """An image's full-resolution data, placement, and displayed factor."""
 
@@ -159,17 +167,7 @@ class StageViewer(QWidget):
             widgets) based on, e.g., the stage position, pixel size, configuration
             affine, etc.  This is a relatively low-level, direct function.
         """
-        # normalize the transform
-        if transform is None:
-            transform = np.eye(4)
-        else:
-            transform = np.asarray(transform)
-            if transform.shape != (4, 4):
-                raise ValueError("Transform must be a 4x4 matrix.")
-            # vispy uses a column-major order for the transform matrix
-            # so we need to transpose it to get the correct order
-            if np.allclose(transform[-1], (0, 0, 0, 1)):
-                transform = transform.T
+        transform = np.eye(4) if transform is None else _image_transform(transform)
 
         # add the image to the scene with the transform
         # texture_format="auto" uses GPUScaledTexture2D so that clim changes
@@ -195,14 +193,11 @@ class StageViewer(QWidget):
         self, frame: Image, img: np.ndarray, transform: np.ndarray | None = None
     ) -> None:
         """Refresh an existing image's data and placement, reusing its scene node."""
-        if transform is not None:
-            transform = np.asarray(transform)
-            if transform.shape != (4, 4):
-                raise ValueError("Transform must be a 4x4 matrix.")
-            if np.allclose(transform[-1], (0, 0, 0, 1)):
-                transform = transform.T
-        else:
-            transform = self._sources[frame].matrix
+        transform = (
+            self._sources[frame].matrix
+            if transform is None
+            else _image_transform(transform)
+        )
         shown, matrix, factor = self._display(img, transform)
         frame.set_data(shown)
         frame.transform = scene.MatrixTransform(matrix=matrix)
@@ -231,7 +226,7 @@ class StageViewer(QWidget):
             Extra margin to add between the images and the edge of the view.
             This is a percentage of the view size. Default is 0.05 (5%).
         """
-        if not (visuals := self._get_images()):
+        if not (visuals := tuple(self._get_images())):
             return
         x_bounds, y_bounds, *_ = get_vispy_scene_bounds(visuals)
         self.view.camera.set_range(x=x_bounds, y=y_bounds, margin=margin)
@@ -426,7 +421,14 @@ def get_vispy_scene_bounds(
 
     for obj in visuals:
         (x_min, x_max), (y_min, y_max) = obj.bounds(0), obj.bounds(1)
-        local_bounds = np.array([[x_min, y_min, 0, 1], [x_max, y_max, 0, 1]])
+        local_bounds = np.array(
+            [
+                [x_min, y_min, 0, 1],
+                [x_min, y_max, 0, 1],
+                [x_max, y_min, 0, 1],
+                [x_max, y_max, 0, 1],
+            ]
+        )
 
         # Map local bounds to world coordinates
         transform = obj.node_transform(obj.scene_node)
