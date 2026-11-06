@@ -1,7 +1,8 @@
 # Z surface mapping: research and implementation plan
 
 Status: proposal; no feature code implemented. Updated: 2026-11-06 (Surface Focus
-card under Autofocus, mutually exclusive with it; see §4 and the decision log).
+card under Autofocus; combinable with software autofocus, exclusive with hardware
+autofocus; see §4 and the decision log).
 
 This is an editable working plan. Check off implementation tasks and record changes
 in the decision log below. Recommendations are engineering judgments based on the
@@ -13,9 +14,14 @@ Store manually focused XYZ reference points, estimate a surface `z = f(x, y)`, a
 add a checkable **Surface Focus** card to the MDA widget, directly under the
 existing **Autofocus** card. All the surface controls live in that card. When it is
 checked, `MDAWidget.value()` returns a sequence whose positions have
-`z = f(position.x, position.y)`. Surface Focus and Autofocus are mutually
-exclusive: each can be checked only while the other is unchecked. Update copies of the returned positions, preserving
+`z = f(position.x, position.y)`. Update copies of the returned positions, preserving
 the editable table and the existing acquisition engine.
+
+Surface Focus can be combined with **software** autofocus (the surface gives each
+position's starting Z, the image-based routine refines it), but not with
+**hardware** autofocus (which locks to its own reference whatever the starting Z,
+so the surface would be discarded and the per-position AF offsets would be a
+second, conflicting definition of the focus).
 
 **Recommended first release:** triangulated linear interpolation by default, an
 explicit fitted-plane alternative, at least three non-collinear reference points,
@@ -152,41 +158,63 @@ position table.
 The card is the single on/off switch for the mode (not a checkbox per row).
 Reference samples are a separate list edited from the card, not acquisition rows.
 
-### Mutual exclusion with Autofocus
+### Combination with Autofocus
 
-Surface Focus and Autofocus both decide the focus at each position, so only one can
-be active:
+Surface Focus combines with **software** autofocus and excludes **hardware**
+autofocus:
 
-- While **Autofocus** is checked, the Surface Focus card is disabled (its checkbox
-  cannot be checked) with the tooltip **"Cannot use while 'Autofocus' is
-  checked."**
-- While **Surface Focus** is checked, the Autofocus card is disabled with the
-  tooltip **"Cannot use while 'Surface Focus' is checked."**
-- This applies to both autofocus modes (hardware and software), and also disables
-  "Set AF Offset per Position" in the position table.
-- Unchecking one re-enables the other (restoring its normal tooltip). Disabling a
-  card never changes its stored settings or its other card's state: the user
-  re-checks it explicitly.
-- Device-based enablement still applies on top: if the autofocus device is missing,
-  `_enable_af` disables the Autofocus card with its existing tooltip, which takes
-  precedence over the "Surface Focus is checked" tooltip. Keep one function that
-  computes each card's enabled state and tooltip from (checked states, devices),
-  rather than separate slots that can overwrite each other.
+- **Software autofocus + Surface Focus (allowed):** each position starts at its
+  surface Z and the routine refines it from there (see §6). A good starting point
+  allows a much smaller search range (fewer images, less bleaching, faster) and
+  makes locking onto a wrong plane (debris, plate bottom) less likely. The card
+  should suggest a small search range in this mode.
+- **Hardware autofocus + Surface Focus (not allowed):** hardware autofocus locks to
+  its reference (e.g. the coverslip reflection plus its offset) whatever the
+  starting Z, so the surface Z would only decide where the lock attempt begins, and
+  the per-position AF offsets would be a second, conflicting definition of the
+  focus. The engine already steps through a search range when `fullFocus` fails;
+  an explicit "pre-focus hardware autofocus with the surface" option can be added
+  later if capture range proves a problem on real (e.g. bowed) plates.
+
+UI rules (the Autofocus card has Hardware/Software mode radio buttons inside it,
+which are disabled while the card is unchecked):
+
+- While the **Autofocus** card is checked in **Hardware** mode, the Surface Focus
+  card is disabled with the tooltip **"Cannot use while hardware 'Autofocus' is
+  checked."** In Software mode (or unchecked), Surface Focus is available.
+- While **Surface Focus** is checked:
+  - the Autofocus card's **Hardware** option is disabled with the tooltip
+    **"Hardware autofocus cannot be used while 'Surface Focus' is checked."**;
+  - checking the Autofocus card selects **Software** mode if Hardware was the
+    selected (inactive) mode. This is visible in the card, and needed: otherwise
+    the unchecked card could neither be checked nor switched to Software;
+  - "Set AF Offset per Position" (hardware offsets) is disabled in the position
+    table, with the same tooltip.
+- Unchecking Surface Focus re-enables the Hardware option and the per-position
+  offsets (restoring their normal tooltips) but does not switch the mode back.
+  Disabling a control never changes the other card's checked state.
+- Device-based enablement still applies on top (e.g. `_enable_af` and a missing
+  autofocus device, which only matters for hardware mode). Keep one function that
+  computes the enabled state and tooltip of each control from (checked states,
+  autofocus mode, devices), rather than separate slots that can overwrite each
+  other.
 - Disabled-by-the-other must be distinguished from a disabled ancestor while an MDA
-  runs (see the existing AF-per-position event filter regression), so that both
-  cards come back in the right state after a run.
-- `setValue()`/settings loads that contain both an autofocus plan and enabled
-  surface metadata are invalid: keep the autofocus plan, load the surface with its
-  card unchecked, and report why. `value()`/run preparation also validate this,
-  since programmatic settings can bypass the UI.
+  runs (see the existing AF-per-position event filter regression), so that all
+  controls come back in the right state after a run.
+- `setValue()`/settings loads that contain both a **hardware** autofocus plan and
+  enabled surface metadata are invalid: keep the autofocus plan, load the surface
+  with its card unchecked, and report why. A software autofocus plan with an
+  enabled surface is valid. `value()`/run preparation also validate this, since
+  programmatic settings can bypass the UI.
 
 ### Other enablement and precedence
 
 | Condition | Proposed result |
 | --- | --- |
 | Include Z checked | Surface Focus cannot be checked (tooltip says why). Keep the stored map. |
-| Autofocus card checked (hardware or software) | Surface Focus disabled: "Cannot use while 'Autofocus' is checked." |
-| Surface Focus checked | Autofocus card and "Set AF Offset per Position" disabled: "Cannot use while 'Surface Focus' is checked." |
+| Autofocus card checked in Hardware mode | Surface Focus disabled: "Cannot use while hardware 'Autofocus' is checked." |
+| Autofocus card checked in Software mode | Surface Focus available: surface Z is the starting point, software autofocus refines it. |
+| Surface Focus checked | Autofocus Hardware option and "Set AF Offset per Position" disabled: "Hardware autofocus cannot be used while 'Surface Focus' is checked." Software autofocus stays available. |
 | Autofocus device loaded but Autofocus unchecked | Surface Focus available. Existing run preparation handles a physically engaged continuous-focus device before acquisition. |
 | No XY or focus device | Disable activation and capture, retaining references. The card's setup controls still allow inspecting/editing/importing the map. |
 | Invalid or incomplete surface | Disable activation and explain the problem; setup controls stay available to fix it. |
@@ -338,7 +366,14 @@ For no stack: `event Z = surface Z + channel Z offset`.
 For a relative stack: `event Z = surface Z + relative stack Z + channel Z offset`.
 Preserve existing channel `do_stack=False` semantics. Let useq apply these offsets
 once; do not add them into the saved reference heights or position Z yourself.
-Autofocus (hardware or software) cannot be combined with Surface Focus.
+
+With **software autofocus**, no extra code is needed: the event Z (surface Z plus
+offsets) is where the routine starts, and the pymmcore-plus engine keeps its result
+as a per-position correction (`z_after - z_before`, keyed by the `p` index) that it
+adds to that position's later events, including stack planes. Positions/timepoints
+where autofocus does not run (e.g. AF every N timepoints) use surface Z plus that
+position's last correction. Hardware autofocus is not combined with Surface Focus
+(§4).
 
 ### Expand grids into ordinary positions
 
@@ -373,9 +408,13 @@ than sharing the parent's Z.
    For example `t,p,g,c,z` becomes `t,p,c,z`. Orders such as `p,c,g` cannot generally
    retain their visitation order by simply making parent-major tile positions;
    reject unsupported orders with a clear message instead of rearranging them.
-7. Autofocus is never active with Surface Focus, so no AF schedule needs
-   remapping. Remap or reject shutter-open axis settings: separate parent/grid
-   boundary behavior cannot always be represented by one axis.
+7. Software autofocus on `g` becomes autofocus on the flattened `p`. Software
+   autofocus on the original parent `p` would now run per tile if mapped naively,
+   so explicitly label/choose the resulting schedule or reject that combination in
+   the initial implementation. Engine corrections are keyed by `p`, so each tile
+   keeps its own. (Hardware autofocus is never combined with Surface Focus.) Remap
+   or reject shutter-open axis settings as well: separate parent/grid boundary
+   behavior cannot always be represented by one axis.
 8. Existing UI-generated child sequences are grid-only. Imported sequences with
    additional child axes/actions need explicit preservation tests before support;
    reject unsupported combinations instead of discarding their settings.
@@ -492,9 +531,11 @@ Illustrative metadata shape (three points shown only as a format example):
 - [ ] Add the checkable Surface Focus card under the Autofocus card (same
   `_CheckableCard` base), its compact controls, the reference points dialog,
   capture/edit actions, and surface JSON.
-- [ ] Make Surface Focus and Autofocus mutually exclusive, with the "Cannot use
-  while '…' is checked." tooltips, combined with device-based enablement, and
-  restored correctly after a run.
+- [ ] Allow Surface Focus with software autofocus; make it exclusive with hardware
+  autofocus (disabled Hardware option / disabled Surface Focus card, the
+  per-position AF offsets, Software selected when checking Autofocus), with the
+  tooltips from §4, combined with device-based enablement, and restored correctly
+  after a run.
 - [ ] Separate core-independent table/dialog state from core capture/device checks;
   keep MDA-level AF/Z-plan compatibility in the MDA owner.
 - [ ] Implement atomic dialog Apply/Cancel behavior and cached compilation.
@@ -520,8 +561,12 @@ Illustrative metadata shape (three points shown only as a format example):
 
 - [ ] Test both MDA presentations and standalone/core-connected table behavior.
 - [ ] Test device reload, focus/XY removal, mode conflicts, run disable/re-enable,
-  and repeated settings loads. Verify Autofocus and Surface Focus can never be
-  checked together (UI, `setValue`, and `value()`), with the expected tooltips.
+  and repeated settings loads. Verify hardware autofocus and Surface Focus can
+  never be active together (UI, `setValue`, and `value()`), with the expected
+  tooltips, and that software autofocus + Surface Focus is allowed.
+- [ ] With the demo core and a software autofocus routine, verify each position
+  starts at its surface Z, the routine's correction is kept per position (and per
+  tile after flattening), and later events/stack planes use surface Z plus it.
 - [ ] With the demo core, verify emitted event Z for multiple positions, relative
   stacks, channel offsets, non-stacking channels, and per-tile grid following.
 - [ ] Verify expansion preserves tile scan order, applicable parent properties,
@@ -575,4 +620,5 @@ when implementing; reuse existing table infrastructure where practical.
 | 2026-11-04 | Recommend linear triangulation + optional plane. | Predictable local interpolation and an explicit model for slide tilt; validate accuracy on real held-out points. |
 | 2026-11-04 | Expand grids into individual positions before resolving Z. | User proposed flattening in `value()`; this enables per-tile following with ordinary useq sequences. Supersedes the earlier shared-grid-baseline proposal. Preserve source grids in editor metadata and handle axis/scheduling semantics explicitly. |
 | 2026-11-04 | Default to hull-limited coverage and explicit failure. | Avoid silently generating Z from unsupported XY or switching methods. |
-| 2026-11-06 | Put the surface controls in a checkable **Surface Focus** card under the Autofocus card (not in the position table), mutually exclusive with Autofocus. | Both decide the focus per position. Tooltips: "Cannot use while 'Autofocus' is checked." / "Cannot use while 'Surface Focus' is checked." Supersedes the table checkbox + gear and the software-AF combination. |
+| 2026-11-06 | Put the surface controls in a checkable **Surface Focus** card under the Autofocus card (not in the position table). | One place for the focus strategy, next to Autofocus. Supersedes the table checkbox + gear. |
+| 2026-11-06 | Allow Surface Focus with **software** autofocus; exclude **hardware** autofocus. | Software AF starts from the event Z, so the surface makes its search smaller, faster and more robust (engine keeps per-position corrections). Hardware AF locks to its own reference whatever the start Z (the surface would be discarded, and per-position AF offsets would conflict with it). Tooltips: "Cannot use while hardware 'Autofocus' is checked." / "Hardware autofocus cannot be used while 'Surface Focus' is checked." Revisit "surface pre-focus for hardware AF" if capture range is a problem on real plates. |
