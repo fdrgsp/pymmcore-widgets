@@ -3,10 +3,12 @@ from __future__ import annotations
 import itertools
 from contextlib import suppress
 from dataclasses import dataclass, replace
+from functools import partial
 from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ._image_ops import canny, fftconvolve, least_squares, peak_local_max
 from ._plate_calibration import (
     min_calibration_wells,
     supports_automated_calibration,
@@ -108,8 +110,6 @@ def _robust_circle(
     points: np.ndarray, radius: float, tolerance: float
 ) -> tuple[np.ndarray, np.ndarray, float] | None:
     """Radius-constrained RANSAC followed by geometric-distance refinement."""
-    from scipy.optimize import least_squares
-
     best: np.ndarray | None = None
     params: np.ndarray | None = None
     rng = np.random.default_rng(0)
@@ -134,15 +134,11 @@ def _robust_circle(
     # Recenter for stable optimization even with very large absolute XY values.
     origin = params[:2].copy()
     centered = points[best] - origin
-    result = least_squares(
+    params = least_squares(
         lambda p: np.linalg.norm(centered - p[:2], axis=1) - p[2],
         [0, 0, params[2]],
-        loss="soft_l1",
-        f_scale=tolerance,
+        tolerance,
     )
-    if not result.success:
-        return None
-    params = result.x
     params[:2] += origin
     residuals = np.abs(np.linalg.norm(points - params[:2], axis=1) - params[2])
     inliers = residuals < tolerance
@@ -179,8 +175,6 @@ def _fit_shape(
     Returns the fitted (x, y, half width, half height, rotation), the inlier rim
     points, and their RMS residual.
     """
-    from scipy.optimize import least_squares
-
     a, b = half
     params = np.array([0, 0, a, b, 0.0])
     # Recenter for stable optimization even with very large absolute XY values.
@@ -197,19 +191,15 @@ def _fit_shape(
         rim = local[band]
         if len(rim) < 36:
             return None
-        result = least_squares(
-            lambda p, rim=rim: _shape_distance(rim, p, rectangular),
+        params = least_squares(
+            partial(_shape_distance, rim, rectangular=rectangular),
             params,
+            tolerance,
             bounds=(
                 [-a, -b, a * 0.85, b * 0.85, -np.pi / 4],
                 [a, b, a * 1.15, b * 1.15, np.pi / 4],
             ),
-            loss="soft_l1",
-            f_scale=tolerance,
         )
-        if not result.success:
-            return None
-        params = result.x
     residuals = np.abs(_shape_distance(rim, params, rectangular))
     inliers = residuals < tolerance
     if inliers.sum() < 36:
@@ -262,25 +252,18 @@ def _propose_shapes(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Correlate edges with rim templates; peaks are the fraction of rim on edges.
 
-    Templates span 85-115% of the nominal size and +/-15 degrees of plate rotation.
+    Templates span 85-115% of the nominal size and +/-15 degrees of plate rotation
+    (circles look the same at every rotation).
     """
-    from scipy.signal import fftconvolve
-    from skimage.feature import peak_local_max
-
+    circle = not rectangular and np.isclose(*half_px)
     accumulator = np.zeros(edges.shape)
     for scale in np.linspace(0.85, 1.15, 7):
-        for angle in ROTATION_SEARCH_DEG:
+        for angle in (0,) if circle else ROTATION_SEARCH_DEG:
             a, b = (h * scale for h in half_px)
             template = _outline_template(a, b, float(angle), rectangular)
-            response = fftconvolve(edges.astype(float), template, "same")
+            response = fftconvolve(edges.astype(float), template)
             np.maximum(accumulator, response, out=accumulator)
-    peaks = peak_local_max(
-        accumulator,
-        min_distance=max(1, int(min(half_px))),
-        threshold_abs=threshold,
-        num_peaks=num_peaks,
-        exclude_border=False,
-    )
+    peaks = peak_local_max(accumulator, max(1, int(min(half_px))), threshold, num_peaks)
     return peaks[:, 1], peaks[:, 0]
 
 
@@ -300,9 +283,6 @@ def detect_wells(
             "A single rectangular well cannot be calibrated automatically. "
             "Use Manual calibration."
         )
-    from skimage.feature import canny
-    from skimage.transform import hough_circle, hough_circle_peaks
-
     half_um = (plate.well_size[0] * 500, plate.well_size[1] * 500)
     circular = plate.circular_wells and np.isclose(*half_um)
     rectangular = not plate.circular_wells
@@ -321,26 +301,9 @@ def detect_wells(
     if cancel.is_set():
         raise InterruptedError("Detection cancelled.")
     num_peaks = min(64, plate.rows * plate.columns)
-    if circular:
-        radius_px = half_px[0]
-        radii = np.unique(
-            np.linspace(radius_px * 0.85, radius_px * 1.15, 17).astype(int)
-        )
-        hough = hough_circle(edges, radii)
-        _, cx, cy, _ = hough_circle_peaks(
-            hough,
-            radii,
-            min_xdistance=max(1, int(radius_px)),
-            min_ydistance=max(1, int(radius_px)),
-            threshold=settings.hough_threshold,
-            total_num_peaks=num_peaks,
-            normalize=True,
-        )
-        del hough
-    else:
-        cx, cy = _propose_shapes(
-            edges, half_px, rectangular, settings.hough_threshold, num_peaks
-        )
+    cx, cy = _propose_shapes(
+        edges, half_px, rectangular, settings.hough_threshold, num_peaks
+    )
     pixel_um = float(np.linalg.norm(geometry.matrix(), axis=0).max())
     # Find rim edges at ~1/1000 of the well size: finer pixels only add cost and
     # spread soft rims too thinly for the fixed-scale edge detector.
@@ -371,11 +334,19 @@ def detect_wells(
             raise InterruptedError("Detection cancelled.")
         proposal = np.array(origin) + np.array([x, y]) * scale
         if circular:
-            distance = np.linalg.norm(points - proposal, axis=1) - radius_um
-            rim = points[np.abs(distance) < radius_um * 0.2]
-            if len(rim) < 36:
-                continue
-            fitted = _robust_circle(rim, radius_um, residual_limit)
+            # Refit around the first fit so the result depends less on where the
+            # overview proposal landed.
+            fitted, center = None, proposal
+            for _ in range(2):
+                distance = np.linalg.norm(points - center, axis=1) - radius_um
+                rim = points[np.abs(distance) < radius_um * 0.2]
+                if len(rim) < 36:
+                    fitted = None
+                    break
+                fitted = _robust_circle(rim, radius_um, residual_limit)
+                if fitted is None:
+                    break
+                center = fitted[0][:2]
             if fitted is None:
                 continue
             (xc, yc, radius), inliers, rms = fitted

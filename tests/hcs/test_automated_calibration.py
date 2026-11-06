@@ -60,10 +60,6 @@ def _mock_survey_canvas(monkeypatch):
     monkeypatch.setattr(
         "pymmcore_widgets.hcs._automated_plate_calibration_widget.SurveyCanvas", _Canvas
     )
-    monkeypatch.setattr(
-        "pymmcore_widgets.hcs._automated_plate_calibration_widget.find_spec",
-        lambda _: True,
-    )
 
 
 def _plate():
@@ -174,7 +170,6 @@ def test_fit_uses_nominal_spacing(indices):
 
 @pytest.mark.parametrize("matrix", [(15, 0, 0, 15), (13, -7, -7, -13)])
 def test_tiled_rim_detection(matrix):
-    pytest.importorskip("skimage")
     geometry = SurveyGeometry((-700, -2200, 2200, 700), (128, 128), matrix)
     reference = np.array([(0, 0), (1500, 0), (0, -1500)])
     tiles = []
@@ -260,24 +255,6 @@ def test_last_frame_settings_change_is_rejected():
             Event(),
             Mock(),
         )
-
-
-def test_manual_available_without_detector(qtbot, global_mmcore, monkeypatch):
-    from pymmcore_widgets.hcs import HCSWizard
-    from pymmcore_widgets.hcs import _automated_plate_calibration_widget as module
-
-    monkeypatch.setattr(module, "find_spec", lambda name: None)
-    wizard = HCSWizard(mmcore=global_mmcore)
-    qtbot.addWidget(wizard)
-    assert not wizard.calibration_page.automated._start.isEnabled()
-    assert "--extra hcs-auto" in wizard.calibration_page.automated._status.text()
-    plan = useq.WellPlatePlan(plate="96-well", a1_center_xy=(1, 2), rotation=0)
-    wizard.setValue(plan)
-    value = wizard.value()
-    assert value is not None
-    assert value.a1_center_xy == plan.a1_center_xy
-    assert value.rotation == plan.rotation
-    assert wizard.calibration_page.isComplete()
 
 
 @pytest.mark.parametrize("matrix", [(0, 0, 0, 0), (1, 1, 1, 1)])
@@ -449,7 +426,6 @@ def test_scan_area_from_four_edge_points(qtbot, global_mmcore):
 
 
 def test_stream_scan_detect_and_rerun(qtbot, global_mmcore, monkeypatch):
-    pytest.importorskip("scipy")
     from pymmcore_widgets.hcs import HCSWizard
     from pymmcore_widgets.hcs import _automated_plate_calibration_widget as module
 
@@ -696,7 +672,6 @@ def test_row_column_calibration(qtbot, global_mmcore, mode, rotation):
 
 @pytest.mark.parametrize("single_row", [True, False])
 def test_strip_rim_detection(single_row):
-    pytest.importorskip("skimage")
     plate = useq.WellPlate(
         rows=1 if single_row else 5,
         columns=5 if single_row else 1,
@@ -812,7 +787,6 @@ def _shape_tiles(plate, selected, rotation, origin=(1000.0, -2000.0)):
     ],
 )
 def test_shape_and_small_plate_detection(plate, selected, rotation):
-    pytest.importorskip("skimage")
     from pymmcore_widgets.hcs._well_detection import match_selected_wells
 
     tiles, geometry = _shape_tiles(plate, selected, rotation)
@@ -886,7 +860,6 @@ def test_mismatch_reports_selected_and_detected_grid():
 @pytest.mark.parametrize("rotation", [-15, 12])
 def test_rotated_rectangular_wells(rotation):
     # Proposal templates are rotated too, so tilted straight rims are still found.
-    pytest.importorskip("skimage")
     plate = useq.WellPlate(
         rows=2,
         columns=2,
@@ -1024,7 +997,6 @@ def test_scan_uses_pixel_size_affine(qtbot, global_mmcore):
 def test_rim_imaged_beyond_scan_corners():
     # Frames extend past the corner rectangle: a well whose rim pokes slightly out
     # of the corners but is fully imaged must still be detected.
-    pytest.importorskip("skimage")
     plate = useq.WellPlate(rows=2, columns=2, well_spacing=1.5, well_size=1)
     selected = ((0, 0), (0, 1), (1, 0), (1, 1))
     tiles, geometry = _shape_tiles(plate, selected, 0)

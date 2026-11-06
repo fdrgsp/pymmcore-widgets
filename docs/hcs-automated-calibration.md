@@ -7,12 +7,6 @@ pixel size is required.
 A single square or rectangular well (e.g. a coverslip) shows only Manual.
 Both methods use compact point tables sized to fit their rows.
 
-Install the optional detector dependencies:
-
-```sh
-uv sync --extra hcs-auto
-```
-
 1. Select a plate, then open **Automated**. Set a
    low-magnification objective, brightfield illumination, and focus on the well edges.
    Stop live view before scanning.

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from importlib.util import find_spec
 from threading import Event
 from typing import TYPE_CHECKING
 
@@ -485,7 +484,6 @@ class AutomatedPlateCalibrationWidget(QWidget):
 
     def _update_controls(self) -> None:
         supported = bool(self._plate and supports_automated_calibration(self._plate))
-        installed = find_spec("skimage") is not None
         px = self._mmc.getPixelSizeUm()
         calibrated = bool(np.isfinite(px) and px > 0)
         idle = not self.isBusy()
@@ -493,18 +491,13 @@ class AutomatedPlateCalibrationWidget(QWidget):
         self._start.setEnabled(
             idle
             and supported
-            and installed
             and calibrated
             and self._scan_ready()
             and self._scan_fits()
         )
         self._stop.setVisible(not idle)
         self._detect.setEnabled(
-            idle
-            and bool(self._tiles)
-            and installed
-            and supported
-            and self._scan_ready()
+            idle and bool(self._tiles) and supported and self._scan_ready()
         )
         self._settings_button.setEnabled(idle and supported)
         self._apply.setEnabled(idle and self._labels_ready())
@@ -514,11 +507,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
         if not ready and self._tab_wdg.currentIndex() == 1:
             self._tab_wdg.setCurrentIndex(0)
         self._tab_wdg.setTabEnabled(1, ready)
-        if not installed:
-            self._status.setText(
-                "Install detection with: uv sync --extra hcs-auto", warning=True
-            )
-        elif not calibrated:
+        if not calibrated:
             self._status.setText(
                 "Set the pixel size to enable automated calibration.", warning=True
             )

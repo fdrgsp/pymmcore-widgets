@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ._image_ops import bilinear
+
 if TYPE_CHECKING:
     from collections.abc import Callable
     from threading import Event
@@ -195,8 +197,6 @@ def survey_mosaic(
     The overview spans the tiles' footprints, not just the scan corners: frames
     extend past the corners, and wells there are fully imaged.
     """
-    from scipy.ndimage import map_coordinates
-
     h, w = geometry.shape
     footprint = np.array(
         [(-w / 2, -h / 2), (-w / 2, h / 2), (w / 2, -h / 2), (w / 2, h / 2)]
@@ -224,9 +224,7 @@ def survey_mosaic(
             + np.array([w / 2, h / 2])[:, None, None]
         )
         valid = (uv[0] >= 0) & (uv[0] < w - 1) & (uv[1] >= 0) & (uv[1] < h - 1)
-        data = map_coordinates(
-            tile.image.astype(np.float32), uv[::-1], order=1, mode="nearest"
-        )
+        data = bilinear(tile.image.astype(np.float32), uv[1], uv[0])
         slc = np.s_[lo[1] : hi[1], lo[0] : hi[0]]
         image[slc] += data * valid
         weights[slc] += valid
