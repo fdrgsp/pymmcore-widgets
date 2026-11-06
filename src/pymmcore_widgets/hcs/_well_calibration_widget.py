@@ -9,7 +9,6 @@ from qtpy.QtGui import QIcon
 from qtpy.QtWidgets import (
     QComboBox,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -24,7 +23,7 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
-from pymmcore_widgets._util import GREEN, YELLOW
+from pymmcore_widgets._util import GREEN, YELLOW, use_combo_row_height
 
 from ._util import find_circle_center, find_rectangle_center
 
@@ -110,9 +109,7 @@ class _CalibrationTable(QTableWidget):
         self.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        self.verticalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.ResizeToContents
-        )
+        use_combo_row_height(self)
         self.verticalHeader().sectionResized.connect(self.updateGeometry)
         self.horizontalHeader().geometriesChanged.connect(self.updateGeometry)
 
@@ -202,7 +199,6 @@ class _CalibrationTable(QTableWidget):
         with signals_blocked(self):
             self.clearContents()
             self.setRowCount(num)
-            self.resizeRowsToContents()
             # select the first row
             self.setCurrentCell(0, 0)
         self.itemChanged.emit(self.item(0, 0))
