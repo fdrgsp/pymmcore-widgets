@@ -477,3 +477,29 @@ def test_switching_wells_keeps_the_panel_top_still(qtbot, global_mmcore) -> None
     wdg._current_calibration_widget()._calibration_mode_wdg.setCurrentIndex(0)
     assert wdg._current_calibration_widget()._table.rowCount() == 1
     qtbot.waitUntil(lambda: positions() == three_rows)
+
+
+def test_new_well_keeps_previous_method(global_mmcore: CMMCorePlus, qtbot) -> None:
+    """Selecting another well keeps the method chosen on the previous well."""
+    wdg = PlateCalibrationWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.setValue("96-well")
+
+    wdg._plate_view.setSelectedIndices({(0, 0)})
+    a1 = wdg._current_calibration_widget()
+    assert a1 is not None
+    assert a1.calibrationMode().points == 3  # default for round wells
+    a1._calibration_mode_wdg.setCurrentIndex(0)  # 1 center point
+
+    wdg._plate_view.setSelectedIndices({(0, 5)})
+    a6 = wdg._current_calibration_widget()
+    assert a6 is not None and a6 is not a1
+    assert a6.calibrationMode().points == 1
+
+    # a well with recorded points keeps its own method
+    a6._calibration_mode_wdg.setCurrentIndex(1)  # 3 edge points
+    a6._table._set_row(0, 10, 10)
+    wdg._plate_view.setSelectedIndices({(0, 0)})
+    wdg._plate_view.setSelectedIndices({(0, 5)})
+    assert a6.calibrationMode().points == 3
+    assert a6.hasPoints()

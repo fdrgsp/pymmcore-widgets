@@ -1,6 +1,42 @@
 # HCS Cover Area mode: implementation plan
 
-Status: proposal; no feature code implemented. Updated: 2026-11-04.
+Status: implemented (pending: push useq `cite` and update the lockfile). Schema
+(`useq.GridFromShape`, v1 only) and widgets (`CoverAreaWidget`, selector, preview,
+wizard, versioned save files). Updated: 2026-11-05.
+
+Implementation notes (deviations/additions to the proposal below):
+
+- `GridFromShape` also has `rotation` (degrees, anti-clockwise, area relative to
+  the stage axes). Tiles stay stage-aligned; rotated areas use an exact test (affine
+  map to the area frame, then box intersection or parallelogram-to-origin distance).
+  `WellPlatePlan` sets it from the plate rotation when not explicitly set; the
+  wizard passes the calibrated rotation and the preview rotates well/area outlines.
+- `shape` is required and the plan precedes `GridWidthHeight` in the unions (they
+  are validated left-to-right with extra fields ignored), so dumps never reload as
+  `GridWidthHeight`. No discriminator was needed.
+- Tiles are cached in a module-level `lru_cache` keyed on the geometry, not in a
+  private attribute (pydantic equality compares private attributes).
+- `tile_coordinates()` is the single implementation for iteration, counting and
+  the preview.
+- `HCSWizard.setValue`/`load` now re-synchronizes the well geometry (previously
+  `WellPlateWidget.setValue` blocked the signal, so loading never updated it).
+- UI change: "Cover Area" merges coverage and the rows/columns grid into one card
+  with "Coverage" and "Grid" tabs; overlap, scan order, FOV count and errors are
+  shared below the tabs. The selector has three modes (Single FOV, Random Points,
+  Cover Area); `grid_wdg`/`grid_radio_btn` remain as aliases. Coverage requires
+  overlap >= 0, so a negative grid overlap is clamped (visibly) on that tab.
+- UI simplification (2026-11-05): no "Restrict Area" toggle. The Coverage tab
+  has Width / Height / Shape, starting at (and bounded by) the full well; a new
+  plate resets it to the full well. FOV counts are shown on the well view.
+- `GridFromShape.placement`: `"cover"` (default, full coverage) or `"inside"`
+  (only FOVs entirely inside the area; lattice sized to fit within the area,
+  exact corner containment test). Exposed as "Keep FOVs Inside Area". This is
+  the "separately named placement policy" anticipated in §4.
+- Persistence decision: versioned wizard envelope
+  (`{"format": "pymmcore-widgets.hcs-wizard", "version": 1, "well_plate_plan":
+  ..., "editor": {}}`; the editor section is currently empty since the
+  restriction toggle was removed). Bare `WellPlatePlan` files still load
+  (without editor state); newer versions are rejected with a clear error.
 
 ## 1. Intended behavior
 
@@ -264,47 +300,49 @@ surface Z using that plan's ordinary `value()` approach.
 
 ### A. Schema implementation
 
-- [ ] Finalize plan name, field/union representation, and boundary policy.
-- [ ] Implement centered lattice generation, analytic ellipse filtering, ordered
+- [x] Finalize plan name, field/union representation, and boundary policy.
+- [x] Implement centered lattice generation, analytic ellipse filtering, ordered
   relative positions, stable tile metadata, and exact counting.
-- [ ] Add numeric validation and excessive-grid protection without partial output.
-- [ ] Add public exports, schema/plate/MDA integration, serialization tests, and a
-  headless example. Release or pin the supporting schema revision.
+- [x] Add numeric validation and excessive-grid protection without partial output.
+- [x] Add public exports, schema/plate/MDA integration, serialization tests, and a
+  headless example (`examples/grid_from_shape.py`).
+- [ ] Release or pin the supporting schema revision (push useq `cite`, then
+  `uv lock --upgrade-package useq-schema` here).
 
 ### B. Widgets and HCS integration
 
-- [ ] Add `AreaCoverageWidget` with area restriction, shape/dimensions, overlap,
+- [x] Add `AreaCoverageWidget` with area restriction, shape/dimensions, overlap,
   scan order, and read-only count. Insert it immediately after Random Points.
-- [ ] Extend selector type hints, button mappings, `value()` / `setValue()`, public
+- [x] Extend selector type hints, button mappings, `value()` / `setValue()`, public
   aliases/exports, and points-widget documentation.
-- [ ] Generalize target-outline preview support without triggering random-only
+- [x] Generalize target-outline preview support without triggering random-only
   point-count or start-point callbacks for this deterministic mode.
-- [ ] Synchronize full-well geometry and FOV calibration, including ROI changes;
+- [x] Synchronize full-well geometry and FOV calibration, including ROI changes;
   validate restrictions by shape and avoid existing random-only shrink heuristics.
-- [ ] Implement the chosen editor-state persistence path and legacy loading.
-- [ ] Check layout at small window sizes and preview responsiveness for large plans.
+- [x] Implement the chosen editor-state persistence path and legacy loading.
+- [x] Check layout at small window sizes and preview responsiveness for large plans.
 
 ### C. Tests and acceptance criteria
 
-- [ ] Rectangle/square: exact-multiple and non-multiple sizes, independent overlap
+- [x] Rectangle/square: exact-multiple and non-multiple sizes, independent overlap
   axes, one-FOV/smaller-than-FOV regions, and nonsquare FOVs.
-- [ ] Circle/ellipse: verify the **union of tile footprints covers the target**,
+- [x] Circle/ellipse: verify the **union of tile footprints covers the target**,
   including the boundary; include tiles whose center is outside the target but
   footprint intersects. Compare analytic selection against independent geometry.
-- [ ] Use geometric union/containment and independent sampled boundary checks,
+- [x] Use geometric union/containment and independent sampled boundary checks,
   not only a test that repeats the tile-count formula. Document tolerances and
   polygon approximation limits in geometry tests.
-- [ ] Stable counts/coordinates/order across repeated iteration and reload;
+- [x] Stable counts/coordinates/order across repeated iteration and reload;
   verify snake traversal after omitted ellipse cells and distinct row/col metadata.
 - [ ] Full-well and restricted cases across physical circular/rectangular wells,
   incompatible restriction shapes, plate changes, FOV/ROI changes, mm-to-µm
   conversion, and supported rotation behavior.
-- [ ] Missing calibration and invalid sizes/overlap block completion clearly;
+- [x] Missing calibration and invalid sizes/overlap block completion clearly;
   huge counts do not hang the preview or silently truncate the acquisition.
-- [ ] All four modes retain their state when switched; the new card is third.
-- [ ] Wizard save/load restores editable Cover Area controls and generated
+- [x] All four modes retain their state when switched; the new card is third.
+- [x] Wizard save/load restores editable Cover Area controls and generated
   positions; old JSON files and existing random/grid modes remain compatible.
-- [ ] Verify `WellPlatePlan` stage XY, count, names, per-well indices, and MDA
+- [x] Verify `WellPlatePlan` stage XY, count, names, per-well indices, and MDA
   execution with a demo core; cover a selected subset of wells.
 - [ ] Run the schema repository's required checks for its change, then
   `uv run prek -a && uv run pytest` in this repository. Require passing CI.
@@ -325,5 +363,5 @@ coverage-widget test module here as appropriate.
 | Restriction | Centered optional smaller target; validate that it fits in the well. |
 | Default order | Row-wise snake; start with supported deterministic grid orders. |
 | Tile count | Derived, deterministic, not user-entered. |
-| Persistence decision still needed | Schema-supported editor metadata versus a versioned wizard envelope with legacy loading. |
+| Persistence | Versioned wizard envelope with legacy loading (decided 2026-11-05). |
 | Outside initial scope | Arbitrary drawn polygons, exclusion holes, tile-count optimization, automatic autofocus, and a fully-contained-FOV placement mode. |

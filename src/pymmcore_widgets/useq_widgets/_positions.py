@@ -280,11 +280,11 @@ class PositionTable(DataTableWidget):
         self.af_per_position.toggled.connect(self._on_af_per_position_toggled)
         self._on_af_per_position_toggled(self.af_per_position.isChecked())
 
-        self._save_button = QPushButton()
+        self._save_button = QPushButton("Save")
         self._save_button.setIcon(QIconifyIcon("mdi:content-save-outline"))
         self._save_button.setToolTip("Save positions")
         self._save_button.clicked.connect(self.save)
-        self._load_button = QPushButton()
+        self._load_button = QPushButton("Load")
         self._load_button.setIcon(QIconifyIcon("material-symbols:upload-rounded"))
         self._load_button.setToolTip("Load positions")
         self._load_button.clicked.connect(self.load)

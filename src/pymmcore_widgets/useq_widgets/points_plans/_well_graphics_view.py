@@ -5,12 +5,14 @@ from typing import TYPE_CHECKING
 
 import useq
 from qtpy.QtCore import QEvent, QRectF, QSize, Qt, Signal
-from qtpy.QtGui import QColor, QPainter, QPalette, QPen
+from qtpy.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen
 from qtpy.QtWidgets import (
     QAbstractGraphicsShapeItem,
     QGraphicsItem,
     QGraphicsLineItem,
+    QGraphicsPathItem,
     QGraphicsScene,
+    QLabel,
     QWidget,
 )
 from useq import Shape
@@ -18,7 +20,7 @@ from useq import Shape
 from pymmcore_widgets._util import GREEN, ResizingGraphicsView
 
 if TYPE_CHECKING:
-    from qtpy.QtGui import QMouseEvent
+    from qtpy.QtGui import QMouseEvent, QResizeEvent
 
 DATA_POSITION = 1
 
@@ -30,6 +32,11 @@ class WellView(ResizingGraphicsView):
     RandomPoints or GridRowsColumns plan) in a well area. The well area is drawn as a
     rectangle or ellipse, and the points are drawn as rectangles or spots (if the fov
     size is unknowns)
+
+    For GridFromShape (Cover Area) plans, the covered area is outlined, the well and
+    the area are drawn rotated by the plan's rotation (FOVs stay aligned with the
+    stage axes), and all FOVs are drawn as a single path item so that plans with many
+    tiles stay responsive.
     """
 
     # emitted when iterating over the plan doesn't yield the expected number
@@ -59,6 +66,8 @@ class WellView(ResizingGraphicsView):
         self._bounding_area_height_um: float | None = None
         self._bounding_area_is_circular: bool = False
         self._bounding_area_item: QGraphicsItem | None = None
+        # rotation (degrees, anti-clockwise in stage coordinates) of the well/area
+        self._well_rotation: float = 0.0
 
         self._fov_width_um: float | None = None
         self._fov_height_um: float | None = None
@@ -66,12 +75,43 @@ class WellView(ResizingGraphicsView):
         # all of the rectangles representing the FOVs
         self._fov_items: list[QAbstractGraphicsShapeItem] = []
         # the lines connecting consecutive FOVs
-        self._line_items: list[QGraphicsLineItem] = []
+        self._line_items: list[QGraphicsLineItem | QGraphicsPathItem] = []
+
+        # plan statistics (e.g. number of FOVs), drawn at the bottom right
+        self._info_label = QLabel(self)
+        self._info_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self._info_label.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+        )
+        self._info_label.hide()
 
         self.setMinimumSize(250, 250)
 
     def sizeHint(self) -> QSize:
         return QSize(500, 500)
+
+    def setInfoText(self, text: str) -> None:
+        """Show `text` (e.g. plan statistics) at the bottom right of the view."""
+        self._info_label.setText(text)
+        self._info_label.setVisible(bool(text))
+        self._place_info_label()
+
+    def infoText(self) -> str:
+        """Return the text shown at the bottom right of the view."""
+        return str(self._info_label.text())
+
+    def resizeEvent(self, event: QResizeEvent | None) -> None:
+        super().resizeEvent(event)
+        self._place_info_label()
+
+    def _place_info_label(self) -> None:
+        margin = 8
+        self._info_label.adjustSize()
+        size = self._info_label.size()
+        self._info_label.move(
+            self.width() - size.width() - margin,
+            self.height() - size.height() - margin,
+        )
 
     def setWellSize(self, width_mm: float | None, height_mm: float | None) -> None:
         """Set the well size width and height in mm."""
@@ -90,10 +130,16 @@ class WellView(ResizingGraphicsView):
         """Set the plan to use to draw the FOVs."""
         self._fov_width_um = plan.fov_width
         self._fov_height_um = plan.fov_height
+        self._well_rotation = 0.0
         if isinstance(plan, useq.RandomPoints):
             self._bounding_area_is_circular = plan.shape == Shape.ELLIPSE
             self._bounding_area_width_um = plan.max_width
             self._bounding_area_height_um = plan.max_height
+        elif isinstance(plan, useq.GridFromShape):
+            self._bounding_area_is_circular = plan.shape == Shape.ELLIPSE
+            self._bounding_area_width_um = plan.width
+            self._bounding_area_height_um = plan.height
+            self._well_rotation = plan.rotation
         else:
             self._bounding_area_width_um = None
             self._bounding_area_height_um = None
@@ -120,6 +166,9 @@ class WellView(ResizingGraphicsView):
             self._well_outline_item = self._scene.addEllipse(rect, pen=pen)
         else:
             self._well_outline_item = self._scene.addRect(rect, pen=pen)
+        # screen y is inverted, so an anti-clockwise stage rotation is negative here
+        if self._well_outline_item is not None:
+            self._well_outline_item.setRotation(-self._well_rotation)
 
     def _draw_points_bounding_area(self) -> None:
         """Draw the points bounding area."""
@@ -139,6 +188,8 @@ class WellView(ResizingGraphicsView):
             self._bounding_area_item = self._scene.addEllipse(rect, pen=pen)
         else:
             self._bounding_area_item = self._scene.addRect(rect, pen=pen)
+        if self._bounding_area_item is not None:
+            self._bounding_area_item.setRotation(-self._well_rotation)
 
     def _draw_fovs(self, plan: useq.RelativeMultiPointPlan) -> None:
         """Draw the fovs in the scene as rectangles."""
@@ -155,6 +206,10 @@ class WellView(ResizingGraphicsView):
         line_pen = QPen(self._line_color(marker_color))
         line_pen.setWidth(int(self._scaled_pen_size() / 1.75))
         line_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+
+        if isinstance(plan, useq.GridFromShape):
+            self._draw_tiles(plan, pen, line_pen)
+            return
 
         # iterate over the plan greedily, catching any warnings
         # and then alert the model if we didn't get all the points
@@ -202,6 +257,43 @@ class WellView(ResizingGraphicsView):
                 line.setZValue(2)
                 self._line_items.append(line)
             last_p = pos
+
+    def _draw_tiles(self, plan: useq.GridFromShape, pen: QPen, line_pen: QPen) -> None:
+        """Draw the tiles of a coverage plan as (few) path items.
+
+        Uses the plan's own tile coordinates (the same ones used for acquisition), so
+        the preview cannot diverge from the acquired layout.
+        """
+        try:
+            tiles = plan.tile_coordinates()
+        except ValueError:
+            return  # missing FOV or too many tiles: the plan widget shows why
+        fov_w, fov_h = plan.fov_width or 0, plan.fov_height or 0
+
+        tiles_path = QPainterPath()
+        line_path = QPainterPath()
+        first: QRectF | None = None
+        for i, (x, y, *_) in enumerate(tiles):
+            # invert y for screen coordinates
+            rect = QRectF(x - fov_w / 2, -y - fov_h / 2, fov_w, fov_h)
+            if i == 0:
+                first = rect
+                line_path.moveTo(x, -y)
+            else:
+                tiles_path.addRect(rect)
+                line_path.lineTo(x, -y)
+
+        if first is not None:
+            first_pen = QPen(pen)
+            first_pen.setColor(QColor(GREEN))
+            if item := self._scene.addRect(first, first_pen):
+                item.setZValue(100)
+                self._fov_items.append(item)
+        if item := self._scene.addPath(tiles_path, pen):
+            self._fov_items.append(item)
+        if len(tiles) > 1 and (line := self._scene.addPath(line_path, line_pen)):
+            line.setZValue(2)
+            self._line_items.append(line)
 
     def _marker_color(self) -> QColor:
         """Return the color used to draw the FOV markers."""

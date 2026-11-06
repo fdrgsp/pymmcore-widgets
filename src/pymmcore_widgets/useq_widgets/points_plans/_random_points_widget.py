@@ -8,7 +8,7 @@ from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
-    QFormLayout,
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QSpinBox,
@@ -16,6 +16,8 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 from useq import RandomPoints, RelativePosition, Shape, TraversalOrder
+
+from ._common import LabelAligner, labeled_row
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -63,7 +65,7 @@ class RandomPointWidget(QWidget):
         self.order.addItems([mode.value for mode in TraversalOrder])
         self.order.setCurrentText(TraversalOrder.TWO_OPT.value)
         # allow overlap checkbox
-        self.allow_overlap = QCheckBox()
+        self.allow_overlap = QCheckBox("Allow Overlap")
         # random button
         self._random_button = QPushButton(text="Randomize")
 
@@ -75,25 +77,28 @@ class RandomPointWidget(QWidget):
         self.order.addItems([mode.value for mode in TraversalOrder])
         self.order.setCurrentText(TraversalOrder.TWO_OPT.value)
 
-        # form layout
-        self.form = form = QFormLayout()
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        form.setSpacing(5)
-        form.setContentsMargins(0, 0, 0, 0)
-        form.addRow("Width (µm):", self.max_width)
-        form.addRow("Height (µm):", self.max_height)
-        form.addRow("Num Points:", self.num_points)
-        form.addRow("Order:", self.order)
-        form.addRow("Shape:", self.shape)
-        form.addRow("Allow Overlap:", self.allow_overlap)
-
-        # main
+        # main: label/field rows (labels share one fixed width, see LabelAligner)
+        self._labels: list[QLabel] = []
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(5)
-        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(4)
+        main_layout.setContentsMargins(6, 4, 6, 4)
         main_layout.addWidget(title)
-        main_layout.addLayout(form)
-        main_layout.addWidget(self._random_button)
+        for text, field in (
+            ("Width (µm):", self.max_width),
+            ("Height (µm):", self.max_height),
+            ("Num Points:", self.num_points),
+            ("Scan Order:", self.order),
+            ("Shape:", self.shape),
+        ):
+            main_layout.addLayout(labeled_row(text, field, self._labels))
+        button_row = QHBoxLayout()
+        button_row.setContentsMargins(0, 0, 0, 0)
+        button_row.addWidget(self.allow_overlap, 0)
+        # explicit gap: the native (e.g. macOS) frames hide most of the spacing
+        button_row.addSpacing(12)
+        button_row.addWidget(self._random_button, 1)
+        main_layout.addLayout(button_row)
+        self._label_aligner = LabelAligner(self, self._labels)
 
         # connect
         self.max_width.valueChanged.connect(self._on_value_changed)
@@ -103,6 +108,10 @@ class RandomPointWidget(QWidget):
         self.shape.currentTextChanged.connect(self._on_value_changed)
         self.allow_overlap.stateChanged.connect(self._on_value_changed)
         self._random_button.clicked.connect(self._on_random_clicked)
+
+    def labels(self) -> list[QLabel]:
+        """Return the row labels (e.g. to align them with other widgets')."""
+        return list(self._labels)
 
     @property
     def fov_size(self) -> tuple[float | None, float | None]:

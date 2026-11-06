@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import warnings
 from contextlib import suppress
 from pathlib import Path
+from typing import Any
 
 import useq
 from pymmcore_plus import CMMCorePlus
@@ -23,6 +25,44 @@ from pymmcore_widgets.useq_widgets import PointsPlanWidget, WellPlateWidget
 from ._automated_plate_calibration_widget import AutomatedPlateCalibrationWidget
 from ._plate_calibration import supports_automated_calibration
 from ._plate_calibration_widget import PlateCalibrationWidget
+
+# Wizard save files are a versioned envelope around the WellPlatePlan, with an
+# "editor" section for editor-only state that is not part of the plan (currently
+# empty: everything the wizard needs is in the plan). Bare WellPlatePlan files
+# (written by older versions, or by other tools) still load.
+WIZARD_FILE_FORMAT = "pymmcore-widgets.hcs-wizard"
+WIZARD_FILE_VERSION = 1
+
+
+def write_wizard_file(
+    path: str | Path, plan: useq.WellPlatePlan, editor: dict[str, Any]
+) -> None:
+    """Write a versioned HCS wizard file: the plan plus editor-only state."""
+    data = {
+        "format": WIZARD_FILE_FORMAT,
+        "version": WIZARD_FILE_VERSION,
+        "well_plate_plan": json.loads(plan.model_dump_json(exclude_unset=True)),
+        "editor": editor,
+    }
+    Path(path).write_text(json.dumps(data, indent=2))
+
+
+def read_wizard_file(path: str | Path) -> tuple[useq.WellPlatePlan, dict[str, Any]]:
+    """Read an HCS wizard file, or a bare WellPlatePlan file (no editor state)."""
+    path = Path(path)
+    data: Any = None
+    if path.suffix == ".json":
+        data = json.loads(path.read_text())
+    if not (isinstance(data, dict) and data.get("format") == WIZARD_FILE_FORMAT):
+        return WellPlatePlan.from_file(path), {}
+    version = data.get("version")
+    if not isinstance(version, int) or version > WIZARD_FILE_VERSION:
+        raise ValueError(
+            f"Unsupported HCS wizard file version {version!r} (this version of "
+            f"pymmcore-widgets reads up to version {WIZARD_FILE_VERSION})."
+        )
+    plan = WellPlatePlan.model_validate(data["well_plate_plan"])
+    return plan, dict(data.get("editor") or {})
 
 
 class HCSWizard(QWizard):
@@ -87,7 +127,7 @@ class HCSWizard(QWizard):
         self.calibration_page.automated.busyChanged.connect(self._on_survey_busy)
 
     def sizeHint(self) -> QSize:
-        return QSize(880, 690)
+        return QSize(880, 720)
 
     def done(self, result: int) -> None:
         """Wait for a cancelled survey to release hardware before closing."""
@@ -135,6 +175,9 @@ class HCSWizard(QWizard):
         """Set the state of the wizard to a WellPlatePlan."""
         self.plate_page.widget.setValue(value)
         self.calibration_page.widget.setValue(value)
+        # WellPlateWidget.setValue doesn't emit, so synchronize the well geometry
+        # (after the calibration, so that it isn't reset as a plate change)
+        self._on_plate_changed(self.plate_page.widget.value())
         # update the points plan fov size if it's not set
         point_plan = value.well_points_plan
         if point_plan.fov_width is None or point_plan.fov_height is None:
@@ -153,8 +196,7 @@ class HCSWizard(QWizard):
         elif not path.endswith(".json"):  # pragma: no cover
             raise ValueError("Path must end with '.json'")
         if path and (value := self.value()):
-            txt = value.model_dump_json(exclude_unset=True, indent=2)
-            Path(path).write_text(txt)
+            write_wizard_file(path, value, {})
 
     @Slot()
     def load(self, path: str | None = None) -> None:
@@ -164,7 +206,8 @@ class HCSWizard(QWizard):
                 self, "Load Well Plate Plan", "", "JSON (*.json)"
             )
         if path:
-            self.setValue(WellPlatePlan.from_file(path))
+            plan, _editor = read_wizard_file(path)
+            self.setValue(plan)
 
     @Slot(object)
     def _on_plate_changed(self, plate_plan: useq.WellPlatePlan) -> None:
@@ -190,6 +233,9 @@ class HCSWizard(QWizard):
             else useq.Shape.RECTANGLE
         )
         pp_widget.setWellShape(shape)
+        # the well view shows the total number of FOVs across the selected wells
+        selected = plate_plan.selected_wells
+        pp_widget.setSelectedWellCount(len(selected[0]) if selected else 0)
 
         # additionally, restrict the max width and height of the random points widget
         # to the plate size minus the fov size.
@@ -218,6 +264,10 @@ class HCSWizard(QWizard):
     @Slot(bool)
     def _on_calibration_changed(self, calibrated: bool) -> None:
         self._calibrated = calibrated
+        # Cover Area plans rotate the covered area with the plate
+        calib_plan = self.calibration_page.widget.value()
+        rotation = calib_plan.rotation if calibrated and calib_plan else None
+        self.points_plan_page.widget.setPlateRotation(rotation)
         self.button(QWizard.WizardButton.CustomButton1).setEnabled(
             calibrated and not self.calibration_page.automated.isBusy()
         )
@@ -326,9 +376,27 @@ class _PointsPlanPage(QWizardPage):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.widget)
 
+        # Cover Area cannot produce a plan without a valid FOV (or with an invalid
+        # area), so the Finish button follows its validity
+        self.widget.valueChanged.connect(lambda *_: self.completeChanged.emit())
+
         self._mmc.events.pixelSizeChanged.connect(self._on_px_size_changed)
         self._mmc.events.systemConfigurationLoaded.connect(self._on_px_size_changed)
+        # the image size (and thus the FOV size) also changes with ROI and binning
+        self._mmc.events.roiSet.connect(self._on_px_size_changed)
+        self._mmc.events.propertyChanged.connect(self._on_property_changed)
         self._on_px_size_changed()
+
+    def isComplete(self) -> bool:
+        if self.widget._selector.active_plan_type is useq.GridFromShape:
+            if not self.widget.cover_area_wdg.isValid():
+                return False
+        return bool(super().isComplete())
+
+    def _on_property_changed(self, device: str, prop: str, _value: object) -> None:
+        with suppress(RuntimeError):
+            if device == self._mmc.getCameraDevice() and prop == "Binning":
+                self._on_px_size_changed()
 
     @Slot()
     def _on_px_size_changed(self) -> None:

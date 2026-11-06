@@ -363,6 +363,21 @@ class WellCalibrationWidget(QWidget):
         """Return True if the well is circular."""
         return self._calibration_mode_wdg.isCircularMode()
 
+    def calibrationMode(self) -> Mode:
+        """Return the selected calibration method."""
+        return self._calibration_mode_wdg.currentMode()
+
+    def setCalibrationMode(self, mode: Mode) -> None:
+        """Select the calibration method (ignored if not valid for this well shape)."""
+        for idx in range(self._calibration_mode_wdg.count()):
+            if Mode(*self._calibration_mode_wdg.itemData(idx, COMBO_ROLE)) == mode:
+                self._calibration_mode_wdg.setCurrentIndex(idx)
+                return
+
+    def hasPoints(self) -> bool:
+        """Return True if any calibration point has been recorded."""
+        return any(True for _ in self._table.positions())
+
     def _on_set_clicked(self) -> None:
         x, y = self._mmc.getXYPosition()
         self._table.set_selected(round(x, 2), round(y, 2))

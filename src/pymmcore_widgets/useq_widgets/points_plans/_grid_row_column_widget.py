@@ -5,14 +5,14 @@ from typing import TYPE_CHECKING
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import (
     QComboBox,
-    QDoubleSpinBox,
-    QFormLayout,
     QLabel,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 from useq import GridRowsColumns, OrderMode
+
+from ._common import LabelAligner, OverlapWidget, labeled_row
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -31,7 +31,7 @@ class GridRowColumnWidget(QWidget):
         self._relative_to: str = "center"
 
         # title
-        title = QLabel(text="Fields of View in a Grid")
+        self._title = title = QLabel(text="Fields of View in a Grid")
         title.setStyleSheet("font-weight: bold;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -45,43 +45,53 @@ class GridRowColumnWidget(QWidget):
         self.columns.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.columns.setMinimum(1)
         self.columns.setValue(3)
-        # overlap along x
-        self.overlap_x = QDoubleSpinBox()
-        self.overlap_x.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.overlap_x.setRange(-10000, 100)
-        # overlap along y
-        self.overlap_y = QDoubleSpinBox()
-        self.overlap_y.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.overlap_y.setRange(-10000, 100)
+        # overlap: one value for x and y (right-click for separate x and y)
+        self.overlap_wdg = OverlapWidget(-10000, 100)
+        self.overlap_x = self.overlap_wdg.overlap_x
+        self.overlap_y = self.overlap_wdg.overlap_y
         # order combo
         self.mode = QComboBox()
         self.mode.addItems([mode.value for mode in OrderMode])
         self.mode.setCurrentText(OrderMode.row_wise_snake.value)
 
-        # form layout
-        form = QFormLayout()
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        form.setSpacing(5)
-        form.setContentsMargins(0, 0, 0, 0)
-        form.addRow("Rows:", self.rows)
-        form.addRow("Columns:", self.columns)
-        form.addRow("Overlap x (%):", self.overlap_x)
-        form.addRow("Overlap y (%):", self.overlap_y)
-        form.addRow("Grid Order:", self.mode)
+        # label/field rows: the overlap/order rows are in their own widget, so that
+        # containers sharing those settings across plans can hide them
+        self._labels: list[QLabel] = []
+        self._common = QWidget()
+        common_layout = QVBoxLayout(self._common)
+        common_layout.setContentsMargins(0, 0, 0, 0)
+        common_layout.setSpacing(5)
+        common_layout.addLayout(
+            labeled_row("Overlap (%):", self.overlap_wdg, self._labels)
+        )
+        common_layout.addLayout(labeled_row("Grid Order:", self.mode, self._labels))
 
         # main
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(5)
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.addWidget(title)
-        main_layout.addLayout(form)
+        main_layout.addLayout(labeled_row("Rows:", self.rows, self._labels))
+        main_layout.addLayout(labeled_row("Columns:", self.columns, self._labels))
+        main_layout.addWidget(self._common)
+        self._label_aligner = LabelAligner(self, self._labels)
 
         # connect
         self.rows.valueChanged.connect(self._on_value_changed)
         self.columns.valueChanged.connect(self._on_value_changed)
-        self.overlap_x.valueChanged.connect(self._on_value_changed)
-        self.overlap_y.valueChanged.connect(self._on_value_changed)
+        self.overlap_wdg.valueChanged.connect(self._on_value_changed)
         self.mode.currentTextChanged.connect(self._on_value_changed)
+
+    def labels(self) -> list[QLabel]:
+        """Return the row labels (e.g. to align them with other widgets')."""
+        return list(self._labels)
+
+    def setEmbedded(self, embedded: bool) -> None:
+        """Hide the title and the overlap/order controls (owned by a container)."""
+        self._title.setVisible(not embedded)
+        self._common.setVisible(not embedded)
+        margin = 0 if embedded else 10
+        self.layout().setContentsMargins(margin, margin, margin, margin)
 
     def _on_value_changed(self) -> None:
         """Emit the valueChanged signal."""
@@ -119,8 +129,7 @@ class GridRowColumnWidget(QWidget):
         value = GridRowsColumns.model_validate(value)
         self.rows.setValue(value.rows)
         self.columns.setValue(value.columns)
-        self.overlap_x.setValue(value.overlap[0])
-        self.overlap_y.setValue(value.overlap[1])
+        self.overlap_wdg.setValue(value.overlap)
         self.mode.setCurrentText(value.mode.value)
         self.fov_width = value.fov_width
         self.fov_height = value.fov_height
@@ -130,7 +139,6 @@ class GridRowColumnWidget(QWidget):
         """Reset value to 1x1, row-wise-snake, with 0 overlap."""
         self.rows.setValue(1)
         self.columns.setValue(1)
-        self.overlap_x.setValue(0)
-        self.overlap_y.setValue(0)
+        self.overlap_wdg.setValue((0, 0))
         self.mode.setCurrentText(OrderMode.row_wise_snake.value)
         self.fov_size = (None, None)

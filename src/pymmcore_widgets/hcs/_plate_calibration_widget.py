@@ -455,8 +455,17 @@ class PlateCalibrationWidget(QWidget):
             return
 
         # create/activate a well calibration widget for the selected well
+        previous = self._current_calibration_widget()
         with suppress(ValueError):
             well_calib_wdg = self._get_or_create_well_calibration_widget(idx)
+            # keep the method chosen on the previous well, unless this well already
+            # has recorded points (switching method would discard them)
+            if (
+                previous is not None
+                and previous is not well_calib_wdg
+                and not well_calib_wdg.hasPoints()
+            ):
+                well_calib_wdg.setCalibrationMode(previous.calibrationMode())
             self._calibration_widget_stack.setCurrentWidget(well_calib_wdg)
 
         # enable/disable test button
