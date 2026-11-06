@@ -158,12 +158,22 @@ AF_SETTINGS_TOOLTIP = (
 AF_NO_SOFTWARE_TOOLTIP = (
     "No software autofocus methods are available in this installation."
 )
-AF_EVERY_N_TOOLTIP = (
-    "Autofocus only on every Nth time point, starting with the first.\n"
-    "\n"
-    "Applies to hardware and software autofocus, including position and grid\n"
-    "triggers. 1 means every time point. Has no effect without a time series."
-)
+AF_INTERVAL_TOOLTIPS = {
+    "p": (
+        "Autofocus on every Nth position, starting with the first.\n"
+        "Other enabled axes can still trigger autofocus between these positions."
+    ),
+    "g": (
+        "Autofocus on every Nth grid tile, starting with the first.\n"
+        "The tile index starts over in each position's grid.\n"
+        "Other enabled axes can still trigger autofocus between these tiles."
+    ),
+    "t": (
+        "Autofocus only on every Nth time point, starting with the first.\n"
+        "Also limits position and grid triggers to these time points.\n"
+        "Has no effect without a time series."
+    ),
+}
 AF_SEARCH_TOOLTIP = (
     "What to do when the autofocus device cannot lock where it starts.\n"
     "\n"
@@ -532,13 +542,20 @@ class AutofocusAxis(_CheckableCard):
         self._hardware_devices_ok = True
         self._hardware_unavailable_reason = ""
 
-        # --- shared schedule: which time points allow autofocus ---
-        self._every_n_label = QLabel("every:")
+        self.every_n_positions = QSpinBox()
+        self.every_n_grid_positions = QSpinBox()
         self.every_n_timepoints = QSpinBox()
-        self.every_n_timepoints.setRange(1, 10000)
-        self.every_n_timepoints.setValue(1)
-        self.every_n_timepoints.setSuffix(" timepoint(s)")
-        disable_wheel_scroll(self.every_n_timepoints)
+        self._axis_intervals = (
+            ("p", self.use_af_p, QLabel("every"), self.every_n_positions),
+            ("g", self.use_af_g, QLabel("every"), self.every_n_grid_positions),
+            ("t", self.use_af_t, QLabel("every"), self.every_n_timepoints),
+        )
+        for axis, _, _, spin in self._axis_intervals:
+            spin.setRange(1, 10000)
+            spin.setValue(1)
+            spin.setSuffix(f" {axis}")
+            spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+            disable_wheel_scroll(spin)
 
         # Preserve plan fields this widget cannot edit, such as offsets and retries.
         self._hardware_plan: useq.AxesBasedAF | None = None
@@ -555,13 +572,21 @@ class AutofocusAxis(_CheckableCard):
         for w in _labels:
             w.setFixedWidth(label_width)
 
-        axis_row = _row(
-            self.use_af_p,
-            self.use_af_g,
-            self.use_af_t,
-            self._every_n_label,
-            self.every_n_timepoints,
-        )
+        axis_row = QHBoxLayout()
+        axis_row.setSpacing(4)
+        for i, (_, checkbox, label, spin) in enumerate(self._axis_intervals):
+            if i:
+                axis_row.addSpacing(15)
+            group = QWidget()
+            row = QHBoxLayout(group)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(4)
+            row.addWidget(checkbox)
+            row.addSpacing(5)
+            row.addWidget(label)
+            row.addWidget(spin)
+            axis_row.addWidget(group)
+        axis_row.addStretch()
         mode_row = _row(self.use_hardware, self.use_software)
         search_row = _row(
             self.search_below_um,
@@ -610,10 +635,9 @@ class AutofocusAxis(_CheckableCard):
                 layout.addWidget(widget, 2 * i, column)
 
         self.toggled.connect(self._on_af_state_changed)
-        self.use_af_p.toggled.connect(self.valueChanged)
-        self.use_af_t.toggled.connect(self._on_af_state_changed)
-        self.use_af_g.toggled.connect(self.valueChanged)
-        self.every_n_timepoints.valueChanged.connect(self.valueChanged)
+        for _, checkbox, _, spin in self._axis_intervals:
+            checkbox.toggled.connect(self._on_af_state_changed)
+            spin.valueChanged.connect(self.valueChanged)
         # one connection is enough: the two radios are exclusive, so any change
         # toggles `use_hardware`
         self.use_hardware.toggled.connect(self._on_af_state_changed)
@@ -862,13 +886,14 @@ class AutofocusAxis(_CheckableCard):
         index = 0 if self.use_hardware.isChecked() else 1
         self._kind_stack.setCurrentIndex(index)
         self._kind_labels.setCurrentIndex(index)
-        on_t = self.use_af_t.isChecked()
-        frequency_tooltip = AF_EVERY_N_TOOLTIP
-        if not on_t:
-            frequency_tooltip += '\n\nCheck "t" to edit this setting.'
-        for wdg in (self._every_n_label, self.every_n_timepoints):
-            wdg.setEnabled(on and on_t and self.kind() is not None)
-            wdg.setToolTip(frequency_tooltip)
+        for axis, checkbox, label, spin in self._axis_intervals:
+            enabled = on and checkbox.isChecked() and self.kind() is not None
+            tooltip = AF_INTERVAL_TOOLTIPS[axis]
+            if not checkbox.isChecked():
+                tooltip += f'\n\nCheck "{axis}" to edit this setting.'
+            for wdg in (label, spin):
+                wdg.setEnabled(enabled)
+                wdg.setToolTip(tooltip)
         self._update_row_spacing()
 
     # ------------------------------- value --------------------------------
@@ -903,6 +928,8 @@ class AutofocusAxis(_CheckableCard):
         """
         updates: dict = {
             "axes": axes,
+            "every_n_positions": self.every_n_positions.value(),
+            "every_n_grid_positions": self.every_n_grid_positions.value(),
             "every_n_timepoints": self.every_n_timepoints.value(),
         }
         if self.kind() == "software":
@@ -923,6 +950,8 @@ class AutofocusAxis(_CheckableCard):
             self.setKind(None)
             return
         with signals_blocked(self):
+            self.every_n_positions.setValue(plan.every_n_positions)
+            self.every_n_grid_positions.setValue(plan.every_n_grid_positions)
             self.every_n_timepoints.setValue(plan.every_n_timepoints)
             if isinstance(plan, useq.SoftwareAxesBasedAF):
                 self._software_plan = plan

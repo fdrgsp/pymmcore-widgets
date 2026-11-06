@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 import useq
-from qtpy.QtCore import Qt
+from qtpy.QtCore import QPoint, Qt
 from qtpy.QtWidgets import QStyle, QStyleOptionGroupBox, QVBoxLayout, QWidget
 
 from pymmcore_widgets.useq_widgets import MDASequenceWidget
@@ -330,36 +330,75 @@ def test_search_is_editable(qtbot: QtBot) -> None:
 
 
 @pytest.mark.parametrize("kind", ["hardware", "software"])
-def test_every_n_timepoints_round_trips(qtbot: QtBot, kind: str) -> None:
+@pytest.mark.parametrize(
+    "axis,field",
+    [
+        ("p", "every_n_positions"),
+        ("g", "every_n_grid_positions"),
+        ("t", "every_n_timepoints"),
+    ],
+)
+def test_axis_intervals_round_trip(
+    qtbot: QtBot, kind: str, axis: str, field: str
+) -> None:
     """Both kinds restore and serialize edits to the shared schedule."""
     wdg = _wdg(qtbot)
     plan = (
-        useq.SoftwareAxesBasedAF(
-            axes=("t",), method="oughtafocus", every_n_timepoints=3
-        )
+        useq.SoftwareAxesBasedAF(axes=(axis,), method="oughtafocus", **{field: 3})
         if kind == "software"
-        else useq.AxesBasedAF(axes=("t",), every_n_timepoints=3)
+        else useq.AxesBasedAF(axes=(axis,), **{field: 3})
     )
     wdg.setValue(useq.MDASequence(stage_positions=[(0, 0)], autofocus_plan=plan))
-    assert wdg.af_axis.every_n_timepoints.value() == 3
+    spin = getattr(wdg.af_axis, field)
+    assert spin.value() == 3
     assert wdg.value().autofocus_plan == plan
 
-    wdg.af_axis.every_n_timepoints.setValue(5)
+    spin.setValue(5)
     out = wdg.value().autofocus_plan
     assert out is not None
-    assert out.every_n_timepoints == 5
+    assert getattr(out, field) == 5
 
 
-def test_every_n_is_shared_when_switching_kind(qtbot: QtBot) -> None:
+@pytest.mark.parametrize(
+    "field", ["every_n_positions", "every_n_grid_positions", "every_n_timepoints"]
+)
+def test_every_n_is_shared_when_switching_kind(qtbot: QtBot, field: str) -> None:
     af = AutofocusAxis()
     qtbot.addWidget(af)
     af.setKind("hardware")
-    af.every_n_timepoints.setValue(4)
+    spin = getattr(af, field)
+    spin.setValue(4)
     af.setKind("software")
-    assert af.plan(("t",)).every_n_timepoints == 4
-    af.every_n_timepoints.setValue(2)
+    assert getattr(af.plan(("p", "g", "t")), field) == 4
+    spin.setValue(2)
     af.setKind("hardware")
-    assert af.plan(("t",)).every_n_timepoints == 2
+    assert getattr(af.plan(("p", "g", "t")), field) == 2
+
+
+def test_axis_intervals_match_t_spacing(qtbot: QtBot) -> None:
+    af = AutofocusAxis()
+    qtbot.addWidget(af)
+    af.setValue(("p", "g", "t"))
+    af.show()
+    qtbot.waitExposed(af)
+    gaps = []
+    positions = []
+    for axis, checkbox, label, spin in af._axis_intervals:
+        box_pos = checkbox.mapTo(af, QPoint())
+        label_pos = label.mapTo(af, QPoint())
+        spin_pos = spin.mapTo(af, QPoint())
+        gaps.append(
+            (
+                label_pos.x() - box_pos.x() - checkbox.width(),
+                spin_pos.x() - label_pos.x() - label.width(),
+            )
+        )
+        positions.append(spin_pos)
+        assert spin.buttonSymbols() == spin.ButtonSymbols.NoButtons
+        assert spin.suffix() == f" {axis}"
+    assert gaps == [gaps[-1]] * 3
+    assert len({pos.y() for pos in positions}) == 1
+    assert positions[0].x() < positions[1].x() < positions[2].x()
 
 
 # ----------------------------- software plans -----------------------------
@@ -415,6 +454,8 @@ def test_every_control_explains_itself(qtbot: QtBot) -> None:
         af.search_below_um,
         af.search_above_um,
         af.search_step_um,
+        af.every_n_positions,
+        af.every_n_grid_positions,
         af.every_n_timepoints,
     )
     for wdg in controls:
@@ -588,16 +629,20 @@ def test_run_every_filters_other_axis_triggers(
 
 
 @pytest.mark.parametrize("kind", ["hardware", "software"])
-def test_run_every_can_only_be_edited_with_t(qtbot: QtBot, kind: str) -> None:
+@pytest.mark.parametrize("index", range(3))
+def test_interval_can_only_be_edited_with_its_axis(
+    qtbot: QtBot, kind: str, index: int
+) -> None:
     af = AutofocusAxis()
     qtbot.addWidget(af)
     af.setKind(kind)
+    _, checkbox, label, spin = af._axis_intervals[index]
     for checked in (False, True, False, True):
-        af.use_af_t.setChecked(checked)
-        assert af.every_n_timepoints.isEnabled() == checked
-        assert af._every_n_label.isEnabled() == checked
+        checkbox.setChecked(checked)
+        assert spin.isEnabled() == checked
+        assert label.isEnabled() == checked
     af.setChecked(False)
-    assert not af.every_n_timepoints.isEnabled()
+    assert not spin.isEnabled()
 
 
 def test_run_every_follows_a_loaded_plan(qtbot: QtBot) -> None:
