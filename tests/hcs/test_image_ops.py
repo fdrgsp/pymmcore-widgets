@@ -58,7 +58,10 @@ def test_fftconvolve_matches_direct_convolution():
     padded = np.pad(image, ((2, 2), (1, 1)))
     direct = np.array(
         [
-            [np.sum(padded[i : i + 5, j : j + 3] * kernel[::-1, ::-1]) for j in range(9)]
+            [
+                np.sum(padded[i : i + 5, j : j + 3] * kernel[::-1, ::-1])
+                for j in range(9)
+            ]
             for i in range(12)
         ]
     )

@@ -140,7 +140,9 @@ def peak_local_max(
 def fftconvolve(image: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     """Convolution cropped to the image (the "same" mode)."""
     shape = [a + b - 1 for a, b in zip(image.shape, kernel.shape, strict=True)]
-    full = np.fft.irfft2(np.fft.rfft2(image, shape) * np.fft.rfft2(kernel, shape), shape)
+    full = np.fft.irfft2(
+        np.fft.rfft2(image, shape) * np.fft.rfft2(kernel, shape), shape
+    )
     r0, c0 = ((n - 1) // 2 for n in kernel.shape)
     return full[r0 : r0 + image.shape[0], c0 : c0 + image.shape[1]]
 
@@ -188,13 +190,18 @@ def least_squares(
         steps = np.sqrt(np.finfo(float).eps) * np.maximum(1, np.abs(x))
         steps = np.where(x + steps <= hi, steps, -steps)
         jacobian = np.column_stack(
-            [(fun(x + step * e) - residuals) / step for step, e in zip(steps, np.eye(len(x)))]
+            [
+                (fun(x + step * e) - residuals) / step
+                for step, e in zip(steps, np.eye(len(x)), strict=False)
+            ]
         )
         normal = jacobian.T @ (weights[:, None] * jacobian)
         gradient = jacobian.T @ (weights * residuals)
         scale = np.diag(np.maximum(np.diag(normal), 1e-12))
         while True:
-            trial = np.clip(x - np.linalg.solve(normal + damping * scale, gradient), lo, hi)
+            trial = np.clip(
+                x - np.linalg.solve(normal + damping * scale, gradient), lo, hi
+            )
             trial_residuals = fun(trial)
             trial_cost = cost(trial_residuals)
             if trial_cost < current:
