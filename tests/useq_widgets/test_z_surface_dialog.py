@@ -167,12 +167,7 @@ def test_dialog_colorbar_under_the_buttons(
     kwargs = {"capture": lambda: (0.0, 0.0, 0.0), "move_z": print} if stage else {}
     dialog = ZSurfaceDialog(SURFACE, **kwargs)  # type: ignore[arg-type]
     qtbot.addWidget(dialog)
-    box = dialog.findChild(QDialogButtonBox)
-    if ok_first:
-        _put_ok_first(box)
-    dialog.show()
-    if ok_first:
-        _wait_ok_first(qtbot, box)
+    box = _show_with_button_order(qtbot, dialog, ok_first)
     # under the Test button, or the rightmost button without a stage to test with
     ok = box.button(QDialogButtonBox.StandardButton.Ok)
     cancel = box.button(QDialogButtonBox.StandardButton.Cancel)
@@ -305,25 +300,33 @@ def test_dialog_double_click_moves_the_stage(qtbot: QtBot) -> None:
     draw_text.assert_not_called()
 
 
-class _OkFirst(QProxyStyle):
-    """Lay out dialog buttons as on Windows: OK left of Cancel."""
+class _ButtonOrder(QProxyStyle):
+    """Lay out dialog buttons OK first, as on Windows, or OK last, as on macOS."""
+
+    def __init__(self, ok_first: bool) -> None:
+        super().__init__()
+        layout = QDialogButtonBox.ButtonLayout
+        self._layout = (layout.WinLayout if ok_first else layout.MacLayout).value
 
     def styleHint(self, hint, option=None, widget=None, returnData=None):  # type: ignore[no-untyped-def]
         if hint == QStyle.StyleHint.SH_DialogButtonLayout:
-            return QDialogButtonBox.ButtonLayout.WinLayout.value
+            return self._layout
         return super().styleHint(hint, option, widget, returnData)
 
 
-def _put_ok_first(box: QDialogButtonBox) -> None:
-    style = _OkFirst()
+def _show_with_button_order(
+    qtbot: QtBot, dialog: ZSurfaceDialog, ok_first: bool
+) -> QDialogButtonBox:
+    """Show `dialog` with its buttons in the given order, whatever the platform's."""
+    box = dialog.findChild(QDialogButtonBox)
+    style = _ButtonOrder(ok_first)
     style.setParent(box)  # kept alive with the box
     box.setStyle(style)
-
-
-def _wait_ok_first(qtbot: QtBot, box: QDialogButtonBox) -> None:
+    dialog.show()
     ok = box.button(QDialogButtonBox.StandardButton.Ok)
     cancel = box.button(QDialogButtonBox.StandardButton.Cancel)
-    qtbot.waitUntil(lambda: 0 < ok.width() and ok.x() < cancel.x())
+    qtbot.waitUntil(lambda: 0 < ok.width() and (ok.x() < cancel.x()) == ok_first)
+    return box
 
 
 @pytest.mark.parametrize("ok_first", [False, True])
@@ -335,12 +338,7 @@ def test_dialog_hint_fits_above_the_map(qtbot: QtBot, ok_first: bool) -> None:
         move_xy=print,
     )
     qtbot.addWidget(dialog)
-    box = dialog.findChild(QDialogButtonBox)
-    if ok_first:
-        _put_ok_first(box)
-    dialog.show()
-    if ok_first:
-        _wait_ok_first(qtbot, box)
+    _show_with_button_order(qtbot, dialog, ok_first)
     surface_map = dialog.map
     hint_w = QFontMetrics(surface_map._hint_font()).horizontalAdvance(MOVE_HINT)
     dialog.resize(1, 1)  # as small as it gets
