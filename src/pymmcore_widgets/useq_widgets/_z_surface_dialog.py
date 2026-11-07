@@ -110,10 +110,15 @@ class _ReferenceTable(DataTableWidget):
         self.act_check_none.setVisible(False)
         if capture is not None:
             self.act_add_row.setToolTip("Add the current stage position")
-            xyz_btn = ButtonColumn(
-                key="xyz_btn", glyph="mdi:arrow-right", on_click=self._set_from_stage
+            # as in the position table: set XY, or Z after focusing, from the stage
+            self.XY_BTN = ButtonColumn(
+                key="xy_btn", glyph="mdi:arrow-right", on_click=self._set_xy_from_stage
             )
-            table.addColumn(xyz_btn, table.indexOf(self.X))
+            self.Z_BTN = ButtonColumn(
+                key="z_btn", glyph="mdi:arrow-left", on_click=self._set_z_from_stage
+            )
+            table.addColumn(self.XY_BTN, table.indexOf(self.X))
+            table.addColumn(self.Z_BTN, table.indexOf(self.Z) + 1)
 
     def setSidePanel(self, header: QWidget, body: QWidget) -> None:
         """Show `header` beside the toolbar and `body` beside the table.
@@ -139,12 +144,21 @@ class _ReferenceTable(DataTableWidget):
 
     def _add_row(self) -> None:
         super()._add_row()
-        self._set_from_stage(self.table().rowCount() - 1)
-
-    def _set_from_stage(self, row: int, col: int = 0) -> None:
         if self._capture is not None:
             x, y, z = self._capture()
-            self.table().setRowData(row, {"x": x, "y": y, "z": z})
+            self.table().setRowData(
+                self.table().rowCount() - 1, {"x": x, "y": y, "z": z}
+            )
+
+    def _set_xy_from_stage(self, row: int, col: int = 0) -> None:
+        if self._capture is not None:
+            x, y, _ = self._capture()
+            self.table().setRowData(row, {"x": x, "y": y})
+
+    def _set_z_from_stage(self, row: int, col: int = 0) -> None:
+        if self._capture is not None:
+            *_, z = self._capture()
+            self.table().setRowData(row, {"z": z})
 
 
 class _SurfaceMap(QWidget):

@@ -205,15 +205,24 @@ def _rows(widget: QWidget) -> tuple[int, int]:
 
 
 def test_dialog_capture(qtbot: QtBot) -> None:
-    xyz = iter([(1.0, 2.0, 3.0), (4.0, 5.0, 6.0)])
+    xyz = iter([(1.0, 2.0, 3.0), (4.0, 5.0, 6.0), (7.0, 8.0, 9.0)])
     dialog = ZSurfaceDialog(SURFACE, capture=lambda: next(xyz))
     qtbot.addWidget(dialog)
     table = dialog.points
+    data = table.table()
+    # an arrow before X and Y, and one after Z, as in the position table
+    xy_col, z_col = data.indexOf(table.XY_BTN), data.indexOf(table.Z_BTN)
+    assert xy_col == data.indexOf(table.X) - 1
+    assert z_col == data.indexOf(table.Z) + 1
 
+    # + adds the whole current position
     table.act_add_row.trigger()
     assert dialog.value().points[-1] == (1, 2, 3)
-    table.table().cellWidget(0, table.table().indexOf("")).click()
-    assert dialog.value().points[0] == (4, 5, 6)
+    # the arrows set the stage XY, then its Z after focusing
+    data.cellWidget(0, xy_col).click()
+    assert dialog.value().points[0] == (4, 5, SURFACE.points[0][2])
+    data.cellWidget(0, z_col).click()
+    assert dialog.value().points[0] == (4, 5, 9)
 
 
 def test_dialog_test_button(qtbot: QtBot) -> None:
