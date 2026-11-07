@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 import useq
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import QMessageBox
+from superqt.utils import signals_blocked
 
 from pymmcore_widgets._z_surface import ZSurface
 from pymmcore_widgets.mda import (
@@ -17,15 +21,23 @@ from pymmcore_widgets.mda._core_positions import (
     SURFACE_UNAVAILABLE,
 )
 from pymmcore_widgets.useq_widgets._mda_sequence import (
+    AF_AXIS_TOOLTIP,
     AF_PER_POS_SOFTWARE_TOOLTIP,
     PYMMCW_METADATA_KEY,
     SURFACE_ABSOLUTE_Z_TOOLTIP,
     SURFACE_HARDWARE_AF_TOOLTIP,
     SURFACE_HARDWARE_TOOLTIP,
+    SURFACE_NO_SOFTWARE_AF_TOOLTIP,
+    TOP_BOTTOM_AF_TOOLTIP,
+    TOP_BOTTOM_SURFACE_TOOLTIP,
     Z_SURFACE_KEY,
+    MDASequenceWidget,
+    Mode,
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from pymmcore_plus import CMMCorePlus
     from pytestqt.qtbot import QtBot
 
@@ -52,6 +64,14 @@ def _surface_wdg(
 
 def _zs(seq: useq.MDASequence) -> list[float]:
     return [round(e.z_pos, 2) for e in seq]
+
+
+@pytest.fixture(autouse=True)
+def _no_messages() -> Iterator[None]:
+    """Settings that rule each other out are kept from being selected: no popup."""
+    with patch.object(QMessageBox, "warning") as warning:
+        yield
+    warning.assert_not_called()
 
 
 @pytest.mark.parametrize("widget_cls", [MDAWidget, MDAWidgetCollapsible])
@@ -139,11 +159,15 @@ def test_surface_focus_excludes_hardware_autofocus(qtbot: QtBot) -> None:
         assert wdg_.toolTip() == SURFACE_HARDWARE_TOOLTIP
     assert af.kind() == "software"
 
-    # checking Autofocus with the Hardware mode selected selects Software
+    # the Hardware mode selected while Autofocus is off is replaced with Software
+    # when Surface Focus is checked: checking Autofocus then uses Software
+    pos.surface_focus.setChecked(False)
     af.setChecked(False)
     af.use_hardware.setChecked(True)
-    af.setChecked(True)
+    pos.surface_focus.setChecked(True)
     assert af.use_software.isChecked()
+    af.setChecked(True)
+    assert af.kind() == "software"
 
     # unchecking Surface Focus does not switch the mode back
     pos.surface_focus.setChecked(False)
@@ -152,6 +176,94 @@ def test_surface_focus_excludes_hardware_autofocus(qtbot: QtBot) -> None:
     assert pos.af_per_position.toolTip() == AF_PER_POS_SOFTWARE_TOOLTIP
     af.use_hardware.setChecked(True)
     assert pos.af_per_position.isEnabled()
+
+
+def test_surface_focus_without_software_autofocus(qtbot: QtBot) -> None:
+    # not connected to a core, which would tell what the microscope can run
+    wdg = MDASequenceWidget()
+    qtbot.addWidget(wdg)
+    pos, af = wdg.stage_positions, wdg.af_axis
+    pos.include_z.setChecked(False)
+    pos.setSurface(SURFACE)
+    af.setSoftwareAvailable(False)
+    # Hardware is ruled out, and there is no Software kind: Autofocus cannot be
+    # checked, rather than being checked to do nothing
+    pos.surface_focus.setChecked(True)
+    assert not af.isEnabled()
+    assert af.toolTip() == SURFACE_NO_SOFTWARE_AF_TOOLTIP
+    pos.surface_focus.setChecked(False)
+    assert af.isEnabled()
+    assert af.toolTip() == AF_AXIS_TOOLTIP
+
+
+def _z_tab_on(wdg: MDAWidget) -> None:
+    wdg.tab_wdg.setChecked(wdg.z_plan, True)
+
+
+def test_surface_focus_blocks_top_bottom(qtbot: QtBot) -> None:
+    wdg = _surface_wdg(qtbot, useq.MDASequence(stage_positions=[(0, 0)]))
+    pos, z_plan = wdg.stage_positions, wdg.z_plan
+    _z_tab_on(wdg)
+    top_bottom = z_plan._btn_top_bot
+    default_tooltip = z_plan._mode_tooltips[Mode.TOP_BOTTOM]
+    # the absolute Z mode cannot be selected, and says why
+    assert z_plan.isModeBlocked(Mode.TOP_BOTTOM)
+    assert top_bottom.toolTip() == TOP_BOTTOM_SURFACE_TOOLTIP
+    qtbot.mouseClick(top_bottom, Qt.MouseButton.LeftButton)
+    assert z_plan.mode() == Mode.RANGE_AROUND
+    assert pos.surface_focus.isChecked()
+    # until Surface Focus is unchecked
+    pos.surface_focus.setChecked(False)
+    assert not z_plan.isModeBlocked(Mode.TOP_BOTTOM)
+    assert top_bottom.toolTip() == default_tooltip
+    qtbot.mouseClick(top_bottom, Qt.MouseButton.LeftButton)
+    assert z_plan.mode() == Mode.TOP_BOTTOM
+    # which in turn rules Surface Focus out
+    assert not pos.surface_focus.isEnabled()
+    assert pos.surface_focus.toolTip() == SURFACE_ABSOLUTE_Z_TOOLTIP
+
+
+def test_autofocus_and_surface_focus_block_top_bottom(qtbot: QtBot) -> None:
+    wdg = _surface_wdg(qtbot, useq.MDASequence(stage_positions=[(0, 0)]))
+    af = wdg.af_axis
+    af.setKind("software")
+    af.setValue(("p",))
+    _z_tab_on(wdg)
+    # both reasons, one per line
+    reasons = f"{TOP_BOTTOM_SURFACE_TOOLTIP}\n{TOP_BOTTOM_AF_TOOLTIP}"
+    assert wdg.z_plan._btn_top_bot.toolTip() == reasons
+    wdg.stage_positions.surface_focus.setChecked(False)
+    assert wdg.z_plan._btn_top_bot.toolTip() == TOP_BOTTOM_AF_TOOLTIP
+    af.setValue(())
+    assert not wdg.z_plan.isModeBlocked(Mode.TOP_BOTTOM)
+
+
+def test_surface_focus_replaces_a_hidden_top_bottom(qtbot: QtBot) -> None:
+    wdg = _surface_wdg(qtbot, useq.MDASequence(stage_positions=[(0, 0)]))
+    pos = wdg.stage_positions
+    pos.surface_focus.setChecked(False)
+    # selected with the Z tab unchecked: no Z plan, so Surface Focus can be checked
+    wdg.z_plan.setMode(Mode.TOP_BOTTOM)
+    pos.surface_focus.setChecked(True)
+    assert pos.surface_focus.isChecked()
+    # the mode it rules out is not kept, to be found once the Z tab is checked
+    assert wdg.z_plan.mode() == Mode.RANGE_AROUND
+    _z_tab_on(wdg)
+    assert pos.surface_focus.isChecked()
+    assert wdg.value().focus_surface is not None
+
+
+def test_surface_focus_value_with_top_bottom_just_picked(qtbot: QtBot) -> None:
+    wdg = _surface_wdg(qtbot, useq.MDASequence(stage_positions=[(0, 0)]))
+    _z_tab_on(wdg)
+    # as a slot of valueChanged may see a mode set from code: before Surface Focus
+    # is turned off for it
+    with signals_blocked(wdg.z_plan):
+        wdg.z_plan.setMode(Mode.TOP_BOTTOM)
+    assert wdg.stage_positions.surface_focus.isChecked()
+    value = wdg.value()  # no ValidationError
+    assert value.focus_surface is None
+    assert value.z_plan is not None and not value.z_plan.is_relative
 
 
 def test_surface_focus_absolute_z(qtbot: QtBot) -> None:

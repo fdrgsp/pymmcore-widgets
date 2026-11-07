@@ -654,6 +654,8 @@ class PositionTable(DataTableWidget):
             move_z=self._surface_move_z(),
             move_xy=self._surface_move_xy(),
             parent=self,
+            # while it is used, the surface cannot be left unusable
+            require_valid=self.surface_focus.isChecked(),
         )
         if dialog.exec():
             self.setSurface(dialog.value())

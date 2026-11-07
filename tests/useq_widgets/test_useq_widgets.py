@@ -1142,8 +1142,9 @@ def test_autofocus_with_z_plans(qtbot: QtBot) -> None:
     assert wdg.stage_positions.af_per_position.isEnabled()
     assert wdg.af_axis.value() == ("p", "t")
 
-    # switching to TOP_BOTTOM (absolute Z positions) is incompatible with
-    # autofocus, so it should trigger a warning and disable the AF widgets.
+    # while autofocus is in use, TOP_BOTTOM (absolute Z positions) cannot be
+    # selected; one set from code wins, and disables the AF widgets.
+    assert wdg.z_plan.isModeBlocked(_z.Mode.TOP_BOTTOM)
     with patch.object(QMessageBox, "warning", _qmsgbox):
         wdg.z_plan.setValue(useq.ZTopBottom(top=10, bottom=0, step=1))
 

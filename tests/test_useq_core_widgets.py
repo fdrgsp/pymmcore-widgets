@@ -37,6 +37,7 @@ from pymmcore_widgets.useq_widgets._mda_sequence import (
     AF_DISABLED_TOOLTIP,
     AF_PER_POS_SOFTWARE_TOOLTIP,
     PYMMCW_METADATA_KEY,
+    TOP_BOTTOM_AF_TOOLTIP,
     AutofocusAxis,
     KeepShutterOpen,
     MDASequenceWidget,
@@ -1772,16 +1773,15 @@ def test_core_mda_autofocus_and_z_plan(
 
     # trigger the z plan tab TopBottom mode
     if trigger == "zplan":
-
-        def _qmsgbox(*args, **kwargs):
-            return True
-
-        # switch the z plan to TopBottom (absolute Z) mode and check its tab:
-        # since this mode is incompatible with autofocus, we should get a
-        # warning since the autofocus options are active
-        with patch.object(QMessageBox, "warning", _qmsgbox):
+        # while autofocus is in use, the TopBottom (absolute Z) mode cannot be
+        # selected...
+        wdg.tab_wdg.setChecked(wdg.z_plan, True)
+        assert wdg.z_plan.isModeBlocked(wdg.z_plan.Mode.TOP_BOTTOM)
+        assert wdg.z_plan._btn_top_bot.toolTip() == TOP_BOTTOM_AF_TOOLTIP
+        # ... but one set from code wins, and disables autofocus, without a message
+        with patch.object(QMessageBox, "warning") as warning:
             wdg.z_plan.setValue(useq.ZTopBottom(top=10, bottom=0, step=1))
-            wdg.tab_wdg.setChecked(wdg.z_plan, True)
+        warning.assert_not_called()
 
     # disable autofocus device
     elif trigger == "core":

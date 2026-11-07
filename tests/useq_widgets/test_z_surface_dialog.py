@@ -34,6 +34,7 @@ from pymmcore_widgets.useq_widgets._z_surface_dialog import (
     MAP_MIN_WIDTH,
     METHOD_TOOLTIP,
     MOVE_HINT,
+    OK_INVALID_TOOLTIP,
     VALID,
     ZSurfaceDialog,
 )
@@ -456,6 +457,31 @@ def test_position_table_edit_surface(qtbot: QtBot) -> None:
     with patch.object(ZSurfaceDialog, "exec", return_value=0):
         table._surface_settings.click()
     assert table.surface() == SURFACE
+
+    # while Surface Focus is checked, OK cannot accept a surface it cannot use...
+    table.include_z.setChecked(False)
+    table.surface_focus.setChecked(True)
+    ok_states = []
+
+    def _try_too_few(dialog: ZSurfaceDialog) -> int:
+        dialog.setValue(ZSurface(points=SURFACE.points[:2]))
+        ok = dialog._buttons.button(QDialogButtonBox.StandardButton.Ok)
+        ok_states.append((ok.isEnabled(), ok.toolTip()))
+        dialog.setValue(SURFACE)
+        ok_states.append((ok.isEnabled(), ok.toolTip()))
+        return QDialog.DialogCode.Rejected
+
+    with patch.object(ZSurfaceDialog, "exec", _try_too_few):
+        table._surface_settings.click()
+    problem = "At least 3 reference points are needed (2 set)."
+    assert ok_states == [(False, f"{problem}\n\n{OK_INVALID_TOOLTIP}"), (True, "")]
+    assert table.surface_focus.isChecked()
+    # ... while unchecked, an incomplete setup can be kept
+    table.surface_focus.setChecked(False)
+    ok_states.clear()
+    with patch.object(ZSurfaceDialog, "exec", _try_too_few):
+        table._surface_settings.click()
+    assert ok_states[0] == (True, "")
 
 
 def test_surface_focus_click_sets_up_the_surface(qtbot: QtBot) -> None:

@@ -33,6 +33,7 @@ from pymmcore_widgets.useq_widgets._mda_sequence import (
     AF_PER_POS_SOFTWARE_TOOLTIP,
     PYMMCW_METADATA_KEY,
     SURFACE_HARDWARE_TOOLTIP,
+    SURFACE_NO_SOFTWARE_AF_TOOLTIP,
 )
 from pymmcore_widgets.useq_widgets._positions import AF_PER_POS_TOOLTIP
 from pymmcore_widgets.useq_widgets._z import Mode
@@ -461,9 +462,11 @@ class MDAWidget(MDASequenceWidget):
             not missing,
             f"Software autofocus needs {' and '.join(missing)}." if missing else "",
         )
+        # Surface Focus excludes the hardware kind
+        surface = self.stage_positions.surface_focus.isChecked()
         self.af_axis.setEnabled(
             not self._uses_absolute_z()
-            and (has_hardware or self.af_axis.isSoftwareAvailable())
+            and ((has_hardware and not surface) or self.af_axis.isSoftwareAvailable())
         )
         self.af_axis.setToolTip(self._get_tooltip(self.af_axis))
         self.af_axis.setHardwareAvailable(
@@ -495,6 +498,13 @@ class MDAWidget(MDASequenceWidget):
         # it is the reason nothing here can be used, whatever devices exist.
         if self._uses_absolute_z():
             return AF_DISABLED_TOOLTIP
+        # Surface Focus excludes the hardware kind: without a software one, nothing
+        if (
+            wdg is self.af_axis
+            and self.stage_positions.surface_focus.isChecked()
+            and not self.af_axis.isSoftwareAvailable()
+        ):
+            return SURFACE_NO_SOFTWARE_AF_TOOLTIP
         # Without an autofocus device only the hardware kind is out, and a software
         # routine needs no such device -- so the section itself is still usable.
         if not self._mmc.getAutoFocusDevice():

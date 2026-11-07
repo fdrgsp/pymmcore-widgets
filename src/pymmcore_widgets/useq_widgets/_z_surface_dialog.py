@@ -74,6 +74,10 @@ METHOD_TOOLTIP = (
     "The farther from the outline, the less reliable Z: place points around the\n"
     "whole area to image."
 )
+OK_INVALID_TOOLTIP = (
+    "'Surface Focus' is checked: it needs a surface that can be used. Uncheck it "
+    "to keep an incomplete setup."
+)
 TEST_TOOLTIP = (
     "Move Z to the focus surface's Z at the current stage XY.\n\n"
     "To test the surface: in live mode, move Z away and press this button:\n"
@@ -460,7 +464,8 @@ class ZSurfaceDialog(QDialog):
     from it after focusing manually. `move_z` moves the focus stage: given too, the
     surface can be tested by moving Z to it at the current XY. `move_xy` moves the
     XY stage: given with `move_z`, double-clicking the map moves the stage there,
-    with Z on the surface.
+    with Z on the surface. With `require_valid`, e.g. while Surface Focus is
+    checked, OK only accepts a surface that can be used.
     """
 
     def __init__(
@@ -470,9 +475,12 @@ class ZSurfaceDialog(QDialog):
         move_z: Callable[[float], object] | None = None,
         move_xy: Callable[[float, float], object] | None = None,
         parent: QWidget | None = None,
+        *,
+        require_valid: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Surface Focus")
+        self._require_valid = require_valid
         self._capture = capture
         self._move_z = move_z
         self._move_xy = move_xy
@@ -653,6 +661,10 @@ class ZSurfaceDialog(QDialog):
         self._summary.setText(text)
         self._summary.setToolTip("" if problem else _residuals(surface))
         self.test_btn.setEnabled(not problem)
+        ok = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
+        blocked = self._require_valid and bool(problem)
+        ok.setEnabled(not blocked)
+        ok.setToolTip(f"{problem}\n\n{OK_INVALID_TOOLTIP}" if blocked else "")
 
 
 def _surface_z(surface: ZSurface, x: float, y: float) -> tuple[float, str]:

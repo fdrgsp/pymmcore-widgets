@@ -239,6 +239,8 @@ class ZPlanWidget(QWidget):
         self._mode_btn_group.addButton(self._button_above_below)
         self._mode_btn_group.addButton(self._btn_top_bot)
         self._mode_btn_group.buttonToggled.connect(self._on_mode_toggled)
+        # restored when a mode is no longer blocked
+        self._mode_tooltips = {m: b.toolTip() for m, b in self._mode_buttons.items()}
         for button in self._mode_btn_group.buttons():
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             button.setSizePolicy(
@@ -474,6 +476,20 @@ class ZPlanWidget(QWidget):
 
         self._sync_visual_height()
         self._on_change()
+
+    def setModeBlocked(self, mode: Mode, reason: str) -> None:
+        """Keep `mode` from being selected for `reason`, or allow it with `""`.
+
+        For a setting elsewhere that rules the mode out; the mode's button is
+        disabled, with `reason` as its tooltip. It does not change the current mode.
+        """
+        button = self._mode_buttons[mode]
+        button.setEnabled(not reason)
+        button.setToolTip(reason or self._mode_tooltips[mode])
+
+    def isModeBlocked(self, mode: Mode) -> bool:
+        """Whether `mode` cannot be selected now (see `setModeBlocked`)."""
+        return not self._mode_buttons[mode].isEnabled()
 
     def mode(self) -> Mode:
         """Return the current mode.
