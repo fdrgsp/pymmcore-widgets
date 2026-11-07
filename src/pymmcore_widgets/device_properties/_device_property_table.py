@@ -187,7 +187,7 @@ class DevicePropertyTable(QTableWidget):
                 item.setBackground(QColor("#AAA"))
                 wdg.setStyleSheet("QLabel { background-color : #AAA }")
 
-        self.resizeColumnsToContents()
+        self.resizeColumnToContents(0)
         self.setRowsCheckable(self._rows_checkable)
         # TODO: install eventFilter to prevent mouse wheel from scrolling sliders
 
