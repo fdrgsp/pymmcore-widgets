@@ -29,11 +29,11 @@ from pymmcore_widgets.useq_widgets._mda_sequence import (
     SURFACE_HARDWARE_TOOLTIP,
     SURFACE_NO_SOFTWARE_AF_TOOLTIP,
     TOP_BOTTOM_AF_TOOLTIP,
-    TOP_BOTTOM_SURFACE_TOOLTIP,
     Z_SURFACE_KEY,
     MDASequenceWidget,
     Mode,
 )
+from pymmcore_widgets.useq_widgets._positions import SURFACE_CHECKED_TOOLTIP
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -208,7 +208,7 @@ def test_surface_focus_blocks_top_bottom(qtbot: QtBot) -> None:
     default_tooltip = z_plan._mode_tooltips[Mode.TOP_BOTTOM]
     # the absolute Z mode cannot be selected, and says why
     assert z_plan.isModeBlocked(Mode.TOP_BOTTOM)
-    assert top_bottom.toolTip() == TOP_BOTTOM_SURFACE_TOOLTIP
+    assert top_bottom.toolTip() == SURFACE_CHECKED_TOOLTIP
     qtbot.mouseClick(top_bottom, Qt.MouseButton.LeftButton)
     assert z_plan.mode() == Mode.RANGE_AROUND
     assert pos.surface_focus.isChecked()
@@ -230,7 +230,7 @@ def test_autofocus_and_surface_focus_block_top_bottom(qtbot: QtBot) -> None:
     af.setValue(("p",))
     _z_tab_on(wdg)
     # both reasons, one per line
-    reasons = f"{TOP_BOTTOM_SURFACE_TOOLTIP}\n{TOP_BOTTOM_AF_TOOLTIP}"
+    reasons = f"{SURFACE_CHECKED_TOOLTIP}\n{TOP_BOTTOM_AF_TOOLTIP}"
     assert wdg.z_plan._btn_top_bot.toolTip() == reasons
     wdg.stage_positions.surface_focus.setChecked(False)
     assert wdg.z_plan._btn_top_bot.toolTip() == TOP_BOTTOM_AF_TOOLTIP
@@ -347,17 +347,13 @@ def test_surface_focus_devices(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None
     global_mmcore.setXYPosition(10, 20)
     global_mmcore.setZPosition(30)
     global_mmcore.waitForSystem()
-    capture = pos._surface_capture()
-    assert capture is not None
-    assert capture() == pytest.approx((10, 20, 30), abs=0.01)
-    move_z = pos._surface_move_z()
-    assert move_z is not None
-    move_z(40)
+    stage = pos._surface_stage()
+    assert stage is not None
+    assert stage.position() == pytest.approx((10, 20, 30), abs=0.01)
+    stage.move_z(40)
     global_mmcore.waitForSystem()
     assert global_mmcore.getZPosition() == pytest.approx(40, abs=0.01)
-    move_xy = pos._surface_move_xy()
-    assert move_xy is not None
-    move_xy(50, 60)
+    stage.move_xy(50, 60)
     global_mmcore.waitForSystem()
     assert global_mmcore.getXYPosition() == pytest.approx((50, 60), abs=0.01)
 
@@ -368,9 +364,7 @@ def test_surface_focus_devices(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None
     assert pos.surface_focus.toolTip() == SURFACE_UNAVAILABLE
     assert not pos.include_z.isEnabled()
     assert pos.include_z.toolTip() == "Focus device unavailable."
-    assert pos._surface_capture() is None
-    assert pos._surface_move_z() is None
-    assert pos._surface_move_xy() is None
+    assert pos._surface_stage() is None
     assert pos.surface() == SURFACE
 
 

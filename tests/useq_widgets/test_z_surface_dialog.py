@@ -20,10 +20,10 @@ from qtpy.QtWidgets import (
 )
 from superqt.iconify import QIconifyIcon
 
-from pymmcore_widgets._z_surface import ZSurface
+from pymmcore_widgets._z_surface import SurfaceStage, ZSurface
 from pymmcore_widgets.useq_widgets import PositionTable
 from pymmcore_widgets.useq_widgets._positions import (
-    INCLUDE_Z_SURFACE_TOOLTIP,
+    SURFACE_CHECKED_TOOLTIP,
     SURFACE_HAF_TOOLTIP,
     SURFACE_INCLUDE_Z_TOOLTIP,
     SURFACE_SETTINGS_TOOLTIP,
@@ -40,6 +40,7 @@ from pymmcore_widgets.useq_widgets._z_surface_dialog import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from pytestqt.qtbot import QtBot
@@ -165,8 +166,7 @@ def test_dialog_map(qtbot: QtBot) -> None:
 def test_dialog_colorbar_under_the_buttons(
     qtbot: QtBot, stage: bool, ok_first: bool
 ) -> None:
-    kwargs = {"capture": lambda: (0.0, 0.0, 0.0), "move_z": print} if stage else {}
-    dialog = ZSurfaceDialog(SURFACE, **kwargs)  # type: ignore[arg-type]
+    dialog = ZSurfaceDialog(SURFACE, stage=_stage([]) if stage else None)
     qtbot.addWidget(dialog)
     box = _show_with_button_order(qtbot, dialog, ok_first)
     # under the Test button, or the rightmost button without a stage to test with
@@ -205,9 +205,20 @@ def _rows(widget: QWidget) -> tuple[int, int]:
     return widget.geometry().top(), widget.geometry().bottom()
 
 
+def _stage(
+    moves: list[tuple], position: Callable[[], tuple[float, float, float]] = print
+) -> SurfaceStage:
+    """A stage at `position` that records its moves in `moves`."""
+    return SurfaceStage(
+        position=position,
+        move_xy=lambda x, y: moves.append(("xy", x, y)),
+        move_z=lambda z: moves.append(("z", z)),
+    )
+
+
 def test_dialog_capture(qtbot: QtBot) -> None:
     xyz = iter([(1.0, 2.0, 3.0), (4.0, 5.0, 6.0), (7.0, 8.0, 9.0)])
-    dialog = ZSurfaceDialog(SURFACE, capture=lambda: next(xyz))
+    dialog = ZSurfaceDialog(SURFACE, stage=_stage([], lambda: next(xyz)))
     qtbot.addWidget(dialog)
     table = dialog.points
     data = table.table()
@@ -227,24 +238,24 @@ def test_dialog_capture(qtbot: QtBot) -> None:
 
 
 def test_dialog_test_button(qtbot: QtBot) -> None:
-    moves: list[float] = []
-    dialog = ZSurfaceDialog(
-        SURFACE, capture=lambda: (10.0, 10.0, 99.0), move_z=moves.append
-    )
+    moves: list[tuple] = []
+    stage = _stage(moves, lambda: (10.0, 10.0, 99.0))
+    dialog = ZSurfaceDialog(SURFACE, stage=stage)
     qtbot.addWidget(dialog)
     btn = dialog.test_btn
     assert not btn.isHidden() and btn.isEnabled()
     assert not btn.autoDefault()
 
+    # Z only, to the surface at the current XY
     with patch.object(QToolTip, "showText") as show:
         btn.click()
-    assert moves == [pytest.approx(0.3)]
-    assert show.call_args.args[1] == "Z moved to 0.30 µm\nat X 10 µm, Y 10 µm."
+    assert moves == [("z", pytest.approx(0.3))]
+    assert show.call_args.args[2] == "Moved to X 10 µm, Y 10 µm\nZ 0.30 µm."
 
     def fail(z: float) -> None:
         raise RuntimeError("out of range")
 
-    dialog._move_z = fail
+    dialog._stage = stage._replace(move_z=fail)
     with patch.object(QMessageBox, "warning") as warning:
         btn.click()
     assert "out of range" in warning.call_args.args[2]
@@ -266,11 +277,8 @@ def test_dialog_map_without_surface(qtbot: QtBot) -> None:
 
 def test_dialog_double_click_moves_the_stage(qtbot: QtBot) -> None:
     moves: list[tuple] = []
-    dialog = ZSurfaceDialog(
-        SURFACE,
-        move_z=lambda z: moves.append(("z", z)),
-        move_xy=lambda x, y: moves.append(("xy", x, y)),
-    )
+    stage = _stage(moves)
+    dialog = ZSurfaceDialog(SURFACE, stage=stage)
     qtbot.addWidget(dialog)
     dialog.show()
     surface_map = dialog.map
@@ -286,7 +294,7 @@ def test_dialog_double_click_moves_the_stage(qtbot: QtBot) -> None:
     # XY first, then Z on the surface there: 0.01 x + 0.02 y
     assert moves == [("xy", x, y), ("z", pytest.approx(0.01 * x + 0.02 * y))]
     assert (x, y) == pytest.approx((10, 10), abs=1)
-    assert show.call_args.args[1].startswith(f"Moved to X {x:.0f} µm, Y {y:.0f} µm")
+    assert show.call_args.args[2].startswith(f"Moved to X {x:.0f} µm, Y {y:.0f} µm")
 
     # outside the map: nothing
     moves.clear()
@@ -297,7 +305,7 @@ def test_dialog_double_click_moves_the_stage(qtbot: QtBot) -> None:
     def fail(x: float, y: float) -> None:
         raise RuntimeError("out of range")
 
-    dialog._move_xy = fail
+    dialog._stage = stage._replace(move_xy=fail)
     with patch.object(QMessageBox, "warning") as warning:
         dialog.move_to(10, 10)
     assert "out of range" in warning.call_args.args[2]
@@ -339,16 +347,13 @@ def _show_with_button_order(
     return box
 
 
-@pytest.mark.parametrize("ok_first", [False, True])
-def test_dialog_hint_fits_above_the_map(qtbot: QtBot, ok_first: bool) -> None:
-    # no stage to test with: the colorbar is under the rightmost dialog button
+def test_dialog_hint_fits_above_the_map(qtbot: QtBot) -> None:
     dialog = ZSurfaceDialog(
         ZSurface(points=[(0, 0, -10000), (100, 0, 0), (0, 100, 10000)]),
-        move_z=print,
-        move_xy=print,
+        stage=_stage([]),
     )
     qtbot.addWidget(dialog)
-    _show_with_button_order(qtbot, dialog, ok_first)
+    dialog.show()
     surface_map = dialog.map
     hint_w = QFontMetrics(surface_map._hint_font()).horizontalAdvance(MOVE_HINT)
     dialog.resize(1, 1)  # as small as it gets
@@ -361,8 +366,8 @@ def test_dialog_hint_fits_above_the_map(qtbot: QtBot, ok_first: bool) -> None:
     assert canvas.top() >= QFontMetrics(surface_map._hint_font()).height()
 
 
-def test_dialog_without_xy_stage_has_no_hint(qtbot: QtBot) -> None:
-    dialog = ZSurfaceDialog(SURFACE, move_z=print)
+def test_dialog_without_stage_has_no_hint(qtbot: QtBot) -> None:
+    dialog = ZSurfaceDialog(SURFACE)
     qtbot.addWidget(dialog)
     assert dialog.map._hint == ""
     assert dialog.map.minimumSizeHint().width() == MAP_MIN_WIDTH
@@ -415,7 +420,7 @@ def test_position_table_surface_focus(qtbot: QtBot) -> None:
     sf.setChecked(True)
     inc_z = table.include_z
     assert not inc_z.isChecked() and not inc_z.isEnabled()
-    assert inc_z.toolTip() == INCLUDE_Z_SURFACE_TOOLTIP
+    assert inc_z.toolTip() == SURFACE_CHECKED_TOOLTIP
     sf.setChecked(False)
     assert inc_z.isEnabled() and not inc_z.isChecked()
     assert inc_z.toolTip() == ""

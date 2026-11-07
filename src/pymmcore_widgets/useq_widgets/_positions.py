@@ -24,14 +24,14 @@ from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
 from pymmcore_widgets._util import use_combo_row_height
-from pymmcore_widgets._z_surface import METHODS, ZSurface
+from pymmcore_widgets._z_surface import METHODS, SurfaceStage, ZSurface
 
 from ._autofocus_settings import _settings_button
 from ._column_info import FloatColumn, TextColumn, WdgGetSet, WidgetColumn
 from ._data_table import DataTableWidget
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Sequence
 
     from qtpy.QtCore import SignalInstance
     from qtpy.QtGui import QShowEvent
@@ -55,7 +55,7 @@ SURFACE_TOOLTIP = (
 SURFACE_SETTINGS_TOOLTIP = "Set up the focus surface."
 SURFACE_INCLUDE_Z_TOOLTIP = "Cannot use while 'Include Z' is checked."
 SURFACE_HAF_TOOLTIP = "Cannot use while 'HAF Offset' is checked."
-INCLUDE_Z_SURFACE_TOOLTIP = "Cannot use while 'Surface Focus' is checked."
+SURFACE_CHECKED_TOOLTIP = "Cannot use while 'Surface Focus' is checked."
 
 
 class _MDAPopup(QDialog):
@@ -594,7 +594,7 @@ class PositionTable(DataTableWidget):
 
     def _include_z_problem(self) -> str:
         """Return why Include Z cannot be used now, or `""`."""
-        return INCLUDE_Z_SURFACE_TOOLTIP if self.surface_focus.isChecked() else ""
+        return SURFACE_CHECKED_TOOLTIP if self.surface_focus.isChecked() else ""
 
     def _update_include_z(self) -> None:
         """Uncheck and disable Include Z while it cannot be used."""
@@ -633,16 +633,8 @@ class PositionTable(DataTableWidget):
             self._edit_surface()
             self.surface_focus.setChecked(True)  # no-op if still incomplete
 
-    def _surface_capture(self) -> Callable[[], tuple[float, float, float]] | None:
-        """Return a function giving the current stage XYZ, if it can be known."""
-        return None
-
-    def _surface_move_z(self) -> Callable[[float], object] | None:
-        """Return a function moving the focus stage, if there is one."""
-        return None
-
-    def _surface_move_xy(self) -> Callable[[float, float], object] | None:
-        """Return a function moving the XY stage, if there is one."""
+    def _surface_stage(self) -> SurfaceStage | None:
+        """Return the stage to set up and test the surface with, if there is one."""
         return None
 
     def _edit_surface(self) -> None:
@@ -650,9 +642,7 @@ class PositionTable(DataTableWidget):
 
         dialog = ZSurfaceDialog(
             self._surface,
-            capture=self._surface_capture(),
-            move_z=self._surface_move_z(),
-            move_xy=self._surface_move_xy(),
+            stage=self._surface_stage(),
             parent=self,
             # while it is used, the surface cannot be left unusable
             require_valid=self.surface_focus.isChecked(),

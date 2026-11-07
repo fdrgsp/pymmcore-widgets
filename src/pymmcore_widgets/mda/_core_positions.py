@@ -25,6 +25,7 @@ from useq import WellPlatePlan
 
 from pymmcore_widgets import HCSWizard
 from pymmcore_widgets._busy import BusyOverlay, busy
+from pymmcore_widgets._z_surface import SurfaceStage
 from pymmcore_widgets.useq_widgets import PositionTable
 from pymmcore_widgets.useq_widgets._column_info import (
     ButtonColumn,
@@ -32,7 +33,7 @@ from pymmcore_widgets.useq_widgets._column_info import (
 from pymmcore_widgets.useq_widgets._positions import AF_PER_POS_TOOLTIP
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Sequence
 
     from useq import Position
 
@@ -366,23 +367,19 @@ class CoreConnectedPositionTable(PositionTable):
             return SURFACE_UNAVAILABLE
         return super()._surface_focus_problem()
 
-    def _surface_capture(self) -> Callable[[], tuple[float, float, float]] | None:
+    def _surface_stage(self) -> SurfaceStage | None:
         if not self._has_xyz_stages():
             return None
         mmc = self._mmc
-        return lambda: (mmc.getXPosition(), mmc.getYPosition(), mmc.getZPosition())
-
-    def _surface_move_z(self) -> Callable[[float], object] | None:
-        if not self._has_xyz_stages():
-            return None
-        mmc = self._mmc
-        return lambda z: mmc.setZPosition(z)
-
-    def _surface_move_xy(self) -> Callable[[float, float], object] | None:
-        if not self._has_xyz_stages():
-            return None
-        mmc = self._mmc
-        return lambda x, y: mmc.setXYPosition(x, y)
+        return SurfaceStage(
+            position=lambda: (
+                mmc.getXPosition(),
+                mmc.getYPosition(),
+                mmc.getZPosition(),
+            ),
+            move_xy=lambda x, y: mmc.setXYPosition(x, y),
+            move_z=lambda z: mmc.setZPosition(z),
+        )
 
     def _update_xy_enablement(self) -> None:
         """Enable/disable the XY columns and button."""

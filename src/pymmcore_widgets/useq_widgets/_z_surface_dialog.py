@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, cast
 import cmap
 import numpy as np
 from pydantic import ValidationError
-from qtpy.QtCore import QPointF, QRectF, QSize, QSizeF, Qt, Signal
+from qtpy.QtCore import QPoint, QPointF, QRectF, QSize, QSizeF, Qt, Signal
 from qtpy.QtGui import (
     QAction,
     QCursor,
@@ -36,7 +36,7 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 
 from pymmcore_widgets._util import GREEN, RED
-from pymmcore_widgets._z_surface import METHODS, ZSurface
+from pymmcore_widgets._z_surface import METHODS, SurfaceStage, ZSurface
 
 from ._column_info import ButtonColumn
 from ._data_table import DataTableWidget
@@ -48,16 +48,6 @@ if TYPE_CHECKING:
     import useq
     from qtpy.QtGui import QMouseEvent, QPaintEvent
 
-METHOD_TOOLTIPS = {
-    "linear": (
-        "Interpolate linearly between the three nearest reference points.\n"
-        "Follows local changes of the sample height, e.g. a bowed plate."
-    ),
-    "plane": (
-        "Fit one plane through all the reference points.\n"
-        "For a flat but tilted sample: averages out focusing errors."
-    ),
-}
 METHOD_TOOLTIP = (
     "How Z is computed from the reference points.\n\n"
     "Local linear surface: the points are joined into triangles, and inside each\n"
@@ -100,19 +90,17 @@ class _ReferenceTable(DataTableWidget):
     X, Y, Z = PositionTable.X, PositionTable.Y, PositionTable.Z
 
     def __init__(
-        self,
-        capture: Callable[[], tuple[float, float, float]] | None = None,
-        parent: QWidget | None = None,
+        self, stage: SurfaceStage | None = None, parent: QWidget | None = None
     ) -> None:
         super().__init__(0, parent)
-        self._capture = capture
+        self._stage = stage
         table = self.table()
         # numbered like the points on the map and in the messages
         table.verticalHeader().setVisible(True)
         # every reference point is used: there is no row selection
         self.act_check_all.setVisible(False)
         self.act_check_none.setVisible(False)
-        if capture is not None:
+        if stage is not None:
             self.act_add_row.setToolTip("Add the current stage position")
             # as in the position table: set XY, or Z after focusing, from the stage
             self.XY_BTN = ButtonColumn(
@@ -148,20 +136,20 @@ class _ReferenceTable(DataTableWidget):
 
     def _add_row(self) -> None:
         super()._add_row()
-        if self._capture is not None:
-            x, y, z = self._capture()
+        if self._stage is not None:
+            x, y, z = self._stage.position()
             self.table().setRowData(
                 self.table().rowCount() - 1, {"x": x, "y": y, "z": z}
             )
 
     def _set_xy_from_stage(self, row: int, col: int = 0) -> None:
-        if self._capture is not None:
-            x, y, _ = self._capture()
+        if self._stage is not None:
+            x, y, _ = self._stage.position()
             self.table().setRowData(row, {"x": x, "y": y})
 
     def _set_z_from_stage(self, row: int, col: int = 0) -> None:
-        if self._capture is not None:
-            *_, z = self._capture()
+        if self._stage is not None:
+            *_, z = self._stage.position()
             self.table().setRowData(row, {"z": z})
 
 
@@ -172,7 +160,6 @@ class _SurfaceMap(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        # the height follows the reference table's
         self.setMouseTracking(True)
         self._surface: useq.FocusSurface | None = None
         self._xy = np.empty((0, 2))
@@ -373,7 +360,6 @@ class _SurfaceMap(QWidget):
         painter.setPen(palette.mid().color())
         painter.drawRect(canvas)
         # the colorbar shows the colormap even without a surface, unlabeled
-        painter.setPen(palette.mid().color())
         bar = self._colorbar_rect()
         painter.drawImage(bar, self._colorbar)
         painter.drawRect(bar)
@@ -435,19 +421,24 @@ class _SurfaceMap(QWidget):
             self.doubleClicked.emit(*xy)
 
     def mouseMoveEvent(self, event: QMouseEvent | None) -> None:
-        if self._surface is None or event is None:
-            return
-        if (xy := self._stage_xy(event.position())) is None:
+        if event is None or (xy := self._stage_xy(event.position())) is None:
             QToolTip.hideText()
             return
         x, y = xy
-        z = self._surface.evaluate([(x, y)])[0]
-        fill = Qt.FillRule.OddEvenFill
-        note = (
-            "" if self._hull.containsPoint(QPointF(x, y), fill) else " (extrapolated)"
-        )
-        text = f"X {x:.0f} µm, Y {y:.0f} µm\nZ {z:.2f} µm{note}"
+        text = f"X {x:.0f} µm, Y {y:.0f} µm\n{self.describeZ(x, y)}"
         QToolTip.showText(event.globalPosition().toPoint(), text, self)
+
+    def surfaceZ(self, x: float, y: float) -> float | None:
+        """Return the surface Z at `x`, `y`, or None without a surface."""
+        if self._surface is None:
+            return None
+        return float(self._surface.evaluate([(x, y)])[0])
+
+    def describeZ(self, x: float, y: float) -> str:
+        """Describe the surface Z at `x`, `y`, saying if it is extrapolated."""
+        fill = Qt.FillRule.OddEvenFill
+        inside = self._hull.containsPoint(QPointF(x, y), fill)
+        return f"Z {self.surfaceZ(x, y):.2f} µm" + ("" if inside else " (extrapolated)")
 
 
 def _qimage(rgba: np.ndarray) -> QImage:
@@ -460,20 +451,17 @@ def _qimage(rgba: np.ndarray) -> QImage:
 class ZSurfaceDialog(QDialog):
     """Edit the reference points and method of a `ZSurface`.
 
-    `capture` returns the current stage XYZ: given, points can be added or updated
-    from it after focusing manually. `move_z` moves the focus stage: given too, the
-    surface can be tested by moving Z to it at the current XY. `move_xy` moves the
-    XY stage: given with `move_z`, double-clicking the map moves the stage there,
-    with Z on the surface. With `require_valid`, e.g. while Surface Focus is
-    checked, OK only accepts a surface that can be used.
+    With a `stage`, points can be added or updated from its position after focusing
+    manually, and the surface tested on it: Test moves Z to the surface at the
+    current XY, and a double-click on the map moves the stage there. With
+    `require_valid`, e.g. while Surface Focus is checked, OK only accepts a surface
+    that can be used.
     """
 
     def __init__(
         self,
         surface: ZSurface,
-        capture: Callable[[], tuple[float, float, float]] | None = None,
-        move_z: Callable[[float], object] | None = None,
-        move_xy: Callable[[float, float], object] | None = None,
+        stage: SurfaceStage | None = None,
         parent: QWidget | None = None,
         *,
         require_valid: bool = False,
@@ -481,21 +469,16 @@ class ZSurfaceDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Surface Focus")
         self._require_valid = require_valid
-        self._capture = capture
-        self._move_z = move_z
-        self._move_xy = move_xy
+        self._stage = stage
 
-        self.points = _ReferenceTable(capture, self)
+        self.points = _ReferenceTable(stage, self)
 
         self.method = QComboBox()
-        for i, (key, label) in enumerate(METHODS.items()):
+        for key, label in METHODS.items():
             self.method.addItem(label, key)
-            self.method.setItemData(
-                i, METHOD_TOOLTIPS[key], Qt.ItemDataRole.ToolTipRole
-            )
         self.method.setToolTip(METHOD_TOOLTIP)
         self.map = _SurfaceMap()
-        if move_xy is not None and move_z is not None:
+        if stage is not None:
             self.map.setHint(MOVE_HINT)
             self.map.doubleClicked.connect(self.move_to)
 
@@ -525,7 +508,7 @@ class ZSurfaceDialog(QDialog):
         self.test_btn.setToolTip(TEST_TOOLTIP)
         # Enter must not move the stage
         self.test_btn.setAutoDefault(False)
-        self.test_btn.setVisible(capture is not None and move_z is not None)
+        self.test_btn.setVisible(stage is not None)
         self.test_btn.clicked.connect(self.test)
 
         buttons = QDialogButtonBox(
@@ -597,44 +580,32 @@ class ZSurfaceDialog(QDialog):
 
     def test(self) -> None:
         """Move Z to the surface at the current stage XY."""
-        if self._capture is None or self._move_z is None:
-            return  # pragma: no cover
-        surface = self.value()
-        if surface.problem():
-            return  # pragma: no cover
-        x, y, _ = self._capture()
-        z, note = _surface_z(surface, x, y)
-        try:
-            self._move_z(z)
-        except RuntimeError as e:
-            QMessageBox.warning(
-                self, "Test Surface", f"Cannot move Z to {z:.2f} µm:\n\n{e}"
-            )
-            return
-        text = f"Z moved to {z:.2f} µm{note}\nat X {x:.0f} µm, Y {y:.0f} µm."
-        pos = self.test_btn.mapToGlobal(self.test_btn.rect().topLeft())
-        QToolTip.showText(pos, text, self.test_btn)
+        if self._stage is not None:
+            x, y, _ = self._stage.position()
+            pos = self.test_btn.mapToGlobal(self.test_btn.rect().topLeft())
+            self._move(x, y, move_xy=False, tip=(pos, self.test_btn))
 
     def move_to(self, x: float, y: float) -> None:
         """Move the stage to `x`, `y`, with Z on the surface."""
-        if self._move_xy is None or self._move_z is None:
-            return  # pragma: no cover
-        surface = self.value()
-        if surface.problem():
-            return  # pragma: no cover
-        z, note = _surface_z(surface, x, y)
+        self._move(x, y, move_xy=True, tip=(QCursor.pos(), self.map))
+
+    def _move(
+        self, x: float, y: float, move_xy: bool, tip: tuple[QPoint, QWidget]
+    ) -> None:
+        """Move Z, and XY if `move_xy`, to the surface; say where at `tip`."""
+        if self._stage is None or (z := self.map.surfaceZ(x, y)) is None:
+            return
+        where = f"X {x:.0f} µm, Y {y:.0f} µm"
         try:
-            self._move_xy(x, y)
-            self._move_z(z)
+            if move_xy:
+                self._stage.move_xy(x, y)
+            self._stage.move_z(z)
         except RuntimeError as e:
             QMessageBox.warning(
-                self,
-                "Move Stage",
-                f"Cannot move to X {x:.0f} µm, Y {y:.0f} µm, Z {z:.2f} µm:\n\n{e}",
+                self, "Move Stage", f"Cannot move to {where}, Z {z:.2f} µm:\n\n{e}"
             )
             return
-        text = f"Moved to X {x:.0f} µm, Y {y:.0f} µm\nZ {z:.2f} µm{note}."
-        QToolTip.showText(QCursor.pos(), text, self.map)
+        QToolTip.showText(*tip, f"Moved to {where}\n{self.map.describeZ(x, y)}.")
 
     def load(self, file: str | Path | None = None) -> None:
         """Load a surface from a JSON file."""
@@ -665,15 +636,6 @@ class ZSurfaceDialog(QDialog):
         blocked = self._require_valid and bool(problem)
         ok.setEnabled(not blocked)
         ok.setToolTip(f"{problem}\n\n{OK_INVALID_TOOLTIP}" if blocked else "")
-
-
-def _surface_z(surface: ZSurface, x: float, y: float) -> tuple[float, str]:
-    """Return the surface Z at `x`, `y`, and a note if it is extrapolated there."""
-    focus_surface = surface.focus_surface()
-    z = float(focus_surface.evaluate([(x, y)])[0])
-    hull = QPolygonF([QPointF(*p) for p in focus_surface.hull()])
-    inside = hull.containsPoint(QPointF(x, y), Qt.FillRule.OddEvenFill)
-    return z, "" if inside else " (extrapolated)"
 
 
 def _residuals(surface: ZSurface) -> str:

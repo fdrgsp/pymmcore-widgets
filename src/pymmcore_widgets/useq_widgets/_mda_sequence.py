@@ -58,7 +58,11 @@ from pymmcore_widgets.useq_widgets._axis_tabs import (
 from pymmcore_widgets.useq_widgets._channels import ChannelTable
 from pymmcore_widgets.useq_widgets._checkable_tabwidget_widget import CheckableTabWidget
 from pymmcore_widgets.useq_widgets._grid import GridPlanWidget
-from pymmcore_widgets.useq_widgets._positions import AF_PER_POS_TOOLTIP, PositionTable
+from pymmcore_widgets.useq_widgets._positions import (
+    AF_PER_POS_TOOLTIP,
+    SURFACE_CHECKED_TOOLTIP,
+    PositionTable,
+)
 from pymmcore_widgets.useq_widgets._time import TimePlanWidget
 from pymmcore_widgets.useq_widgets._z import Mode, ZPlanWidget
 
@@ -124,10 +128,8 @@ SURFACE_HARDWARE_TOOLTIP = (
 SURFACE_HARDWARE_AF_TOOLTIP = "Cannot use while hardware 'Autofocus' is checked."
 SURFACE_ABSOLUTE_Z_TOOLTIP = "Cannot use with absolute Z positions (TOP_BOTTOM mode)."
 SURFACE_NO_SOFTWARE_AF_TOOLTIP = (
-    "Hardware autofocus cannot be used while 'Surface Focus' is checked, and no "
-    "software autofocus is available."
+    f"{SURFACE_HARDWARE_TOOLTIP}\nNo software autofocus is available."
 )
-TOP_BOTTOM_SURFACE_TOOLTIP = "Cannot use while 'Surface Focus' is checked."
 TOP_BOTTOM_AF_TOOLTIP = "Cannot use while 'Autofocus' is in use."
 # Filled in when a search range is first asked for; MMStudio's own default.
 DEFAULT_AF_SEARCH_STEP_UM = 5.0
@@ -1064,7 +1066,6 @@ class MDASequenceWidget(QWidget):
         tab_widget: MDATabs | None = None,
     ) -> None:
         super().__init__(parent)
-        self._updating_surface_focus = False
 
         # -------------- Main MDA Axis Widgets --------------
 
@@ -1385,16 +1386,6 @@ class MDASequenceWidget(QWidget):
         once selected: what is checked stays as it is. What is still resolved here
         only comes from code, e.g. `setValue`.
         """
-        # what it changes emits `valueChanged`, which calls it again
-        if self._updating_surface_focus:
-            return
-        self._updating_surface_focus = True
-        try:
-            self._do_update_surface_focus()
-        finally:
-            self._updating_surface_focus = False
-
-    def _do_update_surface_focus(self) -> None:
         af = self.af_axis
         surface = self.stage_positions.surface_focus.isChecked()
         af.setHardwareBlocked(SURFACE_HARDWARE_TOOLTIP if surface else "")
@@ -1415,7 +1406,7 @@ class MDASequenceWidget(QWidget):
         """Keep the absolute Z mode from being selected while it cannot be used."""
         reasons = []
         if self.stage_positions.surface_focus.isChecked():
-            reasons.append(TOP_BOTTOM_SURFACE_TOOLTIP)
+            reasons.append(SURFACE_CHECKED_TOOLTIP)
         if self.af_axis.value() or self._use_af_per_position():
             reasons.append(TOP_BOTTOM_AF_TOOLTIP)
         z_plan = self.z_plan
@@ -1486,10 +1477,10 @@ class MDASequenceWidget(QWidget):
             self.stage_positions._on_af_per_position_toggled(True)
 
     def _validate_af_with_z_plan(self) -> None:
-        """Disable the autofocus settings while an absolute Z plan is used.
+        """Enable the autofocus settings unless an absolute Z plan is used.
 
-        The TOP_BOTTOM mode cannot be selected while autofocus is in use (see
-        `_update_z_modes`): this only disables autofocus for one set from code.
+        TOP_BOTTOM cannot be selected while autofocus is in use (see
+        `_update_z_modes`), but can be set from code.
         """
         self._enable_af(not self._uses_absolute_z())
         self.valueChanged.emit()
