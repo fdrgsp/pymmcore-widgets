@@ -372,6 +372,18 @@ class CoreConnectedPositionTable(PositionTable):
         mmc = self._mmc
         return lambda: (mmc.getXPosition(), mmc.getYPosition(), mmc.getZPosition())
 
+    def _surface_move_z(self) -> Callable[[float], object] | None:
+        if not self._has_xyz_stages():
+            return None
+        mmc = self._mmc
+        return lambda z: mmc.setZPosition(z)
+
+    def _surface_move_xy(self) -> Callable[[float, float], object] | None:
+        if not self._has_xyz_stages():
+            return None
+        mmc = self._mmc
+        return lambda x, y: mmc.setXYPosition(x, y)
+
     def _update_xy_enablement(self) -> None:
         """Enable/disable the XY columns and button."""
         xy_device = self._mmc.getXYStageDevice()

@@ -238,6 +238,16 @@ def test_surface_focus_devices(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None
     capture = pos._surface_capture()
     assert capture is not None
     assert capture() == pytest.approx((10, 20, 30), abs=0.01)
+    move_z = pos._surface_move_z()
+    assert move_z is not None
+    move_z(40)
+    global_mmcore.waitForSystem()
+    assert global_mmcore.getZPosition() == pytest.approx(40, abs=0.01)
+    move_xy = pos._surface_move_xy()
+    assert move_xy is not None
+    move_xy(50, 60)
+    global_mmcore.waitForSystem()
+    assert global_mmcore.getXYPosition() == pytest.approx((50, 60), abs=0.01)
 
     # checked, it disables "Include Z"; without a focus device, that one says so
     assert not pos.include_z.isEnabled()
@@ -247,6 +257,8 @@ def test_surface_focus_devices(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None
     assert not pos.include_z.isEnabled()
     assert pos.include_z.toolTip() == "Focus device unavailable."
     assert pos._surface_capture() is None
+    assert pos._surface_move_z() is None
+    assert pos._surface_move_xy() is None
     assert pos.surface() == SURFACE
 
 

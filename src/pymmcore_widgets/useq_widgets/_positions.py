@@ -52,6 +52,7 @@ SURFACE_TOOLTIP = (
     "Take each position's Z (and each grid tile's) from a surface through manually "
     "focused reference points.\nSet the points up with the settings button."
 )
+SURFACE_SETTINGS_TOOLTIP = "Set up the focus surface."
 SURFACE_INCLUDE_Z_TOOLTIP = "Cannot use while 'Include Z' is checked."
 SURFACE_HAF_TOOLTIP = "Cannot use while 'HAF Offset' is checked."
 INCLUDE_Z_SURFACE_TOOLTIP = "Cannot use while 'Surface Focus' is checked."
@@ -292,7 +293,7 @@ class PositionTable(DataTableWidget):
         self.surface_focus = QCheckBox("Surface Focus")
         self.surface_focus.toggled.connect(self.valueChanged)
         self.surface_focus.clicked.connect(self._on_surface_focus_clicked)
-        self._surface_settings = _settings_button("Set up the focus surface.")
+        self._surface_settings = _settings_button(SURFACE_SETTINGS_TOOLTIP)
         self._surface_settings.clicked.connect(self._edit_surface)
         self._surface = ZSurface()
         # why the owning MDA widget's settings rule Surface Focus out, if they do
@@ -618,6 +619,9 @@ class PositionTable(DataTableWidget):
         if conflict or incomplete:
             self.surface_focus.setChecked(False)
         self.surface_focus.setEnabled(not conflict)
+        # the surface cannot be set up either while Surface Focus cannot be used
+        self._surface_settings.setEnabled(not conflict)
+        self._surface_settings.setToolTip(conflict or SURFACE_SETTINGS_TOOLTIP)
         # until the surface is set up, a click opens the setup dialog instead
         self.surface_focus.setCheckable(not incomplete)
         method, n = METHODS[self._surface.method], len(self._surface.points)
@@ -633,10 +637,24 @@ class PositionTable(DataTableWidget):
         """Return a function giving the current stage XYZ, if it can be known."""
         return None
 
+    def _surface_move_z(self) -> Callable[[float], object] | None:
+        """Return a function moving the focus stage, if there is one."""
+        return None
+
+    def _surface_move_xy(self) -> Callable[[float, float], object] | None:
+        """Return a function moving the XY stage, if there is one."""
+        return None
+
     def _edit_surface(self) -> None:
         from ._z_surface_dialog import ZSurfaceDialog
 
-        dialog = ZSurfaceDialog(self._surface, self._surface_capture(), self)
+        dialog = ZSurfaceDialog(
+            self._surface,
+            capture=self._surface_capture(),
+            move_z=self._surface_move_z(),
+            move_xy=self._surface_move_xy(),
+            parent=self,
+        )
         if dialog.exec():
             self.setSurface(dialog.value())
 
