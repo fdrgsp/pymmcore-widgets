@@ -439,7 +439,8 @@ class AutomatedPlateCalibrationWidget(QWidget):
             if self._plate.columns == 1:
                 return "Select at least 3 wells in this column" + rims
         return (
-            "Select a 2 x 2 block (recommended), or 3+ wells in one row/column," + rims
+            "Select a 2 x 2 block (minimum recommended), or 3+ wells in one row/column,"
+            + rims
         )
 
     def _scan_ready(self) -> bool:
