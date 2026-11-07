@@ -21,7 +21,7 @@ from pymmcore_widgets.mda._channel_properties import (
 )
 from pymmcore_widgets.mda._core_channels import CoreConnectedChannelTable
 from pymmcore_widgets.mda._core_grid import CoreConnectedGridPlanWidget
-from pymmcore_widgets.mda._core_mda import PAUSE_UNAVAILABLE_HW_SEQUENCED
+from pymmcore_widgets.mda._core_mda import AF_NO_AXIS, PAUSE_UNAVAILABLE_HW_SEQUENCED
 from pymmcore_widgets.mda._core_positions import (
     AF_UNAVAILABLE,
     CoreConnectedPositionTable,
@@ -888,6 +888,31 @@ def test_run_mda_af_engaged_but_unused(qtbot: QtBot):
             with qtbot.waitSignal(wdg._mmc.mda.events.sequenceFinished):
                 wdg.control_btns.run_btn.click()
     assert not messages
+
+
+@pytest.mark.parametrize("kind", ["hardware", "software"])
+def test_run_mda_af_needs_an_axis(qtbot: QtBot, kind: str) -> None:
+    """Autofocus checked on no axis would never run: say so instead of running."""
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    wdg.setValue(useq.MDASequence(stage_positions=[useq.Position(x=0, y=0, z=0)]))
+    wdg.af_axis.setChecked(True)
+    wdg.af_axis.setKind(kind)
+    assert wdg.af_axis.kind() == kind and not wdg.af_axis.value()
+
+    with patch.object(QMessageBox, "warning") as warning:
+        with patch.object(wdg, "execute_mda") as execute:
+            wdg.control_btns.run_btn.click()
+    warning.assert_called_once()
+    assert warning.call_args.args[2] == AF_NO_AXIS
+    execute.assert_not_called()
+
+    # with an axis, it runs
+    wdg.af_axis.use_af_p.setChecked(True)
+    with patch.object(QMessageBox, "warning", return_value=QMessageBox.Ok):
+        with patch.object(wdg, "execute_mda") as execute:
+            wdg.control_btns.run_btn.click()
+    execute.assert_called_once()
 
 
 def test_run_mda_software_af_does_not_want_an_autofocus_device(qtbot: QtBot):

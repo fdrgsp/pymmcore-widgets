@@ -61,9 +61,13 @@ if TYPE_CHECKING:
 # the first variant is used when the user can still opt in by selecting an axis,
 # the second when the axis widget is disabled (an absolute z plan is selected) and
 # telling them to select an axis would be a dead end.
+AF_NO_AXIS = (
+    "'Autofocus' is checked, but no axis is selected in 'On Axis', so it would "
+    "never run.\n\nSelect an axis, or uncheck 'Autofocus'."
+)
 AF_ENGAGED_NO_AXIS = (
     "The {af} autofocus device is currently engaged, but no autofocus axis is "
-    "selected.\n\nSelect an axis in 'Use Hardware Autofocus on Axis' to use the "
+    "selected.\n\nSelect an axis in 'On Axis' to use the "
     "hardware autofocus during this run, otherwise it will be switched off before "
     "the acquisition starts.\n\nRun anyway?"
 )
@@ -327,6 +331,11 @@ class MDAWidget(MDASequenceWidget):
         self._commit_editors()
         # in case the user does not press enter after editing the save name.
         self.save_info.save_name.editingFinished.emit()
+
+        # autofocus on no axis would silently never run
+        if self.af_axis.kind() is not None and not self.af_axis.value():
+            QMessageBox.warning(self, "Autofocus", AF_NO_AXIS)
+            return False
 
         # If *hardware* autofocus has been requested but its device is not engaged,
         # and position-specific offsets haven't been set, show a warning. A software
