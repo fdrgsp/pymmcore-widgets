@@ -143,9 +143,13 @@ def acquire_survey(
     initial = camera_state()
     shutter = core.getShutterDevice()
     was_open = core.getShutterOpen() if shutter else False
+    was_auto = core.getAutoShutter()
     tiles = []
     used_bytes = 0
     try:
+        if shutter:
+            core.setAutoShutter(False)
+            core.setShutterOpen(shutter, True)
         for index, xy in enumerate(positions):
             if cancel.is_set():
                 raise InterruptedError(
@@ -178,9 +182,9 @@ def acquire_survey(
                 on_tile(tile)
             progress(index + 1, len(positions))
     finally:
-        # Preserve manually opened shutters too, including on snap failure.
         if shutter:
             core.setShutterOpen(shutter, was_open)
+            core.setAutoShutter(was_auto)
     if cancel.is_set():
         raise InterruptedError("Survey cancelled; previous calibration retained.")
     return tuple(tiles)

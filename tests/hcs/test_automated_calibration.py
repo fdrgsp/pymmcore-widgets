@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from threading import Event
-from unittest.mock import Mock
+from typing import TYPE_CHECKING
+from unittest.mock import Mock, call, patch
 
 import numpy as np
 import pytest
@@ -26,6 +27,9 @@ from pymmcore_widgets.hcs._well_detection import (
     assign_well_indices,
     detect_wells,
 )
+
+if TYPE_CHECKING:
+    from pymmcore_plus import CMMCorePlus
 
 
 class _Canvas(QWidget):
@@ -211,19 +215,57 @@ def test_survey_cancellation_and_cleanup():
     core.getBytesPerPixel.return_value = 2
     core.getShutterDevice.return_value = "Shutter"
     core.getShutterOpen.return_value = True
+    core.getAutoShutter.return_value = True
     core.getXYPosition.return_value = (50, 50)
     geometry = SurveyGeometry((0, 0, 100, 100), (16, 16), (10, 0, 0, 10))
     cancelled = Event()
     cancelled.set()
+    # opened for the scan, then back to the manually opened shutter and auto-shutter
+    restored = [
+        call.setAutoShutter(False),
+        call.setShutterOpen("Shutter", True),
+        call.setShutterOpen("Shutter", True),
+        call.setAutoShutter(True),
+    ]
     with pytest.raises(InterruptedError):
         acquire_survey(core, geometry, cancelled, Mock())
     core.setXYPosition.assert_not_called()
-    core.setShutterOpen.assert_called_once_with("Shutter", True)
+    assert _shutter_calls(core) == restored
     core.reset_mock()
     core.snap.side_effect = RuntimeError("Camera failed")
     with pytest.raises(RuntimeError, match="Camera failed"):
         acquire_survey(core, geometry, Event(), Mock())
-    core.setShutterOpen.assert_called_once_with("Shutter", True)
+    assert _shutter_calls(core) == restored
+
+
+def _shutter_calls(core: Mock) -> list:
+    names = ("setAutoShutter", "setShutterOpen")
+    return [c for c in core.mock_calls if c[0] in names]
+
+
+def test_survey_keeps_the_shutter_open(global_mmcore: CMMCorePlus) -> None:
+    core = global_mmcore
+    shutter = core.getShutterDevice()
+    core.setAutoShutter(True)
+    core.setShutterOpen(shutter, False)
+    states = []
+    snap = core.snap
+
+    def snap_and_record() -> np.ndarray:
+        states.append((core.getAutoShutter(), core.getShutterOpen(shutter)))
+        return snap()
+
+    w, h = core.getImageWidth(), core.getImageHeight()
+    # 0.1 µm pixels: several tiles over the 100 µm square
+    geometry = SurveyGeometry((0, 0, 100, 100), (h, w), (0.1, 0, 0, 0.1))
+    with patch.object(core, "snap", snap_and_record):
+        tiles = acquire_survey(core, geometry, Event(), Mock())
+    # auto-shutter off and the shutter open for every frame
+    assert len(tiles) > 1
+    assert states == [(False, True)] * len(tiles)
+    # then back to the starting state
+    assert core.getAutoShutter()
+    assert not core.getShutterOpen(shutter)
 
 
 def test_reject_conflicting_acquisition():
