@@ -244,7 +244,9 @@ def test_dialog_test_button(qtbot: QtBot) -> None:
     with patch.object(QToolTip, "showText") as show:
         btn.click()
     assert moves == [("z", pytest.approx(0.3))]
-    assert show.call_args.args[2] == "Moved to X 10 µm, Y 10 µm\nZ 0.30 µm."
+    _, text, widget = show.call_args.args  # QToolTip.showText(pos, text, widget)
+    assert text == "Moved to X 10 µm, Y 10 µm\nZ 0.30 µm."
+    assert widget is btn
 
     def fail(z: float) -> None:
         raise RuntimeError("out of range")
@@ -288,7 +290,9 @@ def test_dialog_double_click_moves_the_stage(qtbot: QtBot) -> None:
     # XY first, then Z on the surface there: 0.01 x + 0.02 y
     assert moves == [("xy", x, y), ("z", pytest.approx(0.01 * x + 0.02 * y))]
     assert (x, y) == pytest.approx((10, 10), abs=1)
-    assert show.call_args.args[2].startswith(f"Moved to X {x:.0f} µm, Y {y:.0f} µm")
+    _, text, widget = show.call_args.args
+    assert text.startswith(f"Moved to X {x:.0f} µm, Y {y:.0f} µm")
+    assert widget is surface_map
 
     # outside the map: nothing
     moves.clear()

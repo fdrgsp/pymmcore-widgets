@@ -20,6 +20,7 @@ from qtpy.QtGui import (
     QPolygonF,
 )
 from qtpy.QtWidgets import (
+    QAbstractButton,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -540,6 +541,8 @@ class ZSurfaceDialog(QDialog):
 
         self.method.currentIndexChanged.connect(self._update_summary)
         self.points.valueChanged.connect(self._update_summary)
+        for button in self.findChildren(QAbstractButton):
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setValue(surface)
         self.resize(820, 480)
 
@@ -610,7 +613,8 @@ class ZSurfaceDialog(QDialog):
                 self, "Move Stage", f"Cannot move to {where}, Z {z:.2f} µm:\n\n{e}"
             )
             return
-        QToolTip.showText(*tip, f"Moved to {where}\n{self.map.describeZ(x, y)}.")
+        pos, widget = tip
+        QToolTip.showText(pos, f"Moved to {where}\n{self.map.describeZ(x, y)}.", widget)
 
     def load(self, file: str | Path | None = None) -> None:
         """Load a surface from a JSON file."""

@@ -618,6 +618,7 @@ class ButtonColumn(WidgetColumn):
         self, table: QTableWidget, row: int, col: int, change_signal: SignalInstance
     ) -> None:
         new_wdg = self.data_type.widget()
+        new_wdg.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         if self.text:
             new_wdg.setText(self.text)
         if self.glyph:
