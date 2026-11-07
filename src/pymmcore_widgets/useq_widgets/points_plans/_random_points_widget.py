@@ -15,6 +15,7 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from superqt.iconify import QIconifyIcon
 from useq import RandomPoints, RelativePosition, Shape, TraversalOrder
 
 from ._common import LabelAligner, labeled_row
@@ -68,6 +69,7 @@ class RandomPointWidget(QWidget):
         self.allow_overlap = QCheckBox("Allow Overlap")
         # random button
         self._random_button = QPushButton(text="Randomize")
+        self._random_button.setIcon(QIconifyIcon("mdi:dice-multiple-outline"))
 
         self.shape = QComboBox()
         self.shape.addItems([mode.value for mode in Shape])

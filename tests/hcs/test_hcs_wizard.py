@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 import useq
+from qtpy.QtCore import QSize
 
 from pymmcore_widgets.hcs import HCSWizard
 
@@ -35,6 +36,31 @@ def test_hcs_wizard(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
 
     # we haven't done anything, the plan should be the same
     assert wdg.value() == plan
+
+
+def test_hcs_wizard_fits_points_plan_panel(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """The wizard opens just tall enough to show the FOV panel without scrolling."""
+    wdg = HCSWizard(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.show()
+    qtbot.waitExposed(wdg)
+    size = wdg.size()
+    wdg.next()
+    wdg.next()
+    qtbot.wait(50)
+
+    selector = wdg.points_plan_page.widget._selector
+    # neither scrolls nor leaves the cards stretched over spare height
+    assert selector._scroll.viewport().height() == selector._cards.sizeHint().height()
+    assert not selector._scroll.verticalScrollBar().isVisible()
+
+    # sized once: reopening keeps whatever size the user left it at
+    wdg.hide()
+    wdg.resize(size.width() + 50, size.height() + 50)
+    wdg.show()
+    assert wdg.size() == size + QSize(50, 50)
 
 
 def test_single_area_hides_automated(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:

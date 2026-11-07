@@ -515,6 +515,12 @@ class ZSurfaceDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
+        for standard, glyph in (
+            (QDialogButtonBox.StandardButton.Ok, "material-symbols:check-rounded"),
+            (QDialogButtonBox.StandardButton.Cancel, "material-symbols:close-rounded"),
+        ):
+            if button := buttons.button(standard):
+                button.setIcon(QIconifyIcon(glyph))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         self._buttons = buttons

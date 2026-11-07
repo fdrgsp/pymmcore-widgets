@@ -256,6 +256,8 @@ class CoreConnectedPositionTable(PositionTable):
     def _rename_hcs_position_button(self, text: str) -> None:
         if wiz := self._hcs_wizard:
             wiz.points_plan_page.setButtonText(QWizard.WizardButton.FinishButton, text)
+            if finish := wiz.button(QWizard.WizardButton.FinishButton):
+                finish.setIcon(QIconifyIcon("mdi:send"))
 
     def _show_pos_editing_dialog(self) -> None:
         dialog = QMessageBox(

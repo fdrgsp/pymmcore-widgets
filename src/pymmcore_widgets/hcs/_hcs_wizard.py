@@ -4,7 +4,7 @@ import json
 import warnings
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import useq
 from pymmcore_plus import CMMCorePlus
@@ -25,6 +25,9 @@ from pymmcore_widgets.useq_widgets import PointsPlanWidget, WellPlateWidget
 from ._automated_plate_calibration_widget import AutomatedPlateCalibrationWidget
 from ._plate_calibration import supports_automated_calibration
 from ._plate_calibration_widget import PlateCalibrationWidget
+
+if TYPE_CHECKING:
+    from qtpy.QtGui import QShowEvent
 
 # Wizard save files are a versioned envelope around the WellPlatePlan, so that
 # wizard-only state can be added later. Bare WellPlatePlan files (written by older
@@ -111,6 +114,9 @@ class HCSWizard(QWizard):
             load_btn.setText("Load")
             load_btn.setIcon(QIconifyIcon("material-symbols:upload-rounded"))
             load_btn.clicked.connect(self.load)
+        if cancel_btn := self.button(QWizard.WizardButton.CancelButton):
+            cancel_btn.setIcon(QIconifyIcon("material-symbols:close-rounded"))
+        self._initial_size_set = False
 
         # CONNECTIONS ---------------------------
 
@@ -121,8 +127,24 @@ class HCSWizard(QWizard):
         )
         self.calibration_page.automated.busyChanged.connect(self._on_survey_busy)
 
-    def sizeHint(self) -> QSize:
-        return QSize(880, 720)
+    def showEvent(self, event: QShowEvent | None) -> None:
+        # Size the wizard once, before the window first appears, to the smallest
+        # size that fits every page and shows the whole Field of View Selection
+        # panel without scrolling. The wizard's chrome (title, buttons) is only
+        # measurable once it is laid out, i.e. now.
+        super().showEvent(event)
+        if self._initial_size_set or (page := self.currentPage()) is None:
+            return
+        self._initial_size_set = True
+        pages = (self.plate_page, self.calibration_page, self.points_plan_page)
+        size = QSize(0, self.points_plan_page.sizeHint().height())
+        for p in pages:
+            size = size.expandedTo(p.minimumSizeHint())
+        center = self.geometry().center()
+        self.resize(size + self.size() - page.size())
+        geo = self.geometry()
+        geo.moveCenter(center)
+        self.move(geo.topLeft())
 
     def done(self, result: int) -> None:
         """Wait for a cancelled survey to release hardware before closing."""

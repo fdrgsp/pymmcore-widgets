@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import useq
-from qtpy.QtCore import QEvent, QObject, Qt, Signal
+from qtpy.QtCore import QEvent, QObject, QSize, Qt, Signal
 from qtpy.QtWidgets import (
     QButtonGroup,
     QDoubleSpinBox,
@@ -197,6 +197,13 @@ class RelativePointPlanSelector(QWidget):
         self._update_scroll_width()
 
     # _________________________PUBLIC METHODS_________________________ #
+
+    def sizeHint(self) -> QSize:
+        # QScrollArea caps its own hint; ask for the cards' full height so that a
+        # window sized to this hint shows them without scrolling.
+        hint = super().sizeHint()
+        full = self._cards.sizeHint().height() + 2 * self._scroll.frameWidth()
+        return hint + QSize(0, max(0, full - self._scroll.sizeHint().height()))
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
         if a0 is self._cards and a1 is not None:
