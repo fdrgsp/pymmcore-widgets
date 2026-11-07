@@ -568,6 +568,11 @@ class ZSurfaceDialog(QDialog):
         self.points.setValue(rows)
         self._update_summary()
 
+    def setRequireValid(self, require: bool) -> None:
+        """Let OK accept only a surface that can be used, if `require`."""
+        self._require_valid = require
+        self._update_summary()
+
     def save(self, file: str | Path | None = None) -> None:
         """Save the surface to a JSON file."""
         if not isinstance(file, (str, Path)):

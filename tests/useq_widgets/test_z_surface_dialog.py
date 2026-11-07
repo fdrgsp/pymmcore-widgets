@@ -9,7 +9,6 @@ import useq
 from qtpy.QtCore import QEvent, Qt
 from qtpy.QtGui import QFontMetrics, QMouseEvent, QPainter
 from qtpy.QtWidgets import (
-    QDialog,
     QDialogButtonBox,
     QFileDialog,
     QMessageBox,
@@ -46,11 +45,6 @@ if TYPE_CHECKING:
     from pytestqt.qtbot import QtBot
 
 SURFACE = ZSurface(method="plane", points=[(0, 0, 0), (100, 0, 1), (0, 100, 2)])
-
-
-def _accept(dialog: ZSurfaceDialog) -> int:
-    dialog.setValue(SURFACE)
-    return QDialog.DialogCode.Accepted
 
 
 def test_dialog_value(qtbot: QtBot) -> None:
@@ -450,43 +444,83 @@ def test_position_table_surface_focus(qtbot: QtBot) -> None:
     assert sf.isEnabled()
 
 
+def _open_surface(table: PositionTable, button: QWidget) -> ZSurfaceDialog:
+    button.click()  # type: ignore[attr-defined]
+    dialog = table._surface_dialog
+    assert dialog is not None and dialog.isVisible()
+    return dialog
+
+
+def test_position_table_surface_gear(qtbot: QtBot) -> None:
+    table = PositionTable()
+    qtbot.addWidget(table)
+    table.include_z.setChecked(False)
+    button = table._surface_settings
+
+    def _badge() -> str:
+        key = button.icon().cacheKey()
+        return next(b for b, icon in table._gears.items() if icon.cacheKey() == key)
+
+    # nothing started: the plain gear
+    assert _badge() == ""
+    assert button.toolTip() == SURFACE_SETTINGS_TOOLTIP
+    # started: whether it can be used, and why not
+    table.setSurface(ZSurface(points=SURFACE.points[:2]))
+    assert _badge() == "error"
+    problem = "At least 3 reference points are needed (2 set)."
+    assert button.toolTip() == f"{SURFACE_SETTINGS_TOOLTIP}\n\n{problem}"
+    table.setSurface(SURFACE)
+    assert _badge() == "valid"
+    status = "Fitted plane through 3 points."
+    assert button.toolTip() == f"{SURFACE_SETTINGS_TOOLTIP}\n\n{status}"
+    # while Surface Focus is ruled out, the reason for it instead
+    table.include_z.setChecked(True)
+    assert _badge() == ""
+    assert button.toolTip() == SURFACE_INCLUDE_Z_TOOLTIP
+
+
 def test_position_table_edit_surface(qtbot: QtBot) -> None:
     table = PositionTable()
     qtbot.addWidget(table)
     table.include_z.setChecked(False)
+    gear = table._surface_settings
 
-    with patch.object(ZSurfaceDialog, "exec", _accept):
-        table._surface_settings.click()
+    dialog = _open_surface(table, gear)
+    # not modal: the rest of the app stays usable, e.g. to move and focus
+    assert not dialog.isModal()
+    # a second click shows the same dialog
+    assert _open_surface(table, gear) is dialog
+    dialog.setValue(SURFACE)
+    dialog.accept()
+    assert table._surface_dialog is None
     assert table.surface() == SURFACE
 
-    with patch.object(ZSurfaceDialog, "exec", return_value=0):
-        table._surface_settings.click()
+    dialog = _open_surface(table, gear)
+    dialog.setValue(ZSurface())
+    dialog.reject()
     assert table.surface() == SURFACE
 
     # while Surface Focus is checked, OK cannot accept a surface it cannot use...
-    table.include_z.setChecked(False)
     table.surface_focus.setChecked(True)
-    ok_states = []
-
-    def _try_too_few(dialog: ZSurfaceDialog) -> int:
-        dialog.setValue(ZSurface(points=SURFACE.points[:2]))
-        ok = dialog._buttons.button(QDialogButtonBox.StandardButton.Ok)
-        ok_states.append((ok.isEnabled(), ok.toolTip()))
-        dialog.setValue(SURFACE)
-        ok_states.append((ok.isEnabled(), ok.toolTip()))
-        return QDialog.DialogCode.Rejected
-
-    with patch.object(ZSurfaceDialog, "exec", _try_too_few):
-        table._surface_settings.click()
+    dialog = _open_surface(table, gear)
+    ok = dialog._buttons.button(QDialogButtonBox.StandardButton.Ok)
+    dialog.setValue(ZSurface(points=SURFACE.points[:2]))
     problem = "At least 3 reference points are needed (2 set)."
-    assert ok_states == [(False, f"{problem}\n\n{OK_INVALID_TOOLTIP}"), (True, "")]
-    assert table.surface_focus.isChecked()
+    assert not ok.isEnabled()
+    assert ok.toolTip() == f"{problem}\n\n{OK_INVALID_TOOLTIP}"
     # ... while unchecked, an incomplete setup can be kept
     table.surface_focus.setChecked(False)
-    ok_states.clear()
-    with patch.object(ZSurfaceDialog, "exec", _try_too_few):
-        table._surface_settings.click()
-    assert ok_states[0] == (True, "")
+    assert ok.isEnabled() and ok.toolTip() == ""
+    table.surface_focus.setChecked(True)
+    assert not ok.isEnabled()
+    dialog.setValue(SURFACE)
+    assert ok.isEnabled()
+
+    # a surface set from outside (e.g. loaded settings) is shown in the dialog
+    other = ZSurface(points=[(0, 0, 5), (50, 0, 5), (0, 50, 5)])
+    table.setSurface(other)
+    assert dialog.value() == other
+    dialog.reject()
 
 
 def test_surface_focus_click_sets_up_the_surface(qtbot: QtBot) -> None:
@@ -495,18 +529,21 @@ def test_surface_focus_click_sets_up_the_surface(qtbot: QtBot) -> None:
     table.include_z.setChecked(False)
     sf = table.surface_focus
 
-    with patch.object(ZSurfaceDialog, "exec", return_value=0) as exec_:
-        sf.click()
-    exec_.assert_called_once()
+    _open_surface(table, sf).reject()
     assert not sf.isChecked()
 
-    with patch.object(ZSurfaceDialog, "exec", _accept):
-        sf.click()
+    dialog = _open_surface(table, sf)
+    dialog.setValue(SURFACE)
+    dialog.accept()
     assert sf.isChecked()
     assert table.surface() == SURFACE
 
     # once set up, a click just toggles it
-    with patch.object(ZSurfaceDialog, "exec") as exec_:
-        sf.click()
-    exec_.assert_not_called()
+    sf.click()
+    assert table._surface_dialog is None
+    assert not sf.isChecked()
+
+    # OK in a dialog opened from the gear does not check it
+    dialog = _open_surface(table, table._surface_settings)
+    dialog.accept()
     assert not sf.isChecked()

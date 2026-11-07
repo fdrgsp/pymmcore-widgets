@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import useq
-from qtpy.QtCore import QSize, Signal
+from qtpy.QtCore import QSize, Qt, Signal
 from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -23,10 +23,9 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
-from pymmcore_widgets._util import use_combo_row_height
+from pymmcore_widgets._util import GREEN, RED, use_combo_row_height
 from pymmcore_widgets._z_surface import METHODS, SurfaceStage, ZSurface
 
-from ._autofocus_settings import _settings_button
 from ._column_info import FloatColumn, TextColumn, WdgGetSet, WidgetColumn
 from ._data_table import DataTableWidget
 
@@ -39,6 +38,7 @@ if TYPE_CHECKING:
 
     from ._column_info import TableDoubleSpinBox
     from ._data_table import DataTable
+    from ._z_surface_dialog import ZSurfaceDialog
 
 OK_CANCEL = QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
 NULL_SEQUENCE = useq.MDASequence()
@@ -290,12 +290,24 @@ class PositionTable(DataTableWidget):
         self.af_per_position.toggled.connect(self._on_af_per_position_toggled)
         self._on_af_per_position_toggled(self.af_per_position.isChecked())
 
-        self.surface_focus = QCheckBox("Surface Focus")
+        # the button beside it is its label: a click on it opens the setup
+        self.surface_focus = QCheckBox()
+        self.surface_focus.setAccessibleName("Surface Focus")
         self.surface_focus.toggled.connect(self.valueChanged)
         self.surface_focus.clicked.connect(self._on_surface_focus_clicked)
-        self._surface_settings = _settings_button(SURFACE_SETTINGS_TOOLTIP)
+        self._surface_settings = QPushButton("Surface Focus")
+        # the gear tells whether a setup started can be used
+        self._gears = {
+            "": QIconifyIcon("tabler:settings"),
+            "valid": QIconifyIcon("tabler:settings-check", color=GREEN),
+            "error": QIconifyIcon("tabler:settings-x", color=RED),
+        }
+        # the gear on the right
+        self._surface_settings.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self._surface_settings.clicked.connect(self._edit_surface)
         self._surface = ZSurface()
+        self._surface_dialog: ZSurfaceDialog | None = None
+        self._check_surface_on_ok = False
         # why the owning MDA widget's settings rule Surface Focus out, if they do
         self._surface_conflict = ""
         self.include_z.toggled.connect(self._update_surface_focus)
@@ -498,6 +510,8 @@ class PositionTable(DataTableWidget):
     def setSurface(self, surface: ZSurface) -> None:
         """Set the focus surface used when Surface Focus is checked."""
         self._surface = surface
+        if self._surface_dialog is not None:
+            self._surface_dialog.setValue(surface)
         self._update_surface_focus()
         self.valueChanged.emit()
 
@@ -621,34 +635,59 @@ class PositionTable(DataTableWidget):
         self.surface_focus.setEnabled(not conflict)
         # the surface cannot be set up either while Surface Focus cannot be used
         self._surface_settings.setEnabled(not conflict)
-        self._surface_settings.setToolTip(conflict or SURFACE_SETTINGS_TOOLTIP)
         # until the surface is set up, a click opens the setup dialog instead
         self.surface_focus.setCheckable(not incomplete)
         method, n = METHODS[self._surface.method], len(self._surface.points)
         status = incomplete or f"{method} through {n} points."
         self.surface_focus.setToolTip(conflict or f"{SURFACE_TOOLTIP}\n\n{status}")
+        # once a setup is started
+        badge = ""
+        if n and not conflict:
+            badge = "error" if incomplete else "valid"
+        self._surface_settings.setIcon(self._gears[badge])
+        settings = f"{SURFACE_SETTINGS_TOOLTIP}\n\n{status}" if badge else ""
+        self._surface_settings.setToolTip(
+            conflict or settings or SURFACE_SETTINGS_TOOLTIP
+        )
 
     def _on_surface_focus_clicked(self) -> None:
         if not self.surface_focus.isCheckable():
+            self._check_surface_on_ok = True
             self._edit_surface()
-            self.surface_focus.setChecked(True)  # no-op if still incomplete
 
     def _surface_stage(self) -> SurfaceStage | None:
         """Return the stage to set up and test the surface with, if there is one."""
         return None
 
     def _edit_surface(self) -> None:
+        """Show the surface setup, leaving the app usable (e.g. to move and focus)."""
         from ._z_surface_dialog import ZSurfaceDialog
 
-        dialog = ZSurfaceDialog(
-            self._surface,
-            stage=self._surface_stage(),
-            parent=self,
-            # while it is used, the surface cannot be left unusable
-            require_valid=self.surface_focus.isChecked(),
-        )
-        if dialog.exec():
+        if (dialog := self._surface_dialog) is None:
+            dialog = self._surface_dialog = ZSurfaceDialog(
+                self._surface,
+                stage=self._surface_stage(),
+                parent=self,
+                # while it is used, the surface cannot be left unusable
+                require_valid=self.surface_focus.isChecked(),
+            )
+            self.surface_focus.toggled.connect(dialog.setRequireValid)
+            dialog.finished.connect(self._on_surface_dialog_finished)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _on_surface_dialog_finished(self, result: int) -> None:
+        dialog, self._surface_dialog = self._surface_dialog, None
+        check, self._check_surface_on_ok = self._check_surface_on_ok, False
+        if dialog is None:  # pragma: no cover
+            return
+        self.surface_focus.toggled.disconnect(dialog.setRequireValid)
+        dialog.deleteLater()
+        if result:
             self.setSurface(dialog.value())
+            if check:
+                self.surface_focus.setChecked(True)  # no-op if still incomplete
 
     def _on_include_z_toggled(self, checked: bool) -> None:
         z_col = self.table().indexOf(self.Z)

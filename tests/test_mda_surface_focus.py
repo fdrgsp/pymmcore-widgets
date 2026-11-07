@@ -378,3 +378,16 @@ def test_surface_focus_run(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
     assert [e.z_pos for e in events] == pytest.approx([5])
     qtbot.waitUntil(wdg.stage_positions.isEnabled, timeout=2000)
     assert sf.isEnabled() and sf.isChecked()
+
+
+def test_surface_dialog_disabled_while_running(qtbot: QtBot) -> None:
+    wdg = _surface_wdg(qtbot, useq.MDASequence(stage_positions=[(0, 0)]))
+    wdg.stage_positions._surface_settings.click()
+    dialog = wdg.stage_positions._surface_dialog
+    assert dialog is not None and dialog.isEnabled()
+    # it can move the stage: not while an acquisition runs
+    wdg._on_mda_started()
+    assert not dialog.isEnabled()
+    wdg._enable_widgets(True)
+    assert dialog.isEnabled()
+    dialog.reject()
