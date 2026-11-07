@@ -263,12 +263,24 @@ class WellPlateWidget(QWidget):
 
 
 class HoverEllipse(QGraphicsEllipseItem):
-    def __init__(self, rect: QRectF, parent: QGraphicsItem | None = None):
+    def __init__(
+        self,
+        rect: QRectF,
+        parent: QGraphicsItem | None = None,
+        color: QColor | Qt.GlobalColor = Qt.GlobalColor.black,
+    ):
         super().__init__(rect, parent)
         self.setAcceptHoverEvents(True)
+        self.setPen(QPen(Qt.PenStyle.NoPen))
         self._selected_color = QColor(GREEN)
-        self._unselected_color = Qt.GlobalColor.black
-        self.setBrush(self._unselected_color)
+        self._unselected_color = color
+        self.setBrush(color)
+
+    def setUnselectedColor(self, color: QColor | Qt.GlobalColor) -> None:
+        """Set the color shown while the pointer is not over the spot."""
+        self._unselected_color = color
+        if not self.isUnderMouse():
+            self.setBrush(color)
 
     def hoverEnterEvent(self, event: QGraphicsSceneHoverEvent | None) -> None:
         """Update color and position when hovering over the well."""
@@ -492,6 +504,9 @@ class WellPlateView(ResizingGraphicsView):
             for label in self._well_labels:
                 if isinstance(label, QGraphicsTextItem):
                     label.setDefaultTextColor(text_color)
+            for spot in self._well_edge_spots:
+                if isinstance(spot, HoverEllipse):
+                    spot.setUnselectedColor(text_color)
 
     def clear(self) -> None:
         """Clear all the wells from the view."""
@@ -626,7 +641,9 @@ class WellPlateView(ResizingGraphicsView):
             # in the scene coordinate system (in pymmcore-plus we use a coordinate
             # system where y is negative downwards and positive upwards)
             new_pos = useq.Position(x=x, y=-y, name=pos.name)
-            item = HoverEllipse(edge_rect)
+            item = HoverEllipse(
+                edge_rect, color=self.palette().color(QPalette.ColorRole.Text)
+            )
             item.setData(DATA_POSITION, new_pos)
             if new_pos.x is not None and new_pos.y is not None:
                 item.setToolTip(f"{new_pos.name} ({new_pos.x:.0f}, {new_pos.y:.0f})")

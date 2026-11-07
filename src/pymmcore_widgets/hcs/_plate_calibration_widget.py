@@ -7,7 +7,7 @@ import numpy as np
 import useq
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import Qt, Signal
-from qtpy.QtGui import QColor
+from qtpy.QtGui import QColor, QPalette
 from qtpy.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
@@ -178,9 +178,16 @@ class PlateCalibrationWidget(QWidget):
         self._plate_view.setSelectedColor(Qt.GlobalColor.yellow)
 
         self._plate_test = WellPlateView()
-        lbl = QLabel("double-click on point to move stage", self._plate_test)
-        lbl.setGeometry(4, 0, 200, 20)
-        lbl.setStyleSheet("color: #CCC; font-size: 10px; background: transparent;")
+        # a hint over the view's top-left corner: laid out (not given a fixed size)
+        # so it fits its text whatever the font, and muted in either theme
+        lbl = QLabel("double-click on point to move stage")
+        lbl.setForegroundRole(QPalette.ColorRole.PlaceholderText)
+        lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        hint_layout = QVBoxLayout(self._plate_test)
+        # (the hint must not impose its width on the view)
+        hint_layout.setSizeConstraint(QVBoxLayout.SizeConstraint.SetNoConstraint)
+        hint_layout.setContentsMargins(6, 4, 6, 4)
+        hint_layout.addWidget(lbl, 0, Qt.AlignmentFlag.AlignTop)
         self._plate_test.setDragMode(WellPlateView.DragMode.NoDrag)
         self._plate_test.setSelectionMode(WellPlateView.SelectionMode.NoSelection)
         self._plate_test.setDrawWellEdgeSpots(True)

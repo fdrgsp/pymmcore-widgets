@@ -783,6 +783,26 @@ def test_grid_plan_mode_icons_follow_the_palette(qtbot: QtBot) -> None:
         assert opaque == {"#ff0000"}
 
 
+def test_well_edge_spots_follow_the_palette(qtbot: QtBot) -> None:
+    """Test-calibration spots use the text color, so they show in dark mode too."""
+    from pymmcore_widgets.useq_widgets._well_plate_widget import WellPlateView
+
+    view = WellPlateView()
+    qtbot.addWidget(view)
+    view.setDrawWellEdgeSpots(True)
+    view.drawPlate(useq.WellPlatePlan(plate="6-well", a1_center_xy=(0, 0)))
+    spots = view._well_edge_spots
+    assert spots
+
+    text = view.palette().color(QPalette.ColorRole.Text)
+    assert all(spot.brush().color() == text for spot in spots)
+
+    palette = view.palette()
+    palette.setColor(QPalette.ColorRole.Text, QColor("#ff0000"))
+    view.setPalette(palette)
+    assert all(spot.brush().color() == QColor("#ff0000") for spot in spots)
+
+
 def test_grid_plan_summary(qtbot: QtBot) -> None:
     """The summary states the tiles, rows x columns and size it can know."""
     wdg = GridPlanWidget()
