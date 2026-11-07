@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from math import ceil
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -84,6 +85,7 @@ COLORMAP = cmap.Colormap("viridis")
 MAP_SIZE = 128  # pixels along the longer side of the evaluated Z map
 MAP_PADDING = 0.25  # around the points, as a fraction of their larger spread
 COLORBAR_WIDTH = 20
+WIDEST_LABEL = "-00000.00 µm"  # the widest Z label the map leaves room for
 MAP_MIN_WIDTH = 280
 ICON_SIZE = QSize(24, 24)
 VALID = ("mdi:check-circle", GREEN)
@@ -153,7 +155,6 @@ class _SurfaceMap(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         # the height follows the reference table's
-        self.setMinimumWidth(MAP_MIN_WIDTH)
         self.setMouseTracking(True)
         self._surface: useq.FocusSurface | None = None
         self._xy = np.empty((0, 2))
@@ -163,26 +164,38 @@ class _SurfaceMap(QWidget):
         self._z_range = (0.0, 0.0)
         bar = COLORMAP(np.linspace(1, 0, 256)[:, None], bytes=True)
         self._colorbar = _qimage(bar)
-        self._colorbar_anchors: tuple[QWidget, ...] = ()
+        self._colorbar_anchor: Callable[[], QWidget | None] = lambda: None
+        self._anchor_offset = 0.0  # from the right edge, as last laid out
         self._view_size = QSizeF()
         self._hint = ""
 
     def setHint(self, text: str) -> None:
-        """Show `text` above the map while there is a surface.
-
-        The map is kept wide enough for the whole text above its canvas, beside the
-        colorbar and its widest labels.
-        """
+        """Show `text` above the map while there is a surface."""
         self._hint = text
-        hint_w = QFontMetrics(self._hint_font()).horizontalAdvance(text)
-        colorbar_w = self._label_width("-00000.00 µm") + 16
-        self.setMinimumWidth(max(MAP_MIN_WIDTH, hint_w + colorbar_w))
+        self.updateGeometry()
         self.update()
 
-    def setColorbarAnchors(self, *widgets: QWidget) -> None:
-        """Center the colorbar under the first visible of `widgets`."""
-        self._colorbar_anchors = widgets
+    def setColorbarAnchor(self, anchor: Callable[[], QWidget | None]) -> None:
+        """Center the colorbar under the widget `anchor` returns, if any."""
+        self._colorbar_anchor = anchor
+        self.updateGeometry()
         self.update()
+
+    def minimumSizeHint(self) -> QSize:
+        """Wide enough for the hint above the canvas, beside the colorbar's labels.
+
+        Where the colorbar sits depends on its anchor, e.g. a dialog button, whose
+        place depends on the platform's button order.
+        """
+        if not self._hint:
+            return QSize(MAP_MIN_WIDTH, 0)
+        hint_w = QFontMetrics(self._hint_font()).horizontalAdvance(self._hint)
+        label_w = self._label_width(WIDEST_LABEL)
+        # labels are centered on the colorbar, but kept inside the widget
+        offset = self._colorbar_offset()
+        colorbar_room = max(offset + label_w / 2, label_w, offset + COLORBAR_WIDTH / 2)
+        # the canvas' 1 px border, and its gap to the labels
+        return QSize(max(MAP_MIN_WIDTH, ceil(hint_w + 9 + colorbar_room)), 0)
 
     def setSurface(self, surface: ZSurface) -> None:
         self._surface = None if surface.problem() else surface.focus_surface()
@@ -210,6 +223,11 @@ class _SurfaceMap(QWidget):
         """
         if self._view_changed():
             self._fit_view()
+        # the minimum width depends on where the anchor is: once it moved, e.g.
+        # when first laid out, ask for a new layout
+        if abs((offset := self._colorbar_offset()) - self._anchor_offset) >= 1:
+            self._anchor_offset = offset
+            self.updateGeometry()
 
     def _view_changed(self) -> bool:
         """Whether the canvas changed size by a pixel or more since the fit."""
@@ -255,18 +273,19 @@ class _SurfaceMap(QWidget):
         w = self._label_width(text)
         return float(min(self._colorbar_x() - w / 2, self.rect().right() - w))
 
+    def _colorbar_offset(self) -> float:
+        """Return the distance of the colorbar's center from the right edge."""
+        # by default, centered in the room a typical label needs
+        offset = self._label_width("-0000.00 µm") / 2
+        if (anchor := self._colorbar_anchor()) is not None:
+            window = self.window()
+            center = anchor.mapTo(window, anchor.rect().center())
+            offset = self.rect().right() - self.mapFrom(window, center).x()
+        return float(max(offset, COLORBAR_WIDTH / 2))
+
     def _colorbar_x(self) -> float:
         """Return the X of the colorbar's center."""
-        right = self.rect().right()
-        # by default, centered in the room a typical label needs
-        x = right - self._label_width("-0000.00 µm") / 2
-        window = self.window()
-        for anchor in self._colorbar_anchors:
-            if anchor.isVisibleTo(window):
-                center = anchor.mapTo(window, anchor.rect().center())
-                x = self.mapFrom(window, center).x()
-                break
-        return float(min(x, right - COLORBAR_WIDTH / 2))
+        return float(self.rect().right() - self._colorbar_offset())
 
     def _canvas_rect(self) -> QRectF:
         """Return the widget area left of the colorbar and its labels."""
@@ -492,8 +511,8 @@ class ZSurfaceDialog(QDialog):
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        ok_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        self.map.setColorbarAnchors(self.test_btn, ok_btn)
+        self._buttons = buttons
+        self.map.setColorbarAnchor(self._colorbar_anchor)
 
         method_row = QWidget()
         method_layout = QHBoxLayout(method_row)
@@ -518,6 +537,19 @@ class ZSurfaceDialog(QDialog):
         self.points.valueChanged.connect(self._update_summary)
         self.setValue(surface)
         self.resize(820, 480)
+
+    def _colorbar_anchor(self) -> QWidget | None:
+        """Return the button to center the map's colorbar under.
+
+        The Test button, or else the rightmost dialog button: OK on macOS, Cancel
+        where the platform puts OK first.
+        """
+        if self.test_btn.isVisibleTo(self):
+            return self.test_btn
+        visible = [b for b in self._buttons.buttons() if b.isVisibleTo(self)]
+        return max(
+            visible, key=lambda b: b.mapTo(self, b.rect().topRight()).x(), default=None
+        )
 
     def value(self) -> ZSurface:
         """Return the surface being edited."""

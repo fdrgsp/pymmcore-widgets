@@ -13,6 +13,8 @@ from qtpy.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QMessageBox,
+    QProxyStyle,
+    QStyle,
     QToolTip,
     QWidget,
 )
@@ -158,14 +160,23 @@ def test_dialog_map(qtbot: QtBot) -> None:
 
 
 @pytest.mark.parametrize("stage", [True, False])
-def test_dialog_colorbar_under_the_buttons(qtbot: QtBot, stage: bool) -> None:
+@pytest.mark.parametrize("ok_first", [False, True])
+def test_dialog_colorbar_under_the_buttons(
+    qtbot: QtBot, stage: bool, ok_first: bool
+) -> None:
     kwargs = {"capture": lambda: (0.0, 0.0, 0.0), "move_z": print} if stage else {}
     dialog = ZSurfaceDialog(SURFACE, **kwargs)  # type: ignore[arg-type]
     qtbot.addWidget(dialog)
+    box = dialog.findChild(QDialogButtonBox)
+    if ok_first:
+        _put_ok_first(box)
     dialog.show()
-    # under the Test button, or OK without a stage to test with
-    ok = dialog.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Ok)
-    anchor = dialog.test_btn if stage else ok
+    if ok_first:
+        _wait_ok_first(qtbot, box)
+    # under the Test button, or the rightmost button without a stage to test with
+    ok = box.button(QDialogButtonBox.StandardButton.Ok)
+    cancel = box.button(QDialogButtonBox.StandardButton.Cancel)
+    anchor = dialog.test_btn if stage else (cancel if ok_first else ok)
     for size in ((820, 480), (1000, 600)):
         dialog.resize(*size)
         qtbot.waitUntil(lambda: dialog.map.width() > 0)
@@ -294,20 +305,50 @@ def test_dialog_double_click_moves_the_stage(qtbot: QtBot) -> None:
     draw_text.assert_not_called()
 
 
-def test_dialog_hint_fits_above_the_map(qtbot: QtBot) -> None:
+class _OkFirst(QProxyStyle):
+    """Lay out dialog buttons as on Windows: OK left of Cancel."""
+
+    def styleHint(self, hint, option=None, widget=None, returnData=None):  # type: ignore[no-untyped-def]
+        if hint == QStyle.StyleHint.SH_DialogButtonLayout:
+            return QDialogButtonBox.ButtonLayout.WinLayout.value
+        return super().styleHint(hint, option, widget, returnData)
+
+
+def _put_ok_first(box: QDialogButtonBox) -> None:
+    style = _OkFirst()
+    style.setParent(box)  # kept alive with the box
+    box.setStyle(style)
+
+
+def _wait_ok_first(qtbot: QtBot, box: QDialogButtonBox) -> None:
+    ok = box.button(QDialogButtonBox.StandardButton.Ok)
+    cancel = box.button(QDialogButtonBox.StandardButton.Cancel)
+    qtbot.waitUntil(lambda: 0 < ok.width() and ok.x() < cancel.x())
+
+
+@pytest.mark.parametrize("ok_first", [False, True])
+def test_dialog_hint_fits_above_the_map(qtbot: QtBot, ok_first: bool) -> None:
+    # no stage to test with: the colorbar is under the rightmost dialog button
     dialog = ZSurfaceDialog(
         ZSurface(points=[(0, 0, -10000), (100, 0, 0), (0, 100, 10000)]),
         move_z=print,
         move_xy=print,
     )
     qtbot.addWidget(dialog)
+    box = dialog.findChild(QDialogButtonBox)
+    if ok_first:
+        _put_ok_first(box)
     dialog.show()
-    dialog.resize(1, 1)  # as small as it gets
+    if ok_first:
+        _wait_ok_first(qtbot, box)
     surface_map = dialog.map
-    qtbot.waitUntil(lambda: surface_map.width() == surface_map.minimumWidth())
-    canvas = surface_map._canvas_rect()
     hint_w = QFontMetrics(surface_map._hint_font()).horizontalAdvance(MOVE_HINT)
-    assert canvas.width() >= hint_w
+    dialog.resize(1, 1)  # as small as it gets
+    qtbot.waitUntil(lambda: surface_map._canvas_rect().width() >= hint_w)
+    canvas = surface_map._canvas_rect()
+    # and the labels' room, right of the canvas, is used up to the widget's edge
+    for text, top in zip(surface_map._labels(), (True, False), strict=True):
+        assert canvas.right() < surface_map._label_rect(text, top).left()
     # in its own room above the canvas
     assert canvas.top() >= QFontMetrics(surface_map._hint_font()).height()
 
@@ -316,7 +357,7 @@ def test_dialog_without_xy_stage_has_no_hint(qtbot: QtBot) -> None:
     dialog = ZSurfaceDialog(SURFACE, move_z=print)
     qtbot.addWidget(dialog)
     assert dialog.map._hint == ""
-    assert dialog.map.minimumWidth() == MAP_MIN_WIDTH
+    assert dialog.map.minimumSizeHint().width() == MAP_MIN_WIDTH
     assert dialog.map._canvas_rect().top() == 1
 
 
