@@ -497,7 +497,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         save_info.valueChanged.connect(self._update_save_summary)
         self._content_layout.addWidget(self.saving_section)
 
-        self._content_layout.addStretch()
+        self._content_layout.addStretch(1)
 
         self._save_info = save_info
         self._supporting_sections_added = True

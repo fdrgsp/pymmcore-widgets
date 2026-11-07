@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import useq
+from qtpy.QtCore import QPoint, Qt
 from qtpy.QtWidgets import QWidget
 
 from pymmcore_widgets import MDAWidget, MDAWidgetCollapsible
@@ -331,6 +332,31 @@ def test_collapsible_table_editors_keep_min_height(qtbot: QtBot) -> None:
         table = wdg.tabs.section(axis).content_widget.table()
         # tall enough for the header + a few rows
         assert table.minimumHeight() >= 3 * table.verticalHeader().defaultSectionSize()
+
+
+def test_collapsible_section_shrinks_with_resized_table(qtbot: QtBot) -> None:
+    """Dragging a table's grip up shrinks its whole section, leaving no gaps."""
+    wdg = MDAWidgetCollapsible()
+    qtbot.addWidget(wdg)
+    wdg.resize(500, 900)
+    wdg.show()
+    qtbot.waitExposed(wdg)
+
+    section = wdg.tabs.section("t")
+    section.set_expanded(True)
+    section.set_checked(True)  # unchecked sections disable their editor
+    editor = section.content_widget
+    grip = editor._resize_grip
+    table = editor.table()
+    qtbot.waitUntil(lambda: table.height() > 0)
+
+    qtbot.mousePress(grip, Qt.MouseButton.LeftButton, pos=QPoint(5, 2))
+    qtbot.mouseMove(grip, QPoint(5, 2 - 5000))  # clamps at the table minimum
+    qtbot.wait(50)  # let the section and scroll-content layouts settle
+    assert table.height() == table.maximumHeight()
+
+    assert section.height() == section.sizeHint().height()
+    assert editor.toolBar().y() == 0
 
 
 def test_autofocus_section_switches_autofocus(qtbot: QtBot) -> None:
