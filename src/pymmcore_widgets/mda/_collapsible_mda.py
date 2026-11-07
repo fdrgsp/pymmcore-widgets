@@ -44,6 +44,8 @@ if TYPE_CHECKING:
         QShowEvent,
     )
 
+    from pymmcore_widgets.useq_widgets._mda_sequence import AutofocusAxis
+
     from ._save_widget import SaveGroupBox
 
 
@@ -448,8 +450,39 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         super().setValue(value)
         self.refresh_summaries()
 
+    def add_autofocus(self, autofocus: AutofocusAxis) -> None:
+        """Append the Autofocus section after the axes, its checkbox switching it.
+
+        As with the tab, the section does not enable `autofocus`: it disables its
+        own controls when switched off, and its enabled state says whether it can
+        be used at all.
+        """
+        self.autofocus_section = section = CollapsibleAcquisitionSection(
+            "Autofocus",
+            checked=autofocus.isChecked(),
+            metrics=self._metrics,
+            icon=MDA_ICONS.get("autofocus"),
+            parent=self._content,
+        )
+        section.setObjectName("mdaAutofocusSection")
+        section.set_content_widget(_wrap_in_card(autofocus))
+        self._content_layout.addWidget(section)
+        self._autofocus = autofocus
+
+        section.checkedChanged.connect(autofocus.setChecked)
+        section.checkedChanged.connect(self._update_autofocus_summary)
+        autofocus.setSwitch(section.set_checked)
+        autofocus.availabilityChanged.connect(self._update_autofocus_availability)
+        autofocus.valueChanged.connect(self._update_autofocus_summary)
+        self._update_autofocus_availability()
+
+    def _update_autofocus_availability(self) -> None:
+        self.autofocus_section.set_checkbox_enabled(self._autofocus.isEnabled())
+        self.autofocus_section.checkbox.setToolTip(self._autofocus.switchToolTip())
+        self._update_autofocus_summary()
+
     def add_supporting_sections(self, *, save_info: SaveGroupBox) -> None:
-        """Append the Saving section after the five axes."""
+        """Append the Saving section after the axes and Autofocus."""
         self.saving_section = CollapsibleAcquisitionSection(
             "Saving",
             checked=save_info.isChecked(),
@@ -477,6 +510,8 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             self._update_axis_summary(widget)
         if self._supporting_sections_added:
             self._update_save_summary()
+        if hasattr(self, "autofocus_section"):
+            self._update_autofocus_summary()
 
     def set_section_metrics(self, metrics: SectionMetrics) -> None:
         """Adopt new pixel sizes for every section and the content spacing."""
@@ -586,6 +621,15 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
 
         return ""
 
+    def _update_autofocus_summary(self) -> None:
+        autofocus = self._autofocus
+        if (kind := autofocus.kind()) is None:
+            self.autofocus_section.set_summary("Off", status=False)
+            return
+        name = "Hardware" if kind == "hardware" else autofocus.softwareMethod()
+        axes = ", ".join(autofocus.value()) or "No axis"
+        self.autofocus_section.set_summary(f"On · {name} · {axes}", status=True)
+
     def _update_save_summary(self) -> None:
         save = self._save_info
         if not save.isChecked():
@@ -602,7 +646,7 @@ class MDAWidgetCollapsible(MDAWidget):
 
     Behaves exactly like [`MDAWidget`][pymmcore_widgets.MDAWidget] — same
     ``value``/``setValue``, ``prepare_mda``/``run_mda``, ``save``/``load``, core
-    awareness, Settings/Autofocus cards and execution footer — but lays the axes
+    awareness, Settings card and execution footer — but lays the axes, Autofocus
     and Saving out as a scrollable stack of collapsible sections instead of tabs.
     """
 

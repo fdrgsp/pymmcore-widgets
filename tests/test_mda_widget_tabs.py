@@ -8,6 +8,10 @@ from qtpy.QtWidgets import QWidget
 
 from pymmcore_widgets import MDAWidget
 from pymmcore_widgets.mda._core_tabs import CoreMDATabs
+from pymmcore_widgets.useq_widgets._mda_sequence import (
+    AF_DISABLED_TOOLTIP,
+    AF_ENABLE_TOOLTIP,
+)
 
 if TYPE_CHECKING:
     from pytestqt.qtbot import QtBot
@@ -47,19 +51,20 @@ def test_mda_widget_uses_top_tabs(qtbot: QtBot) -> None:
 
     tabs = wdg.tabs
     # The five axes, in the collapsible presentation's order, are followed by
-    # Saving. Global settings are not a tab at all (see below). Each tab's
-    # native icon/text are both empty; the visible checkbox, icon and name
-    # label are a custom button widget instead (see _AxisTabButton), with the
-    # name also available as a tooltip on hover.
+    # Autofocus and Saving. Global settings are not a tab at all (see below).
+    # Each tab's native icon/text are both empty; the visible checkbox, icon and
+    # name label are a custom button widget instead (see _AxisTabButton), with
+    # the name also available as a tooltip on hover.
     tab_bar = tabs.tabBar()
     assert tab_bar is not None
     assert [tabs.tabText(i) for i in range(tabs.count())] == [""] * tabs.count()
     assert [tab_bar.tabToolTip(i) for i in range(tabs.count())] == [
         "Channels",
         "Positions",
-        "Grid/Tiles",
         "Z Stack",
         "Time Series",
+        "Grid/Tiles",
+        "Autofocus",
         "Saving",
     ]
     # Every tab has an icon.
@@ -76,11 +81,7 @@ def test_mda_widget_uses_top_tabs(qtbot: QtBot) -> None:
     assert wdg._settings_widget not in tabs._page_for
     assert wdg._settings_box.isAncestorOf(wdg.axis_order)
     assert wdg._settings_box.isAncestorOf(wdg.keep_shutter_open)
-    # Autofocus is its own checkable group box below the settings card.
-    assert not wdg._settings_box.isAncestorOf(wdg.af_axis)
-    assert wdg._settings_row.itemAt(1).widget() is wdg.af_axis
-    assert wdg.af_axis.isCheckable()
-    assert not wdg.af_axis.isFlat()
+    assert tabs.indexOf(wdg.af_axis) == tabs.count() - 2
 
     # Saving is a tab, checkable like an axis: its tab checkbox and
     # SaveGroupBox's own checkable state drive each other, and the native
@@ -117,9 +118,10 @@ def test_mda_widget_every_tab_shows_its_editor(qtbot: QtBot) -> None:
     editors = [
         wdg.channels,
         wdg.stage_positions,
-        wdg.grid_plan,
         wdg.z_plan,
         wdg.time_plan,
+        wdg.grid_plan,
+        wdg.af_axis,
         wdg.save_info,
     ]
     assert len(editors) == wdg.tabs.count()
@@ -292,3 +294,32 @@ def test_mda_widget_duration_label_in_footer(qtbot: QtBot) -> None:
     assert footer is not None
     assert footer.isAncestorOf(wdg._duration_label)
     assert footer.isAncestorOf(wdg._time_warning)
+
+
+def test_autofocus_tab_switches_autofocus(qtbot: QtBot) -> None:
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    tabs, af = wdg.tabs, wdg.af_axis
+    button = tabs._autofocus_button()
+
+    # its checkbox switches autofocus, and shows the tab
+    tabs.setChecked(af, True)
+    assert af.isChecked()
+    assert tabs.currentWidget() is af
+    tabs.setChecked(af, False)
+    assert not af.isChecked()
+
+    # switched on from code, e.g. by 'HAF Offset', it stays on the current tab
+    tabs.setCurrentWidget(wdg.stage_positions)
+    af.setKind("hardware")
+    assert tabs.isChecked(af)
+    assert tabs.currentWidget() is wdg.stage_positions
+
+    # where autofocus cannot be used, e.g. with absolute Z, the checkbox says why
+    assert button.isEnabled()
+    wdg.setValue(useq.MDASequence(z_plan=useq.ZTopBottom(top=1, bottom=0, step=1)))
+    assert not button.isEnabled()
+    assert button.toolTip() == AF_DISABLED_TOOLTIP
+    wdg.setValue(useq.MDASequence())
+    assert button.isEnabled()
+    assert button.toolTip() == AF_ENABLE_TOOLTIP

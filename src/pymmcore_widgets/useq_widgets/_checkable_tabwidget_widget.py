@@ -186,6 +186,10 @@ class CheckableTabWidget(QTabWidget):
     def _on_tab_checkbox_toggled(self, checked: bool, wdg: QWidget) -> None:
         """When checkbox is toggled, enable/disable the widget in the tab."""
         wdg.setEnabled(checked)
+        self._on_tab_switched(checked, wdg)
+
+    def _on_tab_switched(self, checked: bool, wdg: QWidget) -> None:
+        """Show the tab of `wdg` if it was checked, and emit `tabChecked`."""
         tab_index = self.indexOf(wdg)
         if checked and self.change_tab_on_check:
             self.setCurrentIndex(tab_index)

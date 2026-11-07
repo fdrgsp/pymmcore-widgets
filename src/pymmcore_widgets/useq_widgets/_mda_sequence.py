@@ -3,9 +3,11 @@ from __future__ import annotations
 import warnings
 from collections.abc import Mapping
 from importlib.util import find_spec
-from itertools import pairwise, permutations
+from itertools import permutations
 from pathlib import Path
+from types import MethodType
 from typing import TYPE_CHECKING, Any, cast
+from weakref import WeakMethod
 
 import useq
 from pydantic import ValidationError
@@ -29,8 +31,6 @@ from qtpy.QtWidgets import (
     QSizePolicy,
     QSpinBox,
     QStackedLayout,
-    QStyle,
-    QStyleOptionGroupBox,
     QTabBar,
     QTabWidget,
     QVBoxLayout,
@@ -41,7 +41,11 @@ from superqt.utils import signals_blocked
 
 import pymmcore_widgets
 from pymmcore_widgets._humanize import humanize_time
-from pymmcore_widgets._util import QWIDGETSIZE_MAX, disable_wheel_scroll
+from pymmcore_widgets._util import (
+    QWIDGETSIZE_MAX,
+    SeparatorWidget,
+    disable_wheel_scroll,
+)
 from pymmcore_widgets._z_surface import ZSurface
 from pymmcore_widgets.useq_widgets._autofocus_settings import (
     AutofocusSettingsDialog,
@@ -52,7 +56,6 @@ from pymmcore_widgets.useq_widgets._axis_tabs import (
     MDA_ICONS,
     _AxisTabBar,
     _AxisTabButton,
-    _CheckableCard,
     _wrap_in_card,
 )
 from pymmcore_widgets.useq_widgets._channels import ChannelTable
@@ -67,9 +70,7 @@ from pymmcore_widgets.useq_widgets._time import TimePlanWidget
 from pymmcore_widgets.useq_widgets._z import Mode, ZPlanWidget
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
-    from qtpy.QtGui import QShowEvent
+    from collections.abc import Callable, Sequence
 
 
 def _check_order(x: str, first: str, second: str) -> bool:
@@ -230,13 +231,14 @@ class MDATabs(CheckableTabWidget):
     _AXES = (
         ("Channels", "channels"),
         ("Positions", "stage_positions"),
-        ("Grid/Tiles", "grid_plan"),
         ("Z Stack", "z_plan"),
         ("Time Series", "time_plan"),
+        ("Grid/Tiles", "grid_plan"),
     )
     # Inset every page's content so no editor sits flush against the tab's
     # edges (see `_add_tab`).
     _PAGE_MARGIN = 9
+    _autofocus: AutofocusAxis  # see `add_autofocus`
 
     def __init__(self, parent: QWidget | None = None) -> None:
         # Resolve editor widgets to their wrapping tab pages.
@@ -282,8 +284,11 @@ class MDATabs(CheckableTabWidget):
         *,
         checked: bool,
         card: bool = False,
+        enables: bool = True,
     ) -> int:
         """Add a tab with an icon-on-top / title-below button widget.
+
+        Its checkbox enables ``widget``, unless ``enables`` is False.
 
         Every page is a container holding ``widget`` inset by ``_PAGE_MARGIN``,
         so no editor sits flush against the tab's edges; ``card=True`` puts a
@@ -322,14 +327,56 @@ class MDATabs(CheckableTabWidget):
         # _AxisTabButton implements the checkbox API used by the base class.
         self._cboxes.append(cast("QCheckBox", btn))
         # A disabled page would override later enablement of its editor.
-        btn.toggled.connect(lambda c, w=widget: self._on_tab_checkbox_toggled(c, w))
-        if not checked:
-            widget.setEnabled(False)
+        if enables:
+            btn.toggled.connect(lambda c, w=widget: self._on_tab_checkbox_toggled(c, w))
+            if not checked:
+                widget.setEnabled(False)
+        else:
+            btn.toggled.connect(lambda c, w=widget: self._on_tab_switched(c, w))
         if tab_bar := self.tabBar():
             tab_bar.setTabButton(index, QTabBar.ButtonPosition.LeftSide, btn)
             tab_bar.setTabToolTip(index, title)
 
         return index
+
+    def add_autofocus(self, autofocus: AutofocusAxis) -> None:
+        """Add the Autofocus tab after the axes, its checkbox switching `autofocus`.
+
+        Unlike an axis tab, it does not enable its widget: `autofocus` disables its
+        own controls when switched off, and its enabled state says whether it can
+        be used at all (e.g. not with an absolute Z plan), which the tab follows.
+        """
+        self._add_tab(
+            autofocus,
+            "Autofocus",
+            "autofocus",
+            checked=autofocus.isChecked(),
+            card=True,
+            enables=False,
+        )
+        self._autofocus = autofocus
+        self._autofocus_button().toggled.connect(autofocus.setChecked)
+        autofocus.setSwitch(self._check_autofocus)
+        autofocus.availabilityChanged.connect(self._update_autofocus_availability)
+        self._update_autofocus_availability()
+
+    def _autofocus_button(self) -> _AxisTabButton:
+        index = self.indexOf(self._autofocus)
+        left = QTabBar.ButtonPosition.LeftSide
+        return cast("_AxisTabButton", self.tabBar().tabButton(index, left))
+
+    def _check_autofocus(self, checked: bool) -> None:
+        # set from code, e.g. by 'HAF Offset': stay on the current tab
+        jump, self.change_tab_on_check = self.change_tab_on_check, False
+        try:
+            self.setChecked(self._autofocus, checked)
+        finally:
+            self.change_tab_on_check = jump
+
+    def _update_autofocus_availability(self) -> None:
+        button = self._autofocus_button()
+        button.setEnabled(self._autofocus.isEnabled())
+        button.setToolTip(self._autofocus.switchToolTip())
 
     def indexOf(self, widget: QWidget | None) -> int:
         """Return the tab index for ``widget``, resolving through its page."""
@@ -493,27 +540,27 @@ def _installed_software_methods() -> tuple[dict[str, type], dict[str, str]]:
     )
 
 
-class AutofocusAxis(_CheckableCard):
+class AutofocusAxis(QWidget):
     """Autofocus settings: whether to use it, which kind, when, and how it searches.
 
-    A checkable group box, whose header switches the controls on and off:
-    `isChecked()` says whether autofocus will run, and unchecking it disables the
-    controls inside. `Hardware` and `Software` are exclusive, since an acquisition
-    carries a single autofocus plan; `Software` stays disabled until software
-    autofocus methods are available (see `setSoftwareMethods`).
-
-    The rows keep the same compact spacing in both autofocus modes.
+    `isChecked()` says whether autofocus will run, and switching it off disables
+    the controls. The control that switches it, e.g. a tab's checkbox, belongs to
+    its container, which keeps it in step with `setSwitch`. `Hardware` and
+    `Software` are exclusive, since an acquisition carries a single autofocus plan;
+    `Software` stays disabled until software autofocus methods are available (see
+    `setSoftwareMethods`).
     """
 
     valueChanged = Signal()
+    toggled = Signal(bool)
+    # whether it can be used, or why not (its enabled state or tooltip) changed
+    availabilityChanged = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-
-        self.setTitle("Autofocus")
-        self.setCheckable(True)
-        self.setChecked(False)
-        self.setToolTip(AF_ENABLE_TOOLTIP)
+        self._checked = False
+        # returns the setter of its switch (see `setSwitch`), if it is still there
+        self._switch: Callable[[], Callable[[bool], object] | None] = lambda: None
 
         self.label = QLabel("On Axis:")
         self.label.setToolTip(AF_ON_AXIS_TOOLTIP)
@@ -527,8 +574,13 @@ class AutofocusAxis(_CheckableCard):
         self._mode_label = QLabel("Mode:")
         self._mode_label.setToolTip(AF_MODE_TOOLTIP)
         self.use_hardware = QRadioButton("Hardware")
+        self.use_hardware.setIcon(QIconifyIcon("mdi:chip"))
         self.use_hardware.setChecked(True)
         self.use_software = QRadioButton("Software")
+        self.use_software.setIcon(QIconifyIcon("mdi:image-search-outline"))
+        for radio in (self.use_hardware, self.use_software):
+            radio.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            radio.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self._kind_group = QButtonGroup(self)
         self._kind_group.addButton(self.use_hardware)
         self._kind_group.addButton(self.use_software)
@@ -578,13 +630,8 @@ class AutofocusAxis(_CheckableCard):
         self._hardware_plan: useq.AxesBasedAF | None = None
         self._software_plan: useq.SoftwareAxesBasedAF | None = None
 
-        # one label column for the three rows, so their controls line up
-        _labels = (
-            self.label,
-            self._mode_label,
-            self._search_label,
-            self._method_label,
-        )
+        # one label column for the rows below the mode, so their controls line up
+        _labels = (self.label, self._search_label, self._method_label)
         label_width = max(w.sizeHint().width() for w in _labels)
         for w in _labels:
             w.setFixedWidth(label_width)
@@ -604,7 +651,6 @@ class AutofocusAxis(_CheckableCard):
             row.addWidget(spin)
             axis_row.addWidget(group)
         axis_row.addStretch()
-        mode_row = _row(self.use_hardware, self.use_software)
         search_row = _row(
             self.search_below_um,
             self.search_above_um,
@@ -629,27 +675,38 @@ class AutofocusAxis(_CheckableCard):
         self._kind_labels.addWidget(self._method_label)
         kind_label = QWidget()
         kind_label.setLayout(self._kind_labels)
-        controls = []
-        for row in (axis_row, mode_row):
-            page = QWidget()
-            row.setContentsMargins(0, 0, 0, 0)
-            row.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
-            page.setLayout(row)
-            controls.append(page)
-        self._rows = (
-            (self.label, controls[0]),
-            (self._mode_label, controls[1]),
-            (kind_label, options),
-        )
+        # a stacked layout grows in both directions: these keep their height, so
+        # spare room does not spread the rows apart
+        for wdg in (options, kind_label):
+            wdg.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
 
-        layout = QGridLayout(self)
-        layout.setHorizontalSpacing(10)
-        layout.setVerticalSpacing(5)
-        layout.setContentsMargins(5, 5, 5, 0)
-        layout.setColumnStretch(1, 1)
-        for i, row_widgets in enumerate(self._rows):
-            for column, widget in enumerate(row_widgets):
-                layout.addWidget(widget, 2 * i, column)
+        # top: the mode, as in ZPlanWidget and GridPlanWidget
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(10)
+        mode_row.addWidget(self._mode_label)
+        mode_row.addWidget(self.use_hardware)
+        mode_row.addSpacing(25)
+        mode_row.addWidget(self.use_software)
+        mode_row.addStretch()
+
+        form = QGridLayout()
+        form.setHorizontalSpacing(10)
+        form.setVerticalSpacing(5)
+        form.setColumnStretch(1, 1)
+        form.addWidget(self.label, 0, 0)
+        form.addLayout(axis_row, 0, 1)
+        form.addWidget(kind_label, 1, 0)
+        form.addWidget(options, 1, 1)
+
+        # everything but the switch, which its container provides
+        self._body = QWidget()
+        self._body.setEnabled(False)
+        body = QVBoxLayout(self._body)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.addLayout(mode_row)
+        body.addWidget(SeparatorWidget())
+        body.addLayout(form)
+        QVBoxLayout(self).addWidget(self._body)
 
         self.toggled.connect(self._on_af_state_changed)
         for _, checkbox, _, spin in self._axis_intervals:
@@ -666,45 +723,44 @@ class AutofocusAxis(_CheckableCard):
 
         self._update_kind_widgets()
         self.setSoftwareMethods(*_installed_software_methods())
-        self._update_row_spacing()
 
-    def _update_row_spacing(self) -> None:
-        layout = cast("QGridLayout", self.layout())
-        heights = [
-            max(layout.itemAtPosition(2 * i, c).sizeHint().height() for c in (0, 1))
-            for i in range(len(self._rows))
-        ]
-        # QRect.center() rounds odd and even heights differently. Measure the
-        # actual center-to-center steps rather than averaging adjacent heights.
-        centers = [(height - 1) // 2 for height in heights]
-        steps = [
-            height + after - before + layout.verticalSpacing()
-            for height, (before, after) in zip(heights, pairwise(centers), strict=False)
-        ]
-        option = QStyleOptionGroupBox()
-        self.initStyleOption(option)
-        title = self.style().subControlRect(
-            QStyle.ComplexControl.CC_GroupBox,
-            option,
-            QStyle.SubControl.SC_GroupBoxLabel,
-            self,
-        )
-        title_center = title.center().y()
-        pitch = max(max(steps), self.contentsRect().top() + centers[0] - title_center)
-        for i, step in enumerate(steps):
-            layout.setRowMinimumHeight(2 * i + 1, pitch - step)
-        top = title_center + pitch - self.contentsRect().top() - centers[0]
-        layout.setContentsMargins(5, top, 5, 0)
-        layout.activate()
+    def isChecked(self) -> bool:
+        """Whether autofocus is switched on."""
+        return self._checked
 
-    def event(self, event: QEvent) -> bool:
-        if event.type() == QEvent.Type.LayoutRequest:
-            self._update_row_spacing()
-        return bool(super().event(event))
+    def setChecked(self, checked: bool) -> None:
+        """Switch autofocus on or off, along with its switch (see `setSwitch`)."""
+        if checked == self._checked:
+            return
+        self._checked = checked
+        self._body.setEnabled(checked)
+        if switch := self._switch():
+            switch(checked)
+        self.toggled.emit(checked)
 
-    def showEvent(self, event: QShowEvent) -> None:
-        super().showEvent(event)
-        self._update_row_spacing()
+    def setSwitch(self, set_checked: Callable[[bool], object]) -> None:
+        """Keep the control that switches autofocus in step, with `set_checked`.
+
+        It is called on every change, even with this widget's signals blocked. A
+        method of a Python object is kept weakly, so its owner can be freed.
+        """
+        if isinstance(set_checked, MethodType):
+            self._switch = WeakMethod(set_checked)
+        else:
+            self._switch = lambda: set_checked
+
+    def switchToolTip(self) -> str:
+        """The tooltip of its switch: why autofocus cannot be used, if it cannot."""
+        return self.toolTip() or AF_ENABLE_TOOLTIP
+
+    def event(self, event: QEvent | None) -> bool:
+        handled = bool(super().event(event))
+        if event is not None and event.type() in (
+            QEvent.Type.EnabledChange,
+            QEvent.Type.ToolTipChange,
+        ):
+            self.availabilityChanged.emit()
+        return handled
 
     def _search_spin(self, prefix: str, tooltip: str) -> QDoubleSpinBox:
         spin = QDoubleSpinBox()
@@ -925,7 +981,6 @@ class AutofocusAxis(_CheckableCard):
             for wdg in (label, spin):
                 wdg.setEnabled(enabled)
                 wdg.setToolTip(tooltip)
-        self._update_row_spacing()
 
     # ------------------------------- value --------------------------------
 
@@ -1107,6 +1162,7 @@ class MDASequenceWidget(QWidget):
 
         self.keep_shutter_open = KeepShutterOpen()
         self.af_axis = AutofocusAxis()
+        self.tab_wdg.add_autofocus(self.af_axis)
 
         # Global settings are not a tab: they have no on/off state and always
         # apply, so they sit in a card of their own between the tabs and the
@@ -1124,9 +1180,7 @@ class MDASequenceWidget(QWidget):
         settings_layout.addWidget(self.keep_shutter_open)
         self._settings_box = _wrap_in_card(settings_widget)
         self._settings_row = settings_row = QVBoxLayout()
-        settings_row.setSpacing(10)
         settings_row.addWidget(self._settings_box)
-        settings_row.addWidget(self.af_axis)
 
         footer = QFrame()
         footer.setObjectName("mdaExecutionFooter")

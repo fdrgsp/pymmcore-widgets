@@ -7,6 +7,7 @@ from qtpy.QtWidgets import QWidget
 
 from pymmcore_widgets import MDAWidget, MDAWidgetCollapsible
 from pymmcore_widgets.mda import CollapsibleCoreMDATabs, SectionMetrics
+from pymmcore_widgets.useq_widgets._mda_sequence import AF_DISABLED_TOOLTIP
 from pymmcore_widgets.useq_widgets._positions import MDAButton, _MDAPopup
 
 if TYPE_CHECKING:
@@ -46,16 +47,16 @@ def test_collapsible_is_mda_widget(qtbot: QtBot) -> None:
     assert isinstance(wdg, MDAWidget)
     assert isinstance(wdg.tab_wdg, CollapsibleCoreMDATabs)
     assert wdg.tabs is wdg.tab_wdg
-    # The axes are followed by the non-axis Saving section. Global
-    # settings (axis order, keep shutter open, autofocus axis) are not a
-    # section: they always apply, so they live in a card between the sections
-    # and the footer (see MDAWidgetCollapsible._install_layout).
+    # The axes are followed by the Autofocus and Saving sections. Global
+    # settings (axis order, keep shutter open) are not a section: they always
+    # apply, so they live in a card between the sections and the footer.
     assert [s.title for s in wdg.tabs.sections] == [
         "Channels",
         "Positions",
-        "Grid/Tiles",
         "Z Stack",
         "Time Series",
+        "Grid/Tiles",
+        "Autofocus",
         "Saving",
     ]
     assert wdg.tabs.saving_section is wdg.tabs.sections[-1]
@@ -63,11 +64,7 @@ def test_collapsible_is_mda_widget(qtbot: QtBot) -> None:
     assert not wdg.tabs.isAncestorOf(wdg._settings_box)
     assert wdg._settings_box.isAncestorOf(wdg.axis_order)
     assert wdg._settings_box.isAncestorOf(wdg.keep_shutter_open)
-    # Autofocus is its own checkable group box below the settings card.
-    assert not wdg._settings_box.isAncestorOf(wdg.af_axis)
-    assert wdg._settings_row.itemAt(1).widget() is wdg.af_axis
-    assert wdg.af_axis.isCheckable()
-    assert not wdg.af_axis.isFlat()
+    assert wdg.tabs.autofocus_section.isAncestorOf(wdg.af_axis)
 
 
 def test_collapsible_settings_sit_between_the_sections_and_the_footer(
@@ -334,3 +331,23 @@ def test_collapsible_table_editors_keep_min_height(qtbot: QtBot) -> None:
         table = wdg.tabs.section(axis).content_widget.table()
         # tall enough for the header + a few rows
         assert table.minimumHeight() >= 3 * table.verticalHeader().defaultSectionSize()
+
+
+def test_autofocus_section_switches_autofocus(qtbot: QtBot) -> None:
+    wdg = MDAWidgetCollapsible()
+    qtbot.addWidget(wdg)
+    section, af = wdg.tabs.autofocus_section, wdg.af_axis
+    assert section.summary == "Off"
+
+    section.set_checked(True)
+    assert af.isChecked()
+    af.use_af_p.setChecked(True)
+    assert section.summary == "On · Hardware · p"
+    af.setChecked(False)
+    assert not section.checked
+    assert section.summary == "Off"
+
+    # where autofocus cannot be used, e.g. with absolute Z, the checkbox says why
+    wdg.setValue(useq.MDASequence(z_plan=useq.ZTopBottom(top=1, bottom=0, step=1)))
+    assert not section.checkbox.isEnabled()
+    assert section.checkbox.toolTip() == AF_DISABLED_TOOLTIP
