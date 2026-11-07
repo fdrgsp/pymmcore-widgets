@@ -51,16 +51,24 @@ def test_hcs_wizard_fits_points_plan_panel(
     wdg.next()
     qtbot.wait(50)
 
-    selector = wdg.points_plan_page.widget._selector
-    # neither scrolls nor leaves the cards stretched over spare height
-    assert selector._scroll.viewport().height() == selector._cards.sizeHint().height()
-    assert not selector._scroll.verticalScrollBar().isVisible()
-
-    # sized once: reopening keeps whatever size the user left it at
+    # sized once: reopening keeps whatever size the user left it at (shrunk, not
+    # grown, so a small screen cannot clamp it)
     wdg.hide()
-    wdg.resize(size.width() + 50, size.height() + 50)
+    wdg.resize(size - QSize(50, 50))
     wdg.show()
-    assert wdg.size() == size + QSize(50, 50)
+    assert wdg.size() == size - QSize(50, 50)
+    wdg.resize(size)
+    qtbot.wait(50)
+
+    selector = wdg.points_plan_page.widget._selector
+    missing = selector._cards.sizeHint().height() - selector._scroll.viewport().height()
+    if (screen := wdg.screen()) is not None and (
+        wdg.frameGeometry().height() + missing > screen.availableGeometry().height()
+    ):
+        pytest.skip("the screen is too small for the wizard to fit the panel")
+    # neither scrolls nor leaves the cards stretched over spare height
+    assert missing == 0
+    assert not selector._scroll.verticalScrollBar().isVisible()
 
 
 def test_single_area_hides_automated(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
