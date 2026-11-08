@@ -1,5 +1,5 @@
+import useq
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtCore import QModelIndex
 from qtpy.QtWidgets import QApplication, QHBoxLayout, QSplitter, QVBoxLayout, QWidget
 
 from pymmcore_widgets import (
@@ -36,22 +36,17 @@ group_wdg = GroupPresetTableWidget()
 cam_roi = CameraRoiWidget()
 
 
-# As an example...
-# When ROIs are edited or destroyed, update the MDA widget's stage positions.
-def _on_data_changed(top_left: QModelIndex, bottom_right: QModelIndex) -> None:
-    mgr = explorer.roi_manager
-    positions = [
-        roi.create_useq_position(overlap=mgr.scan_overlap, mode=mgr.scan_mode)
-        for roi in mgr.all_rois()
-    ]
-    # optional: skip positions that don't actually have a valid sequence (grid plan)
-    positions = [pos for pos in positions if pos.sequence is not None]
-    mda_widget.stage_positions.setValue(positions)
+# Toolbar "Send to MDA": put the explorer's ROIs in the MDA position table.
+def _on_send_to_mda(positions: list[useq.Position], replace: bool) -> None:
+    table = mda_widget.stage_positions
+    if not replace:
+        positions = [*table.value(exclude_unchecked=False), *positions]
+    table.setValue(positions)
+    mda_widget.tab_wdg.setChecked(table, True)
+    mda_widget.tab_wdg.setCurrentWidget(table)
 
 
-model = explorer.roi_manager.roi_model
-model.dataChanged.connect(_on_data_changed)
-model.rowsRemoved.connect(_on_data_changed)
+explorer.sendToMDARequested.connect(_on_send_to_mda)
 
 # Mark the MDA positions on the map (toolbar: "Show MDA Positions").
 mda_widget.stage_positions.valueChanged.connect(
