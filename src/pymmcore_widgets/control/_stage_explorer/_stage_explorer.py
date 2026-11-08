@@ -80,7 +80,7 @@ TILE_MEMORY_FACTOR = 2
 # Recheck free system RAM before adding each new location, regardless of budget.
 LOW_SYSTEM_MEMORY_FLOOR_MB = 512.0
 
-MDA_POSITION_COLOR = "#00BFFF"
+MDA_POSITION_COLOR = "#FFD600"
 MDA_POSITION_SIZE_PX = 7
 _GL_OUT_OF_MEMORY = 0x0505
 
