@@ -357,7 +357,12 @@ class StageExplorer(QWidget):
         self._mda_positions: Iterable[useq.Position] | useq.WellPlatePlan = ()
         self._mda_positions_stale: bool = False
         self._n_mda_points: int = 0
-        self._mda_pos_markers = Markers(scaling="fixed")
+        # Created in the scene and detached at once: a Markers visual that never
+        # joined a scene made Qt segfault in a later canvas (seen in the test suite
+        # with pymmcore-nano).
+        scene = self._stage_viewer.view.scene
+        self._mda_pos_markers = Markers(scaling="fixed", parent=scene)
+        self._mda_pos_markers.parent = None
         self._mda_pos_markers.set_gl_state(depth_test=False)
         self._mda_pos_markers.order = 0  # above the tiles, below the stage marker
 
