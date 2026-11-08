@@ -214,6 +214,7 @@ class CameraRoiWidget(QWidget):
         _bottom_layout.addWidget(self.crop_btn)
 
         main_layout.addWidget(self._bottom_wdg)
+        main_layout.addStretch()
 
         # core connections -------------------------------------------------------
         self._mmc.events.systemConfigurationLoaded.connect(self._on_sys_cfg_loaded)
