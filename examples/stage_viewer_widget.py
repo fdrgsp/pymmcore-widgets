@@ -18,10 +18,5 @@ stage_viewer.zoom_to_fit()
 
 @stage_viewer.canvas.events.mouse_press.connect
 def _on_mouse_press(event: QMouseEvent) -> None:
-    """Handle the mouse press event."""
-    canvas_pos = (event.pos[0], event.pos[1])
-    last_image = list(stage_viewer._get_images())[-1]
-    tform = last_image.transforms.get_transform("canvas", "scene")
-    world_pos = tform.map(canvas_pos)[:2]
-    print()
-    print(world_pos)
+    """Print the world position of the click."""
+    print(stage_viewer.canvas_to_world(event.pos))

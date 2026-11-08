@@ -8,10 +8,15 @@ import numpy as np
 import pytest
 
 from pymmcore_widgets.control._stage_explorer import _stage_viewer
-from pymmcore_widgets.control._stage_explorer._overview import BASE_FACTOR, CHUNK_PX
+from pymmcore_widgets.control._stage_explorer._overview import (
+    BASE_FACTOR,
+    CHUNK_PX,
+    downsampled,
+)
 from pymmcore_widgets.control._stage_explorer._stage_viewer import (
     OVERVIEW_MIN_TILES,
     StageViewer,
+    Tile,
 )
 
 if TYPE_CHECKING:
@@ -43,6 +48,11 @@ def _add_grid(viewer: StageViewer, n: int) -> None:
         viewer.add_image(img, _translation(col * TILE, row * TILE))
 
 
+def _drawn(viewer: StageViewer) -> list[Tile]:
+    """The tiles drawn individually, i.e. with an image of their own."""
+    return [tile for tile in viewer._tiles if tile in viewer._drawn]
+
+
 def _drawn_chunks(viewer: StageViewer) -> int:
     return sum(
         image.visible
@@ -63,14 +73,14 @@ def test_many_zoomed_out_tiles_draw_the_overview(qtbot: QtBot) -> None:
 
     _set_view(viewer, 20_000)
     assert viewer._overview.active_level is not None
-    assert not any(frame.visible for frame in viewer._get_images())
+    assert not _drawn(viewer)
     assert 0 < _drawn_chunks(viewer) < 10
 
     # zoomed back in, the tiles themselves are drawn again
     _set_view(viewer, 2 * TILE)
     assert viewer._overview.active_level is None
     assert _drawn_chunks(viewer) == 0
-    assert any(frame.visible for frame in viewer._get_images())
+    assert _drawn(viewer)
 
 
 def test_few_tiles_are_always_drawn_individually(qtbot: QtBot) -> None:
@@ -79,7 +89,7 @@ def test_few_tiles_are_always_drawn_individually(qtbot: QtBot) -> None:
 
     _set_view(viewer, 20_000)
     assert viewer._overview.active_level is None
-    assert all(frame.visible for frame in viewer._get_images())
+    assert len(_drawn(viewer)) == len(viewer._tiles)
 
 
 def test_overview_does_not_affect_zoom_to_fit(qtbot: QtBot) -> None:
@@ -164,7 +174,7 @@ def test_clear_and_disabled_downsampling_drop_the_overview(qtbot: QtBot) -> None
 
     viewer.set_downsample(False)  # full resolution requested: draw the tiles
     assert viewer._overview.active_level is None
-    assert any(frame.visible for frame in viewer._get_images())
+    assert _drawn(viewer)
 
     viewer.set_downsample(True)
     viewer.clear()
@@ -179,7 +189,7 @@ def test_mixed_dtypes_fall_back_to_tiles(qtbot: QtBot) -> None:
     viewer.add_image(np.ones((TILE, TILE), np.float32), _translation(0, 0))
     _set_view(viewer, 20_000)
     assert viewer._overview.active_level is None
-    assert any(frame.visible for frame in viewer._get_images())
+    assert _drawn(viewer)
 
 
 def test_levels_are_built_only_when_shown(qtbot: QtBot) -> None:
@@ -197,8 +207,8 @@ def test_levels_are_built_only_when_shown(qtbot: QtBot) -> None:
     assert viewer.overview_nbytes() > thumbs_only
 
     # a built level keeps up with refreshed tiles while it is on screen
-    frame = next(iter(viewer._get_images()))
-    viewer.update_image(frame, np.full((TILE, TILE), 999, np.uint16))
+    tile = viewer._tiles[0]
+    viewer.update_image(tile, np.full((TILE, TILE), 999, np.uint16))
     viewer.cull_to_view()
     level = viewer._overview._levels[shown]
     assert any((arr == 999).any() for arr in level.arrays.values())
@@ -224,7 +234,7 @@ def test_overview_skipped_when_it_saves_no_draws(
     monkeypatch.setattr(_stage_viewer, "OVERVIEW_MAX_CHUNK_RATIO", 0.001)
     _set_view(viewer, 20_000)
     assert viewer._overview.active_level is None
-    assert all(frame.visible for frame in viewer._get_images())
+    assert len(_drawn(viewer)) == len(viewer._tiles)
     assert not any(level.arrays for level in viewer._overview._levels)
 
     monkeypatch.setattr(_stage_viewer, "OVERVIEW_MAX_CHUNK_RATIO", 0.5)
@@ -238,11 +248,11 @@ def test_moved_tile_leaves_no_ghost_but_jitter_keeps_levels(qtbot: QtBot) -> Non
     _set_view(viewer, 20_000)
     shown = viewer._overview.active_level
     assert shown is not None
-    frame = next(iter(viewer._get_images()))
+    tile = viewer._tiles[0]
     marker = np.full((TILE, TILE), 999, np.uint16)
 
     # sub-pixel stage jitter on a revisit: levels stay built and are updated
-    viewer.update_image(frame, marker, _translation(0.3, 0.2))
+    viewer.update_image(tile, marker, _translation(0.3, 0.2))
     viewer.cull_to_view()
     level = viewer._overview._levels[shown]
     assert level.built
@@ -250,7 +260,7 @@ def test_moved_tile_leaves_no_ghost_but_jitter_keeps_levels(qtbot: QtBot) -> Non
 
     # a real move: rebuilt, with the tile only at its new place
     far = 50 * TILE
-    viewer.update_image(frame, marker, _translation(far, far))
+    viewer.update_image(tile, marker, _translation(far, far))
     viewer.cull_to_view()
     arrays = viewer._overview.level_arrays(shown)
     res = viewer._overview._levels[shown].res
@@ -259,3 +269,28 @@ def test_moved_tile_leaves_no_ghost_but_jitter_keeps_levels(qtbot: QtBot) -> Non
     assert not (old_chunk[: int(TILE / res) + 1, : int(TILE / res) + 1] == 999).any()
     new_key = (int(far // size), int(far // size))
     assert (arrays[new_key] == 999).any()
+
+
+@pytest.mark.parametrize(
+    "dtype", [np.uint8, np.uint16, np.uint32, np.int16, np.float32]
+)
+@pytest.mark.parametrize("factor", [(2, 2), (4, 1), (1, 8), (64, 64)])
+def test_downsampled_is_the_block_mean(dtype: type, factor: tuple[int, int]) -> None:
+    data = (np.random.default_rng(0).random((131, 257)) * 200).astype(dtype)
+    fy, fx = factor
+    h, w = 131 // fy, 257 // fx  # partial edge blocks are dropped
+    mean = data[: h * fy, : w * fx].reshape(h, fy, w, fx).mean(axis=(1, 3))
+
+    out = downsampled(data, factor)
+    assert out.dtype == data.dtype
+    if np.issubdtype(dtype, np.integer):
+        np.testing.assert_array_equal(out, np.floor(mean))
+    else:
+        np.testing.assert_allclose(out, mean, rtol=1e-5)
+
+
+def test_downsampled_keeps_rgb_channels() -> None:
+    rgb = np.zeros((8, 8, 3), np.uint8)
+    rgb[:4, :4] = (40, 80, 120)
+    np.testing.assert_array_equal(downsampled(rgb, (4, 4))[0, 0], (40, 80, 120))
+    assert downsampled(rgb, (4, 4)).shape == (2, 2, 3)

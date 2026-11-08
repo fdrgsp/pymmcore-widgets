@@ -1,13 +1,9 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
-from weakref import WeakKeyDictionary
 
 import cmap
 import numpy as np
-import vispy
-import vispy.scene
-import vispy.visuals
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import QLabel, QMenu, QVBoxLayout, QWidget
 from vispy import scene
@@ -29,11 +25,12 @@ from ._overview import (
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
+    import vispy.visuals
     from qtpy.QtGui import QMouseEvent
     from vispy.app.canvas import MouseEvent
     from vispy.scene.widgets import ViewBox
 
-    class VisualNode(vispy.scene.Node, vispy.visuals.Visual): ...
+    class VisualNode(scene.Node, vispy.visuals.Visual): ...
 
 
 # Coarsest downsampling factor; beyond this a tile is a few pixels on screen.
@@ -49,6 +46,9 @@ OVERVIEW_MIN_TILES = 32
 OVERVIEW_MAX_CHUNK_RATIO = 0.5
 # Coalesce re-evaluating overview vs. tiles while tiles stream in.
 OVERVIEW_REFRESH_MS = 100
+# Hidden images kept for tiles coming (back) into view: enough to switch from
+# the overview back to the tiles without creating any.
+MAX_SPARE_IMAGES = OVERVIEW_MIN_TILES
 
 
 Factor = tuple[int, int]  # (rows, columns)
@@ -62,20 +62,31 @@ def _image_transform(transform: np.ndarray) -> np.ndarray:
     return transform.T if np.allclose(transform[-1], (0, 0, 0, 1)) else transform
 
 
-class _TileSource:
-    """An image's full-resolution data, placement, world bounds and shown factor."""
+class Tile:
+    """An image on the map: full-resolution data, placement and stacking rank.
 
-    __slots__ = ("bounds", "data", "factor", "matrix")
+    vispy spends time on every visual in the scene at each camera move, drawn or
+    not, so tiles are not visuals themselves: one in view is drawn by an `Image`
+    lent from the viewer's pool. Out of view, `image` may still hold the last
+    one it was drawn with, to be reused as is while no other tile claims it.
+    """
 
-    def __init__(self, data: np.ndarray, matrix: np.ndarray, factor: Factor) -> None:
-        self.data = data
-        self.matrix = matrix  # vispy (row-vector) pixel -> world transform
-        self.factor = factor
-        self.bounds: Bounds = world_bounds(data.shape, matrix)
+    __slots__ = ("bounds", "data", "factor", "image", "index", "matrix", "rank")
+
+    data: np.ndarray
+    matrix: np.ndarray  # vispy (row-vector) pixel -> world transform
+    bounds: Bounds
+
+    def __init__(self, index: int) -> None:
+        self.index = index  # row in the viewer's bounds array
+        self.rank = 0  # drawn above tiles of lower rank
+        self.image: Image | None = None
+        # Downsampling of the data `image` holds; None if it holds stale data.
+        self.factor: Factor | None = None
 
 
 class StageViewer(QWidget):
-    """A widget to add images with a transform to a vispy canves."""
+    """A widget to add images with a transform to a vispy canvas."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -83,14 +94,15 @@ class StageViewer(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self._clims: tuple[float, float] | None = None
-        self._cmap: cmap.Colormap = cmap.Colormap("gray")
+        self._cmap = cmap.Colormap("gray").to_vispy()
 
-        # Keep newer images on top without scanning the scene for its lowest order.
-        self._next_order: int = 0
-        # Full-resolution sources of the (possibly downsampled) shown images.
-        # Image nodes are frozen, so this can't live on them; weak keys don't
-        # keep removed nodes alive.
-        self._sources: WeakKeyDictionary[Image, _TileSource] = WeakKeyDictionary()
+        self._tiles: list[Tile] = []
+        # World (x0, x1, y0, y1) of each tile by `Tile.index`, to cull at once.
+        self._bounds = np.empty((0, 4))
+        self._next_rank = 0
+        self._drawn: set[Tile] = set()
+        # Hidden pool images, least recently used first, and their last tile.
+        self._spare: dict[Image, Tile] = {}
         self._downsample: bool = True
         # Wait until zooming settles before uploading textures at a new resolution.
         self._downsample_timer = QTimer(self)
@@ -98,7 +110,7 @@ class StageViewer(QWidget):
         self._downsample_timer.setInterval(DOWNSAMPLE_DELAY_MS)
         self._downsample_timer.timeout.connect(self.apply_downsampling)
 
-        self.canvas = vispy.scene.SceneCanvas(show=True)
+        self.canvas = scene.SceneCanvas(show=True)
         own_vispy_init_context(self.canvas)
 
         self.view = cast("ViewBox", self.canvas.central_widget.add_view())
@@ -106,24 +118,21 @@ class StageViewer(QWidget):
         self.view.camera.flip = (False, False)
         self.view.scene.transform.changed.connect(self._on_scene_transform_changed)
 
-        self._grid_lines = vispy.scene.GridLines(
-            parent=self.view.scene,
-            color="#888888",
-            border_width=1,
+        self._grid_lines = scene.GridLines(
+            parent=self.view.scene, color="#888888", border_width=1
         )
         self._grid_lines.visible = False
 
+        # Below the grid lines and overlays (order 0); tiles drawn in rank order.
+        self._tile_layer = scene.Node(parent=self.view.scene)
+        self._tile_layer.order = -1
         # Reduced, chunked copies of the map drawn instead of the tiles when
-        # many are in view (see _overview.py). Not a direct child Image of the
-        # scene, so zoom_to_fit and _get_images only ever see the tiles.
-        self._overview = OverviewPyramid(
-            self.view.scene, cmap=self._cmap.to_vispy(), clim="auto"
-        )
+        # many are in view (see _overview.py).
+        self._overview = OverviewPyramid(self.view.scene, cmap=self._cmap, clim="auto")
         # Tiles added/refreshed since the overview was last painted, in update
         # order. Painting is deferred to the refresh tick so a location
-        # refreshed many times in a row (fast timelapse) is painted once, and
-        # adding a tile stays as cheap as before.
-        self._overview_pending: dict[Image, None] = {}
+        # refreshed many times in a row (fast timelapse) is painted once.
+        self._overview_pending: dict[Tile, None] = {}
         self._overview_timer = QTimer(self)
         self._overview_timer.setSingleShot(True)
         self._overview_timer.setInterval(OVERVIEW_REFRESH_MS)
@@ -142,7 +151,6 @@ class StageViewer(QWidget):
         )
         self.canvas.events.mouse_move.connect(self._on_mouse_move)
 
-        # context menu
         self.canvas.native.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.canvas.native.customContextMenuRequested.connect(self._show_context_menu)
 
@@ -150,14 +158,14 @@ class StageViewer(QWidget):
         """Set the color limits of the images in the scene."""
         self._clims = clim
         value = "auto" if clim is None else clim
-        for child in self._get_images():
-            child.clim = value
+        for image in self._images():
+            image.clim = value
         self._overview.set_clims(value)
 
     def set_grid_visible(self, visible: bool) -> None:
         self._grid_lines.visible = visible
 
-    def add_image(self, img: np.ndarray, transform: np.ndarray | None = None) -> Image:
+    def add_image(self, img: np.ndarray, transform: np.ndarray | None = None) -> Tile:
         """Add an image to the scene with the given transform.
 
         Parameters
@@ -167,82 +175,66 @@ class StageViewer(QWidget):
         transform : np.ndarray | None
             The transform to apply to the image. It should be a 4x4 matrix.
             If None, the image will be added with the identity transform.
-            The transformation is indented to be calculated elsewhere (in higher level
-            widgets) based on, e.g., the stage position, pixel size, configuration
-            affine, etc.  This is a relatively low-level, direct function.
+            The transformation is intended to be calculated elsewhere (in higher
+            level widgets) based on, e.g., the stage position, pixel size,
+            configuration affine, etc.  This is a relatively low-level, direct
+            function.
         """
-        transform = np.eye(4) if transform is None else _image_transform(transform)
-        shown, matrix, factor = self._display(img, transform)
-        # texture_format="auto" uses GPUScaledTexture2D so that clim changes
-        # only update a shader uniform instead of re-uploading the texture.
-        frame = Image(
-            shown,
-            cmap=self._cmap.to_vispy(),
-            parent=self.view.scene,
-            clim="auto" if self._clims is None else self._clims,
-            texture_format="auto",
-        )
-        self._place(frame, _TileSource(img, transform, factor), matrix)
-        return frame
+        tile = Tile(len(self._tiles))
+        self._tiles.append(tile)
+        matrix = np.eye(4) if transform is None else _image_transform(transform)
+        self._place(tile, img, matrix)
+        return tile
 
     def update_image(
-        self, frame: Image, img: np.ndarray, transform: np.ndarray | None = None
+        self, tile: Tile, img: np.ndarray, transform: np.ndarray | None = None
     ) -> None:
-        """Refresh an existing image's data and placement, reusing its scene node."""
-        transform = (
-            self._sources[frame].matrix
-            if transform is None
-            else _image_transform(transform)
-        )
-        shown, matrix, factor = self._display(img, transform)
-        frame.set_data(shown)
-        self._place(frame, _TileSource(img, transform, factor), matrix)
-
-    def _place(self, frame: Image, source: _TileSource, matrix: np.ndarray) -> None:
-        """Bring `frame` to the front and register its source.
-
-        A re-imaged location must not stay hidden under an overlapping neighbour.
-        """
-        self._next_order -= 1
-        frame.order = self._next_order
-        frame.transform = scene.MatrixTransform(matrix=matrix)
-        self._sources[frame] = source
-        self._queue_overview(frame)
-        self._apply_cull(frame)
+        """Refresh a tile's data and, if given, its placement."""
+        matrix = tile.matrix if transform is None else _image_transform(transform)
+        self._place(tile, img, matrix)
 
     def clear(self) -> None:
         """Clear the scene."""
-        for child in reversed(self.view.scene.children):
-            if isinstance(child, Image):
-                child.parent = None
-        self._next_order = 0
+        for image in self._images():
+            image.parent = None
+        self._tiles.clear()
+        self._drawn.clear()
+        self._spare.clear()
+        self._bounds = np.empty((0, 4))
+        self._next_rank = 0
         self._overview.reset()
         self._overview_pending.clear()
         self._overview_timer.stop()
 
-    def zoom_to_fit(self, *, margin: float = 0.05) -> None:
-        """Recenter the view to the center of all images.
+    def zoom_to_fit(
+        self, *, margin: float = 0.05, include: Iterable[VisualNode] = ()
+    ) -> None:
+        """Fit the view to all images, and to the `include` visuals.
 
         Parameters
         ----------
         margin : float
             Extra margin to add between the images and the edge of the view.
             This is a percentage of the view size. Default is 0.05 (5%).
+        include : Iterable[VisualNode]
+            Other visuals to fit in the view too (e.g. markers).
         """
-        if not (visuals := tuple(self._get_images())):
+        bounds = np.vstack(
+            [self._bounds[: len(self._tiles)], *map(visual_bounds, include)]
+        )
+        if not len(bounds):
             return
-        x_bounds, y_bounds, *_ = get_vispy_scene_bounds(visuals)
-        self.view.camera.set_range(x=x_bounds, y=y_bounds, margin=margin)
+        x0, _, y0, _ = bounds.min(axis=0)
+        _, x1, _, y1 = bounds.max(axis=0)
+        self.view.camera.set_range(x=(x0, x1), y=(y0, y1), margin=margin)
 
     def canvas_to_world(self, canvas_pos: tuple[float, float]) -> tuple[float, float]:
         """Convert canvas coordinates to world coordinates."""
-        # map canvas position to world position
         world_x, world_y, *_ = self.view.scene.transform.imap(canvas_pos)
         return world_x, world_y
 
     def world_to_canvas(self, world_pos: tuple[float, float]) -> tuple[float, float]:
         """Convert world coordinates to canvas coordinates."""
-        # map world position to canvas position
         canvas_x, canvas_y, *_ = self.view.scene.transform.map(world_pos)
         return canvas_x, canvas_y
 
@@ -269,91 +261,120 @@ class StageViewer(QWidget):
         if self._downsample:
             self._downsample_timer.start()
 
-    # --------------------DOWNSAMPLING--------------------
+    # --------------------TILES--------------------
 
-    def set_downsample(self, enabled: bool) -> None:
-        """Show zoomed-out images at reduced resolution (or always at full)."""
-        self._downsample = enabled
-        # The overview is reduced resolution too: re-pick what to draw first.
-        self.cull_to_view()
-        self.apply_downsampling(include_hidden=not enabled)
+    def _place(self, tile: Tile, data: np.ndarray, matrix: np.ndarray) -> None:
+        """Set a tile's data and placement, and bring it to the front.
 
-    def apply_downsampling(self, *, include_hidden: bool = False) -> None:
-        """Re-upload each visible image at the resolution the zoom level needs.
-
-        A zoomed-out map would otherwise keep a full-resolution texture per
-        tile, even though each tile covers only a few hundred screen pixels.
-        Off-screen (culled) images keep their current texture until they come
-        back into view, which restarts this pass.
+        A re-imaged location must not stay hidden under an overlapping neighbour.
         """
-        for frame in self._get_images():
-            if not (include_hidden or frame.visible):
-                continue
-            if (source := self._sources.get(frame)) is None:
-                continue
-            if (
-                self._downsample_factor(source.matrix, source.data.shape)
-                == source.factor
-            ):
-                continue
-            shown, matrix, source.factor = self._display(source.data, source.matrix)
-            frame.set_data(shown)
-            frame.transform = scene.MatrixTransform(matrix=matrix)
+        tile.data, tile.matrix = data, matrix
+        tile.bounds = world_bounds(data.shape, matrix)
+        if tile.index >= len(self._bounds):
+            grown = np.empty((max(64, 2 * len(self._bounds)), 4))
+            grown[: len(self._bounds)] = self._bounds
+            self._bounds = grown
+        self._bounds[tile.index] = tile.bounds
+        self._next_rank += 1
+        tile.rank = self._next_rank
+        tile.factor = None
+        # Re-insert so the overview paint order follows the updates (newest on top).
+        self._overview_pending.pop(tile, None)
+        self._overview_pending[tile] = None
 
-    def _display(
-        self, img: np.ndarray, matrix: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray, Factor]:
-        """The array, node transform, and factor to show `img` at this zoom."""
-        factor = self._downsample_factor(matrix, img.shape)
-        shown = downsampled(img, factor)
-        return shown, scaled(matrix, img.shape, shown.shape), factor
+        if tile in self._drawn:
+            self._show(tile)
+        elif self._overview.active_level is None and intersects(
+            tile.bounds, self._culling_rect()
+        ):
+            self._bind(tile)
+        # A new tile may tip the view over OVERVIEW_MIN_TILES (or a new chunk
+        # needs culling): re-evaluate once the burst of updates settles.
+        if not self._overview_timer.isActive():
+            self._overview_timer.start()
 
-    def _world_per_screen_px(self) -> float | None:
-        """World length of one physical screen pixel (None before layout)."""
-        rect = self._culling_rect()
-        screen_px = self.view.size[0] * self.canvas.pixel_scale
-        if screen_px < 2 or rect.width == 0:
-            return None
-        return float(abs(rect.width) / screen_px)  # camera aspect is 1
+    def _bind(self, tile: Tile) -> None:
+        """Draw `tile` with its last image if still spare, else the oldest spare."""
+        if tile.image is not None:
+            del self._spare[tile.image]
+        elif self._spare:
+            tile.image = self._take_spare()
+        else:
+            tile.image = Image(
+                cmap=self._cmap,
+                clim="auto" if self._clims is None else self._clims,
+                parent=self._tile_layer,
+                # clim changes then only update a shader uniform, no re-upload
+                texture_format="auto",
+            )
+            # painter's order: tiles of higher rank are drawn later, on top
+            tile.image.set_gl_state("translucent", depth_test=False)
+            tile.image.transform = scene.MatrixTransform()
+        tile.image.visible = True
+        self._drawn.add(tile)
+        self._show(tile)
 
-    def _downsample_factor(self, matrix: np.ndarray, shape: tuple[int, ...]) -> Factor:
-        """Per-axis power of two keeping >= 1 texture pixel per screen pixel.
+    def _release(self, tile: Tile) -> None:
+        """Stop drawing `tile`, keeping its image as the newest spare."""
+        image = cast("Image", tile.image)
+        image.visible = False
+        self._drawn.discard(tile)
+        self._spare[image] = tile
 
-        Each axis uses the world length of one source pixel step along it, so
-        an anisotropic or sheared transform never loses detail along its more
-        magnified direction.
-        """
-        if not self._downsample or (px := self._world_per_screen_px()) is None:
-            return (1, 1)
-        steps = pixel_steps(matrix)
-        return cast(
-            "Factor",
-            tuple(
-                min(pow2_at_most(px / step, size), MAX_DOWNSAMPLE) if step else 1
-                for step, size in zip(steps, shape[:2], strict=True)
-            ),
-        )
+    def _take_spare(self) -> Image:
+        """Remove the least recently used spare image from its last tile."""
+        image = next(iter(self._spare))
+        previous = self._spare.pop(image)
+        previous.image = previous.factor = None
+        return image
+
+    def _show(self, tile: Tile) -> None:
+        """Upload a drawn tile at the resolution the zoom needs, in rank order."""
+        image = cast("Image", tile.image)
+        if (factor := self._downsample_factor(tile)) != tile.factor:
+            tile.factor = factor
+            shown = downsampled(tile.data, factor)
+            image.set_data(shown)
+            image.transform.matrix = scaled(tile.matrix, tile.data.shape, shown.shape)
+        if image.order != tile.rank:
+            image.order = tile.rank
+            # vispy caches the draw order and only refreshes it when nodes are
+            # added or removed, not when their order changes
+            self.canvas._draw_order.clear()
+
+    def _images(self) -> Iterator[Image]:
+        """The pool's images: drawn, then spare."""
+        for tile in self._drawn:
+            yield cast("Image", tile.image)
+        yield from self._spare
 
     def cull_to_view(self) -> None:
-        """Show only what intersects the current camera rect.
+        """Draw only what intersects the current camera rect.
 
         With many tiles in view, draws the overview level matching the zoom
         instead of the tiles (multiscale, as in napari): one draw call per
-        on-screen chunk rather than per tile. Visibility skips draw calls
-        without changing the bounds used by zoom_to_fit.
+        on-screen chunk rather than per tile.
         """
         self._overview_timer.stop()
         self._paint_overview()
         rect = self._culling_rect()
-        frames = list(self._get_images())
-        hits = [self._rect_intersects(frame, rect) for frame in frames]
-        level = self._overview_level(sum(hits), rect)
+        b = self._bounds[: len(self._tiles)]
+        hits = np.flatnonzero(
+            (b[:, 1] >= rect.left)
+            & (b[:, 0] <= rect.right)
+            & (b[:, 3] >= rect.bottom)
+            & (b[:, 2] <= rect.top)
+        )
+        level = self._overview_level(len(hits), rect)
         self._overview.show(level, rect)
-        for frame, hit in zip(frames, hits, strict=False):
-            # Assign only on change: every assignment emits vispy update
-            # events, which dominated panning a large map.
-            if frame.visible != (show := hit and level is None):
-                frame.visible = show
+
+        wanted = set() if level is not None else {self._tiles[i] for i in hits.tolist()}
+        for tile in self._drawn - wanted:
+            self._release(tile)
+        for tile in wanted - self._drawn:
+            self._bind(tile)
+        while len(self._spare) > MAX_SPARE_IMAGES:
+            self._take_spare().parent = None
 
     def _overview_level(self, n_tiles_in_view: int, rect: Any) -> int | None:
         """The overview level to draw, or None to draw the tiles themselves."""
@@ -368,29 +389,11 @@ class StageViewer(QWidget):
         chunks = self._overview.chunks_in(level, rect)
         return level if chunks <= OVERVIEW_MAX_CHUNK_RATIO * n_tiles_in_view else None
 
-    def _apply_cull(self, frame: Image) -> None:
-        """Set the initial visibility of a newly added/updated image."""
-        frame.visible = self._overview.active_level is None and self._rect_intersects(
-            frame, self._culling_rect()
-        )
-        # A new tile may tip the view over OVERVIEW_MIN_TILES (or a new chunk
-        # needs culling): re-evaluate once the burst of updates settles.
-        if not self._overview_timer.isActive():
-            self._overview_timer.start()
-
-    def _queue_overview(self, frame: Image) -> None:
-        """Schedule painting a new/refreshed tile into the overview."""
-        # Re-insert so the paint order follows the latest update (newest on top).
-        self._overview_pending.pop(frame, None)
-        self._overview_pending[frame] = None
-
     def _paint_overview(self) -> None:
         """Hand the pending tiles to the overview, in update order."""
         pending, self._overview_pending = self._overview_pending, {}
-        for frame in pending:
-            if (source := self._sources.get(frame)) is None or frame.parent is None:
-                continue
-            self._overview.set_tile(frame, source.data, source.matrix)
+        for tile in pending:
+            self._overview.set_tile(tile, tile.data, tile.matrix)
 
     def overview_nbytes(self) -> int:
         """Approximate memory held by the zoomed-out overview, in bytes."""
@@ -406,28 +409,59 @@ class StageViewer(QWidget):
         cam = self.view.camera
         return getattr(cam, "_real_rect", None) or cam.rect
 
-    def _rect_intersects(self, frame: Image, rect: Any) -> bool:
-        """Whether an image's cached world bounds overlap the camera rect."""
-        source = self._sources.get(frame)
-        return source is None or intersects(source.bounds, rect)
+    # --------------------DOWNSAMPLING--------------------
 
-    def _get_images(self) -> Iterator[Image]:
-        """Yield images in the scene."""
-        for child in self.view.scene.children:
-            if isinstance(child, Image):
-                yield child
+    def set_downsample(self, enabled: bool) -> None:
+        """Show zoomed-out images at reduced resolution (or always at full)."""
+        self._downsample = enabled
+        # The overview is reduced resolution too: re-pick what to draw first.
+        self.cull_to_view()
+        self.apply_downsampling()
+
+    def apply_downsampling(self) -> None:
+        """Re-upload each drawn tile at the resolution the zoom level needs.
+
+        A zoomed-out map would otherwise keep a full-resolution texture per
+        tile, even though each tile covers only a few hundred screen pixels.
+        """
+        for tile in self._drawn:
+            self._show(tile)
+
+    def _world_per_screen_px(self) -> float | None:
+        """World length of one physical screen pixel (None before layout)."""
+        rect = self._culling_rect()
+        screen_px = self.view.size[0] * self.canvas.pixel_scale
+        if screen_px < 2 or rect.width == 0:
+            return None
+        return float(abs(rect.width) / screen_px)  # camera aspect is 1
+
+    def _downsample_factor(self, tile: Tile) -> Factor:
+        """Per-axis power of two keeping >= 1 texture pixel per screen pixel.
+
+        Each axis uses the world length of one source pixel step along it, so
+        an anisotropic or sheared transform never loses detail along its more
+        magnified direction.
+        """
+        if not self._downsample or (px := self._world_per_screen_px()) is None:
+            return (1, 1)
+
+        def axis(step: float, size: int) -> int:
+            return min(pow2_at_most(px / step, size), MAX_DOWNSAMPLE) if step else 1
+
+        (row, col), (h, w) = pixel_steps(tile.matrix), tile.data.shape[:2]
+        return axis(row, h), axis(col, w)
+
+    # --------------------HOVER LABEL--------------------
 
     def _on_mouse_move(self, event: MouseEvent) -> None:
         if not self._show_hover_label:
             return  # pragma: no cover
 
-        # map canvas position to world position
         world_x, world_y = self.canvas_to_world(event.pos)
         self._hover_pos_label.setText(f"({world_x:.2f}, {world_y:.2f})")
         self._hover_pos_label.adjustSize()
 
-        # move hover label to the mouse position
-        # ensure horizontally and vertically within the view
+        # center the label above the cursor, kept within the view
         lbl_width = self._hover_pos_label.width()
         x = event.pos[0] - (lbl_width // 2)
         margin = 5
@@ -442,36 +476,11 @@ class StageViewer(QWidget):
         self._hover_pos_label.setVisible(False)  # pragma: no cover
 
 
-def get_vispy_scene_bounds(
-    visuals: Iterable[VisualNode],
-) -> tuple[list[float], list[float], list[float]]:
-    """Get the bounding box for `visuals` in world coordinates."""
-    # tracks: [xmin, xmax], [ymin, ymax], [zmin, zmax]
-    bounds = np.array([[np.inf, -np.inf], [np.inf, -np.inf], [np.inf, -np.inf]])
-
-    for obj in visuals:
-        (x_min, x_max), (y_min, y_max) = obj.bounds(0), obj.bounds(1)
-        local_bounds = np.array(
-            [
-                [x_min, y_min, 0, 1],
-                [x_min, y_max, 0, 1],
-                [x_max, y_min, 0, 1],
-                [x_max, y_max, 0, 1],
-            ]
-        )
-
-        # Map local bounds to world coordinates
-        transform = obj.node_transform(obj.scene_node)
-        world_bounds = transform.map(local_bounds)
-
-        # Convert from homogeneous to 3D coordinates
-        world_bounds = world_bounds[:, :3] / world_bounds[:, 3, np.newaxis]
-
-        # Update world bounds
-        bounds[:, 0] = np.minimum(bounds[:, 0], world_bounds.min(axis=0))
-        bounds[:, 1] = np.maximum(bounds[:, 1], world_bounds.max(axis=0))
-
-    # replace inf values with 0 ... better than -inf
-    bounds = np.where(np.isinf(bounds), 0, bounds)
-
-    return tuple(bounds.tolist())
+def visual_bounds(visual: VisualNode) -> Bounds:
+    """World (x0, x1, y0, y1) of a visual."""
+    (x0, x1), (y0, y1) = visual.bounds(0), visual.bounds(1)
+    corners = np.array([[x0, y0, 0, 1], [x0, y1, 0, 1], [x1, y0, 0, 1], [x1, y1, 0, 1]])
+    world = visual.node_transform(visual.scene_node).map(corners)
+    world = world[:, :2] / world[:, 3:]
+    (wx0, wy0), (wx1, wy1) = world.min(axis=0), world.max(axis=0)
+    return float(wx0), float(wx1), float(wy0), float(wy1)

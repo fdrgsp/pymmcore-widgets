@@ -1,9 +1,10 @@
 """Multiscale, chunked overview of the stage map's tiles.
 
-Every tile is its own vispy `Image`, and vispy spends a fixed slice of Python
-time per visual per frame (GL command building, uniform updates) no matter how
-small its texture is. A zoomed-out map with hundreds of tiles in view is
-therefore slow to pan/zoom even though each tile is downsampled.
+Every tile in view is drawn by its own vispy `Image`, and vispy spends a fixed
+slice of Python time per visual per frame (GL command building, uniform
+updates) no matter how small its texture is. A zoomed-out map with hundreds of
+tiles in view is therefore slow to pan/zoom even though each tile is
+downsampled.
 
 Like napari's multiscale rendering, the overview keeps a pyramid of reduced
 copies of the map, each level cut into fixed-size chunks. When zoomed out, the
@@ -49,22 +50,33 @@ Bounds = tuple[float, float, float, float]  # world (x0, x1, y0, y1)
 
 
 def downsampled(data: np.ndarray, factor: tuple[int, int]) -> np.ndarray:
-    """Block-mean `data` by `factor`, dropping any partial edge block.
+    """Block-mean `data` by power-of-two `factor`, dropping any partial edge block.
 
     Averaging rather than striding keeps small bright features (beads, puncta)
-    from vanishing or flickering between zoom levels.
+    from vanishing or flickering between zoom levels. Blocks are summed by
+    repeated pairwise halving, several times faster than a reshape-and-sum.
     """
     fy, fx = factor
     if fy == fx == 1:
         return data
+    n = fy * fx
     h, w = data.shape[0] // fy, data.shape[1] // fx
-    blocks = data[: h * fy, : w * fx].reshape(h, fy, w, fx, *data.shape[2:])
-    if np.issubdtype(data.dtype, np.integer):
-        total = blocks.sum(axis=3, dtype=np.int64).sum(axis=1)
-        out: np.ndarray = (total // (fy * fx)).astype(data.dtype)
+    out = data[: h * fy, : w * fx]
+    integer = np.issubdtype(data.dtype, np.integer)
+    if integer:
+        info = np.iinfo(data.dtype)
+        unsigned_fits = info.min >= 0 and info.max * n < 2**32
+        acc = np.dtype(np.uint32 if unsigned_fits else np.int64)
     else:
-        out = blocks.mean(axis=(1, 3)).astype(data.dtype)
-    return out
+        acc = data.dtype
+    while fy > 1 or fx > 1:
+        if fy > 1:
+            out = np.add(out[0::2], out[1::2], dtype=acc)
+            fy //= 2
+        if fx > 1:
+            out = np.add(out[:, 0::2], out[:, 1::2], dtype=acc)
+            fx //= 2
+    return (out // n if integer else out / n).astype(data.dtype)
 
 
 def scaled(

@@ -83,12 +83,12 @@ def test_mosaic_replaces_tiles_and_clear_releases_them(qtbot):
     for i in range(5):
         tile = SurveyTile(np.ones((64, 64), np.uint16), (i * 100.0, 0.0))
         viewer.add_tile(tile, geometry)
-    assert len(list(viewer._get_images())) == 5
+    assert len(viewer._tiles) == 5
     # A finished scan is shown as a single stitched image.
     viewer.show_mosaic(np.ones((10, 50), np.float32), (0.0, 0.0), 10.0)
-    assert len(list(viewer._get_images())) == 1
+    assert len(viewer._tiles) == 1
     # A new scan clears everything; nothing keeps the old images alive.
     viewer.clear()
     gc.collect()
-    assert not list(viewer._get_images())
-    assert len(viewer._sources) == 0
+    assert not viewer._tiles
+    assert not viewer._tile_layer.children

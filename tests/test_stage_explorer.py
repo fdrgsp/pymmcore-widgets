@@ -7,10 +7,9 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import useq
-from pymmcore_plus import CMMCorePlus
+from pymmcore_plus import CMMCorePlus, Keyword
 from qtpy.QtWidgets import QMessageBox, QToolButton
 from vispy.app.canvas import MouseEvent
-from vispy.scene.visuals import Image
 
 from pymmcore_widgets import _util as util_mod
 from pymmcore_widgets.control._rois.roi_model import RectangleROI
@@ -26,8 +25,10 @@ from pymmcore_widgets.control._stage_explorer._stage_explorer import (
     StageExplorer,
 )
 from pymmcore_widgets.control._stage_explorer._stage_viewer import (
+    MAX_SPARE_IMAGES,
     StageViewer,
-    get_vispy_scene_bounds,
+    Tile,
+    visual_bounds,
 )
 
 if TYPE_CHECKING:
@@ -49,11 +50,11 @@ def test_stage_viewer_add_image(qtbot: QtBot) -> None:
     stage_viewer = StageViewer()
     qtbot.addWidget(stage_viewer)
     T = _build_transform_matrix(100, 150)
-    stage_viewer.add_image(IMG, T.T)
-    images = [i for i in stage_viewer.view.scene.children if isinstance(i, Image)]
-    assert len(images) == 1
-    added_img = next(iter(images))
-    assert tuple(added_img.transform.matrix[3, :2]) == (100, 150)
+    tile = stage_viewer.add_image(IMG, T.T)
+    assert stage_viewer._tiles == [tile]
+    stage_viewer.zoom_to_fit()
+    assert tile.image is not None
+    assert tuple(tile.image.transform.matrix[3, :2]) == (100, 150)
 
 
 def test_stage_viewer_clims_cmaps(qtbot: QtBot) -> None:
@@ -71,9 +72,11 @@ def test_stage_viewer_clear_scene(qtbot: QtBot) -> None:
     qtbot.addWidget(stage_viewer)
     T = _build_transform_matrix(200, 50)
     stage_viewer.add_image(IMG, T.T)
-    assert [i for i in stage_viewer.view.scene.children if isinstance(i, Image)]
+    stage_viewer.zoom_to_fit()
+    assert stage_viewer._tile_layer.children
     stage_viewer.clear()
-    assert not [i for i in stage_viewer.view.scene.children if isinstance(i, Image)]
+    assert not stage_viewer._tiles
+    assert not stage_viewer._tile_layer.children
 
 
 def test_stage_viewer_reset_view(qtbot: QtBot) -> None:
@@ -92,8 +95,7 @@ def test_stage_viewer_rotated_bounds(qtbot: QtBot) -> None:
     qtbot.addWidget(viewer)
     transform = np.eye(4)
     transform[:2, :2] = np.array([[1, -1], [1, 1]]) / np.sqrt(2)
-    node = viewer.add_image(IMG, transform)
-    (x0, x1), (y0, y1), _ = get_vispy_scene_bounds([node])
+    x0, x1, y0, y1 = viewer.add_image(IMG, transform).bounds
     assert (x0, x1, y0, y1) == pytest.approx(
         (-100 / np.sqrt(2), 50 / np.sqrt(2), 0, 150 / np.sqrt(2))
     )
@@ -105,7 +107,7 @@ def test_stage_viewer_rotated_bounds(qtbot: QtBot) -> None:
 
 def _shown_viewer_with_tile(
     qtbot: QtBot, img: np.ndarray | None = None, transform: np.ndarray | None = None
-) -> tuple[StageViewer, Image, np.ndarray]:
+) -> tuple[StageViewer, Tile, np.ndarray]:
     stage_viewer = StageViewer()
     qtbot.addWidget(stage_viewer)
     stage_viewer.resize(400, 400)
@@ -115,8 +117,8 @@ def _shown_viewer_with_tile(
         img = np.arange(256 * 256, dtype=np.uint16).reshape(256, 256)
     if transform is None:
         transform = _build_transform_matrix(500, 100).T
-    node = stage_viewer.add_image(img, transform)
-    return stage_viewer, node, img
+    tile = stage_viewer.add_image(img, transform)
+    return stage_viewer, tile, img
 
 
 def _zoom_far_out(stage_viewer: StageViewer) -> None:
@@ -125,77 +127,151 @@ def _zoom_far_out(stage_viewer: StageViewer) -> None:
 
 
 def test_stage_viewer_downsamples_when_zoomed_out(qtbot: QtBot) -> None:
-    stage_viewer, node, img = _shown_viewer_with_tile(qtbot)
+    stage_viewer, tile, img = _shown_viewer_with_tile(qtbot)
 
     _zoom_far_out(stage_viewer)
-    fy, fx = stage_viewer._sources[node].factor
+    assert tile.image is not None and tile.factor is not None
+    fy, fx = tile.factor
     assert fy == fx > 1
     blocks = img.reshape(256 // fy, fy, 256 // fx, fx).astype(np.int64)
     expected = (blocks.sum(axis=(1, 3)) // (fy * fx)).astype(img.dtype)
-    np.testing.assert_array_equal(node._data, expected)
+    np.testing.assert_array_equal(tile.image._data, expected)
     # the tile still covers the same world rect
-    (x0, x1), (y0, y1), _ = get_vispy_scene_bounds([node])
-    assert (x0, x1, y0, y1) == (500, 756, 100, 356)
+    assert visual_bounds(tile.image) == (500, 756, 100, 356)
 
     stage_viewer.view.camera.set_range(x=(500, 600), y=(100, 200), margin=0)
     stage_viewer.apply_downsampling()
-    assert node._data is img
-    assert stage_viewer._sources[node].factor == (1, 1)
+    assert tile.image._data is img
+    assert tile.factor == (1, 1)
 
 
 def test_stage_viewer_downsampling_keeps_extent_of_odd_sizes(qtbot: QtBot) -> None:
     img = np.ones((257, 131), dtype=np.uint16)
-    stage_viewer, node, _ = _shown_viewer_with_tile(qtbot, img)
+    stage_viewer, tile, _ = _shown_viewer_with_tile(qtbot, img)
 
     _zoom_far_out(stage_viewer)
-    assert stage_viewer._sources[node].factor != (1, 1)
-    (x0, x1), (y0, y1), _ = get_vispy_scene_bounds([node])
-    assert (x0, x1, y0, y1) == pytest.approx((500, 631, 100, 357))
+    assert tile.image is not None
+    assert tile.factor != (1, 1)
+    assert visual_bounds(tile.image) == pytest.approx((500, 631, 100, 357))
 
 
 def test_stage_viewer_downsampling_keeps_single_bright_pixel(qtbot: QtBot) -> None:
     img = np.zeros((256, 256), dtype=np.uint16)
     img[77, 133] = 60000  # off every power-of-two stride
-    stage_viewer, node, _ = _shown_viewer_with_tile(qtbot, img)
+    stage_viewer, tile, _ = _shown_viewer_with_tile(qtbot, img)
 
     _zoom_far_out(stage_viewer)
-    assert stage_viewer._sources[node].factor != (1, 1)
-    assert node._data.max() > 0
+    assert tile.image is not None
+    assert tile.factor != (1, 1)
+    assert tile.image._data.max() > 0
 
 
 def test_stage_viewer_downsampling_is_per_axis(qtbot: QtBot) -> None:
     # each row is 8x taller in world units than each column is wide, so rows
     # need 8x less reduction to keep one texture pixel per screen pixel
     transform = np.diag([1.0, 8.0, 1.0, 1.0])
-    stage_viewer, node, _ = _shown_viewer_with_tile(qtbot, transform=transform)
+    stage_viewer, tile, _ = _shown_viewer_with_tile(qtbot, transform=transform)
 
     _zoom_far_out(stage_viewer)
-    fy, fx = stage_viewer._sources[node].factor
+    assert tile.factor is not None
+    fy, fx = tile.factor
     assert fx == 8 * fy
 
 
 def test_stage_viewer_downsample_disabled_restores_full_resolution(
     qtbot: QtBot,
 ) -> None:
-    stage_viewer, node, img = _shown_viewer_with_tile(qtbot)
+    stage_viewer, tile, img = _shown_viewer_with_tile(qtbot)
     _zoom_far_out(stage_viewer)
-    assert node._data is not img
+    assert tile.image is not None
+    assert tile.image._data is not img
 
     stage_viewer.set_downsample(False)
-    assert node._data is img
+    assert tile.image._data is img
 
 
 def test_stage_viewer_update_image_keeps_downsampling(qtbot: QtBot) -> None:
-    stage_viewer, node, img = _shown_viewer_with_tile(qtbot)
+    stage_viewer, tile, img = _shown_viewer_with_tile(qtbot)
     _zoom_far_out(stage_viewer)
-    factor = stage_viewer._sources[node].factor
+    factor = tile.factor
+    assert tile.image is not None and factor is not None
 
     new = img[::-1].copy()
-    stage_viewer.update_image(node, new)
-    assert stage_viewer._sources[node].factor == factor
-    assert node._data.shape == (256 // factor[0], 256 // factor[1])
-    assert node._data[0, 0] > node._data[-1, 0]  # the flipped data was uploaded
-    assert tuple(node.transform.matrix[3, :2]) == (500, 100)
+    stage_viewer.update_image(tile, new)
+    assert tile.factor == factor
+    assert tile.image._data.shape == (256 // factor[0], 256 // factor[1])
+    assert tile.image._data[0, 0] > tile.image._data[-1, 0]  # flipped data uploaded
+    assert tuple(tile.image.transform.matrix[3, :2]) == (500, 100)
+
+
+def _shown_viewer(qtbot: QtBot) -> StageViewer:
+    viewer = StageViewer()
+    qtbot.addWidget(viewer)
+    viewer.resize(400, 400)
+    viewer.show()
+    qtbot.waitExposed(viewer)
+    return viewer
+
+
+def test_stage_viewer_refreshed_tile_is_drawn_on_top(qtbot: QtBot) -> None:
+    viewer = _shown_viewer(qtbot)
+    viewer.set_clims((0, 1))
+    old = viewer.add_image(np.ones((64, 64), np.uint16))
+    viewer.add_image(np.zeros((64, 64), np.uint16))  # newer, so on top
+    viewer.zoom_to_fit(margin=0)
+
+    def center() -> int:
+        rgba = viewer.canvas.render()
+        return int(rgba[rgba.shape[0] // 2, rgba.shape[1] // 2, 0])
+
+    assert center() == 0
+    viewer.update_image(old, np.ones((64, 64), np.uint16))
+    assert center() == 255
+
+
+def test_stage_viewer_only_tiles_in_view_hold_an_image(qtbot: QtBot) -> None:
+    viewer = _shown_viewer(qtbot)
+    viewer.set_downsample(False)  # no overview: every tile in view is drawn
+    for i in range(200):
+        viewer.add_image(TILE_IMG, _build_transform_matrix(i * 100, 0).T)
+    viewer.zoom_to_fit()
+    assert len(viewer._drawn) == 200
+
+    viewer.view.camera.set_range(x=(0, 150), y=(0, 64), margin=0)
+    assert 0 < len(viewer._drawn) <= 2
+    images = viewer._tile_layer.children
+    assert len(images) == len(viewer._drawn) + MAX_SPARE_IMAGES
+    assert sum(image.visible for image in images) == len(viewer._drawn)
+
+
+def test_stage_viewer_tile_back_in_view_reuses_its_image(qtbot: QtBot) -> None:
+    viewer = _shown_viewer(qtbot)
+    a = viewer.add_image(np.full((64, 64), 1, np.uint16))
+    b = viewer.add_image(
+        np.full((64, 64), 2, np.uint16), _build_transform_matrix(1e4, 0)
+    )
+    viewer.add_image(np.full((64, 64), 3, np.uint16), _build_transform_matrix(2e4, 0))
+
+    def look_at(x: float) -> None:
+        viewer.view.camera.set_range(x=(x, x + 64), y=(0, 64), margin=0)
+
+    look_at(0)
+    look_at(1e4)
+    assert b.image is not None
+    b_image, b_data = b.image, b.image._data
+    look_at(0)
+    assert b not in viewer._drawn
+    look_at(1e4)  # its own spare image, as uploaded before
+    assert b.image is b_image
+    assert b.image._data is b_data
+
+    look_at(2e4)  # c takes the least recently used spare: a's
+    assert a.image is None
+    look_at(0)  # a takes b's, which must then show a's data
+    assert a.image is b_image
+    assert a.image._data[0, 0] == 1
+    assert b.image is None
+    assert viewer._drawn == {a}
 
 
 def test_stage_explorer_initialization(qtbot: QtBot) -> None:
@@ -221,7 +297,7 @@ def test_stage_explorer_add_image(qtbot: QtBot) -> None:
     stage_x, stage_y = 50.0, 75.0
     explorer.add_image(image, stage_x, stage_y)
     # Verify the image was added to the stage viewer
-    nimages = len(list(explorer._stage_viewer._get_images()))
+    nimages = len(explorer._stage_viewer._tiles)
     assert nimages == 1
 
 
@@ -447,6 +523,15 @@ def test_contrast_slider_data_range_no_clobber_when_auto_off(qtbot: QtBot) -> No
     assert hi == 150
 
 
+def test_contrast_slider_emits_only_when_the_range_grows(qtbot: QtBot) -> None:
+    widget = ContrastSlider()
+    qtbot.addWidget(widget)
+    with qtbot.waitSignal(widget.valueChanged):
+        widget.update_data_range(10, 200)
+    with qtbot.assertNotEmitted(widget.valueChanged):
+        widget.update_data_range(20, 100)
+
+
 def test_contrast_slider_reset_data_range(qtbot: QtBot) -> None:
     """reset_data_range clears the running range."""
     widget = ContrastSlider()
@@ -670,7 +755,7 @@ def test_stage_explorer_clear_action_hides_contrast_slider(qtbot: QtBot) -> None
     explorer._toolbar.clear_action.trigger()
 
     assert not explorer._contrast_slider.isVisible()
-    assert not list(explorer._stage_viewer._get_images())
+    assert not explorer._stage_viewer._tiles
 
 
 # ---------------------------------------------------------------------------
@@ -759,7 +844,7 @@ def test_stage_explorer_config_reload_clears_map(
     assert not explorer._pending_tiles
 
     explorer.add_image(IMG, 100, 100)
-    assert len(list(explorer._stage_viewer._get_images())) == 1
+    assert len(explorer._stage_viewer._tiles) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -886,7 +971,7 @@ def test_send_to_mda_emits_roi_positions(qtbot: QtBot) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Map tiles: dedup, node reuse, redraw throttling
+# Map tiles: dedup, tile reuse, redraw throttling
 # ---------------------------------------------------------------------------
 
 TILE_IMG = np.random.randint(0, 4096, (64, 64), dtype=np.uint16)
@@ -951,8 +1036,8 @@ def test_frame_ready_burst_is_coalesced_before_qt_event_queue(
     # no image-bearing Qt events were queued for the 100 individual frames.
     assert not explorer._tiles
     qtbot.waitUntil(lambda: bool(explorer._tiles), timeout=1000)
-    node = next(iter(explorer._tiles.values()))
-    assert node._data[0, 0] == 99
+    tile = next(iter(explorer._tiles.values()))
+    assert tile.data[0, 0] == 99
 
 
 def test_sequence_finished_drains_pre_gui_frame_relay(qtbot: QtBot) -> None:
@@ -967,18 +1052,18 @@ def test_sequence_finished_drains_pre_gui_frame_relay(qtbot: QtBot) -> None:
     explorer._on_sequence_finished()
 
     assert len(explorer._tiles) == 1
-    node = next(iter(explorer._tiles.values()))
-    assert node._data[0, 0] == 9
+    tile = next(iter(explorer._tiles.values()))
+    assert tile.data[0, 0] == 9
 
 
 def test_frame_ready_dedup_by_position_index(qtbot: QtBot) -> None:
-    """Revisiting the same (p, g) index reuses one node instead of stacking.
+    """Revisiting the same (p, g) index reuses one tile instead of stacking.
 
     Regression test: the explorer used to build a brand-new scene node for
     *every* frame, so a long timelapse at a fixed position accumulated one
     GPU-backed node per frame -- unbounded memory growth and an ever slower
     canvas. Frames belonging to the same MDA position/grid index must now
-    share a single node, refreshed in place.
+    share a single tile, refreshed in place.
     """
     explorer = StageExplorer()
     qtbot.addWidget(explorer)
@@ -992,11 +1077,11 @@ def test_frame_ready_dedup_by_position_index(qtbot: QtBot) -> None:
         explorer._on_frame_ready(TILE_IMG, event)
 
     assert len(explorer._tiles) == 1
-    assert len(list(explorer._stage_viewer._get_images())) == 1
+    assert len(explorer._stage_viewer._tiles) == 1
 
 
 def test_frame_ready_distinct_positions_create_distinct_tiles(qtbot: QtBot) -> None:
-    """Distinct (p, g) indices each get their own node."""
+    """Distinct (p, g) indices each get their own tile."""
     explorer = StageExplorer()
     qtbot.addWidget(explorer)
     explorer.show()
@@ -1006,7 +1091,7 @@ def test_frame_ready_distinct_positions_create_distinct_tiles(qtbot: QtBot) -> N
         explorer._on_frame_ready(TILE_IMG, event)
 
     assert len(explorer._tiles) == 3
-    assert len(list(explorer._stage_viewer._get_images())) == 3
+    assert len(explorer._stage_viewer._tiles) == 3
 
 
 def test_frame_ready_same_position_across_sequences_reuses_tile(qtbot: QtBot) -> None:
@@ -1024,7 +1109,7 @@ def test_frame_ready_same_position_across_sequences_reuses_tile(qtbot: QtBot) ->
     explorer._on_frame_ready(TILE_IMG, second)
 
     assert len(explorer._tiles) == 1
-    assert len(list(explorer._stage_viewer._get_images())) == 1
+    assert len(explorer._stage_viewer._tiles) == 1
 
 
 def test_frame_ready_same_index_at_new_position_creates_tile(qtbot: QtBot) -> None:
@@ -1073,17 +1158,17 @@ def test_redraw_throttle_coalesces_same_location_bursts(qtbot: QtBot) -> None:
     first = np.full((64, 64), 100, dtype=np.uint16)
     second = np.full((64, 64), 200, dtype=np.uint16)
     explorer._add_image_and_update_widget(first, 0.0, 0.0)
-    node = next(iter(explorer._tiles.values()))
-    assert node._data[0, 0] == 100
+    tile = next(iter(explorer._tiles.values()))
+    assert tile.data[0, 0] == 100
 
     explorer._add_image_and_update_widget(second, 0.0, 0.0)
-    # Still buffered -- no second node, and the node's data hasn't jumped yet.
+    # Still buffered -- no second tile, and the tile's data hasn't jumped yet.
     assert len(explorer._tiles) == 1
     assert explorer._pending_tiles
-    assert node._data[0, 0] == 100
+    assert tile.data[0, 0] == 100
 
     qtbot.waitUntil(lambda: not explorer._pending_tiles, timeout=1000)
-    assert node._data[0, 0] == 200
+    assert tile.data[0, 0] == 200
 
 
 def test_sequence_finished_flushes_pending_tile(qtbot: QtBot) -> None:
@@ -1095,12 +1180,12 @@ def test_sequence_finished_flushes_pending_tile(qtbot: QtBot) -> None:
     last = np.full((64, 64), 9, dtype=np.uint16)
     explorer._add_image_and_update_widget(first, 0.0, 0.0)
     explorer._add_image_and_update_widget(last, 0.0, 0.0)
-    node = next(iter(explorer._tiles.values()))
+    tile = next(iter(explorer._tiles.values()))
     assert explorer._pending_tiles
 
     explorer._on_sequence_finished()
     assert not explorer._pending_tiles
-    assert node._data[0, 0] == 9
+    assert tile.data[0, 0] == 9
 
 
 # ---------------------------------------------------------------------------
@@ -1119,8 +1204,8 @@ def test_culling_hides_offscreen_shows_onscreen(qtbot: QtBot) -> None:
     viewer.view.camera.set_range(x=(-50, 100), y=(-50, 100), margin=0)
     viewer.cull_to_view()
 
-    assert near.visible is True
-    assert far.visible is False
+    assert near.image is not None
+    assert far.image is None
 
 
 def test_culling_accounts_for_non_square_viewport_padding(qtbot: QtBot) -> None:
@@ -1153,7 +1238,7 @@ def test_culling_accounts_for_non_square_viewport_padding(qtbot: QtBot) -> None:
         np.full((30, 30), 65535, dtype=np.uint16),
         _build_transform_matrix(probe_x - 15, -15).T,
     )
-    assert probe.visible is True
+    assert probe.image is not None
 
 
 # ---------------------------------------------------------------------------
@@ -1165,7 +1250,7 @@ def test_map_memory_limit_refuses_new_location_over_budget(qtbot: QtBot) -> None
     explorer = StageExplorer()
     qtbot.addWidget(explorer)
     explorer.show()
-    explorer.max_map_memory_mb = TILE_IMG.nbytes * 2 / 1e6  # room for exactly 1 tile
+    explorer.max_map_memory_mb = TILE_IMG.nbytes * 1.5 / 1e6  # room for 1 tile
 
     explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
     assert len(explorer._tiles) == 1
@@ -1185,7 +1270,7 @@ def test_clear_action_resets_memory_budget_state(qtbot: QtBot) -> None:
     explorer = StageExplorer()
     qtbot.addWidget(explorer)
     explorer.show()
-    explorer.max_map_memory_mb = TILE_IMG.nbytes * 2 / 1e6
+    explorer.max_map_memory_mb = TILE_IMG.nbytes * 1.5 / 1e6
     explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
     explorer._add_image_and_update_widget(TILE_IMG, 5000.0, 0.0)
     assert explorer._memory_banner.isVisible()
@@ -1257,14 +1342,14 @@ def test_map_memory_total_updates_incrementally(qtbot: QtBot) -> None:
         return explorer.map_memory_bytes() - explorer._stage_viewer.overview_nbytes()
 
     explorer._add_image_and_update_widget(small, 0.0, 0.0, throttle=False)
-    assert tiles_bytes() == small.nbytes * 2
+    assert tiles_bytes() == small.nbytes
 
     # Replacing a location accounts only for the size difference.
     explorer._add_image_and_update_widget(large, 0.0, 0.0, throttle=False)
-    assert tiles_bytes() == large.nbytes * 2
+    assert tiles_bytes() == large.nbytes
 
     explorer._add_image_and_update_widget(small, 5000.0, 0.0, throttle=False)
-    assert tiles_bytes() == (large.nbytes + small.nbytes) * 2
+    assert tiles_bytes() == large.nbytes + small.nbytes
 
 
 def test_map_memory_includes_the_overview(qtbot: QtBot) -> None:
@@ -1275,7 +1360,7 @@ def test_map_memory_includes_the_overview(qtbot: QtBot) -> None:
 
     overview = explorer._stage_viewer.overview_nbytes()
     assert overview > 0  # at least the tile's thumbnail
-    assert explorer.map_memory_bytes() == TILE_IMG.nbytes * 2 + overview
+    assert explorer.map_memory_bytes() == TILE_IMG.nbytes + overview
 
     explorer._toolbar.clear_action.trigger()
     assert explorer.map_memory_bytes() == 0
@@ -1320,6 +1405,37 @@ def test_tile_programming_error_is_not_hidden(qtbot: QtBot) -> None:
         pytest.raises(ValueError, match="bad transform"),
     ):
         explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0)
+
+
+def test_autozoom_on_poll_only_when_the_marker_leaves_the_view(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.auto_zoom_to_fit = True
+    explorer._stage_viewer.view.camera.set_range(x=(-5e3, 5e3), y=(-5e3, 5e3))
+
+    with patch.object(explorer, "zoom_to_fit") as zoom:
+        explorer._on_stage_position_polled(0, 0)
+        zoom.assert_not_called()
+        explorer._on_stage_position_polled(1e6, 0)
+        zoom.assert_called_once()
+
+
+def test_zoom_to_fit_includes_the_stage_marker(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer._update_stage_pos_marker(10_000, 0)
+    explorer.add_image(TILE_IMG, 0, 0)
+    explorer.zoom_to_fit(margin=0)
+    rect = explorer._stage_viewer.view.camera.rect
+    assert rect.left < 0 and rect.right > 10_000
+
+
+def test_affine_mirrors_without_rotating(global_mmcore: CMMCorePlus) -> None:
+    cam = global_mmcore.getCameraDevice()
+    global_mmcore.setProperty(cam, Keyword.Transpose_MirrorX, "1")
+    px = global_mmcore.getPixelSizeUm()
+    affine = stage_explorer_mod.AffineState(global_mmcore).system_affine
+    np.testing.assert_allclose(affine, np.diag([-px, px, 1, 1]))
 
 
 def test_autozoom_check_is_skipped_when_disabled(qtbot: QtBot) -> None:

@@ -50,7 +50,7 @@ from pymmcore_widgets.control._rois.roi_manager import GRAY, SceneROIManager
 
 from ._mda_positions import positions_to_xy
 from ._stage_position_marker import StagePositionMarker
-from ._stage_viewer import StageViewer, get_vispy_scene_bounds
+from ._stage_viewer import StageViewer
 
 if TYPE_CHECKING:
     from collections.abc import Hashable, Iterable
@@ -58,10 +58,8 @@ if TYPE_CHECKING:
 
     from qtpy.QtGui import QCloseEvent, QHideEvent, QKeyEvent, QShowEvent
     from vispy.app.canvas import MouseEvent
-    from vispy.scene.visuals import Image
 
-# suppress scientific notation when printing numpy arrays
-np.set_printoptions(suppress=True)
+    from ._stage_viewer import Tile
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +71,6 @@ REDRAW_INTERVAL_MS = 33  # ~30 fps
 
 # Spatial tolerance for reusing a tile when the stage returns to a location.
 SNAP_DEDUP_FOV_FRACTION = 0.01
-
-# An Image node costs roughly twice its array size in RSS: the array itself
-# (vispy holds a reference, it does not copy) plus the GL-side copy.
-TILE_MEMORY_FACTOR = 2
 
 # Recheck free system RAM before adding each new location, regardless of budget.
 LOW_SYSTEM_MEMORY_FLOOR_MB = 512.0
@@ -314,16 +308,15 @@ class StageExplorer(QWidget):
         self._max_map_memory_mb: float = memory_limit_defaults()[2] * 1000.0
 
         # --- map tiles -----------------------------------------------------
-        # One scene node per *location*, not per frame. MDA position indices
+        # One tile per *location*, not per frame. MDA position indices
         # are cached to spatially matched tile keys for the active sequence;
         # snaps use the same spatial matching directly.
-        self._tiles: dict[Hashable, Image] = {}
+        self._tiles: dict[Hashable, Tile] = {}
         self._tile_centers: dict[Hashable, tuple[float, float]] = {}
-        self._tile_bytes: dict[Hashable, int] = {}
         self._map_memory_bytes = 0
         self._next_snap_id: int = 0
         self._mda_tile_keys: dict[Hashable, Hashable] = {}
-        # Frames waiting to be pushed to the GPU, newest-per-location wins.
+        # Frames waiting to be put on the map, newest-per-location wins.
         self._pending_tiles: dict[Hashable, tuple[np.ndarray, float, float]] = {}
         # Throttle per location so a fresh location is displayed immediately.
         self._tile_last_applied: dict[Hashable, float] = {}
@@ -569,17 +562,12 @@ class StageExplorer(QWidget):
         )
 
     def zoom_to_fit(self, *, margin: float = 0.05) -> None:
-        """Zoom to fit the current view to the images in the scene.
-
-        ...also considering the stage position marker and the MDA positions.
-        """
-        visuals: list = list(self._stage_viewer._get_images())  # pyright: ignore
-        if self._stage_pos_marker is not None:
-            visuals.append(self._stage_pos_marker)
-        if self._mda_pos_markers.parent is not None:
-            visuals.append(self._mda_pos_markers)
-        x_bounds, y_bounds, *_ = get_vispy_scene_bounds(visuals)
-        self._stage_viewer.view.camera.set_range(x=x_bounds, y=y_bounds, margin=margin)
+        """Zoom to fit the images, the stage position marker and the MDA positions."""
+        markers = (self._stage_pos_marker, self._mda_pos_markers)
+        self._stage_viewer.zoom_to_fit(
+            margin=margin,
+            include=[m for m in markers if m is not None and m.parent is not None],
+        )
 
     # -----------------------------PRIVATE METHODS------------------------------------
 
@@ -609,7 +597,6 @@ class StageExplorer(QWidget):
         self._stage_viewer.clear()
         self._tiles.clear()
         self._tile_centers.clear()
-        self._tile_bytes.clear()
         self._map_memory_bytes = 0
         self._mda_tile_keys.clear()
         self._pending_tiles.clear()
@@ -647,7 +634,6 @@ class StageExplorer(QWidget):
     @Slot(bool)
     def _on_zoom_to_fit_action(self, checked: bool) -> None:
         """Set the zoom to fit property based on the state of the action."""
-        # self._toolbar.zoom_to_fit_action.setChecked(checked)
         self._auto_zoom_to_fit = False
         self.zoom_to_fit()
 
@@ -830,14 +816,10 @@ class StageExplorer(QWidget):
         if self.roi_manager.mode == "create-poly":
             return
 
-        # map the clicked canvas position to the stage position
         x, y, _, _ = self._stage_viewer.view.camera.transform.imap(event.pos)
         self._stage_controller.move_absolute((x, y))
         self._stage_controller.snap_on_finish = self._snap_on_double_click
-
-        # update the stage position label
         self._stage_pos_label.setText(f"X: {x:.2f} µm  Y: {y:.2f} µm")
-        # snap an image if the snap on double click property is set
 
     @Slot()
     def _on_image_snapped(self) -> None:
@@ -954,8 +936,6 @@ class StageExplorer(QWidget):
     def _update_stage_pos_marker(self, stage_x: float, stage_y: float) -> None:
         """Update the marker position and the stage-position label."""
         self._stage_pos_label.setText(f"X: {stage_x:.2f} µm  Y: {stage_y:.2f} µm")
-
-        # fast path: copy cached rotation/scale part and just update translation
         if self._stage_pos_marker is not None:
             matrix = self._affine_state.system_affine_translated(stage_x, stage_y)
             self._stage_pos_marker.apply_transform(matrix.T)
@@ -976,11 +956,9 @@ class StageExplorer(QWidget):
 
     @Slot(float, float)
     def _on_stage_position_polled(self, stage_x: float, stage_y: float) -> None:
-        """Update the marker and label with the polled stage position."""
+        """Update the marker and label, zooming out if the marker left the view."""
         self._update_stage_pos_marker(stage_x, stage_y)
-
-        # zoom_to_fit only if auto _auto_zoom_to_fit property is set to True.
-        if self._auto_zoom_to_fit:
+        if self._auto_zoom_to_fit and not self._is_visual_within_view(stage_x, stage_y):
             self.zoom_to_fit()
 
     # IMAGES -----------------------------------------------------------------------
@@ -1000,27 +978,16 @@ class StageExplorer(QWidget):
         """
         if key is None:
             key = self._snap_tile_key(stage_x_um, stage_y_um)
-        if throttle:
-            self._queue_tile(key, image, stage_x_um, stage_y_um)
-        else:
-            # The frame relay has already limited this path to one GUI update
-            # per redraw interval. Applying it directly avoids two independent
-            # 33 ms throttles combining into an unintended ~15 fps display.
-            self._pending_tiles.pop(key, None)
-            self._apply_tile(key, image, stage_x_um, stage_y_um)
-            self._tile_last_applied[key] = time.monotonic()
+        self._queue_tile(key, image, stage_x_um, stage_y_um, throttle=throttle)
 
-        # update the stage position label if the stage position is not being polled
         if not self._poll_stage_position:
             self._stage_pos_label.setText(
                 f"X: {stage_x_um:.2f} µm  Y: {stage_y_um:.2f} µm"
             )
-
-        # reset the view if the image is not within the view
         if self._auto_zoom_to_fit and not self._is_visual_within_view(
             stage_x_um, stage_y_um
         ):
-            self._stage_viewer.zoom_to_fit()
+            self.zoom_to_fit()
 
     # MAP TILES ---------------------------------------------------------------
 
@@ -1065,24 +1032,34 @@ class StageExplorer(QWidget):
         self._next_snap_id += 1
         return ("snap", self._next_snap_id)
 
-    def _queue_tile(self, key: Hashable, image: np.ndarray, x: float, y: float) -> None:
+    def _queue_tile(
+        self,
+        key: Hashable,
+        image: np.ndarray,
+        x: float,
+        y: float,
+        *,
+        throttle: bool = True,
+    ) -> None:
         """Apply a frame for `key`, or buffer it if `key` was just updated.
 
         Per-location leading-edge throttle: a location that hasn't been
         touched in the last REDRAW_INTERVAL_MS is updated right away; one
         being hit faster than that (a fast timelapse revisiting the same
         stage position) has its updates coalesced into the next tick instead.
+        Frames from the relay are already limited to one batch per interval:
+        they skip the throttle, or the two would combine into ~15 fps.
         """
         now = time.monotonic()
         last = self._tile_last_applied.get(key)
-        if last is None or (now - last) * 1000 >= REDRAW_INTERVAL_MS:
-            self._pending_tiles.pop(key, None)
-            self._apply_tile(key, image, x, y)
-            self._tile_last_applied[key] = now
-        else:
+        if throttle and last is not None and (now - last) * 1000 < REDRAW_INTERVAL_MS:
             self._pending_tiles[key] = (image, x, y)
             if not self._redraw_timer.isActive():
                 self._redraw_timer.start()
+            return
+        self._pending_tiles.pop(key, None)
+        self._apply_tile(key, image, x, y)
+        self._tile_last_applied[key] = now
 
     def _flush_pending_tiles(self) -> None:
         """Push every buffered frame into the scene."""
@@ -1096,23 +1073,27 @@ class StageExplorer(QWidget):
             self._tile_last_applied[key] = now
 
     def _apply_tile(self, key: Hashable, image: np.ndarray, x: float, y: float) -> None:
-        """Create or refresh the scene node for one map location."""
-        matrix = self._tile_transform(x, y)
-        cost = image.nbytes * TILE_MEMORY_FACTOR
-        if (node := self._tiles.get(key)) is not None:
-            self._stage_viewer.update_image(node, image, transform=matrix.T)
-            self._map_memory_bytes += cost - self._tile_bytes[key]
-            self._tile_bytes[key] = cost
+        """Create or refresh the map tile for one location.
+
+        Only tiles in view hold a texture, at about screen resolution, so the
+        map's memory is that of its arrays.
+        """
+        matrix = (
+            self._affine_state.system_affine_translated(x, y) @ self._half_img_shift
+        )
+        if (tile := self._tiles.get(key)) is not None:
+            self._map_memory_bytes += image.nbytes - tile.data.nbytes
+            self._stage_viewer.update_image(tile, image, transform=matrix)
         else:
-            system_low = self._system_memory_low(cost)
-            if system_low or self._would_exceed_memory(cost):
+            system_low = self._system_memory_low(image.nbytes)
+            if system_low or self._would_exceed_memory(image.nbytes):
                 # Refuse the *new* location only. Nothing already on the map
                 # is discarded, and existing locations keep updating, so this
                 # is fully recoverable by clearing the map.
                 self._set_memory_exceeded(True, system_low=system_low)
                 return
             try:
-                node = self._stage_viewer.add_image(image, transform=matrix.T)
+                tile = self._stage_viewer.add_image(image, transform=matrix)
             except Exception as exc:
                 if not _is_allocation_error(exc):
                     raise
@@ -1120,20 +1101,11 @@ class StageExplorer(QWidget):
                 logger.exception("Failed to add stage-map tile at (%.1f, %.1f)", x, y)
                 self._set_memory_exceeded(True, system_low=True)
                 return
-            self._tiles[key] = node
-            self._tile_bytes[key] = cost
-            self._map_memory_bytes += cost
+            self._tiles[key] = tile
+            self._map_memory_bytes += image.nbytes
             self._set_memory_exceeded(False)
         self._tile_centers[key] = (x, y)
         self._update_contrast_range(image)
-
-    def _tile_transform(self, x: float, y: float) -> np.ndarray:
-        stage_shift = np.eye(4)
-        stage_shift[0:2, 3] = (x, y)
-        matrix: np.ndarray = (
-            stage_shift @ self._affine_state.system_affine @ self._half_img_shift
-        )
-        return matrix
 
     def _update_contrast_range(self, image: np.ndarray) -> None:
         if not self._contrast_slider.isVisible():
@@ -1196,19 +1168,13 @@ class StageExplorer(QWidget):
         self._memory_banner.setVisible(exceeded)
 
     def _is_visual_within_view(self, x: float, y: float) -> bool:
-        """Return True if the visual is within the view, otherwise False."""
-        view_rect = self._stage_viewer.view.camera.rect
-        fov_w, fov_h = self._fov_w_h()
-        half_width = fov_w / 2
-        half_height = fov_h / 2
-        # NOTE: x, y is the center of the image
-        vertices = [
-            (x - half_width, y - half_height),  # bottom-left
-            (x + half_width, y - half_height),  # bottom-right
-            (x - half_width, y + half_height),  # top-left
-            (x + half_width, y + half_height),  # top-right
-        ]
-        return all(view_rect.contains(*vertex) for vertex in vertices)
+        """Whether the field of view centered at (x, y) is entirely in view."""
+        rect = self._stage_viewer.view.camera.rect
+        half_w, half_h = (size / 2 for size in self._fov_w_h())
+        return bool(
+            rect.contains(x - half_w, y - half_h)
+            and rect.contains(x + half_w, y + half_h)
+        )
 
 
 _CLIM_SLIDER_STYLE = (
@@ -1372,8 +1338,10 @@ class ContrastSlider(QWidget):
 
     def update_data_range(self, img_min: float, img_max: float) -> None:
         """Expand the running data range and, if auto, update the handles."""
-        self._data_min = min(self._data_min, img_min)
-        self._data_max = max(self._data_max, img_max)
+        lo, hi = min(self._data_min, img_min), max(self._data_max, img_max)
+        if (lo, hi) == (self._data_min, self._data_max):
+            return
+        self._data_min, self._data_max = lo, hi
         if self._auto:
             self._set_handles(self._data_min, self._data_max)
             self.valueChanged.emit((self._data_min, self._data_max))
@@ -1607,8 +1575,6 @@ class AffineState:
     def __post_init__(self) -> None:
         self.refresh()
 
-    # Public
-
     def refresh(self) -> None:
         """Recompute everything that depends on camera settings."""
         self.pixel_size_um = self.mmc.getPixelSizeUm()
@@ -1617,12 +1583,9 @@ class AffineState:
 
     def system_affine_translated(self, x: float, y: float) -> np.ndarray:
         """Return the system affine matrix translated to the given (x, y) position."""
-        # fast path: copy cached rotation/scale part and just update translation
         matrix = self.system_affine.copy()
         matrix[0:2, 3] = (x, y)
         return matrix
-
-    # Private helpers
 
     def _compute_system_affine(self) -> np.ndarray:
         flip_x = flip_y = False
@@ -1630,52 +1593,14 @@ class AffineState:
             flip_x = self.mmc.getProperty(cam, Keyword.Transpose_MirrorX) == "1"
             flip_y = self.mmc.getProperty(cam, Keyword.Transpose_MirrorY) == "1"
 
-        if self._pixel_config_is_identity():
-            return self._linear_matrix(flip_x, flip_y)
-        return self._pixel_config_matrix(flip_x, flip_y)
-
-    def _linear_matrix(
-        self, rotation: float = 0, flip_x: bool = False, flip_y: bool = False
-    ) -> np.ndarray:
-        """Build linear transformation matrix for rotation and scaling.
-
-        The matrix is still 4x4, but has no translation component.
-        """
-        # rotation matrix
-        R = np.eye(4)
-        rotation_rad = np.deg2rad(rotation)
-        cos_ = np.cos(rotation_rad)
-        sin_ = np.sin(rotation_rad)
-        R[:2, :2] = np.array([[cos_, -sin_], [sin_, cos_]])
-        # scaling matrix
-        # a pixel size of 0 (e.g. no calibration for the current objective/
-        # resolution preset) would otherwise produce a singular matrix, which
-        # crashes when applied as a vispy transform. Fall back to 1.0 (no
-        # scaling) in that case.
-        pixel_size_um = self.pixel_size_um or 1.0
-        S = np.diag([pixel_size_um, pixel_size_um, 1, 1])
-        # flip the image if required
-        if flip_x:
-            S[0, 0] *= -1
-        if flip_y:
-            S[1, 1] *= -1
-        return cast("np.ndarray", R @ S)
-
-    def _pixel_config_is_identity(self) -> bool:
-        return np.allclose(self.pixel_size_affine, (1.0, 0.0, 0.0, 0.0, 1.0, 0.0))
-
-    def _pixel_config_matrix(
-        self, flip_x: bool = False, flip_y: bool = False
-    ) -> np.ndarray:
-        """Return the current pixel configuration affine, if set.
-
-        If the pixel configuration is not set (i.e. is the identity matrix),
-        it will return None.
-        """
-        tform = np.eye(4)
-        tform[:2, :3] = np.array(self.pixel_size_affine).reshape(2, 3)
-        # flip the image if required
-        # TODO: Should this ALWAYS be done?
+        if np.allclose(self.pixel_size_affine, (1.0, 0.0, 0.0, 0.0, 1.0, 0.0)):
+            # A pixel size of 0 (no calibration for the current objective or
+            # resolution preset) would make a singular matrix, which crashes
+            # as a vispy transform: fall back to no scaling.
+            tform = np.diag([self.pixel_size_um or 1.0] * 2 + [1.0, 1.0])
+        else:
+            tform = np.eye(4)
+            tform[:2, :3] = np.array(self.pixel_size_affine).reshape(2, 3)
         if flip_x:
             tform[0, 0] *= -1
         if flip_y:
