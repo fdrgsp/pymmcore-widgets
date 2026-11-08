@@ -268,17 +268,24 @@ class StageExplorer(QWidget):
         A boolean property that controls whether to automatically "zoom to fit"
         the view when a new image is added to the scene or when the position of the
         stage marker (if enabled) is out of view. By default, False.
-        By default, False.
     snap_on_double_click : bool
         A boolean property that controls whether to snap an image when the user
-        double-clicks on the view. By default, False.
+        double-clicks on the view. By default, True.
     poll_stage_position : bool
         A boolean property that controls whether to poll the stage position.
         If True, the widget will poll the stage position and display a rectangle
-        around the current stage position. By default, False.
+        around the current stage position. By default, True if devices are loaded.
+    show_mda_positions : bool
+        A boolean property that controls whether to mark on the map the positions
+        given to `set_mda_positions` (e.g. an MDA position table). By default, True.
+    max_map_memory_mb : float
+        Ceiling on the memory held by the map's images, in MB. New locations are
+        not added past it. By default, a fraction of the available system memory.
     """
 
     sendToMDARequested = Signal(list, bool)
+    """Emitted as (positions, replace) by "Send to MDA": the `useq.Position` of
+    each Explorer ROI, and whether they should replace the existing positions."""
 
     def __init__(
         self, parent: QWidget | None = None, mmcore: CMMCorePlus | None = None
@@ -296,13 +303,15 @@ class StageExplorer(QWidget):
         self._stage_viewer.setCursor(Qt.CursorShape.CrossCursor)
         self.roi_manager = SceneROIManager(self._stage_viewer.canvas)
 
+        self._our_mda_running: bool = False
+        self._position_indicator: PositionIndicator = PositionIndicator.RECTANGLE
+
         # properties
         self._auto_zoom_to_fit: bool = False
         self._snap_on_double_click: bool = True
         self._poll_stage_position: bool = self._has_devices()
-        self._our_mda_running: bool = False
-        self._position_indicator: PositionIndicator = PositionIndicator.RECTANGLE
         self._show_mda_positions: bool = True
+        self._max_map_memory_mb: float = memory_limit_defaults()[2] * 1000.0
 
         # --- map tiles -----------------------------------------------------
         # One scene node per *location*, not per frame. MDA position indices
@@ -327,7 +336,6 @@ class StageExplorer(QWidget):
         self._frame_relay_timer.setSingleShot(True)
         self._frame_relay_timer.setInterval(REDRAW_INTERVAL_MS)
         self._frame_relay_timer.timeout.connect(self._on_frames_pending)
-        self._max_map_memory_mb: float = memory_limit_defaults()[2] * 1000.0
         self._map_memory_exceeded: bool = False
         # Whether the poller was running when hideEvent last paused it, so
         # showEvent knows whether to restart it (see hideEvent/showEvent).
