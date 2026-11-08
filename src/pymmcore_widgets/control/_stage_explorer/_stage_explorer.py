@@ -302,6 +302,7 @@ class StageExplorer(QWidget):
         self._poll_stage_position: bool = self._has_devices()
         self._our_mda_running: bool = False
         self._position_indicator: PositionIndicator = PositionIndicator.RECTANGLE
+        self._show_mda_positions: bool = True
 
         # --- map tiles -----------------------------------------------------
         # One scene node per *location*, not per frame. MDA position indices
@@ -437,6 +438,7 @@ class StageExplorer(QWidget):
         # initial setup
         self._on_roi_changed()
         self._toolbar.snap_action.setChecked(self._snap_on_double_click)
+        self._toolbar.show_mda_positions_action.setChecked(self._show_mda_positions)
         self._update_actions_enabled()
         if self._poll_stage_position:
             self._toolbar.poll_stage_action.trigger()
@@ -528,7 +530,7 @@ class StageExplorer(QWidget):
     @property
     def show_mda_positions(self) -> bool:
         """Whether to mark the positions given to `set_mda_positions` on the map."""
-        return bool(self._toolbar.show_mda_positions_action.isChecked())
+        return self._show_mda_positions
 
     @show_mda_positions.setter
     def show_mda_positions(self, value: bool) -> None:
@@ -547,7 +549,7 @@ class StageExplorer(QWidget):
         """
         self._mda_positions = () if positions is None else positions
         self._mda_positions_stale = True
-        if self.show_mda_positions:
+        if self._show_mda_positions:
             self._refresh_mda_pos_markers()
 
     def add_image(
@@ -916,6 +918,7 @@ class StageExplorer(QWidget):
 
     @Slot(bool)
     def _on_show_mda_positions_action(self, checked: bool) -> None:
+        self._show_mda_positions = checked
         if checked:
             self._refresh_mda_pos_markers()
             if self._auto_zoom_to_fit:

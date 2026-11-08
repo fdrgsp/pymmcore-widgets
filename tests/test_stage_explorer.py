@@ -1461,8 +1461,12 @@ def test_stage_explorer_show_mda_positions(qtbot: QtBot) -> None:
     scene = explorer._stage_viewer.view.scene
     action = explorer._toolbar.show_mda_positions_action
 
-    assert not explorer.show_mda_positions
+    # on by default, but nothing to show yet
+    assert explorer.show_mda_positions
     assert markers.parent is None
+
+    action.trigger()
+    assert not explorer.show_mda_positions
 
     # set while hidden: stored, not expanded
     with patch.object(
