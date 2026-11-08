@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from threading import Thread
-from typing import TYPE_CHECKING
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -1145,6 +1146,13 @@ def test_snap_no_dedup_beyond_tolerance(qtbot: QtBot) -> None:
     assert len(explorer._tiles) == 2
 
 
+def _frozen_clock() -> Any:
+    """Freeze the explorer's clock: frames arrive at once, however slow the host."""
+    return patch.object(
+        stage_explorer_mod, "time", SimpleNamespace(monotonic=lambda: 0.0)
+    )
+
+
 def test_redraw_throttle_coalesces_same_location_bursts(qtbot: QtBot) -> None:
     """Frames hitting the same location faster than the redraw interval coalesce.
 
@@ -1157,11 +1165,11 @@ def test_redraw_throttle_coalesces_same_location_bursts(qtbot: QtBot) -> None:
 
     first = np.full((64, 64), 100, dtype=np.uint16)
     second = np.full((64, 64), 200, dtype=np.uint16)
-    explorer._add_image_and_update_widget(first, 0.0, 0.0)
-    tile = next(iter(explorer._tiles.values()))
-    assert tile.data[0, 0] == 100
-
-    explorer._add_image_and_update_widget(second, 0.0, 0.0)
+    with _frozen_clock():
+        explorer._add_image_and_update_widget(first, 0.0, 0.0)
+        tile = next(iter(explorer._tiles.values()))
+        assert tile.data[0, 0] == 100
+        explorer._add_image_and_update_widget(second, 0.0, 0.0)
     # Still buffered -- no second tile, and the tile's data hasn't jumped yet.
     assert len(explorer._tiles) == 1
     assert explorer._pending_tiles
@@ -1178,8 +1186,9 @@ def test_sequence_finished_flushes_pending_tile(qtbot: QtBot) -> None:
 
     first = np.full((64, 64), 1, dtype=np.uint16)
     last = np.full((64, 64), 9, dtype=np.uint16)
-    explorer._add_image_and_update_widget(first, 0.0, 0.0)
-    explorer._add_image_and_update_widget(last, 0.0, 0.0)
+    with _frozen_clock():
+        explorer._add_image_and_update_widget(first, 0.0, 0.0)
+        explorer._add_image_and_update_widget(last, 0.0, 0.0)
     tile = next(iter(explorer._tiles.values()))
     assert explorer._pending_tiles
 
