@@ -52,6 +52,8 @@ class StagePositionMarker(Compound):
         self._rect.visible = show_rect
         self._marker.visible = show_marker_symbol
         self.set_gl_state(depth_test=False)
+        # above the map tiles (negative orders) and the MDA position markers (0)
+        self.order = 1
 
     def set_rect_visible(self, show: bool) -> None:
         """Toggle the rectangle border."""

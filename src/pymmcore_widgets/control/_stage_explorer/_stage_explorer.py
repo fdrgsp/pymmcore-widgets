@@ -41,16 +41,18 @@ from qtpy.QtWidgets import (
 )
 from superqt import QEnumComboBox, QIconifyIcon, QLabeledRangeSlider
 from useq import OrderMode
+from vispy.scene.visuals import Markers
 
 from pymmcore_widgets._util import memory_limit_defaults
 from pymmcore_widgets.control._q_stage_controller import QStageMoveAccumulator
 from pymmcore_widgets.control._rois.roi_manager import GRAY, SceneROIManager
 
+from ._mda_positions import positions_to_xy
 from ._stage_position_marker import StagePositionMarker
 from ._stage_viewer import StageViewer, get_vispy_scene_bounds
 
 if TYPE_CHECKING:
-    from collections.abc import Hashable
+    from collections.abc import Hashable, Iterable
     from typing import Any
 
     from qtpy.QtGui import QCloseEvent, QHideEvent, QKeyEvent, QShowEvent
@@ -77,6 +79,9 @@ TILE_MEMORY_FACTOR = 2
 
 # Recheck free system RAM before adding each new location, regardless of budget.
 LOW_SYSTEM_MEMORY_FLOOR_MB = 512.0
+
+MDA_POSITION_COLOR = "#00BFFF"
+MDA_POSITION_SIZE_PX = 7
 _GL_OUT_OF_MEMORY = 0x0505
 
 
@@ -335,6 +340,18 @@ class StageExplorer(QWidget):
         self._stage_pos_marker: StagePositionMarker | None = None
         self._create_stage_pos_marker()
 
+        # MDA positions: one Markers visual holds them all (one buffer, one draw
+        # call), sized in screen pixels so a whole plate stays readable zoomed out.
+        # Expanded to points only while shown; see set_mda_positions. In the
+        # scene only while it has points to show: vispy's scene-bounds scan
+        # (camera.set_range) fails on an empty Markers, hidden or not.
+        self._mda_positions: Iterable[useq.Position] | useq.WellPlatePlan = ()
+        self._mda_positions_stale: bool = False
+        self._n_mda_points: int = 0
+        self._mda_pos_markers = Markers(scaling="fixed")
+        self._mda_pos_markers.set_gl_state(depth_test=False)
+        self._mda_pos_markers.order = 0  # above the tiles, below the stage marker
+
         # --- cached parameters for efficient affine calculations ---
         self._affine_state = AffineState(self._mmc)
 
@@ -358,6 +375,9 @@ class StageExplorer(QWidget):
         tb.snap_action.triggered.connect(self._on_snap_action)
         tb.poll_stage_action.triggered.connect(self._on_poll_stage_action)
         tb.show_grid_action.triggered.connect(self._on_show_grid_action)
+        tb.show_mda_positions_action.triggered.connect(
+            self._on_show_mda_positions_action
+        )
         tb.delete_rois_action.triggered.connect(self.roi_manager.clear)
         tb.scan_action.triggered.connect(self._on_scan_action)
         tb.stop_scan_action.triggered.connect(self._on_stop_scan_action)
@@ -505,6 +525,31 @@ class StageExplorer(QWidget):
         self._toolbar.poll_stage_action.setChecked(value)
         self._on_poll_stage_action(value)
 
+    @property
+    def show_mda_positions(self) -> bool:
+        """Whether to mark the positions given to `set_mda_positions` on the map."""
+        return bool(self._toolbar.show_mda_positions_action.isChecked())
+
+    @show_mda_positions.setter
+    def show_mda_positions(self, value: bool) -> None:
+        self._toolbar.show_mda_positions_action.setChecked(value)
+        self._on_show_mda_positions_action(value)
+
+    def set_mda_positions(
+        self, positions: Iterable[useq.Position] | useq.WellPlatePlan | None
+    ) -> None:
+        """Set the MDA positions to mark on the map (see `show_mda_positions`).
+
+        Pass the value of an MDA position table, e.g. connect
+        `MDAWidget.stage_positions.valueChanged` to call this with
+        `MDAWidget.stage_positions.value()`. Every field of view is marked,
+        including those of a plate plan or of a position's sub-sequence grid.
+        """
+        self._mda_positions = () if positions is None else positions
+        self._mda_positions_stale = True
+        if self.show_mda_positions:
+            self._refresh_mda_pos_markers()
+
     def add_image(
         self, image: np.ndarray, stage_x_um: float, stage_y_um: float
     ) -> None:
@@ -516,11 +561,13 @@ class StageExplorer(QWidget):
     def zoom_to_fit(self, *, margin: float = 0.05) -> None:
         """Zoom to fit the current view to the images in the scene.
 
-        ...also considering the stage position marker.
+        ...also considering the stage position marker and the MDA positions.
         """
         visuals: list = list(self._stage_viewer._get_images())  # pyright: ignore
         if self._stage_pos_marker is not None:
             visuals.append(self._stage_pos_marker)
+        if self._mda_pos_markers.parent is not None:
+            visuals.append(self._mda_pos_markers)
         x_bounds, y_bounds, *_ = get_vispy_scene_bounds(visuals)
         self._stage_viewer.view.camera.set_range(x=x_bounds, y=y_bounds, margin=margin)
 
@@ -866,6 +913,32 @@ class StageExplorer(QWidget):
     def _on_show_grid_action(self, checked: bool) -> None:
         """Set the show grid property based on the state of the action."""
         self._stage_viewer.set_grid_visible(checked)
+
+    @Slot(bool)
+    def _on_show_mda_positions_action(self, checked: bool) -> None:
+        if checked:
+            self._refresh_mda_pos_markers()
+            if self._auto_zoom_to_fit:
+                self.zoom_to_fit()
+        else:
+            self._mda_pos_markers.parent = None
+
+    def _refresh_mda_pos_markers(self) -> None:
+        """Show the MDA positions, re-expanding them only if they changed."""
+        if self._mda_positions_stale:
+            self._mda_positions_stale = False
+            xy = positions_to_xy(self._mda_positions)
+            self._n_mda_points = len(xy)
+            if self._n_mda_points:  # vispy can't take an empty array
+                self._mda_pos_markers.set_data(
+                    pos=xy,
+                    size=MDA_POSITION_SIZE_PX,
+                    face_color=MDA_POSITION_COLOR,
+                    edge_width=0,
+                    symbol="disc",
+                )
+        scene = self._stage_viewer.view.scene
+        self._mda_pos_markers.parent = scene if self._n_mda_points else None
 
     def _update_stage_pos_marker(self, stage_x: float, stage_y: float) -> None:
         """Update the marker position and the stage-position label."""
@@ -1353,6 +1426,11 @@ class StageExplorerToolbar(QToolBar):
             "Show Grid",
         )
         self.show_grid_action.setCheckable(True)
+        self.show_mda_positions_action = self.addAction(
+            QIconifyIcon("mdi:map-marker-multiple-outline", color=GRAY),
+            "Show MDA Positions",
+        )
+        self.show_mda_positions_action.setCheckable(True)
 
         self.map_memory_action = self.addAction(
             QIconifyIcon("mdi:memory", color=GRAY),

@@ -53,6 +53,11 @@ model = explorer.roi_manager.roi_model
 model.dataChanged.connect(_on_data_changed)
 model.rowsRemoved.connect(_on_data_changed)
 
+# Mark the MDA positions on the map (toolbar: "Show MDA Positions").
+mda_widget.stage_positions.valueChanged.connect(
+    lambda: explorer.set_mda_positions(mda_widget.stage_positions.value())
+)
+
 
 # layout
 

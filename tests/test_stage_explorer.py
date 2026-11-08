@@ -17,6 +17,9 @@ from pymmcore_widgets.control._rois.roi_model import RectangleROI
 from pymmcore_widgets.control._stage_explorer import (
     _stage_explorer as stage_explorer_mod,
 )
+from pymmcore_widgets.control._stage_explorer._mda_positions import (
+    positions_to_xy,
+)
 from pymmcore_widgets.control._stage_explorer._stage_explorer import (
     ContrastSlider,
     ScanMenu,
@@ -1391,3 +1394,155 @@ def test_map_memory_action_is_instant_popup(qtbot: QtBot) -> None:
 
     assert memory_btn.popupMode() == QToolButton.ToolButtonPopupMode.InstantPopup
     assert memory_btn.menu() is tb.map_memory_menu
+
+
+# ------------------------------- MDA positions -------------------------------
+
+
+def test_positions_to_xy_plain_and_sub_grids() -> None:
+    rel = useq.GridRowsColumns(rows=1, columns=2, fov_width=10, fov_height=10)
+    edges = useq.GridFromEdges(
+        top=10, bottom=0, left=0, right=10, fov_width=10, fov_height=10
+    )
+    xy = positions_to_xy(
+        [
+            useq.Position(x=1, y=2),
+            useq.Position(),  # no xy: skipped
+            useq.Position(x=100, y=100, sequence=useq.MDASequence(grid_plan=rel)),
+            useq.Position(sequence=useq.MDASequence(grid_plan=edges)),
+        ]
+    )
+    expected = [(1, 2), (95, 100), (105, 100), *((p.x, p.y) for p in edges)]
+    np.testing.assert_allclose(xy, expected)
+    assert positions_to_xy([]).shape == (0, 2)
+
+
+def test_positions_to_xy_skips_grid_without_fov() -> None:
+    """A FOV-less area grid has millions of points: never iterate it."""
+    poly = useq.GridFromPolygon(
+        vertices=[(0, 0), (5000, 0), (5000, 5000)], fov_width=0, fov_height=0
+    )
+    area = useq.GridWidthHeight(width=5000, height=5000, fov_width=0, fov_height=0)
+    xy = positions_to_xy(
+        [
+            useq.Position(sequence=useq.MDASequence(grid_plan=poly)),
+            useq.Position(x=7, y=8, sequence=useq.MDASequence(grid_plan=area)),
+        ]
+    )
+    # the absolute grid is dropped, the relative one falls back to its position
+    np.testing.assert_allclose(xy, [(7, 8)])
+
+
+@pytest.mark.parametrize(
+    "points",
+    [
+        useq.GridRowsColumns(rows=3, columns=2, fov_width=100, fov_height=80),
+        useq.RandomPoints(num_points=4, fov_width=50, fov_height=50, random_seed=0),
+        useq.RandomPoints(num_points=4, fov_width=50, fov_height=50),
+        useq.RelativePosition(),
+    ],
+)
+def test_positions_to_xy_plate_matches_useq(points: useq.MultiPointPlan) -> None:
+    plan = useq.WellPlatePlan(
+        plate=96,
+        a1_center_xy=(1000, 2000),
+        rotation=3,
+        selected_wells=np.s_[:3, :4],
+        well_points_plan=points,
+    )
+    expected = [(p.x, p.y) for p in plan.image_positions]
+    np.testing.assert_allclose(positions_to_xy(plan), expected, atol=0.01)
+
+
+def test_stage_explorer_show_mda_positions(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    markers = explorer._mda_pos_markers
+    scene = explorer._stage_viewer.view.scene
+    action = explorer._toolbar.show_mda_positions_action
+
+    assert not explorer.show_mda_positions
+    assert markers.parent is None
+
+    # set while hidden: stored, not expanded
+    with patch.object(
+        stage_explorer_mod, "positions_to_xy", wraps=stage_explorer_mod.positions_to_xy
+    ) as spy:
+        explorer.set_mda_positions(
+            [useq.Position(x=0, y=0), useq.Position(x=5000, y=0)]
+        )
+        spy.assert_not_called()
+
+        action.trigger()
+        assert explorer.show_mda_positions
+        assert markers.parent is scene
+        assert spy.call_count == 1
+        np.testing.assert_allclose(
+            markers._data["a_position"][:, :2], [(0, 0), (5000, 0)]
+        )
+
+        # toggling again without new positions doesn't recompute
+        action.trigger()
+        assert markers.parent is None
+        action.trigger()
+        assert markers.parent is scene
+        assert spy.call_count == 1
+
+    # zoom to fit frames the positions
+    explorer.zoom_to_fit()
+    rect = explorer._stage_viewer.view.camera.rect
+    assert rect.left <= 0 and rect.right >= 5000
+
+    # set while shown: updated now; empty hides
+    explorer.set_mda_positions([])
+    assert markers.parent is None
+    explorer.show_mda_positions = False
+    explorer.show_mda_positions = True
+    assert markers.parent is None  # empty stays hidden, no stale points
+
+    explorer.set_mda_positions(None)
+    assert markers.parent is None
+
+
+def test_stage_explorer_mda_positions_survive_clear(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.set_mda_positions([useq.Position(x=1, y=2)])
+    explorer.show_mda_positions = True
+    explorer.add_image(IMG, 0, 0)
+    explorer._toolbar.clear_action.trigger()
+    assert explorer._mda_pos_markers.parent is explorer._stage_viewer.view.scene
+
+
+def test_stage_marker_draws_above_mda_positions(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    assert explorer._stage_pos_marker is not None
+    assert explorer._stage_pos_marker.order > explorer._mda_pos_markers.order
+
+
+def test_mda_positions_follow_the_mda_table(qtbot: QtBot) -> None:
+    """Rows added, edited, unchecked or deleted in the table update the map."""
+    from pymmcore_widgets.useq_widgets import PositionTable
+
+    explorer = StageExplorer()
+    table = PositionTable()
+    qtbot.addWidget(explorer)
+    qtbot.addWidget(table)
+    table.valueChanged.connect(lambda: explorer.set_mda_positions(table.value()))
+    explorer.show_mda_positions = True
+    markers = explorer._mda_pos_markers
+
+    def shown() -> list[list[float]]:
+        if markers.parent is None:
+            return []
+        return markers._data["a_position"][:, :2].tolist()
+
+    table.setValue([useq.Position(x=1, y=2), useq.Position(x=3, y=4)])
+    assert shown() == [[1, 2], [3, 4]]
+
+    table.table().removeRow(0)
+    assert shown() == [[3, 4]]
+
+    table.table().removeRow(0)
+    assert shown() == []
