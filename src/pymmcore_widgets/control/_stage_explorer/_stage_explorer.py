@@ -1162,8 +1162,12 @@ class StageExplorer(QWidget):
             self._set_memory_exceeded(False)
 
     def map_memory_bytes(self) -> int:
-        """Approximate memory currently held by the map's images."""
-        return self._map_memory_bytes
+        """Approximate memory currently held by the map's images.
+
+        Includes the reduced overview drawn in place of the tiles when zoomed
+        out (see `_overview.py`).
+        """
+        return self._map_memory_bytes + self._stage_viewer.overview_nbytes()
 
     def _would_exceed_memory(self, additional: int) -> bool:
         """Whether `additional` bytes would push the map past its own limit."""

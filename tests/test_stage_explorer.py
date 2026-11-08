@@ -1252,15 +1252,33 @@ def test_map_memory_total_updates_incrementally(qtbot: QtBot) -> None:
     small = np.zeros((8, 8), dtype=np.uint8)
     large = np.zeros((16, 16), dtype=np.uint16)
 
+    def tiles_bytes() -> int:
+        # the zoomed-out overview's share is covered by test_stage_overview.py
+        return explorer.map_memory_bytes() - explorer._stage_viewer.overview_nbytes()
+
     explorer._add_image_and_update_widget(small, 0.0, 0.0, throttle=False)
-    assert explorer.map_memory_bytes() == small.nbytes * 2
+    assert tiles_bytes() == small.nbytes * 2
 
     # Replacing a location accounts only for the size difference.
     explorer._add_image_and_update_widget(large, 0.0, 0.0, throttle=False)
-    assert explorer.map_memory_bytes() == large.nbytes * 2
+    assert tiles_bytes() == large.nbytes * 2
 
     explorer._add_image_and_update_widget(small, 5000.0, 0.0, throttle=False)
-    assert explorer.map_memory_bytes() == (large.nbytes + small.nbytes) * 2
+    assert tiles_bytes() == (large.nbytes + small.nbytes) * 2
+
+
+def test_map_memory_includes_the_overview(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+    explorer._add_image_and_update_widget(TILE_IMG, 0.0, 0.0, throttle=False)
+
+    overview = explorer._stage_viewer.overview_nbytes()
+    assert overview > 0  # at least the tile's thumbnail
+    assert explorer.map_memory_bytes() == TILE_IMG.nbytes * 2 + overview
+
+    explorer._toolbar.clear_action.trigger()
+    assert explorer.map_memory_bytes() == 0
 
 
 def test_tile_allocation_failure_degrades_gracefully(qtbot: QtBot) -> None:
