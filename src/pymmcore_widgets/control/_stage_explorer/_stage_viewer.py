@@ -15,7 +15,16 @@ from vispy.scene.visuals import Image
 
 from pymmcore_widgets._util import own_vispy_init_context
 
-from ._overview import OverviewPyramid, downsampled, scaled
+from ._overview import (
+    Bounds,
+    OverviewPyramid,
+    downsampled,
+    intersects,
+    pixel_steps,
+    pow2_at_most,
+    scaled,
+    world_bounds,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -54,14 +63,15 @@ def _image_transform(transform: np.ndarray) -> np.ndarray:
 
 
 class _TileSource:
-    """An image's full-resolution data, placement, and displayed factor."""
+    """An image's full-resolution data, placement, world bounds and shown factor."""
 
-    __slots__ = ("data", "factor", "matrix")
+    __slots__ = ("bounds", "data", "factor", "matrix")
 
     def __init__(self, data: np.ndarray, matrix: np.ndarray, factor: Factor) -> None:
         self.data = data
         self.matrix = matrix  # vispy (row-vector) pixel -> world transform
         self.factor = factor
+        self.bounds: Bounds = world_bounds(data.shape, matrix)
 
 
 class StageViewer(QWidget):
@@ -77,10 +87,9 @@ class StageViewer(QWidget):
 
         # Keep newer images on top without scanning the scene for its lowest order.
         self._next_order: int = 0
-        # Image nodes are frozen; weak mappings hold caches without retaining nodes.
-        _WorldRect = tuple[float, float, float, float]
-        self._world_rects: WeakKeyDictionary[Image, _WorldRect] = WeakKeyDictionary()
-        # Retain full-resolution sources while displaying downsampled textures.
+        # Full-resolution sources of the (possibly downsampled) shown images.
+        # Image nodes are frozen, so this can't live on them; weak keys don't
+        # keep removed nodes alive.
         self._sources: WeakKeyDictionary[Image, _TileSource] = WeakKeyDictionary()
         self._downsample: bool = True
         # Wait until zooming settles before uploading textures at a new resolution.
@@ -163,11 +172,9 @@ class StageViewer(QWidget):
             affine, etc.  This is a relatively low-level, direct function.
         """
         transform = np.eye(4) if transform is None else _image_transform(transform)
-
-        # add the image to the scene with the transform
+        shown, matrix, factor = self._display(img, transform)
         # texture_format="auto" uses GPUScaledTexture2D so that clim changes
         # only update a shader uniform instead of re-uploading the texture.
-        shown, matrix, factor = self._display(img, transform)
         frame = Image(
             shown,
             cmap=self._cmap.to_vispy(),
@@ -175,14 +182,7 @@ class StageViewer(QWidget):
             clim="auto" if self._clims is None else self._clims,
             texture_format="auto",
         )
-        # keep the added image on top of the others
-        self._next_order -= 1
-        frame.order = self._next_order
-        frame.transform = scene.MatrixTransform(matrix=matrix)
-        self._sources[frame] = _TileSource(img, transform, factor)
-        self._set_world_rect(frame, img.shape, transform)
-        self._queue_overview(frame)
-        self._apply_cull(frame)
+        self._place(frame, _TileSource(img, transform, factor), matrix)
         return frame
 
     def update_image(
@@ -196,17 +196,19 @@ class StageViewer(QWidget):
         )
         shown, matrix, factor = self._display(img, transform)
         frame.set_data(shown)
-        frame.transform = scene.MatrixTransform(matrix=matrix)
-        self._sources[frame] = _TileSource(img, transform, factor)
-        self._set_world_rect(frame, img.shape, transform)
-        # Bring the refreshed tile back to the front, so a location re-imaged
-        # after an overlapping neighbour isn't hidden underneath it. Pasting
-        # over the overview likewise puts it on top there.
+        self._place(frame, _TileSource(img, transform, factor), matrix)
+
+    def _place(self, frame: Image, source: _TileSource, matrix: np.ndarray) -> None:
+        """Bring `frame` to the front and register its source.
+
+        A re-imaged location must not stay hidden under an overlapping neighbour.
+        """
         self._next_order -= 1
         frame.order = self._next_order
+        frame.transform = scene.MatrixTransform(matrix=matrix)
+        self._sources[frame] = source
         self._queue_overview(frame)
         self._apply_cull(frame)
-        frame.update()
 
     def clear(self) -> None:
         """Clear the scene."""
@@ -262,10 +264,7 @@ class StageViewer(QWidget):
         flip[axis] = on
         self.view.camera.flip = tuple(flip)
 
-    # --------------------CULLING--------------------
-
-    def _on_scene_transform_changed(self, event: Any = None) -> None:
-        del event
+    def _on_scene_transform_changed(self, _event: Any = None) -> None:
         self.cull_to_view()
         if self._downsample:
             self._downsample_timer.start()
@@ -300,7 +299,6 @@ class StageViewer(QWidget):
             shown, matrix, source.factor = self._display(source.data, source.matrix)
             frame.set_data(shown)
             frame.transform = scene.MatrixTransform(matrix=matrix)
-            frame.update()
 
     def _display(
         self, img: np.ndarray, matrix: np.ndarray
@@ -325,19 +323,16 @@ class StageViewer(QWidget):
         an anisotropic or sheared transform never loses detail along its more
         magnified direction.
         """
-        if not self._downsample:
+        if not self._downsample or (px := self._world_per_screen_px()) is None:
             return (1, 1)
-        if (world_per_screen_px := self._world_per_screen_px()) is None:
-            return (1, 1)
-
-        def _axis(step: np.ndarray, size: int) -> int:
-            step_len = float(np.hypot(*step))
-            if step_len == 0 or (ratio := world_per_screen_px / step_len) < 2:
-                return 1
-            return int(min(2 ** int(np.log2(ratio)), MAX_DOWNSAMPLE, size))
-
-        # row-vector transform: a step along x maps to row 0, along y to row 1
-        return (_axis(matrix[1, :2], shape[0]), _axis(matrix[0, :2], shape[1]))
+        steps = pixel_steps(matrix)
+        return cast(
+            "Factor",
+            tuple(
+                min(pow2_at_most(px / step, size), MAX_DOWNSAMPLE) if step else 1
+                for step, size in zip(steps, shape[:2], strict=True)
+            ),
+        )
 
     def cull_to_view(self) -> None:
         """Show only what intersects the current camera rect.
@@ -411,33 +406,10 @@ class StageViewer(QWidget):
         cam = self.view.camera
         return getattr(cam, "_real_rect", None) or cam.rect
 
-    def _set_world_rect(
-        self, frame: Image, shape: tuple[int, ...], matrix: np.ndarray
-    ) -> None:
-        """Cache bounds when an image moves, avoiding matrix work during pan/zoom."""
-        h, w = shape[0], shape[1]
-        corners = np.array(
-            [[0, 0, 0, 1], [w, 0, 0, 1], [0, h, 0, 1], [w, h, 0, 1]], dtype=float
-        )
-        world = corners @ matrix
-        world = world[:, :3] / world[:, 3, np.newaxis]
-        self._world_rects[frame] = (
-            float(world[:, 0].min()),
-            float(world[:, 0].max()),
-            float(world[:, 1].min()),
-            float(world[:, 1].max()),
-        )
-
     def _rect_intersects(self, frame: Image, rect: Any) -> bool:
-        """Whether a cached world rect overlaps the camera rect."""
-        cached = self._world_rects.get(frame)
-        if cached is None:  # pragma: no cover - defensive
-            return True
-        x0, x1, y0, y1 = cached
-        # Camera bounds remain normalized when flipped.
-        return not (
-            x1 < rect.left or x0 > rect.right or y1 < rect.bottom or y0 > rect.top
-        )
+        """Whether an image's cached world bounds overlap the camera rect."""
+        source = self._sources.get(frame)
+        return source is None or intersects(source.bounds, rect)
 
     def _get_images(self) -> Iterator[Image]:
         """Yield images in the scene."""

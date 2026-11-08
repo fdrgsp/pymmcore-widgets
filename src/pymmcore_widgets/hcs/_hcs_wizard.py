@@ -353,7 +353,7 @@ class _PlateCalibrationPage(QWizardPage):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.tabs)
-        self._panel_width = _SameWidth(self.widget._panel, self.automated._panel)
+        _SameWidth(self.widget._panel, self.automated._panel)
 
     def isComplete(self) -> bool:
         return self._is_complete and not self.automated.isBusy()

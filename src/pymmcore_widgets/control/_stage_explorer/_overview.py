@@ -91,7 +91,13 @@ def pixel_steps(matrix: np.ndarray) -> tuple[float, float]:
     return float(np.hypot(*matrix[1, :2])), float(np.hypot(*matrix[0, :2]))
 
 
-def _pow2_at_most(ratio: float, size: int) -> int:
+def intersects(bounds: Bounds, rect: Any) -> bool:
+    """Whether world `bounds` (x0, x1, y0, y1) overlap a vispy camera `rect`."""
+    x0, x1, y0, y1 = bounds
+    return not (x1 < rect.left or x0 > rect.right or y1 < rect.bottom or y0 > rect.top)
+
+
+def pow2_at_most(ratio: float, size: int) -> int:
     """Largest power of two <= ratio (at least 1), never above `size`.
 
     Capped at a power of two too, so successive factors always divide evenly.
@@ -127,7 +133,7 @@ class _Level:
         x0, x1, y0, y1 = (int(np.floor(v / size)) for v in bounds)
         return [(cx, cy) for cy in range(y0, y1 + 1) for cx in range(x0, x1 + 1)]
 
-    def chunk_rect(self, key: ChunkKey) -> tuple[float, float, float, float]:
+    def chunk_rect(self, key: ChunkKey) -> Bounds:
         """World (x0, x1, y0, y1) covered by a chunk."""
         size = CHUNK_PX * self.res
         return (key[0] * size, (key[0] + 1) * size, key[1] * size, (key[1] + 1) * size)
@@ -183,11 +189,6 @@ class OverviewPyramid:
         self._channels = ()
         self.usable = True
 
-    def set_cmap(self, cmap: Colormap) -> None:
-        self._cmap = cmap
-        for image in self._images():
-            image.cmap = cmap
-
     def set_clims(self, clim: Any) -> None:
         self._clim = clim
         for image in self._images():
@@ -211,7 +212,7 @@ class OverviewPyramid:
             return
 
         base = BASE_FACTOR * min(rows, cols)
-        bounds = _world_bounds(data.shape, matrix)
+        bounds = world_bounds(data.shape, matrix)
         old = self._bounds.pop(key, None)
         if self.base_res is None or base > 2 * self.base_res:
             # First tile, or one much coarser than the rest (e.g. after
@@ -343,17 +344,10 @@ class OverviewPyramid:
     def chunks_in(self, level_index: int, rect: Any) -> int:
         """How many of a level's chunks would be drawn for camera `rect`."""
         level = self._levels[level_index]
-        count = 0
-        for key, n in level.footprint.items():
-            if n > 0:
-                x0, x1, y0, y1 = level.chunk_rect(key)
-                count += not (
-                    x1 < rect.left
-                    or x0 > rect.right
-                    or y1 < rect.bottom
-                    or y0 > rect.top
-                )
-        return count
+        return sum(
+            n > 0 and intersects(level.chunk_rect(key), rect)
+            for key, n in level.footprint.items()
+        )
 
     def level_arrays(self, level_index: int) -> dict[ChunkKey, np.ndarray]:
         """A level's chunk arrays, building the level first if needed."""
@@ -371,12 +365,8 @@ class OverviewPyramid:
             return
         level = self._levels[level_index]
         for key, arr in self.level_arrays(level_index).items():
-            x0, x1, y0, y1 = level.chunk_rect(key)
-            on_screen = not (
-                x1 < rect.left or x0 > rect.right or y1 < rect.bottom or y0 > rect.top
-            )
             image = level.images.get(key)
-            if not on_screen:
+            if not intersects(level.chunk_rect(key), rect):
                 if image is not None:
                     image.visible = False
                 continue
@@ -394,7 +384,7 @@ class OverviewPyramid:
             yield from level.images.values()
 
 
-def _world_bounds(shape: tuple[int, ...], matrix: np.ndarray) -> Bounds:
+def world_bounds(shape: tuple[int, ...], matrix: np.ndarray) -> Bounds:
     h, w = shape[0], shape[1]
     corners = np.array([[0, 0], [w, 0], [0, h], [w, h]], dtype=float)
     world = corners @ matrix[:2, :2] + matrix[3, :2]
@@ -416,8 +406,8 @@ def _reduced(
     """
     rows, cols = pixel_steps(matrix)
     factor = (
-        _pow2_at_most(res / rows, data.shape[0]),
-        _pow2_at_most(res / cols, data.shape[1]),
+        pow2_at_most(res / rows, data.shape[0]),
+        pow2_at_most(res / cols, data.shape[1]),
     )
     small = downsampled(data, factor)
     return small, scaled(matrix, data.shape, small.shape)

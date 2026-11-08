@@ -567,8 +567,8 @@ class AutofocusAxis(QWidget):
         self.use_af_p = QCheckBox("p")
         self.use_af_t = QCheckBox("t")
         self.use_af_g = QCheckBox("g")
-        for _box in (self.use_af_p, self.use_af_t, self.use_af_g):
-            _box.setToolTip(AF_ON_AXIS_TOOLTIP)
+        for box in (self.use_af_p, self.use_af_t, self.use_af_g):
+            box.setToolTip(AF_ON_AXIS_TOOLTIP)
 
         # --- which kind of autofocus (exclusive) ---
         self._mode_label = QLabel("Mode:")
@@ -631,9 +631,9 @@ class AutofocusAxis(QWidget):
         self._software_plan: useq.SoftwareAxesBasedAF | None = None
 
         # one label column for the rows below the mode, so their controls line up
-        _labels = (self.label, self._search_label, self._method_label)
-        label_width = max(w.sizeHint().width() for w in _labels)
-        for w in _labels:
+        labels = (self.label, self._search_label, self._method_label)
+        label_width = max(w.sizeHint().width() for w in labels)
+        for w in labels:
             w.setFixedWidth(label_width)
 
         axis_row = QHBoxLayout()

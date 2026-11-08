@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from qtpy.QtCore import QEvent, QRect, QRectF, QSize, Qt, Signal
+from qtpy.QtCore import QEvent, QRectF, QSize, Qt, Signal
 from qtpy.QtGui import (
     QColor,
     QHoverEvent,
@@ -13,16 +13,12 @@ from qtpy.QtGui import (
     QPaintEvent,
     QPalette,
     QPen,
-    QRegion,
 )
 from qtpy.QtWidgets import (
     QCheckBox,
     QFrame,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
-    QStyle,
-    QStyleOptionGroupBox,
     QTabBar,
     QVBoxLayout,
     QWidget,
@@ -39,10 +35,8 @@ MDA_ICONS: dict[str, str] = {
 }
 
 
-def _paint_card(
-    widget: QWidget, painter: QPainter, rect: QRectF, title: QRect | None = None
-) -> None:
-    """Draw the shared card fill and border, leaving a gap for an optional title."""
+def _paint_card(widget: QWidget, painter: QPainter, rect: QRectF) -> None:
+    """Draw the shared card fill and border."""
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     text = widget.palette().color(QPalette.ColorGroup.Active, QPalette.ColorRole.Text)
@@ -51,8 +45,6 @@ def _paint_card(
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(fill)
     painter.drawRoundedRect(rect, 6, 6)
-    if title is not None:
-        painter.setClipRegion(QRegion(widget.rect()) - QRegion(title))
     border = QColor(text)
     border.setAlpha(140)
     painter.setPen(QPen(border, 1.5))
@@ -68,34 +60,6 @@ class _CardFrame(QFrame):
         painter = QPainter(self)
         rect = QRectF(self.rect()).adjusted(0.75, 0.75, -0.75, -0.75)
         _paint_card(self, painter, rect)
-
-
-class _CheckableCard(QGroupBox):
-    """A native checkable group box with the same rounded border as our cards."""
-
-    def paintEvent(self, event: QPaintEvent | None) -> None:
-        option = QStyleOptionGroupBox()
-        self.initStyleOption(option)
-        style = self.style()
-        # QMacStyle switches to a mini checkbox when painting a group box.
-        # Use those same metrics when measuring the gap around its title.
-        if style.objectName() in {"macos", "macintosh"} and not self.isFlat():
-            option.state |= QStyle.StateFlag.State_Mini
-        control = QStyle.ComplexControl.CC_GroupBox
-        title = style.subControlRect(
-            control, option, QStyle.SubControl.SC_GroupBoxLabel, self
-        )
-        checkbox = style.subControlRect(
-            control, option, QStyle.SubControl.SC_GroupBoxCheckBox, self
-        )
-        rect = QRectF(self.rect()).adjusted(0.75, 0.75, -0.75, -0.75)
-        rect.setTop(title.center().y())
-        painter = QPainter(self)
-        _paint_card(self, painter, rect, title.united(checkbox).adjusted(-3, -1, 3, 1))
-        option.subControls = (
-            QStyle.SubControl.SC_GroupBoxLabel | QStyle.SubControl.SC_GroupBoxCheckBox
-        )
-        style.drawComplexControl(control, option, painter, self)
 
 
 def _wrap_in_card(

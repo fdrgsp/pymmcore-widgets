@@ -122,10 +122,9 @@ class _LatestFrameRelay(QObject):
         self,
         image: np.ndarray,
         event: useq.MDAEvent,
-        metadata: dict[str, Any],
+        _metadata: dict[str, Any],
     ) -> None:
         """Store ``image`` and request one GUI drain when none is outstanding."""
-        del metadata
         notify = False
         key = self._event_key(event)
         with self._lock:
@@ -383,10 +382,10 @@ class StageExplorer(QWidget):
         tb.auto_zoom_to_fit_action.triggered.connect(self._on_auto_zoom_to_fit_action)
         tb.snap_action.triggered.connect(self._on_snap_action)
         tb.poll_stage_action.triggered.connect(self._on_poll_stage_action)
-        tb.show_grid_action.triggered.connect(self._on_show_grid_action)
         tb.show_mda_positions_action.triggered.connect(
             self._on_show_mda_positions_action
         )
+        tb.show_grid_action.triggered.connect(self._on_show_grid_action)
         tb.delete_rois_action.triggered.connect(self.roi_manager.clear)
         tb.scan_action.triggered.connect(self._on_scan_action)
         tb.stop_scan_action.triggered.connect(self._on_stop_scan_action)
@@ -1098,13 +1097,12 @@ class StageExplorer(QWidget):
     def _apply_tile(self, key: Hashable, image: np.ndarray, x: float, y: float) -> None:
         """Create or refresh the scene node for one map location."""
         matrix = self._tile_transform(x, y)
+        cost = image.nbytes * TILE_MEMORY_FACTOR
         if (node := self._tiles.get(key)) is not None:
             self._stage_viewer.update_image(node, image, transform=matrix.T)
-            cost = image.nbytes * TILE_MEMORY_FACTOR
             self._map_memory_bytes += cost - self._tile_bytes[key]
             self._tile_bytes[key] = cost
         else:
-            cost = image.nbytes * TILE_MEMORY_FACTOR
             system_low = self._system_memory_low(cost)
             if system_low or self._would_exceed_memory(cost):
                 # Refuse the *new* location only. Nothing already on the map
@@ -1436,16 +1434,17 @@ class StageExplorerToolbar(QToolBar):
         poll_btn.setMenu(menu)
         poll_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
 
-        self.show_grid_action = self.addAction(
-            QIconifyIcon("mdi:grid", color=GRAY),
-            "Show Grid",
-        )
-        self.show_grid_action.setCheckable(True)
         self.show_mda_positions_action = self.addAction(
             QIconifyIcon("mdi:map-marker-multiple-outline", color=GRAY),
             "Show MDA Positions",
         )
         self.show_mda_positions_action.setCheckable(True)
+
+        self.show_grid_action = self.addAction(
+            QIconifyIcon("mdi:grid", color=GRAY),
+            "Show Grid",
+        )
+        self.show_grid_action.setCheckable(True)
 
         self.map_memory_action = self.addAction(
             QIconifyIcon("mdi:memory", color=GRAY),

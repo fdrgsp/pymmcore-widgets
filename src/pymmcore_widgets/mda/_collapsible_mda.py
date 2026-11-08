@@ -23,6 +23,7 @@ from qtpy.QtWidgets import (
 )
 from superqt.iconify import QIconifyIcon
 
+from pymmcore_widgets._util import GREEN, RED
 from pymmcore_widgets.useq_widgets._axis_tabs import (
     MDA_ICONS,
     _CardFrame,
@@ -49,16 +50,10 @@ if TYPE_CHECKING:
     from ._save_widget import SaveGroupBox
 
 
-# Semantic status-dot colors shown before a section summary. They read on both
-# light and dark themes; they are inline rich-text colors (not a stylesheet), so
-# they survive a downstream app that clears stylesheets or overrides palettes.
-_STATUS_ON_COLOR = "#4caf50"
-_STATUS_OFF_COLOR = "#f44336"
-
-
 def _status_dot_html(on: bool, text: str) -> str:
     """Return ``text`` prefixed with a small colored status dot as rich text."""
-    color = _STATUS_ON_COLOR if on else _STATUS_OFF_COLOR
+    # inline rich text rather than a stylesheet, so it survives a host app theme
+    color = GREEN if on else RED
     return f'<span style="color: {color};">&#9679;</span>&nbsp;{escape(text)}'
 
 
@@ -156,7 +151,7 @@ class CollapsibleAcquisitionSection(QWidget):
             icon_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             self._header_layout.addWidget(icon_label)
 
-        self._title_label = title_label = _ClickableLabel(title)
+        title_label = _ClickableLabel(title)
         title_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._header_layout.addWidget(
             title_label, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter

@@ -56,10 +56,8 @@ def _config_choices(field: str, values: Mapping[str, Any]) -> list[str] | None:
     """Offer config groups and presets; `None` means free text, `[]` no choices."""
     if not (field.endswith("channel_group") or field.endswith("channel")):
         return None
-    try:
-        from pymmcore_plus import CMMCorePlus
-    except ImportError:  # pragma: no cover
-        return None
+    from pymmcore_plus import CMMCorePlus
+
     core = CMMCorePlus.instance()
     if field.endswith("channel_group"):
         return list(core.getAvailableConfigGroups())
