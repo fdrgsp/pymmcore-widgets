@@ -18,6 +18,7 @@ from pymmcore_widgets.control._stage_explorer import (
     _stage_explorer as stage_explorer_mod,
 )
 from pymmcore_widgets.control._stage_explorer._mda_positions import (
+    MAX_GRID_POINTS,
     positions_to_xy,
 )
 from pymmcore_widgets.control._stage_explorer._stage_explorer import (
@@ -1554,10 +1555,10 @@ def test_positions_to_xy_plain_and_sub_grids() -> None:
             useq.Position(x=100, y=100, sequence=useq.MDASequence(grid_plan=rel)),
             useq.Position(sequence=useq.MDASequence(grid_plan=edges)),
         ]
-    )
+    ).xy
     expected = [(1, 2), (95, 100), (105, 100), *((p.x, p.y) for p in edges)]
     np.testing.assert_allclose(xy, expected)
-    assert positions_to_xy([]).shape == (0, 2)
+    assert positions_to_xy([]).xy.shape == (0, 2)
 
 
 def test_positions_to_xy_skips_grid_without_fov() -> None:
@@ -1566,7 +1567,7 @@ def test_positions_to_xy_skips_grid_without_fov() -> None:
         vertices=[(0, 0), (5000, 0), (5000, 5000)], fov_width=0, fov_height=0
     )
     area = useq.GridWidthHeight(width=5000, height=5000, fov_width=0, fov_height=0)
-    xy = positions_to_xy(
+    xy, n_oversized = positions_to_xy(
         [
             useq.Position(sequence=useq.MDASequence(grid_plan=poly)),
             useq.Position(x=7, y=8, sequence=useq.MDASequence(grid_plan=area)),
@@ -1574,6 +1575,45 @@ def test_positions_to_xy_skips_grid_without_fov() -> None:
     )
     # the absolute grid is dropped, the relative one falls back to its position
     np.testing.assert_allclose(xy, [(7, 8)])
+    # the polygon can't be counted at all (not a valid scan, not reported); useq
+    # steps the width/height grid 1 µm at a time: 25 million FOVs, reported
+    assert n_oversized == 1
+
+
+def test_positions_to_xy_counts_oversized_grids() -> None:
+    """A grid over MAX_GRID_POINTS is left out and counted (e.g. a small FOV)."""
+    small = useq.GridFromEdges(
+        top=0, left=0, bottom=40, right=40, fov_width=10, fov_height=10
+    )
+    big = small.model_copy(update={"bottom": 5000, "right": 5000})
+    assert small.num_positions() <= MAX_GRID_POINTS < big.num_positions()
+    rel = useq.GridRowsColumns(rows=300, columns=300, fov_width=1, fov_height=1)
+    assert rel.num_positions() > MAX_GRID_POINTS
+
+    xy, n_oversized = positions_to_xy(
+        [
+            useq.Position(sequence=useq.MDASequence(grid_plan=small)),
+            useq.Position(sequence=useq.MDASequence(grid_plan=big)),
+            useq.Position(x=7, y=8, sequence=useq.MDASequence(grid_plan=rel)),
+        ]
+    )
+    # the big absolute grid is dropped, the relative one shows only its position
+    expected = [*((p.x, p.y) for p in small), (7, 8)]
+    np.testing.assert_allclose(xy, expected)
+    assert n_oversized == 2
+
+
+def test_positions_to_xy_plate_counts_oversized_well_grid() -> None:
+    wpp = useq.GridRowsColumns(rows=300, columns=300, fov_width=1, fov_height=1)
+    plan = useq.WellPlatePlan(
+        plate=96,
+        a1_center_xy=(0, 0),
+        selected_wells=np.s_[:1, :2],
+        well_points_plan=wpp,
+    )
+    xy, n_oversized = positions_to_xy(plan)
+    assert n_oversized == 1
+    assert len(xy) == 2  # only the well centers
 
 
 @pytest.mark.parametrize(
@@ -1594,7 +1634,9 @@ def test_positions_to_xy_plate_matches_useq(points: useq.MultiPointPlan) -> None
         well_points_plan=points,
     )
     expected = [(p.x, p.y) for p in plan.image_positions]
-    np.testing.assert_allclose(positions_to_xy(plan), expected, atol=0.01)
+    xy, n_oversized = positions_to_xy(plan)
+    np.testing.assert_allclose(xy, expected, atol=0.01)
+    assert n_oversized == 0
 
 
 def test_stage_explorer_show_mda_positions(qtbot: QtBot) -> None:
@@ -1649,6 +1691,57 @@ def test_stage_explorer_show_mda_positions(qtbot: QtBot) -> None:
 
     explorer.set_mda_positions(None)
     assert markers.parent is None
+
+
+def test_stage_explorer_warns_about_oversized_grids(qtbot: QtBot) -> None:
+    """Grids too big to mark get a red note in the map's bottom-left corner."""
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.resize(600, 400)
+    explorer.show()
+    label = explorer._mda_warning_label
+    big = useq.GridFromEdges(
+        top=0, left=0, bottom=5000, right=5000, fov_width=10, fov_height=10
+    )
+    oversized = useq.Position(sequence=useq.MDASequence(grid_plan=big))
+    explorer.show_mda_positions = True
+
+    explorer.set_mda_positions([useq.Position(x=1, y=2)])
+    assert label.isHidden()
+
+    explorer.set_mda_positions([useq.Position(x=1, y=2), oversized])
+    assert not label.isHidden()
+    assert (
+        label.text() == f"1 MDA grid has more than {MAX_GRID_POINTS:,} FOVs: not shown"
+    )
+    assert label.x() == label.MARGIN
+    assert label.y() + label.height() + label.MARGIN == explorer._stage_viewer.height()
+    # the other positions are still marked
+    assert explorer._mda_pos_markers.parent is explorer._stage_viewer.view.scene
+
+    explorer.set_mda_positions([oversized, oversized])
+    assert label.text().startswith("2 MDA grids have")
+    # only the warning: no markers to attach
+    assert explorer._mda_pos_markers.parent is None
+
+    # on a narrow map it moves above the stage-position label, not over it
+    coords = explorer._stage_pos_label
+    coords.setText("X: -12345.67 µm  Y: -12345.67 µm")
+    assert not label.geometry().intersects(coords.geometry())
+    explorer.resize(250, 400)
+    assert not label.geometry().intersects(coords.geometry())
+    assert label.y() + label.height() == coords.y()
+    explorer.resize(1200, 400)
+    assert label.y() + label.height() + label.MARGIN == explorer._stage_viewer.height()
+
+    # hidden with the positions, back with them
+    explorer.show_mda_positions = False
+    assert label.isHidden()
+    explorer.show_mda_positions = True
+    assert not label.isHidden()
+
+    explorer.set_mda_positions(None)
+    assert label.isHidden()
 
 
 def test_stage_explorer_mda_positions_survive_clear(qtbot: QtBot) -> None:

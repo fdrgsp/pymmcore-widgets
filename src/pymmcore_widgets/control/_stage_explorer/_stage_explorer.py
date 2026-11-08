@@ -48,7 +48,7 @@ from pymmcore_widgets._util import memory_limit_defaults
 from pymmcore_widgets.control._q_stage_controller import QStageMoveAccumulator
 from pymmcore_widgets.control._rois.roi_manager import GRAY, SceneROIManager
 
-from ._mda_positions import positions_to_xy
+from ._mda_positions import MAX_GRID_POINTS, positions_to_xy
 from ._stage_position_marker import StagePositionMarker
 from ._stage_viewer import StageViewer
 
@@ -77,6 +77,8 @@ LOW_SYSTEM_MEMORY_FLOOR_MB = 512.0
 
 MDA_POSITION_COLOR = "#FFD600"
 MDA_POSITION_SIZE_PX = 7
+# readable on the black map, like the stage-position label
+MDA_WARNING_COLOR = QColor(255, 90, 90)
 _GL_OUT_OF_MEMORY = 0x0505
 
 
@@ -350,6 +352,7 @@ class StageExplorer(QWidget):
         self._mda_positions: Iterable[useq.Position] | useq.WellPlatePlan = ()
         self._mda_positions_stale: bool = False
         self._n_mda_points: int = 0
+        self._n_oversized_grids: int = 0
         # Created in the scene and detached at once: a Markers visual that never
         # joined a scene made Qt segfault in a later canvas (seen in the test suite
         # with pymmcore-nano).
@@ -369,6 +372,14 @@ class StageExplorer(QWidget):
             tb.delete_rois_action, self.roi_manager.mode_actions.actions()
         )
         self._stage_pos_label = _CornerLabel(self._stage_viewer)
+        # opposite the stage position: MDA grids too big to mark on the map
+        self._mda_warning_label = _CornerLabel(
+            self._stage_viewer,
+            left=True,
+            color=MDA_WARNING_COLOR,
+            avoid=self._stage_pos_label,
+        )
+        self._mda_warning_label.hide()
 
         # connect actions to methods
         tb.clear_action.triggered.connect(self._on_clear_action)
@@ -915,12 +926,13 @@ class StageExplorer(QWidget):
                 self.zoom_to_fit()
         else:
             self._mda_pos_markers.parent = None
+            self._mda_warning_label.hide()
 
     def _refresh_mda_pos_markers(self) -> None:
         """Show the MDA positions, re-expanding them only if they changed."""
         if self._mda_positions_stale:
             self._mda_positions_stale = False
-            xy = positions_to_xy(self._mda_positions)
+            xy, self._n_oversized_grids = positions_to_xy(self._mda_positions)
             self._n_mda_points = len(xy)
             if self._n_mda_points:  # vispy can't take an empty array
                 self._mda_pos_markers.set_data(
@@ -932,6 +944,18 @@ class StageExplorer(QWidget):
                 )
         scene = self._stage_viewer.view.scene
         self._mda_pos_markers.parent = scene if self._n_mda_points else None
+        self._update_mda_warning()
+
+    def _update_mda_warning(self) -> None:
+        """Say how many MDA grids are left off the map for having too many FOVs."""
+        if not (n := self._n_oversized_grids):
+            self._mda_warning_label.hide()
+            return
+        grids = "1 MDA grid has" if n == 1 else f"{n} MDA grids have"
+        self._mda_warning_label.setText(
+            f"{grids} more than {MAX_GRID_POINTS:,} FOVs: not shown"
+        )
+        self._mda_warning_label.show()
 
     def _update_stage_pos_marker(self, stage_x: float, stage_y: float) -> None:
         """Update the marker position and the stage-position label."""
@@ -1215,26 +1239,50 @@ QRangeSlider { qproperty-barColor: qlineargradient(
 )
 
 
+# events of the label a _CornerLabel avoids that can put it in the way
+_AVOID_EVENTS = (QEvent.Type.Move, QEvent.Type.Show, QEvent.Type.Hide)
+
+
 class _CornerLabel(QLabel):
-    """A label overlaid on its parent's bottom-right corner (the black map)."""
+    """A label overlaid on a bottom corner of its parent (the black map).
+
+    Bottom-right by default; `left=True` puts it bottom-left. A label that would
+    run into `avoid` (e.g. on a narrow map) moves up to the row above it.
+    """
 
     MARGIN = 6
 
-    def __init__(self, parent: QWidget) -> None:
+    def __init__(
+        self,
+        parent: QWidget,
+        *,
+        left: bool = False,
+        color: QColor | None = None,
+        avoid: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
+        self._left = left
+        self._avoid = avoid
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         # the map is black whatever the app's theme
         pal = self.palette()
-        pal.setColor(QPalette.ColorRole.WindowText, QColor(220, 220, 220))
+        pal.setColor(QPalette.ColorRole.WindowText, color or QColor(220, 220, 220))
         self.setPalette(pal)
         parent.installEventFilter(self)
+        if avoid is not None:
+            # it resizes and moves with its own text
+            avoid.installEventFilter(self)
 
     def setText(self, a0: str | None) -> None:
         super().setText(a0)
         self._reposition()
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
-        if a1 is not None and a1.type() == QEvent.Type.Resize:
+        if a1 is None:
+            return False
+        if a1.type() == QEvent.Type.Resize or (
+            a0 is self._avoid and a1.type() in _AVOID_EVENTS
+        ):
             self._reposition()
         return False
 
@@ -1242,10 +1290,13 @@ class _CornerLabel(QLabel):
         if (parent := self.parentWidget()) is None:
             return
         self.adjustSize()
-        self.move(
-            parent.width() - self.width() - self.MARGIN,
-            parent.height() - self.height() - self.MARGIN,
-        )
+        x = self.MARGIN if self._left else parent.width() - self.width() - self.MARGIN
+        y = parent.height() - self.height() - self.MARGIN
+        if (avoid := self._avoid) is not None and not avoid.isHidden():
+            mine = self.geometry().translated(x - self.x(), y - self.y())
+            if mine.intersects(avoid.geometry()):
+                y = avoid.y() - self.height()
+        self.move(x, y)
         self.raise_()
 
 
