@@ -14,6 +14,7 @@ import psutil
 import useq
 from pymmcore_plus import CMMCorePlus, Keyword
 from qtpy.QtCore import (
+    QEvent,
     QObject,
     QSignalBlocker,
     QSize,
@@ -23,7 +24,7 @@ from qtpy.QtCore import (
     Signal,
     Slot,
 )
-from qtpy.QtGui import QAction, QActionGroup, QIcon
+from qtpy.QtGui import QAction, QActionGroup, QColor, QIcon, QPalette
 from qtpy.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
@@ -369,12 +370,7 @@ class StageExplorer(QWidget):
         self._toolbar.insertActions(
             tb.delete_rois_action, self.roi_manager.mode_actions.actions()
         )
-        # add stage pos label to the toolbar
-        self._stage_pos_label = QLabel()
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self._toolbar.addWidget(spacer)
-        self._toolbar.addWidget(self._stage_pos_label)
+        self._stage_pos_label = _CornerLabel(self._stage_viewer)
 
         # connect actions to methods
         tb.clear_action.triggered.connect(self._on_clear_action)
@@ -1246,6 +1242,40 @@ QRangeSlider { qproperty-barColor: qlineargradient(
 """
     + "SliderLabel { font-size: 10px; color: white;}"
 )
+
+
+class _CornerLabel(QLabel):
+    """A label overlaid on its parent's bottom-right corner (the black map)."""
+
+    MARGIN = 6
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        # the map is black whatever the app's theme
+        pal = self.palette()
+        pal.setColor(QPalette.ColorRole.WindowText, QColor(220, 220, 220))
+        self.setPalette(pal)
+        parent.installEventFilter(self)
+
+    def setText(self, a0: str | None) -> None:
+        super().setText(a0)
+        self._reposition()
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        if a1 is not None and a1.type() == QEvent.Type.Resize:
+            self._reposition()
+        return False
+
+    def _reposition(self) -> None:
+        if (parent := self.parentWidget()) is None:
+            return
+        self.adjustSize()
+        self.move(
+            parent.width() - self.width() - self.MARGIN,
+            parent.height() - self.height() - self.MARGIN,
+        )
+        self.raise_()
 
 
 class _MapMemoryBanner(QWidget):
