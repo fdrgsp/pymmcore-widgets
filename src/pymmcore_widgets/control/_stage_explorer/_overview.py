@@ -1,24 +1,8 @@
-"""Multiscale, chunked overview of the stage map's tiles.
+"""Multiscale, chunked overview of stage-map tiles.
 
-Every tile in view is drawn by its own vispy `Image`, and vispy spends a fixed
-slice of Python time per visual per frame (GL command building, uniform
-updates) no matter how small its texture is. A zoomed-out map with hundreds of
-tiles in view is therefore slow to pan/zoom even though each tile is
-downsampled.
-
-Like napari's multiscale rendering, the overview keeps a pyramid of reduced
-copies of the map, each level cut into fixed-size chunks. When zoomed out, the
-viewer shows the coarsest level whose pixels are still no larger than a screen
-pixel (so nothing visible is lost) instead of the individual tiles. The number
-of chunks on screen is then bounded by the canvas size, not by the number of
-tiles on the map.
-
-Each tile keeps a small, block-averaged thumbnail (1/BASE_FACTOR per axis).
-A level is built from those thumbnails the first time it is shown, and kept up
-to date from then on, so levels that are never looked at cost nothing -- which
-matters for sparse maps, where a level's chunks are mostly empty space.
-Painting resamples each thumbnail into the level's axis-aligned grid, so tiles
-rotated or sheared by the pixel affine land in place too.
+At low zoom, drawing chunks instead of individual tiles bounds VisPy's per-visual
+overhead by the visible area. Levels are built lazily from block-averaged thumbnails
+and updated as tiles arrive. Resampling respects the camera-to-stage affine.
 """
 
 from __future__ import annotations

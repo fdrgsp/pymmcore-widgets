@@ -6,7 +6,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 import useq
-from qtpy.QtCore import QEvent, Qt
+from qtpy.QtCore import QEvent, QRectF, Qt
 from qtpy.QtGui import QFontMetrics, QMouseEvent, QPainter
 from qtpy.QtWidgets import (
     QDialogButtonBox,
@@ -36,6 +36,7 @@ from pymmcore_widgets.useq_widgets._z_surface_dialog import (
     OK_INVALID_TOOLTIP,
     VALID,
     ZSurfaceDialog,
+    _SurfaceMap,
 )
 
 if TYPE_CHECKING:
@@ -45,6 +46,20 @@ if TYPE_CHECKING:
     from pytestqt.qtbot import QtBot
 
 SURFACE = ZSurface(method="plane", points=[(0, 0, 0), (100, 0, 1), (0, 100, 2)])
+
+
+@pytest.mark.parametrize("width, height", [(0, 200), (-10, 200), (200, 0)])
+def test_map_handles_incomplete_layout(qtbot: QtBot, width: int, height: int) -> None:
+    surface_map = _SurfaceMap()
+    qtbot.addWidget(surface_map)
+    with patch.object(
+        surface_map, "_canvas_rect", return_value=QRectF(0, 0, width, height)
+    ):
+        surface_map.setSurface(SURFACE)
+        assert np.isfinite([surface_map._lo, surface_map._hi]).all()
+    surface_map.resize(400, 300)
+    surface_map._ensure_view()
+    assert surface_map._image is not None
 
 
 def test_dialog_value(qtbot: QtBot) -> None:

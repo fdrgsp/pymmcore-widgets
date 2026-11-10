@@ -33,6 +33,7 @@ from pymmcore_widgets.useq_widgets._well_plate_widget import WellPlateView
 
 from ._plate_calibration import (
     fit_plate_calibration,
+    min_calibration_wells,
     validated_calibration_plan,
 )
 from ._plate_calibration import well_coords_affine as well_coords_affine
@@ -121,17 +122,18 @@ class CalibrationInfo(QWidget):
             txt += f"<font color='red'>   {warning}</font>"
             ico = self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
         if plate is not None:
-            plate_sp = plate.well_spacing[0]
-            # if spacing is more than 5% different from the plate spacing...
-            if plate_sp > 0 and abs(well_spacing[0] - plate_sp) > 0.05 * plate_sp:
-                txt += (
-                    "<font color='red'>   Expected well spacing of "
-                    f"{plate_sp:.2f} mm, "
-                    f"calibrated at {well_spacing[0]:.2f}</font>"
-                )
-                ico = self.style().standardIcon(
-                    QStyle.StandardPixmap.SP_MessageBoxWarning
-                )
+            for axis, measured, nominal in zip(
+                "XY", well_spacing, plate.well_spacing, strict=True
+            ):
+                if nominal > 0 and abs(measured - nominal) > 0.05 * nominal:
+                    txt += (
+                        "<font color='red'>   Expected well spacing of "
+                        f"{nominal:.2f} mm in {axis}, "
+                        f"calibrated at {measured:.2f}</font>"
+                    )
+                    ico = self.style().standardIcon(
+                        QStyle.StandardPixmap.SP_MessageBoxWarning
+                    )
         x0, y0 = a1_center_xy
         txt += f"<br>A1 Center [mm]: ({x0 / 1000:.2f}, {y0 / 1000:.2f}),   "
         txt += f"Well Spacing [mm]: ({well_spacing[0]:.2f}, {well_spacing[1]:.2f}),   "
@@ -263,9 +265,6 @@ class PlateCalibrationWidget(QWidget):
             plan = plate_or_plan
             plate = plan.plate
             calibrated = True
-            # set the well spacing to the plate's well spacing to correctly update the
-            # info label (since we are assuming the plate is correctly calibrated,
-            # we can assume the well spacing is correct)
             self._well_spacing = plate.well_spacing
         elif isinstance(plate_or_plan, useq.WellPlate):
             plate = plate_or_plan
@@ -279,8 +278,7 @@ class PlateCalibrationWidget(QWidget):
         self._current_plate = plate
         self._plate_view.drawPlate(plate)
 
-        # Set minimum wells required based on plate size
-        self._min_wells_required = min(3, plate.rows * plate.columns) if plate else 3
+        self._min_wells_required = min_calibration_wells(plate) if plate else 3
 
         # clear existing calibration widgets
         while self._calibration_widgets:

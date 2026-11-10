@@ -146,23 +146,15 @@ def well_coords_affine(
     tuple[float, float, float, float, float, float]
         Coefficients `(a, b, ty, c, d, tx)` mapping `(-row, col)` to `(y, x)`.
     """
-    A: list[list[int]] = []
-    B: list[float] = []
-    for (row, col), (x, y) in index_coordinates.items():
-        # well plate indices go up in row as we go down in y
-        # so we have to negate the row to get the correct transformation
-        A.append([-row, col, 1, 0, 0, 0])
-        A.append([0, 0, 0, -row, col, 1])
-        # row corresponds to y, col corresponds to x
-        B.extend((y, x))
-
-    # Solve the least squares problem to find the affine transformation parameters
-    params, _, rank, _ = np.linalg.lstsq(np.array(A), np.array(B), rcond=None)
-
-    if rank != 6:
+    indices = np.array(list(index_coordinates), dtype=float).reshape(-1, 2)
+    # Plate rows increase downward, opposite to stage Y.
+    design = np.column_stack([-indices[:, 0], indices[:, 1], np.ones(len(indices))])
+    xy = np.array(list(index_coordinates.values()), dtype=float).reshape(-1, 2)
+    params, _, rank, _ = np.linalg.lstsq(design, xy[:, ::-1], rcond=None)
+    if rank != 3:
         raise ValueError("Underdetermined system of equations. Are points collinear?")
-
-    return tuple(params)
+    a, b, ty, c, d, tx = params.T.ravel()
+    return float(a), float(b), float(ty), float(c), float(d), float(tx)
 
 
 def _collinear_spacing(

@@ -12,10 +12,8 @@ if TYPE_CHECKING:
 
     from useq import MultiPointPlan
 
-# A grid with more points than this is not expanded: useq yields them one at a
-# time in Python, and the map re-expands on every MDA table edit (50,000 points
-# take ~0.2 s). An area grid (edges, width/height, polygon) without a FOV size
-# steps 1 µm at a time, so it has millions of points.
+# Bound grid expansion on each MDA table edit. Area grids without a FOV size
+# can otherwise produce millions of points at the default 1 µm step.
 MAX_GRID_POINTS = 50_000
 
 
@@ -57,7 +55,11 @@ def positions_to_xy(
 
 def _plate_xy(plan: useq.WellPlatePlan) -> MdaPoints:
     wpp = plan.well_points_plan
-    if isinstance(wpp, useq.RandomPoints) and wpp.random_seed is None:
+    if (
+        isinstance(wpp, useq.RandomPoints)
+        and wpp.random_seed is None
+        and wpp.num_points <= MAX_GRID_POINTS
+    ):
         # Unseeded, each well draws its own points: only useq can produce them.
         points = [(p.x, p.y) for p in plan.image_positions]
         return MdaPoints(_as_xy(points), 0)

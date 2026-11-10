@@ -9,7 +9,6 @@ Both methods use compact point tables sized to fit their rows.
 
 1. Select a plate, then open **Automated**. Set a
    low-magnification objective, brightfield illumination, and focus on the well edges.
-   Stop live view before scanning.
 2. In **Select Wells**, select every well whose entire edge will be included in
    the scan area. A **2 x 2 block is recommended**, such as B2/B3/C2/C3.
    Alternatively, select **three or more wells in a single row or column**;
@@ -29,7 +28,8 @@ Both methods use compact point tables sized to fit their rows.
    line enclose no area and are insufficient.
 4. Select **Start Scan**. The widget switches to **Calibrate Plate** and shows
    each acquired image in the VisPy canvas. Spacing and placement use the
-   configured pixel size. Cancel stops between operations and retains the last
+   configured camera-to-stage affine. Live view stops before the scan starts.
+   Cancel stops between operations and retains the last
    applied calibration. Detection does not run automatically.
 5. Open the gear dialog to set edge smoothing, detection threshold, and minimum
    edge coverage, then click **Detect Wells**. Detection can be repeated on the
@@ -69,8 +69,5 @@ the current objective, ROI, and binning. Scans are bounded by the **Memory
 limit** (same default as the Stage Explorer) and by 2500 tiles. No automatic XY return is
 performed. Survey images/settings are not stored in plan JSON.
 
-This feature has synthetic software tests and still needs representative
-microscope-image validation. The position tolerance checks measured calibration
-wells; it does not independently establish accuracy at distant wells or after
-an objective change. See the
-[research and implementation plan](plans/hcs-automated-calibration.md).
+The position tolerance checks measured calibration wells; use Test Calibration
+to check accuracy at distant wells and after an objective change.

@@ -5,8 +5,24 @@ import pytest
 import useq
 from pymmcore_plus import CMMCorePlus
 
-from pymmcore_widgets.hcs._plate_calibration_widget import PlateCalibrationWidget
+from pymmcore_widgets.hcs._plate_calibration_widget import (
+    CalibrationInfo,
+    PlateCalibrationWidget,
+)
 from pymmcore_widgets.useq_widgets._well_plate_widget import DATA_POSITION
+
+
+@pytest.mark.parametrize(
+    "spacing, axis", [((10, 9), "X"), ((9, 10), "Y"), ((9, 9), None)]
+)
+def test_spacing_warning_checks_both_axes(qtbot, spacing, axis) -> None:
+    info = CalibrationInfo()
+    qtbot.addWidget(info)
+    info.setCalibration(useq.WellPlate.from_str("96-well"), (0, 0), spacing, 0)
+    if axis is None:
+        assert "Expected well spacing" not in info.text()
+    else:
+        assert f"in {axis}, calibrated at 10.00" in info.text()
 
 
 def test_plate_calibration_value(global_mmcore: CMMCorePlus, qtbot) -> None:

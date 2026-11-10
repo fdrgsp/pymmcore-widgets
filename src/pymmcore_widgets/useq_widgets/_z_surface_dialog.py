@@ -247,7 +247,7 @@ class _SurfaceMap(QWidget):
         span = np.ptp(self._xy, axis=0)
         half = span / 2 + max(span.max(), 1.0) * MAP_PADDING
         # widen the narrower axis to the canvas' aspect ratio
-        aspect = canvas.width() / canvas.height() if canvas.height() > 0 else 1.0
+        aspect = canvas.width() / canvas.height() if canvas.isValid() else 1.0
         half = np.maximum(half, (half[1] * aspect, half[0] / aspect))
         center = (self._xy.min(axis=0) + self._xy.max(axis=0)) / 2
         self._lo, self._hi = center - half, center + half

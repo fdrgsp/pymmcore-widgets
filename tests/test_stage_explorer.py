@@ -1603,15 +1603,27 @@ def test_positions_to_xy_counts_oversized_grids() -> None:
     assert n_oversized == 2
 
 
-def test_positions_to_xy_plate_counts_oversized_well_grid() -> None:
-    wpp = useq.GridRowsColumns(rows=300, columns=300, fov_width=1, fov_height=1)
+@pytest.mark.parametrize(
+    "wpp",
+    [
+        useq.GridRowsColumns(rows=300, columns=300, fov_width=1, fov_height=1),
+        useq.RandomPoints(num_points=MAX_GRID_POINTS + 1),
+        useq.RandomPoints(num_points=MAX_GRID_POINTS + 1, random_seed=0),
+    ],
+)
+def test_positions_to_xy_plate_counts_oversized_well_grid(
+    wpp: useq.MultiPointPlan,
+) -> None:
     plan = useq.WellPlatePlan(
         plate=96,
         a1_center_xy=(0, 0),
         selected_wells=np.s_[:1, :2],
         well_points_plan=wpp,
     )
-    xy, n_oversized = positions_to_xy(plan)
+    with patch.object(
+        type(wpp), "__iter__", side_effect=AssertionError("oversized grid expanded")
+    ):
+        xy, n_oversized = positions_to_xy(plan)
     assert n_oversized == 1
     assert len(xy) == 2  # only the well centers
 
