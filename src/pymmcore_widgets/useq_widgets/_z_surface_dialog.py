@@ -533,12 +533,12 @@ class ZSurfaceDialog(QDialog):
         method_layout.addWidget(QLabel("Method:"))
         method_layout.addSpacing(6)
         method_layout.addWidget(self.method, 1)
-        method_layout.addWidget(self.test_btn)
         self.points.setSidePanel(method_row, self.map)
 
         bottom = QHBoxLayout()
         bottom.addWidget(self._status_icon)
         bottom.addWidget(self._summary, 1)
+        bottom.addWidget(self.test_btn)
         bottom.addWidget(buttons)
 
         layout = QVBoxLayout(self)
@@ -555,11 +555,9 @@ class ZSurfaceDialog(QDialog):
     def _colorbar_anchor(self) -> QWidget | None:
         """Return the button to center the map's colorbar under.
 
-        The Test button, or else the rightmost dialog button: OK on macOS, Cancel
-        where the platform puts OK first.
+        The rightmost dialog button: OK on macOS, Cancel where the platform puts
+        OK first.
         """
-        if self.test_btn.isVisibleTo(self):
-            return self.test_btn
         visible = [b for b in self._buttons.buttons() if b.isVisibleTo(self)]
         return max(
             visible, key=lambda b: b.mapTo(self, b.rect().topRight()).x(), default=None

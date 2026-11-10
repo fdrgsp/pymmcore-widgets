@@ -178,10 +178,10 @@ def test_dialog_colorbar_under_the_buttons(
     dialog = ZSurfaceDialog(SURFACE, stage=_stage([]) if stage else None)
     qtbot.addWidget(dialog)
     box = _show_with_button_order(qtbot, dialog, ok_first)
-    # under the Test button, or the rightmost button without a stage to test with
+    # under the rightmost button, whether or not Test is shown beside them
     ok = box.button(QDialogButtonBox.StandardButton.Ok)
     cancel = box.button(QDialogButtonBox.StandardButton.Cancel)
-    anchor = dialog.test_btn if stage else (cancel if ok_first else ok)
+    anchor = cancel if ok_first else ok
     for size in ((820, 480), (1000, 600)):
         dialog.resize(*size)
         qtbot.waitUntil(lambda: dialog.map.width() > 0)
