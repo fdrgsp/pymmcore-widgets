@@ -24,6 +24,7 @@ from pymmcore_widgets.mda._core_grid import CoreConnectedGridPlanWidget
 from pymmcore_widgets.mda._core_mda import AF_NO_AXIS, PAUSE_UNAVAILABLE_HW_SEQUENCED
 from pymmcore_widgets.mda._core_positions import (
     AF_UNAVAILABLE,
+    HCS_LOCKED_TOOLTIP,
     CoreConnectedPositionTable,
 )
 from pymmcore_widgets.mda._core_z import (
@@ -1624,6 +1625,7 @@ def test_core_mda_with_hcs_enable_disable(
 
     # edit table btn is hidden
     assert wdg.stage_positions._edit_hcs_pos.isHidden()
+    assert not table.toolTip()
     # all table visible
     assert not table.isColumnHidden(name_col)
     assert not table.isColumnHidden(xy_btn_col)
@@ -1652,6 +1654,7 @@ def test_core_mda_with_hcs_enable_disable(
 
     # edit table btn is visible
     assert not wdg.stage_positions._edit_hcs_pos.isHidden()
+    assert table.toolTip() == HCS_LOCKED_TOOLTIP
     # all columns hidden but name
     assert not table.isColumnHidden(name_col)
     assert table.isColumnHidden(xy_btn_col)

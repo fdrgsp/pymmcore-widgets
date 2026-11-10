@@ -370,6 +370,7 @@ def memory_limit_defaults() -> tuple[float, float, float]:
 GREEN = "#4caf50"
 RED = "#ef5350"
 YELLOW = "#ffff00"
+ORANGE = "#ff9800"
 
 
 class SeparatorWidget(QWidget):
