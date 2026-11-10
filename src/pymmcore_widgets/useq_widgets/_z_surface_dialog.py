@@ -51,18 +51,18 @@ if TYPE_CHECKING:
 
 METHOD_TOOLTIP = (
     "How Z is computed from the reference points.\n\n"
-    "Local linear surface: the points are joined into triangles, and inside each\n"
-    "triangle Z is interpolated linearly between its 3 corners. The surface passes\n"
-    "exactly through every point, so it follows local changes of the sample height\n"
+    "Local linear surface: the points are joined into triangles, and inside each "
+    "triangle Z is interpolated linearly between its 3 corners. The surface passes "
+    "exactly through every point, so it follows local changes of the sample height "
     "(e.g. a bowed plate), but also any focusing error of a point.\n\n"
-    "Fitted plane: the one plane closest to all the points (least squares). It\n"
-    "does not pass exactly through them: it averages out focusing errors, but\n"
+    "Fitted plane: the one plane closest to all the points (least squares). It "
+    "does not pass exactly through them: it averages out focusing errors, but "
     "cannot follow a curved sample. For a flat, possibly tilted, sample.\n\n"
-    "Extrapolated Z: the dashed outline on the map joins the outermost points.\n"
-    "Outside it there are no points around to compute Z from, so Z is extended\n"
-    "beyond them: the fitted plane simply continues, and the local linear surface\n"
-    "continues from the nearest edge of the outline with the fitted plane's slope.\n"
-    "The farther from the outline, the less reliable Z: place points around the\n"
+    "Extrapolated Z: the dashed outline on the map joins the outermost points. "
+    "Outside it there are no points around to compute Z from, so Z is extended "
+    "beyond them: the fitted plane simply continues, and the local linear surface "
+    "continues from the nearest edge of the outline with the fitted plane's slope. "
+    "The farther from the outline, the less reliable Z: place points around the "
     "whole area to image."
 )
 OK_INVALID_TOOLTIP = (
@@ -71,8 +71,8 @@ OK_INVALID_TOOLTIP = (
 )
 TEST_TOOLTIP = (
     "Move Z to the focus surface's Z at the current stage XY.\n\n"
-    "To test the surface: in live mode, move Z away and press this button:\n"
-    "Z should come back to the surface's Z at this position, the one shown on\n"
+    "To test the surface: in live mode, move Z away and press this button: "
+    "Z should come back to the surface's Z at this position, the one shown on "
     "the map. Move the stage elsewhere and test again."
 )
 MOVE_HINT = "Double-click to move here, at the surface Z"
