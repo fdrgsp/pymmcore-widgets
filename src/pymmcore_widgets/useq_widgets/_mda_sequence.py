@@ -40,6 +40,7 @@ from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
 import pymmcore_widgets
+from pymmcore_widgets._busy import BusyOverlay, busy
 from pymmcore_widgets._humanize import humanize_time
 from pymmcore_widgets._util import (
     QWIDGETSIZE_MAX,
@@ -1204,6 +1205,7 @@ class MDASequenceWidget(QWidget):
         layout.addLayout(settings_row)
         layout.addWidget(footer)
         self._apply_layout_metrics()
+        self._load_overlay = BusyOverlay(self)
 
         # -------------- Connections --------------
 
@@ -1425,7 +1427,8 @@ class MDASequenceWidget(QWidget):
         except Exception as e:  # pragma: no cover
             raise ValueError(f"Failed to load MDASequence file: {src}") from e
 
-        self.setValue(mda_seq)
+        with busy(self._load_overlay, "Loading MDA settings…"):
+            self.setValue(mda_seq)
 
     # -------------- Private API --------------
 

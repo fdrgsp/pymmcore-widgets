@@ -5,12 +5,15 @@ from typing import TYPE_CHECKING
 import pytest
 from qtpy.QtGui import QColor, QPalette
 from qtpy.QtWidgets import QWidget
-from useq import WellPlate, WellPlatePlan
+from useq import MDASequence, WellPlate, WellPlatePlan
 
 from pymmcore_widgets._busy import BusyOverlay, busy
 from pymmcore_widgets.mda._core_positions import CoreConnectedPositionTable
+from pymmcore_widgets.useq_widgets import MDASequenceWidget
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from pymmcore_plus import CMMCorePlus
     from pytestqt.qtbot import QtBot
 
@@ -86,3 +89,25 @@ def test_position_import_feedback_clears_after_success_or_error(
     assert called
     assert editor._import_overlay.isHidden()
     assert editor.table().isVisible() is not hidden
+
+
+def test_mda_load_feedback(
+    qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wdg = MDASequenceWidget()
+    qtbot.addWidget(wdg)
+    wdg.show()
+    seq = MDASequence(time_plan={"interval": 1, "loops": 2})
+    file = tmp_path / "seq.json"
+    file.write_text(seq.model_dump_json())
+    populate = MDASequenceWidget.setValue
+
+    def populate_with_feedback(self: MDASequenceWidget, value: MDASequence) -> None:
+        assert self._load_overlay.isVisible()
+        assert self._load_overlay._message == "Loading MDA settings…"
+        populate(self, value)
+
+    monkeypatch.setattr(MDASequenceWidget, "setValue", populate_with_feedback)
+    wdg.load(file)
+    assert wdg._load_overlay.isHidden()
+    assert wdg.value().time_plan == seq.time_plan
