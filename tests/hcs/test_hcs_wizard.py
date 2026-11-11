@@ -36,7 +36,16 @@ def test_hcs_wizard(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
 
     value = wdg.value()
     assert value is not None
-    assert value.model_dump(exclude={"selected_wells"}) == plan.model_dump(
+    # the points plan gets the current camera FOV
+    px = global_mmcore.getPixelSizeUm()
+    fov = {
+        "fov_width": global_mmcore.getImageWidth() * px,
+        "fov_height": global_mmcore.getImageHeight() * px,
+    }
+    expected = plan.model_copy(
+        update={"well_points_plan": plan.well_points_plan.model_copy(update=fov)}
+    )
+    assert value.model_dump(exclude={"selected_wells"}) == expected.model_dump(
         exclude={"selected_wells"}
     )
     assert set(value.selected_well_names) == set(plan.selected_well_names)
@@ -282,6 +291,30 @@ def test_hcs_wizard_file_wrapper(
     newer.write_text(json.dumps(data))
     with pytest.raises(ValueError, match="version"):
         wdg3.load(str(newer))
+
+
+def test_hcs_wizard_load_uses_current_fov(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """A plan saved with another objective's FOV gets the current FOV on load."""
+    global_mmcore.setConfig("Objective", "20X")
+    px = global_mmcore.getPixelSizeUm()
+    current = (global_mmcore.getImageWidth() * px, global_mmcore.getImageHeight() * px)
+    grid = useq.GridRowsColumns(rows=2, columns=2, fov_width=2600, fov_height=2600)
+    plan = useq.WellPlatePlan(
+        plate="96-well", a1_center_xy=(0, 0), selected_wells=([0], [0]),
+        well_points_plan=grid,
+    )
+    wdg = HCSWizard(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.setValue(plan)
+
+    value = wdg.value()
+    assert value is not None
+    assert (value.well_points_plan.fov_width, value.well_points_plan.fov_height) == (
+        current
+    )
+    assert (grid.fov_width, grid.fov_height) == (2600, 2600)  # caller's plan intact
 
 
 def test_hcs_wizard_grid_in_cover_area(

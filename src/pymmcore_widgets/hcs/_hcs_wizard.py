@@ -205,11 +205,13 @@ class HCSWizard(QWizard):
         # WellPlateWidget.setValue doesn't emit, so synchronize the well geometry
         # (after the calibration, so that it isn't reset as a plate change)
         self._on_plate_changed(self.plate_page.widget.value())
-        # update the points plan fov size if it's not set
+        # the FOV follows the current camera and objective (a saved plan may come
+        # from another objective); the saved FOV is only used without a pixel size
         point_plan = value.well_points_plan
-        if point_plan.fov_width is None or point_plan.fov_height is None:
-            point_plan.fov_width, point_plan.fov_height = (
-                self.points_plan_page._get_fov_size()
+        fov_w, fov_h = self.points_plan_page._get_fov_size()
+        if fov_w is not None:
+            point_plan = point_plan.model_copy(
+                update={"fov_width": fov_w, "fov_height": fov_h}
             )
         self.points_plan_page.widget.setValue(point_plan)
 
