@@ -117,6 +117,8 @@ def test_hcs_bulk_import_preserves_positions_and_read_only_state(
     )
     if via_wizard:
         editor._hcs.setValue(plan)
+        plan = editor._hcs.value()
+        assert plan is not None
         changed = Mock()
         editor.valueChanged.connect(changed)
         editor._hcs.accept()
