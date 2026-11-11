@@ -665,6 +665,7 @@ class StageExplorer(QWidget):
         img_h = self._mmc.getImageHeight()
         if not img_w or not img_h:
             return
+        self._image_bit_depth = self._mmc.getImageBitDepth()
         px = self._mmc.getPixelSizeUm()
         self.roi_manager.update_fovs((img_w * px, img_h * px))
 
@@ -803,10 +804,9 @@ class StageExplorer(QWidget):
 
     def _fov_w_h(self) -> tuple[float, float]:
         """Return the field of view width and height."""
-        px = self._mmc.getPixelSizeUm()
-        fov_w = self._mmc.getImageWidth() * px
-        fov_h = self._mmc.getImageHeight() * px
-        return fov_w, fov_h
+        width, height = -2 * self._half_img_shift[:2, 3]
+        px = self._affine_state.pixel_size_um
+        return width * px, height * px
 
     def _on_sys_config_loaded(self) -> None:
         """Clear the scene and reinitialize when the system configuration is loaded."""
@@ -1189,7 +1189,7 @@ class StageExplorer(QWidget):
     def _update_contrast_range(self, image: np.ndarray) -> None:
         if not self._contrast_slider.isVisible():
             self._contrast_slider.setVisible(True)
-            self._contrast_slider.set_maximum(2 ** self._mmc.getImageBitDepth() - 1)
+            self._contrast_slider.set_maximum(2**self._image_bit_depth - 1)
         self._contrast_slider.update_data_range(np.min(image), np.max(image))
 
     # MAP MEMORY ---------------------------------------------------------------

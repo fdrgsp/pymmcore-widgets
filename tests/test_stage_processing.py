@@ -89,6 +89,43 @@ def test_processing_and_result_delivery_threads(
     assert tile.image.visible
 
 
+def test_visible_tile_is_prepared_before_offscreen_backlog(
+    qtbot: QtBot,
+    blocked_worker: tuple[Event, Event],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started, release = blocked_worker
+    accepted = []
+    original = StageViewer._accept_prepared
+
+    def accept(self: StageViewer, tile: object, *args: Any) -> None:
+        accepted.append(tile)
+        original(self, tile, *args)
+
+    monkeypatch.setattr(StageViewer, "_accept_prepared", accept)
+    viewer = StageViewer()
+    qtbot.addWidget(viewer)
+    viewer.show()
+    viewer.view.camera.set_range(x=(0, 20000), y=(0, 20000))
+    source = np.ones((64, 64), np.uint16)
+    matrix = np.eye(4)
+    matrix[0, 3] = 100000
+    first = viewer.add_image(source, matrix)
+    viewer._process_images()
+    assert started.wait(2)
+    for _i in range(8):
+        matrix[0, 3] += 3000
+        viewer.add_image(source, matrix)
+    visible = viewer.add_image(source)
+    release.set()
+    wait_for_stage_viewer(qtbot, viewer)
+
+    assert accepted[:2] == [first, visible]
+    assert visible.prepared is not None
+    assert visible.image is not None and visible.image.visible
+    assert len(viewer._processor.model._thumbs) == 10
+
+
 def test_clear_rejects_result_and_reused_tile_index(
     qtbot: QtBot, blocked_worker: tuple[Event, Event]
 ) -> None:

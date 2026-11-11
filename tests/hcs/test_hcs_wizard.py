@@ -34,8 +34,44 @@ def test_hcs_wizard(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
     wdg.next()
     wdg.accept()
 
-    # we haven't done anything, the plan should be the same
-    assert wdg.value() == plan
+    value = wdg.value()
+    assert value is not None
+    assert value.model_dump(exclude={"selected_wells"}) == plan.model_dump(
+        exclude={"selected_wells"}
+    )
+    assert set(value.selected_well_names) == set(plan.selected_well_names)
+
+
+@pytest.mark.parametrize("sparse", [False, True])
+def test_hcs_wizard_snakes_between_selected_rows(
+    qtbot: QtBot, global_mmcore: CMMCorePlus, sparse: bool, tmp_path: Path
+) -> None:
+    wizard = HCSWizard(mmcore=global_mmcore)
+    qtbot.addWidget(wizard)
+    plan = useq.WellPlatePlan(
+        plate="96-well",
+        a1_center_xy=(1000, 2000),
+        selected_wells=([0, 0, 2, 2], [0, 2, 0, 2]) if sparse else slice(None),
+    )
+    wizard.setValue(plan)
+    value = wizard.value()
+    assert value is not None
+    expected = (
+        ["A1", "A3", "C3", "C1"]
+        if sparse
+        else [
+            f"{row}{col}"
+            for i, row in enumerate("ABCDEFGH")
+            for col in (range(1, 13) if i % 2 == 0 else range(12, 0, -1))
+        ]
+    )
+    assert value.selected_well_names == expected
+    assert [position.name for position in value] == expected
+    assert len(value) == len(plan)
+    path = tmp_path / "snake.json"
+    wizard.save(str(path))
+    wizard.load(str(path))
+    assert wizard.value() == value
 
 
 def test_hcs_wizard_fits_points_plan_panel(

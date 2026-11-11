@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import warnings
 from contextlib import suppress
+from itertools import groupby
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -180,9 +181,18 @@ class HCSWizard(QWizard):
             warnings.warn("Plate Plan and Calibration Plan do not match.", stacklevel=2)
             return None
 
+        selected_rows, selected_columns = plate_plan.selected_wells or ((), ())
+        rows = groupby(
+            sorted(zip(selected_rows, selected_columns, strict=True)),
+            key=lambda well: well[0],
+        )
+        wells: list[tuple[int, int]] = []
+        for index, (_, row) in enumerate(rows):
+            row_wells = list(row)
+            wells.extend(reversed(row_wells) if index % 2 else row_wells)
         return useq.WellPlatePlan(
             plate=plate_plan.plate,
-            selected_wells=plate_plan.selected_wells,
+            selected_wells=tuple(zip(*wells, strict=True)),
             rotation=calib_plan.rotation,
             a1_center_xy=calib_plan.a1_center_xy,
             well_points_plan=self.points_plan_page.widget.value(),

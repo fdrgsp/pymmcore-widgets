@@ -530,7 +530,18 @@ class StageViewer(QWidget):
                     if epoch == self._epoch and (tile is None or tile.rank == rank):
                         self._accept_prepared(tile, factor, result)
                         processor.accepted = result.overview is not None
-        # Build requested levels between tile jobs, never inside a camera callback.
+        # Prioritize visible tiles over offscreen overview work.
+        while self._sample_pending:
+            tile = next(iter(self._sample_pending))
+            factor = self._sample_pending.pop(tile)
+            if tile in self._drawn and factor == self._downsample_factor(tile):
+                key = tile.index if tile in self._overview_pending else None
+                self._overview_pending.pop(tile, None)
+                self._job = (self._epoch, tile, tile.rank, factor)
+                processor.submit(
+                    key, tile.data, tile.matrix, factor, max_bytes=self._overview_limit
+                )
+                return
         level = self._requested_level
         if level is not None and level < len(self._overview._levels):
             if not self._overview._levels[level].built:
@@ -549,12 +560,6 @@ class StageViewer(QWidget):
                 factor,
                 max_bytes=self._overview_limit,
             )
-        elif self._sample_pending:
-            tile = next(iter(self._sample_pending))
-            factor = self._sample_pending.pop(tile)
-            if tile in self._drawn and factor == self._downsample_factor(tile):
-                self._job = (self._epoch, tile, tile.rank, factor)
-                processor.submit(data=tile.data, factor=factor)
         else:
             self._processing_timer.stop()
 

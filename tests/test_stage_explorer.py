@@ -295,6 +295,29 @@ def test_stage_explorer_snap_on_double_click(qtbot: QtBot) -> None:
     assert explorer.snap_on_double_click is False
 
 
+def test_mda_frame_display_does_not_query_camera_geometry(
+    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+    expected_fov = explorer._fov_w_h()
+    core = MagicMock(wraps=explorer._mmc)
+    for name in (
+        "getImageWidth",
+        "getImageHeight",
+        "getPixelSizeUm",
+        "getImageBitDepth",
+    ):
+        getattr(core, name).side_effect = AssertionError("camera is busy acquiring")
+    with monkeypatch.context() as patch:
+        patch.setattr(explorer, "_mmc", core)
+        explorer._on_frame_ready(IMG, useq.MDAEvent(x_pos=100, y_pos=200))
+        assert explorer._fov_w_h() == expected_fov
+        assert len(explorer._tiles) == 1
+        assert explorer._contrast_slider.isVisible()
+
+
 def test_stage_explorer_add_image(qtbot: QtBot) -> None:
     explorer = StageExplorer()
     qtbot.addWidget(explorer)
