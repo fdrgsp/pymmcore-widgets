@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from threading import Event, current_thread, get_ident
 from typing import TYPE_CHECKING, Any
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -218,6 +219,10 @@ def test_pan_and_accounting_do_not_prepare_pixels(
         viewer.view.camera.set_range(x=(x, x + 100), y=(0, 100), margin=0)
         viewer.overview_nbytes()
     wait_for_stage_viewer(qtbot, viewer)
+
+    with patch.object(viewer.canvas, "update") as repaint:
+        viewer.cull_to_view()
+    repaint.assert_not_called()
 
 
 @pytest.mark.parametrize("close", [True, False])

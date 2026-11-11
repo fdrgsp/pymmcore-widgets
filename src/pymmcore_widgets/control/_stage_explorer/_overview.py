@@ -458,7 +458,9 @@ class OverviewPyramid:
         """Show one level, drawing only its chunks that intersect `rect`."""
         self.active_level = level_index
         for i, level in enumerate(self._levels):
-            level.node.visible = i == level_index
+            visible = i == level_index
+            if level.node.visible != visible:
+                level.node.visible = visible
         if level_index is None:
             return False
         level = self._levels[level_index]
@@ -467,7 +469,7 @@ class OverviewPyramid:
         for key, arr in self.level_arrays(level_index).items():
             image = level.images.get(key)
             if not intersects(level.chunk_rect(key), rect):
-                if image is not None:
+                if image is not None and image.visible:
                     image.visible = False
                 continue
             if (image is None or key in level.dirty) and (
@@ -483,7 +485,8 @@ class OverviewPyramid:
                     limit -= 1
                     # Keeps the array; the texture upload happens at the next draw.
                     image.set_data(arr)
-                image.visible = True
+                if not image.visible:
+                    image.visible = True
             level.dirty.discard(key)
         return remaining
 

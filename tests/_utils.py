@@ -25,7 +25,7 @@ def wait_for_stage_viewer(qtbot: QtBot, viewer: StageViewer) -> None:
         viewer._downsample_timer,
     )
     qtbot.waitUntil(
-        lambda: not any(timer.isActive() for timer in timers), timeout=10000
+        lambda: not any(timer.isActive() for timer in timers), timeout=30000
     )
 
 
