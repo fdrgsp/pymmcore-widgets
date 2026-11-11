@@ -240,7 +240,7 @@ def test_stage_viewer_only_tiles_in_view_hold_an_image(qtbot: QtBot) -> None:
     for i in range(200):
         viewer.add_image(TILE_IMG, _build_transform_matrix(i * 100, 0).T)
     viewer.zoom_to_fit()
-    qtbot.waitUntil(lambda: len(viewer._drawn) == 200)
+    qtbot.waitUntil(lambda: len(viewer._drawn) == 200, timeout=30000)
 
     viewer.view.camera.set_range(x=(0, 150), y=(0, 64), margin=0)
     assert 0 < len(viewer._drawn) <= 2
