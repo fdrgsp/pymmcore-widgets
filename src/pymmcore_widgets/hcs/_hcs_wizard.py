@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import useq
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtCore import QEvent, QObject, QSize, Slot
+from qtpy.QtCore import QEvent, QObject, Slot
 from qtpy.QtWidgets import (
     QFileDialog,
     QTabWidget,
@@ -128,16 +128,16 @@ class HCSWizard(QWizard):
         self.calibration_page.automated.busyChanged.connect(self._on_survey_busy)
 
     def showEvent(self, event: QShowEvent | None) -> None:
-        # Size the wizard once, before the window first appears, to the smallest
-        # size that fits every page and shows the whole Field of View Selection
-        # panel without scrolling. The wizard's chrome (title, buttons) is only
+        # Size the wizard once, before the window first appears, to the preferred
+        # size of the Field of View Selection panel (shown without scrolling),
+        # grown to fit every page. The wizard's chrome (title, buttons) is only
         # measurable once it is laid out, i.e. now.
         super().showEvent(event)
         if self._initial_size_set or (page := self.currentPage()) is None:
             return
         self._initial_size_set = True
         pages = (self.plate_page, self.calibration_page, self.points_plan_page)
-        size = QSize(0, self.points_plan_page.sizeHint().height())
+        size = self.points_plan_page.sizeHint()
         for p in pages:
             size = size.expandedTo(p.minimumSizeHint())
         center = self.geometry().center()

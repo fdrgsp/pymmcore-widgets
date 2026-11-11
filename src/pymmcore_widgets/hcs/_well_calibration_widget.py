@@ -40,6 +40,7 @@ THREE = QIcon(str(ICON_PATH / "circle-edges.svg"))
 FOUR = QIcon(str(ICON_PATH / "square-edges.svg"))
 NON_CALIBRATED_ICON = "mdi:circle"
 CALIBRATED_ICON = "mdi:check-circle"
+PENDING_ICON = "mdi:progress-check"
 ICON_SIZE = QSize(30, 30)
 # Button icons and colors shared with the MDA tables and MDA run controls.
 ICON_GREEN, ICON_RED, ICON_GRAY = "#3A3", "#C33", "#666"

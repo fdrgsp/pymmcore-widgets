@@ -23,7 +23,7 @@ from superqt.iconify import QIconifyIcon
 from superqt.utils import create_worker, signals_blocked
 
 from pymmcore_widgets._icons import StandardIcon
-from pymmcore_widgets._util import SeparatorWidget, memory_limit_defaults
+from pymmcore_widgets._util import GREEN, SeparatorWidget, memory_limit_defaults
 from pymmcore_widgets.control._stage_explorer._stage_explorer import AffineState
 from pymmcore_widgets.useq_widgets._well_plate_widget import WellPlateView
 
@@ -189,6 +189,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
         self._tiles: tuple[SurveyTile, ...] = ()
         self._geometry: SurveyGeometry | None = None
         self._result: DetectionResult | None = None
+        self._applied = False
         self._assigned: dict[tuple[int, int], DetectedWell] = {}
         self._detection_settings = DetectionSettings()
         self.destroyed.connect(self._cancel.set)
@@ -241,14 +242,20 @@ class AutomatedPlateCalibrationWidget(QWidget):
         self._settings_button.setAccessibleName("Well Detection Settings")
         self._show_detection = QCheckBox("Show detection")
         self._show_detection.setChecked(True)
-        self._apply = QPushButton("Apply Calibration")
-        self._apply.setIcon(QIconifyIcon("material-symbols:check-rounded"))
+        self._apply = QPushButton("Apply\nCalibration")
+        self._apply.setStyleSheet(
+            f"QPushButton {{ background-color: {GREEN}; color: white; "
+            "font-weight: bold; border-radius: 4px; padding: 6px 12px; }"
+        )
+        # keep the status text width fixed whether or not Apply is shown
+        policy = self._apply.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        self._apply.setSizePolicy(policy)
         controls = QHBoxLayout()
         controls.addWidget(self._detect)
         controls.addWidget(self._settings_button)
         controls.addWidget(self._show_detection)
         controls.addStretch()
-        controls.addWidget(self._apply)
         scan = QWidget()
         scan_layout = QVBoxLayout(scan)
         scan_layout.setContentsMargins(0, 0, 0, 0)
@@ -285,10 +292,13 @@ class AutomatedPlateCalibrationWidget(QWidget):
         self._progress_bar.hide()
         self._status = CalibrationInfo()
         self._status.setText(self._selection_hint())
+        status = QHBoxLayout()
+        status.addWidget(self._status, 1)
+        status.addWidget(self._apply)
         main = QVBoxLayout(self)
         main.addLayout(top, 1)
         main.addWidget(self._progress_bar)
-        main.addWidget(self._status)
+        main.addLayout(status)
 
         self._start.clicked.connect(self._acquire)
         self._stop.clicked.connect(self.cancel)
@@ -352,6 +362,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
         self.cancel()
         self._generation += 1
         self._result = None
+        self._applied = False
         self._assigned.clear()
         if clear_images:
             self._tiles = ()
@@ -503,7 +514,9 @@ class AutomatedPlateCalibrationWidget(QWidget):
             idle and bool(self._tiles) and supported and self._scan_ready()
         )
         self._settings_button.setEnabled(idle and supported)
-        self._apply.setEnabled(idle and self._labels_ready())
+        pending = not self._applied and self._labels_ready()
+        self._apply.setVisible(pending)
+        self._apply.setEnabled(idle and pending)
         self._plate_test.setEnabled(idle)
         self._plate_view.setEnabled(idle)
         ready = self._scan_ready() and calibrated and supported
@@ -648,8 +661,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
                 result.wells, self._plate, self._plate_view.selectedIndices()
             )
             self._show_calibration(
-                f"Detected {len(result.wells)} wells matching the selection. "
-                "Check the labels on the overlay and apply calibration."
+                f"Detected {len(result.wells)} wells matching the selection."
             )
         except ValueError as error:
             self._assigned.clear()
@@ -706,6 +718,8 @@ class AutomatedPlateCalibrationWidget(QWidget):
             centers = self._calibration_centers()
             # Apply is never blocked by the fit error; _show_calibration warns.
             self.centersAccepted.emit(centers, INF)
+            self._applied = True
+            self._update_controls()
             self._show_calibration(
                 f"Calibration applied from {len(centers)} wells. "
                 "Use Test Calibration to check other wells."
@@ -727,4 +741,6 @@ class AutomatedPlateCalibrationWidget(QWidget):
                 "use Test Calibration; a larger block of wells averages this out."
             )
         note = f"Maximum deviation {max_error:.1f} µm. {note}"
-        self._status.setCalibration(self._plate, *fit, note=note, warning=warning)
+        self._status.setCalibration(
+            self._plate, *fit, note=note, warning=warning, applied=self._applied
+        )

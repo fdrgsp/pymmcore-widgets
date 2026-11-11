@@ -332,9 +332,13 @@ def test_detection_matches_selection_and_apply(qtbot, global_mmcore):
     auto._on_result(result)
     assert not page.isComplete()
     assert auto._viewer.labels == ["A1", "A2", "B1"]
+    assert "not applied yet" in auto._status.text()
+    assert not auto._apply.isHidden()
     assert auto._apply.isEnabled()
     auto._apply.click()
     assert page.isComplete()
+    assert "Plate calibrated" in auto._status.text()
+    assert auto._apply.isHidden()
     assert page.widget.value().a1_center_xy == (0, 0)
     assert auto._tab_wdg.isTabEnabled(2)
     assert len(page.widget._calibrated_wells) == 3
@@ -877,7 +881,7 @@ def test_two_well_plate_automated(qtbot, global_mmcore):
     auto._run_generation = auto._generation
     auto._cancel.clear()
     auto._on_result(DetectionResult(np.zeros((10, 10)), (0, 0), 1, wells))
-    assert "Plate calibrated" in auto._status.text()
+    assert "not applied yet" in auto._status.text()
     auto._apply.click()
     assert page.isComplete()
     assert page.widget.value().a1_center_xy == pytest.approx((0, 0))

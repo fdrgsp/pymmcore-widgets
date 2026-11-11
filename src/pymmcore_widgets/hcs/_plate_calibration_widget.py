@@ -22,10 +22,11 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
-from pymmcore_widgets._util import GREEN, SeparatorWidget
+from pymmcore_widgets._util import GREEN, ORANGE, SeparatorWidget
 from pymmcore_widgets.hcs._well_calibration_widget import (
     CALIBRATED_ICON,
     ICON_GRAY,
+    PENDING_ICON,
     TEST_ICON,
     WellCalibrationWidget,
 )
@@ -111,13 +112,20 @@ class CalibrationInfo(QWidget):
         rotation: float,
         note: str = "",
         warning: str = "",
+        *,
+        applied: bool = True,
     ) -> None:
         """Summarize a calibration, warning if spacing differs >5% from the plate.
 
         `warning` adds a caller-specific problem (in red, with a warning icon).
+        `applied=False` marks a calibration that is shown but not yet in use.
         """
-        txt = "<strong>Plate calibrated.</strong>"
-        ico = QIconifyIcon(CALIBRATED_ICON, color=GREEN)
+        if applied:
+            txt = "<strong>Plate calibrated.</strong>"
+            ico = QIconifyIcon(CALIBRATED_ICON, color=GREEN)
+        else:
+            txt = "<strong>Calibration detected, not applied yet.</strong>"
+            ico = QIconifyIcon(PENDING_ICON, color=ORANGE)
         if warning:
             txt += f"<font color='red'>   {warning}</font>"
             ico = self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
