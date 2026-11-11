@@ -33,6 +33,8 @@ from pymmcore_widgets.control._stage_explorer._stage_viewer import (
     visual_bounds,
 )
 
+from ._utils import wait_for_stage_viewer
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -123,15 +125,16 @@ def _shown_viewer_with_tile(
     return stage_viewer, tile, img
 
 
-def _zoom_far_out(stage_viewer: StageViewer) -> None:
+def _zoom_far_out(qtbot: QtBot, stage_viewer: StageViewer) -> None:
     stage_viewer.view.camera.set_range(x=(0, 20000), y=(0, 20000), margin=0)
     stage_viewer.apply_downsampling()
+    wait_for_stage_viewer(qtbot, stage_viewer)
 
 
 def test_stage_viewer_downsamples_when_zoomed_out(qtbot: QtBot) -> None:
     stage_viewer, tile, img = _shown_viewer_with_tile(qtbot)
 
-    _zoom_far_out(stage_viewer)
+    _zoom_far_out(qtbot, stage_viewer)
     assert tile.image is not None and tile.factor is not None
     fy, fx = tile.factor
     assert fy == fx > 1
@@ -143,7 +146,7 @@ def test_stage_viewer_downsamples_when_zoomed_out(qtbot: QtBot) -> None:
 
     stage_viewer.view.camera.set_range(x=(500, 600), y=(100, 200), margin=0)
     stage_viewer.apply_downsampling()
-    assert tile.image._data is img
+    assert tile.image._data is tile.data
     assert tile.factor == (1, 1)
 
 
@@ -151,7 +154,7 @@ def test_stage_viewer_downsampling_keeps_extent_of_odd_sizes(qtbot: QtBot) -> No
     img = np.ones((257, 131), dtype=np.uint16)
     stage_viewer, tile, _ = _shown_viewer_with_tile(qtbot, img)
 
-    _zoom_far_out(stage_viewer)
+    _zoom_far_out(qtbot, stage_viewer)
     assert tile.image is not None
     assert tile.factor != (1, 1)
     assert visual_bounds(tile.image) == pytest.approx((500, 631, 100, 357))
@@ -162,7 +165,7 @@ def test_stage_viewer_downsampling_keeps_single_bright_pixel(qtbot: QtBot) -> No
     img[77, 133] = 60000  # off every power-of-two stride
     stage_viewer, tile, _ = _shown_viewer_with_tile(qtbot, img)
 
-    _zoom_far_out(stage_viewer)
+    _zoom_far_out(qtbot, stage_viewer)
     assert tile.image is not None
     assert tile.factor != (1, 1)
     assert tile.image._data.max() > 0
@@ -174,7 +177,7 @@ def test_stage_viewer_downsampling_is_per_axis(qtbot: QtBot) -> None:
     transform = np.diag([1.0, 8.0, 1.0, 1.0])
     stage_viewer, tile, _ = _shown_viewer_with_tile(qtbot, transform=transform)
 
-    _zoom_far_out(stage_viewer)
+    _zoom_far_out(qtbot, stage_viewer)
     assert tile.factor is not None
     fy, fx = tile.factor
     assert fx == 8 * fy
@@ -184,23 +187,23 @@ def test_stage_viewer_downsample_disabled_restores_full_resolution(
     qtbot: QtBot,
 ) -> None:
     stage_viewer, tile, img = _shown_viewer_with_tile(qtbot)
-    _zoom_far_out(stage_viewer)
+    _zoom_far_out(qtbot, stage_viewer)
     assert tile.image is not None
     assert tile.image._data is not img
 
     stage_viewer.set_downsample(False)
-    assert tile.image._data is img
+    assert tile.image._data is tile.data
 
 
 def test_stage_viewer_update_image_keeps_downsampling(qtbot: QtBot) -> None:
     stage_viewer, tile, img = _shown_viewer_with_tile(qtbot)
-    _zoom_far_out(stage_viewer)
+    _zoom_far_out(qtbot, stage_viewer)
     factor = tile.factor
     assert tile.image is not None and factor is not None
 
     new = img[::-1].copy()
     stage_viewer.update_image(tile, new)
-    assert tile.factor == factor
+    qtbot.waitUntil(lambda: tile.factor == factor)
     assert tile.image._data.shape == (256 // factor[0], 256 // factor[1])
     assert tile.image._data[0, 0] > tile.image._data[-1, 0]  # flipped data uploaded
     assert tuple(tile.image.transform.matrix[3, :2]) == (500, 100)
@@ -237,7 +240,7 @@ def test_stage_viewer_only_tiles_in_view_hold_an_image(qtbot: QtBot) -> None:
     for i in range(200):
         viewer.add_image(TILE_IMG, _build_transform_matrix(i * 100, 0).T)
     viewer.zoom_to_fit()
-    assert len(viewer._drawn) == 200
+    qtbot.waitUntil(lambda: len(viewer._drawn) == 200)
 
     viewer.view.camera.set_range(x=(0, 150), y=(0, 64), margin=0)
     assert 0 < len(viewer._drawn) <= 2

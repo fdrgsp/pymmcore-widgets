@@ -49,6 +49,7 @@ from pymmcore_widgets.control._q_stage_controller import QStageMoveAccumulator
 from pymmcore_widgets.control._rois.roi_manager import GRAY, SceneROIManager
 
 from ._mda_positions import MAX_GRID_POINTS, positions_to_xy
+from ._overview import GUI_BATCH_ITEMS, GUI_BATCH_SECONDS, MAX_OVERVIEW_BYTES
 from ._stage_position_marker import StagePositionMarker
 from ._stage_viewer import StageViewer
 
@@ -66,7 +67,7 @@ logger = logging.getLogger(__name__)
 STAGE_POLL_INTERVAL_MS = 100
 STAGE_POS_TOLERANCE_UM_SQ = 0.01  # 0.1 µm squared
 
-# Coalesce streaming updates to about 30 fps, keeping the newest frame.
+# Coalesce streaming updates to about 30 fps, keeping the newest per location.
 REDRAW_INTERVAL_MS = 33  # ~30 fps
 
 # Spatial tolerance for reusing a tile when the stage returns to a location.
@@ -106,6 +107,7 @@ class _LatestFrameRelay(QObject):
     """
 
     framesPending = Signal()
+    capacityExceeded = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -113,6 +115,9 @@ class _LatestFrameRelay(QObject):
         self._pending: dict[Hashable, tuple[np.ndarray, useq.MDAEvent]] = {}
         self._notification_pending = False
         self._enabled = False
+        self._max_bytes = 512 * 1024**2
+        self._nbytes = 0
+        self._capacity_notified = False
 
     @Slot(object, object, dict)
     def submit(
@@ -123,20 +128,43 @@ class _LatestFrameRelay(QObject):
     ) -> None:
         """Store ``image`` and request one GUI drain when none is outstanding."""
         notify = False
+        rejected = False
         key = self._event_key(event)
         with self._lock:
             if not self._enabled:
                 return
-            # Reinsert an existing key so batch order reflects most-recent
-            # arrival. This preserves the expected topmost ordering for
-            # overlapping tiles when several locations are drained together.
-            self._pending.pop(key, None)
-            self._pending[key] = (image, event)
-            if not self._notification_pending:
-                self._notification_pending = True
-                notify = True
-        if notify:
+            previous = self._pending.get(key)
+            size = self._nbytes + image.nbytes
+            if previous is not None:
+                size -= previous[0].nbytes
+            if size > self._max_bytes:
+                rejected = not self._capacity_notified
+                self._capacity_notified = True
+            else:
+                # Snapshot while the acquisition callback owns a stable frame.
+                # Camera engines may recycle the source as soon as we return.
+                owned = np.array(image, copy=True)
+                owned.flags.writeable = False
+                self._pending.pop(key, None)
+                self._pending[key] = (owned, event)
+                self._nbytes = size
+                if not self._notification_pending:
+                    self._notification_pending = True
+                    notify = True
+        if rejected:
+            self.capacityExceeded.emit()
+        elif notify:
             self.framesPending.emit()
+
+    def set_limit(self, nbytes: int) -> None:
+        """Set the admission budget; existing spatial updates are never evicted."""
+        with self._lock:
+            self._max_bytes = max(0, nbytes)
+            self._capacity_notified = False
+
+    def nbytes(self) -> int:
+        with self._lock:
+            return self._nbytes
 
     def set_enabled(self, enabled: bool) -> None:
         """Enable collection, discarding retained frames when disabled."""
@@ -144,15 +172,24 @@ class _LatestFrameRelay(QObject):
             self._enabled = enabled
             if not enabled:
                 self._pending.clear()
+                self._nbytes = 0
                 self._notification_pending = False
+                self._capacity_notified = False
 
-    def take_or_disarm(self) -> tuple[tuple[np.ndarray, useq.MDAEvent], ...]:
+    def take_or_disarm(
+        self, limit: int | None = None
+    ) -> tuple[tuple[np.ndarray, useq.MDAEvent], ...]:
         """Take a batch, or atomically allow the next frame to notify the GUI."""
         with self._lock:
             if self._pending:
-                batch = tuple(self._pending.values())
-                self._pending.clear()
-                return batch
+                count = len(self._pending) if limit is None else limit
+                batch = []
+                for _ in range(min(count, len(self._pending))):
+                    key = next(iter(self._pending))
+                    frame = self._pending.pop(key)
+                    self._nbytes -= frame[0].nbytes
+                    batch.append(frame)
+                return tuple(batch)
             self._notification_pending = False
             return ()
 
@@ -161,6 +198,7 @@ class _LatestFrameRelay(QObject):
         with self._lock:
             batch = tuple(self._pending.values())
             self._pending.clear()
+            self._nbytes = 0
             self._notification_pending = False
             return batch
 
@@ -327,6 +365,8 @@ class StageExplorer(QWidget):
         self._redraw_timer.timeout.connect(self._flush_pending_tiles)
         self._frame_relay = _LatestFrameRelay(self)
         self._frame_relay.framesPending.connect(self._on_frames_pending)
+        self._frame_relay.capacityExceeded.connect(self._on_relay_capacity_exceeded)
+        self._set_processing_limits()
         self._frame_relay_timer = QTimer(self)
         self._frame_relay_timer.setSingleShot(True)
         self._frame_relay_timer.setInterval(REDRAW_INTERVAL_MS)
@@ -461,6 +501,7 @@ class StageExplorer(QWidget):
         self._frame_relay.set_enabled(False)
         self._frame_relay_timer.stop()
         self._stop_poller()
+        self._stage_viewer.shutdown()
         super().closeEvent(a0)
 
     def hideEvent(self, a0: QHideEvent | None) -> None:
@@ -701,11 +742,9 @@ class StageExplorer(QWidget):
     def _on_sequence_finished(self) -> None:
         """Reset scan state when the MDA sequence finishes."""
         self._our_mda_running = False
-        # Drain both throttles so the final acquired frame is displayed.
-        self._frame_relay_timer.stop()
-        self._deliver_frame_batch(self._frame_relay.take_and_disarm())
+        # Start draining both throttles; large tails continue in bounded ticks.
+        self._on_frames_pending()
         self._flush_pending_tiles()
-        self._redraw_timer.stop()
         self._mda_tile_keys.clear()
 
     @Slot(object)
@@ -884,18 +923,26 @@ class StageExplorer(QWidget):
         )
 
     @Slot()
+    def _on_relay_capacity_exceeded(self) -> None:
+        self._set_memory_exceeded(True)
+
+    @Slot()
     def _on_frames_pending(self) -> None:
-        """Drain the relay immediately, then keep it armed for one redraw period."""
-        batch = self._frame_relay.take_or_disarm()
-        if not batch:
-            return
-        self._deliver_frame_batch(batch)
+        """Drain a bounded batch, keeping other spatial updates in the relay."""
+        started = time.monotonic()
+        for _ in range(GUI_BATCH_ITEMS):
+            batch = self._frame_relay.take_or_disarm(limit=1)
+            if not batch:
+                return
+            self._deliver_frame_batch(batch)
+            if time.monotonic() - started >= GUI_BATCH_SECONDS:
+                break
         self._frame_relay_timer.start()
 
     def _deliver_frame_batch(
         self, batch: tuple[tuple[np.ndarray, useq.MDAEvent], ...]
     ) -> None:
-        """Apply the newest frame for every location in one GUI-thread batch."""
+        """Apply a bounded batch supplied by the relay on the GUI thread."""
         for image, event in batch:
             self._on_frame_ready(image, event, already_coalesced=True)
 
@@ -1024,7 +1071,9 @@ class StageExplorer(QWidget):
         physical position refreshes the existing tile instead of creating one
         merely because its sequence UUID changed.
         """
-        if (seq := event.sequence) is not None:
+        if (seq := event.sequence) is not None and (
+            event.index.get("p") is not None or event.index.get("g") is not None
+        ):
             event_key = (seq.uid, event.index.get("p"), event.index.get("g"))
             if (tile_key := self._mda_tile_keys.get(event_key)) is not None:
                 return tile_key
@@ -1077,7 +1126,10 @@ class StageExplorer(QWidget):
         now = time.monotonic()
         last = self._tile_last_applied.get(key)
         if throttle and last is not None and (now - last) * 1000 < REDRAW_INTERVAL_MS:
-            self._pending_tiles[key] = (image, x, y)
+            owned = np.array(image, copy=True)
+            owned.flags.writeable = False
+            self._pending_tiles.pop(key, None)
+            self._pending_tiles[key] = (owned, x, y)
             if not self._redraw_timer.isActive():
                 self._redraw_timer.start()
             return
@@ -1086,15 +1138,18 @@ class StageExplorer(QWidget):
         self._tile_last_applied[key] = now
 
     def _flush_pending_tiles(self) -> None:
-        """Push every buffered frame into the scene."""
+        """Push a bounded number of buffered frames into the scene."""
         if not self._pending_tiles:
             self._redraw_timer.stop()
             return
-        pending, self._pending_tiles = self._pending_tiles, {}
-        now = time.monotonic()
-        for key, (image, x, y) in pending.items():
+        started = time.monotonic()
+        for _ in range(min(GUI_BATCH_ITEMS, len(self._pending_tiles))):
+            key = next(iter(self._pending_tiles))
+            image, x, y = self._pending_tiles.pop(key)
             self._apply_tile(key, image, x, y)
-            self._tile_last_applied[key] = now
+            self._tile_last_applied[key] = time.monotonic()
+            if time.monotonic() - started >= GUI_BATCH_SECONDS:
+                break
 
     def _apply_tile(self, key: Hashable, image: np.ndarray, x: float, y: float) -> None:
         """Create or refresh the map tile for one location.
@@ -1139,6 +1194,14 @@ class StageExplorer(QWidget):
 
     # MAP MEMORY ---------------------------------------------------------------
 
+    def _set_processing_limits(self) -> None:
+        limit = int(self._max_map_memory_mb * 1e6)
+        self._frame_relay.set_limit(limit if limit > 0 else 512 * 1024**2)
+        # Allow for CPU chunks, GUI snapshots, and textures.
+        self._stage_viewer._overview_limit = min(
+            MAX_OVERVIEW_BYTES, limit // 3 if limit > 0 else MAX_OVERVIEW_BYTES
+        )
+
     @property
     def max_map_memory_mb(self) -> float:
         """Ceiling on the memory held by the map, in MB."""
@@ -1147,6 +1210,7 @@ class StageExplorer(QWidget):
     @max_map_memory_mb.setter
     def max_map_memory_mb(self, value: float) -> None:
         self._max_map_memory_mb = float(value)
+        self._set_processing_limits()
         # Keep the toolbar's editor in sync when the limit is set
         # programmatically (e.g. a host app computing it from system RAM)
         # rather than through the menu itself.
@@ -1162,7 +1226,12 @@ class StageExplorer(QWidget):
         Includes the reduced overview drawn in place of the tiles when zoomed
         out (see `_overview.py`).
         """
-        return self._map_memory_bytes + self._stage_viewer.overview_nbytes()
+        return (
+            self._map_memory_bytes
+            + self._stage_viewer.overview_nbytes()
+            + self._frame_relay.nbytes()
+            + sum(image.nbytes for image, _, _ in self._pending_tiles.values())
+        )
 
     def _would_exceed_memory(self, additional: int) -> bool:
         """Whether `additional` bytes would push the map past its own limit."""

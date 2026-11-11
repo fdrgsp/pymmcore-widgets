@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, cast
 
 import cmap
@@ -11,10 +13,15 @@ from vispy.scene.visuals import Image
 
 from pymmcore_widgets._util import own_vispy_init_context
 
+from ._image_processing import ImageProcessor, PreparedImages
 from ._overview import (
+    BASE_FACTOR,
+    GUI_BATCH_ITEMS,
+    GUI_BATCH_SECONDS,
+    MAX_OVERVIEW_BYTES,
     Bounds,
     OverviewPyramid,
-    downsampled,
+    _moved,
     intersects,
     pixel_steps,
     pow2_at_most,
@@ -51,6 +58,7 @@ OVERVIEW_REFRESH_MS = 100
 MAX_SPARE_IMAGES = OVERVIEW_MIN_TILES
 
 
+logger = logging.getLogger(__name__)
 Factor = tuple[int, int]  # (rows, columns)
 
 
@@ -71,7 +79,16 @@ class Tile:
     one it was drawn with, to be reused as is while no other tile claims it.
     """
 
-    __slots__ = ("bounds", "data", "factor", "image", "index", "matrix", "rank")
+    __slots__ = (
+        "bounds",
+        "data",
+        "factor",
+        "image",
+        "index",
+        "matrix",
+        "prepared",
+        "rank",
+    )
 
     data: np.ndarray
     matrix: np.ndarray  # vispy (row-vector) pixel -> world transform
@@ -80,6 +97,7 @@ class Tile:
     def __init__(self, index: int) -> None:
         self.index = index  # row in the viewer's bounds array
         self.rank = 0  # drawn above tiles of lower rank
+        self.prepared: tuple[Factor, np.ndarray] | None = None
         self.image: Image | None = None
         # Downsampling of the data `image` holds; None if it holds stale data.
         self.factor: Factor | None = None
@@ -136,7 +154,24 @@ class StageViewer(QWidget):
         self._overview_timer = QTimer(self)
         self._overview_timer.setSingleShot(True)
         self._overview_timer.setInterval(OVERVIEW_REFRESH_MS)
-        self._overview_timer.timeout.connect(self.cull_to_view)
+        self._overview_timer.timeout.connect(self._process_images)
+        self._processor = ImageProcessor()
+        self.destroyed.connect(self._processor.close)
+        self._epoch = 0
+        self._paused = False
+        self._job: tuple[int, Tile | None, int, Factor | None] | None = None
+        self._sample_pending: dict[Tile, Factor] = {}
+        self._refresh_pending: set[Tile] = set()
+        self._overview_limit = MAX_OVERVIEW_BYTES
+        self._base_res_hint: float | None = None
+        self._requested_level: int | None = None
+        self._processing_timer = QTimer(self)
+        self._processing_timer.setInterval(5)
+        self._processing_timer.timeout.connect(self._process_images)
+        self._display_timer = QTimer(self)
+        self._display_timer.setSingleShot(True)
+        self._display_timer.setInterval(1)
+        self._display_timer.timeout.connect(self.cull_to_view)
 
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(0)
@@ -195,6 +230,14 @@ class StageViewer(QWidget):
 
     def clear(self) -> None:
         """Clear the scene."""
+        self._epoch += 1
+        self._processor.reset()
+        self._sample_pending.clear()
+        self._refresh_pending.clear()
+        self._base_res_hint = None
+        self._requested_level = None
+        self._display_timer.stop()
+        self._downsample_timer.stop()
         for image in self._images():
             image.parent = None
         self._tiles.clear()
@@ -268,8 +311,26 @@ class StageViewer(QWidget):
 
         A re-imaged location must not stay hidden under an overlapping neighbour.
         """
+        # Own the source buffers: acquisition callers may reuse their arrays
+        # immediately after returning. Workers and rendering only read these.
+        data = np.array(data, copy=True)
+        matrix = np.array(matrix, copy=True)
+        data.flags.writeable = matrix.flags.writeable = False
+        bounds = world_bounds(data.shape, matrix)
+        rows, cols = pixel_steps(matrix)
+        base = BASE_FACTOR * min(rows, cols)
+        if self._base_res_hint is None or base > 2 * self._base_res_hint:
+            self._base_res_hint = base
+            self._epoch += 1
+        elif hasattr(tile, "matrix") and (
+            tile.data.shape != data.shape
+            or not np.allclose(tile.matrix[:2, :2], matrix[:2, :2])
+            or _moved(tile.bounds, bounds, self._base_res_hint)
+        ):
+            self._epoch += 1
         tile.data, tile.matrix = data, matrix
-        tile.bounds = world_bounds(data.shape, matrix)
+        tile.prepared = None
+        tile.bounds = bounds
         if tile.index >= len(self._bounds):
             grown = np.empty((max(64, 2 * len(self._bounds)), 4))
             grown[: len(self._bounds)] = self._bounds
@@ -278,6 +339,7 @@ class StageViewer(QWidget):
         self._next_rank += 1
         tile.rank = self._next_rank
         tile.factor = None
+        self._sample_pending.pop(tile, None)
         # Re-insert so the overview paint order follows the updates (newest on top).
         self._overview_pending.pop(tile, None)
         self._overview_pending[tile] = None
@@ -331,11 +393,25 @@ class StageViewer(QWidget):
     def _show(self, tile: Tile) -> None:
         """Upload a drawn tile at the resolution the zoom needs, in rank order."""
         image = cast("Image", tile.image)
-        if (factor := self._downsample_factor(tile)) != tile.factor:
-            tile.factor = factor
-            shown = downsampled(tile.data, factor)
-            image.set_data(shown)
-            image.transform.matrix = scaled(tile.matrix, tile.data.shape, shown.shape)
+        factor = self._downsample_factor(tile)
+        if factor != tile.factor:
+            if factor == (1, 1):
+                shown = tile.data
+            elif tile.prepared is not None and tile.prepared[0] == factor:
+                shown = tile.prepared[1]
+            else:
+                self._sample_pending[tile] = factor
+                self._processing_timer.start()
+                # Never display pixels left over from another tile in the pool.
+                image.visible = tile.factor is not None
+                shown = None
+            if shown is not None:
+                tile.factor = factor
+                image.set_data(shown)
+                image.transform.matrix = scaled(
+                    tile.matrix, tile.data.shape, shown.shape
+                )
+                image.visible = True
         if image.order != tile.rank:
             image.order = tile.rank
             # vispy caches the draw order and only refreshes it when nodes are
@@ -355,8 +431,6 @@ class StageViewer(QWidget):
         instead of the tiles (multiscale, as in napari): one draw call per
         on-screen chunk rather than per tile.
         """
-        self._overview_timer.stop()
-        self._paint_overview()
         rect = self._culling_rect()
         b = self._bounds[: len(self._tiles)]
         hits = np.flatnonzero(
@@ -366,13 +440,34 @@ class StageViewer(QWidget):
             & (b[:, 2] <= rect.top)
         )
         level = self._overview_level(len(hits), rect)
-        self._overview.show(level, rect)
+        self._requested_level = level
+        if level is not None and not self._overview._levels[level].built:
+            self._processing_timer.start()
+            # Keep drawing the current tiles until the prepared overview arrives.
+            level = None
+        more = self._overview.show(level, rect)
 
         wanted = set() if level is not None else {self._tiles[i] for i in hits.tolist()}
         for tile in self._drawn - wanted:
             self._release(tile)
-        for tile in wanted - self._drawn:
+        started = perf_counter()
+        for _ in range(min(GUI_BATCH_ITEMS, len(self._refresh_pending))):
+            tile = self._refresh_pending.pop()
+            if tile in self._drawn:
+                self._show(tile)
+            if perf_counter() - started >= GUI_BATCH_SECONDS:
+                break
+        more |= bool(self._refresh_pending)
+        for count, tile in enumerate(wanted - self._drawn):
+            if (
+                count >= GUI_BATCH_ITEMS
+                or perf_counter() - started >= GUI_BATCH_SECONDS
+            ):
+                more = True
+                break
             self._bind(tile)
+        if more:
+            self._display_timer.start()
         while len(self._spare) > MAX_SPARE_IMAGES:
             self._take_spare().parent = None
 
@@ -389,16 +484,135 @@ class StageViewer(QWidget):
         chunks = self._overview.chunks_in(level, rect)
         return level if chunks <= OVERVIEW_MAX_CHUNK_RATIO * n_tiles_in_view else None
 
-    def _paint_overview(self) -> None:
-        """Hand the pending tiles to the overview, in update order."""
-        pending, self._overview_pending = self._overview_pending, {}
-        for tile in pending:
-            self._overview.set_tile(tile, tile.data, tile.matrix)
+    def hideEvent(self, event: Any) -> None:
+        self._paused = True
+        self._processing_timer.stop()
+        self._overview_timer.stop()
+        self._display_timer.stop()
+        self._downsample_timer.stop()
+        super().hideEvent(event)
+
+    def showEvent(self, event: Any) -> None:
+        self._paused = False
+        if self._processor.closed:
+            # Qt permits a closed widget to be shown again. Retain the map,
+            # rebuilding its CPU cache with a fresh worker on demand.
+            self._processor = ImageProcessor()
+            self.destroyed.connect(self._processor.close)
+            self._overview.reset()
+            self._overview_pending = dict.fromkeys(
+                sorted(self._tiles, key=lambda t: t.rank)
+            )
+        self._processing_timer.start()
+        self._display_timer.start()
+        super().showEvent(event)
+
+    def _process_images(self) -> None:
+        """Deliver one result on the GUI thread, then schedule one CPU job."""
+        processor = self._processor
+        if processor.closed or self._paused:
+            self._processing_timer.stop()
+            return
+        self._processing_timer.start()
+        if (future := processor.future) is not None:
+            if not future.done():
+                return
+            processor.future = None
+            job, self._job = self._job, None
+            processor.accepted = False
+            try:
+                result = future.result()
+            except Exception:
+                logger.exception("Stage map image processing failed")
+            else:
+                if job is not None:
+                    epoch, tile, rank, factor = job
+                    if epoch == self._epoch and (tile is None or tile.rank == rank):
+                        self._accept_prepared(tile, factor, result)
+                        processor.accepted = result.overview is not None
+        # Build requested levels between tile jobs, never inside a camera callback.
+        level = self._requested_level
+        if level is not None and level < len(self._overview._levels):
+            if not self._overview._levels[level].built:
+                self._job = (self._epoch, None, 0, None)
+                processor.submit(level=level, max_bytes=self._overview_limit)
+                return
+        if self._overview_pending:
+            tile = next(iter(self._overview_pending))
+            del self._overview_pending[tile]
+            factor = self._sample_pending.pop(tile, None)
+            self._job = (self._epoch, tile, tile.rank, factor)
+            processor.submit(
+                tile.index,
+                tile.data,
+                tile.matrix,
+                factor,
+                max_bytes=self._overview_limit,
+            )
+        elif self._sample_pending:
+            tile = next(iter(self._sample_pending))
+            factor = self._sample_pending.pop(tile)
+            if tile in self._drawn and factor == self._downsample_factor(tile):
+                self._job = (self._epoch, tile, tile.rank, factor)
+                processor.submit(data=tile.data, factor=factor)
+        else:
+            self._processing_timer.stop()
+
+    def _accept_prepared(
+        self, tile: Tile | None, factor: Factor | None, result: PreparedImages
+    ) -> None:
+        if result.overview is not None:
+            self._overview.accept(result.overview)
+        if tile is not None and factor is not None and result.shown is not None:
+            tile.prepared = (factor, result.shown)
+            if tile in self._drawn:
+                self._show(tile)
+        self.cull_to_view()
 
     def overview_nbytes(self) -> int:
-        """Approximate memory held by the zoomed-out overview, in bytes."""
-        self._paint_overview()  # count what's queued too, so the total is exact
-        return self._overview.nbytes()
+        """Conservative memory estimate, including work not yet prepared.
+
+        Accounting never flushes pending work. Reserve thumbnails and a single
+        in-flight frame/result in addition to delivered overview buffers.
+        """
+        reserve = 0
+        for tile in self._overview_pending:
+            rows, cols = pixel_steps(tile.matrix)
+            res = self._base_res_hint or BASE_FACTOR * min(rows, cols)
+            h, w = tile.data.shape[:2]
+            fy = pow2_at_most(res / rows, h) if rows else 1
+            fx = pow2_at_most(res / cols, w) if cols else 1
+            reserve += (
+                (h // fy)
+                * (w // fx)
+                * tile.data.dtype.itemsize
+                * int(np.prod(tile.data.shape[2:]))
+            )
+        if self._processor.future is not None and self._job is not None:
+            job_tile = self._job[1]
+            if job_tile is not None:
+                reserve += job_tile.data.nbytes
+        samples = sum(
+            tile.prepared[1].nbytes for tile in self._tiles if tile.prepared is not None
+        )
+        return self._overview.nbytes() + reserve + samples
+
+    def shutdown(self) -> None:
+        """Stop timers, discard results, and join the processing worker."""
+        self._epoch += 1
+        self._processing_timer.stop()
+        self._overview_timer.stop()
+        self._display_timer.stop()
+        self._downsample_timer.stop()
+        self._overview_pending.clear()
+        self._sample_pending.clear()
+        self._refresh_pending.clear()
+        self._processor.close()
+        self._job = None
+
+    def closeEvent(self, event: Any) -> None:
+        self.shutdown()
+        super().closeEvent(event)
 
     def _culling_rect(self) -> Any:
         """The world-space extent actually rendered on screen.
@@ -424,8 +638,8 @@ class StageViewer(QWidget):
         A zoomed-out map would otherwise keep a full-resolution texture per
         tile, even though each tile covers only a few hundred screen pixels.
         """
-        for tile in self._drawn:
-            self._show(tile)
+        self._refresh_pending.update(self._drawn)
+        self.cull_to_view()
 
     def _world_per_screen_px(self) -> float | None:
         """World length of one physical screen pixel (None before layout)."""

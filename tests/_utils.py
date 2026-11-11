@@ -13,6 +13,21 @@ if TYPE_CHECKING:
     from pytestqt.qtbot import QtBot
     from qtpy.QtCore import SignalInstance
 
+    from pymmcore_widgets.control._stage_explorer._stage_viewer import StageViewer
+
+
+def wait_for_stage_viewer(qtbot: QtBot, viewer: StageViewer) -> None:
+    """Wait for image processing, zoom debounce, and GUI batches to finish."""
+    timers = (
+        viewer._overview_timer,
+        viewer._processing_timer,
+        viewer._display_timer,
+        viewer._downsample_timer,
+    )
+    qtbot.waitUntil(
+        lambda: not any(timer.isActive() for timer in timers), timeout=10000
+    )
+
 
 def right_press() -> QMouseEvent:
     """A press of the right mouse button."""

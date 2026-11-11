@@ -8,6 +8,9 @@ and updated as tiles arrive. Resampling respects the camera-to-stage affine.
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
+from threading import Event
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -28,6 +31,9 @@ CHUNK_PX = 256
 BASE_FACTOR = 4
 # Each further level halves the resolution of the previous one.
 MAX_LEVELS = 6
+MAX_OVERVIEW_BYTES = 1024**3
+GUI_BATCH_ITEMS = 4
+GUI_BATCH_SECONDS = 0.004
 
 ChunkKey = tuple[int, int]  # (column, row) of the chunk in its level's grid
 Bounds = tuple[float, float, float, float]  # world (x0, x1, y0, y1)
@@ -103,24 +109,14 @@ def pow2_at_most(ratio: float, size: int) -> int:
     return int(2 ** int(np.log2(min(ratio, size))))
 
 
-class _Level:
-    """One resolution of the pyramid: its pixel size and chunks."""
+class _LevelData:
+    """Worker-owned pixels and geometry for one pyramid resolution."""
 
-    __slots__ = ("arrays", "built", "dirty", "footprint", "images", "node", "res")
-
-    def __init__(self, res: float, parent: scene.Node) -> None:
-        self.res = res  # world units per overview pixel
-        self.node = scene.Node(parent=parent)
-        self.node.visible = False
-        # False until first shown; only built levels are painted into.
+    def __init__(self, res: float) -> None:
+        self.res = res
         self.built = False
         self.arrays: dict[ChunkKey, np.ndarray] = {}
-        # Scene nodes are created, and textures re-sent, only for chunks on
-        # screen: each node costs a shader build on its first draw.
-        self.images: dict[ChunkKey, Image] = {}
         self.dirty: set[ChunkKey] = set()
-        # How many tiles' bounds touch each chunk, built or not: estimates a
-        # level's draw count before paying to build it.
         self.footprint: Counter[ChunkKey] = Counter()
 
     def chunk_keys(self, bounds: Bounds) -> list[ChunkKey]:
@@ -135,31 +131,35 @@ class _Level:
         return (key[0] * size, (key[0] + 1) * size, key[1] * size, (key[1] + 1) * size)
 
     def nbytes(self) -> int:
-        """Chunk arrays plus the GL-side copies of the chunks drawn so far."""
-        held = sum(arr.nbytes for arr in self.arrays.values())
-        return held + sum(self.arrays[key].nbytes for key in self.images)
+        return sum(arr.nbytes for arr in self.arrays.values())
 
 
-class OverviewPyramid:
-    """Chunked multiscale copies of the map, shown in place of zoomed-out tiles."""
+@dataclass
+class OverviewUpdate:
+    """Immutable pixel buffers transferred from the worker to the GUI."""
 
-    def __init__(self, parent: scene.Node, cmap: Colormap, clim: Any) -> None:
-        self.node = scene.Node(parent=parent)
-        # Below the grid lines and overlays (order 0), like the tiles it replaces.
-        self.node.order = -1
-        self._cmap = cmap
-        self._clim = clim
-        self._levels: list[_Level] = []
-        # Per tile: thumbnail and its (row-vector) transform, in paint order:
-        # a refreshed tile moves to the end so it is painted on top.
+    generation: int
+    usable: bool
+    levels: list[tuple[float, bool, Counter[ChunkKey], dict[ChunkKey, np.ndarray]]]
+    nbytes: int
+
+
+class OverviewData:
+    """CPU-only pyramid. Accessed exclusively by one processing worker."""
+
+    def __init__(self) -> None:
+        self._levels: list[_LevelData] = []
         self._thumbs: dict[Hashable, tuple[np.ndarray, np.ndarray]] = {}
         self._bounds: dict[Hashable, Bounds] = {}
+        self._matrices: dict[Hashable, np.ndarray] = {}
         self._dtype: np.dtype | None = None
         self._channels: tuple[int, ...] = ()
-        # False once a tile that can't share the pyramid's dtype/channels shows
-        # up; the viewer then keeps drawing tiles until the map is cleared.
         self.usable = True
-        self.active_level: int | None = None
+        self.generation = 0
+        self.cancelled = Event()
+        self.max_bytes = MAX_OVERVIEW_BYTES
+        self._array_bytes = 0
+        self._thumb_bytes = 0
 
     # ------------------------------------------------------------------ state
 
@@ -167,28 +167,34 @@ class OverviewPyramid:
     def base_res(self) -> float | None:
         return self._levels[0].res if self._levels else None
 
-    @property
-    def has_content(self) -> bool:
-        return self.usable and bool(self._thumbs)
-
     def nbytes(self) -> int:
         """Approximate memory held: thumbnails plus built levels."""
-        thumbs = sum(thumb.nbytes for thumb, _ in self._thumbs.values())
-        return thumbs + sum(level.nbytes() for level in self._levels)
+        return self._thumb_bytes + self._array_bytes
 
     def reset(self) -> None:
         """Drop everything; the next tile sets the pyramid's resolution again."""
         self._drop_levels()
         self._thumbs.clear()
+        self._thumb_bytes = 0
         self._bounds.clear()
+        self._matrices.clear()
         self._dtype = None
         self._channels = ()
         self.usable = True
 
-    def set_clims(self, clim: Any) -> None:
-        self._clim = clim
-        for image in self._images():
-            image.clim = clim
+    def snapshot(self) -> OverviewUpdate:
+        """Freeze changed chunks; subsequent writes copy them first.
+
+        Keep dirty keys until delivery is acknowledged, so rejecting a stale
+        result cannot lose chunks needed by other locations.
+        """
+        levels = []
+        for level in self._levels:
+            arrays = {key: level.arrays[key] for key in level.dirty}
+            for arr in arrays.values():
+                arr.flags.writeable = False
+            levels.append((level.res, level.built, level.footprint.copy(), arrays))
+        return OverviewUpdate(self.generation, self.usable, levels, self.nbytes())
 
     # ------------------------------------------------------------- painting
 
@@ -215,7 +221,10 @@ class OverviewPyramid:
             # switching to a low-magnification objective): base the levels on
             # it rather than upsampling it into many mostly-empty chunks.
             self._new_levels(base)
-        elif old is not None and _moved(old, bounds, self._levels[0].res):
+        elif old is not None and (
+            _moved(old, bounds, self._levels[0].res)
+            or not np.allclose(self._matrices[key][:2, :2], matrix[:2, :2])
+        ):
             # A tile moved (e.g. a recalibrated pixel affine): built levels
             # still hold it at its old place, so start them over. Stage jitter
             # on a revisited location (under one overview pixel) is ignored.
@@ -224,19 +233,28 @@ class OverviewPyramid:
             for level in self._levels:
                 level.footprint.subtract(level.chunk_keys(old))
         self._bounds[key] = bounds
+        self._matrices[key] = matrix
         for level in self._levels:
             level.footprint.update(level.chunk_keys(bounds))
         thumb = _reduced(data, matrix, self._levels[0].res)
 
-        self._thumbs.pop(key, None)
+        previous = self._thumbs.pop(key, None)
+        size = self._thumb_bytes + thumb[0].nbytes
+        if previous is not None:
+            size -= previous[0].nbytes
+        if size + self._array_bytes > self.max_bytes:
+            raise MemoryError("Overview cache budget exceeded")
+        self._thumb_bytes = size
         self._thumbs[key] = thumb
         for level in self._levels:
             if level.built:
                 self._paste(level, *_reduced(*thumb, level.res))
 
-    def _build(self, level: _Level) -> None:
+    def _build(self, level: _LevelData) -> None:
         """Paint every thumbnail into a level, oldest first."""
         for thumb, matrix in self._thumbs.values():
+            if self.cancelled.is_set():
+                return
             self._paste(level, *_reduced(thumb, matrix, level.res))
         level.built = True
 
@@ -246,18 +264,17 @@ class OverviewPyramid:
         The thumbnails are kept: levels rebuild from them when next shown.
         """
         self._drop_levels()
-        self._levels = [_Level(base * 2**i, self.node) for i in range(MAX_LEVELS)]
+        self._levels = [_LevelData(base * 2**i) for i in range(MAX_LEVELS)]
         for level in self._levels:
             for bounds in self._bounds.values():
                 level.footprint.update(level.chunk_keys(bounds))
 
     def _drop_levels(self) -> None:
-        for level in self._levels:
-            level.node.parent = None
         self._levels = []
-        self.active_level = None
+        self._array_bytes = 0
+        self.generation += 1
 
-    def _paste(self, level: _Level, small: np.ndarray, matrix: np.ndarray) -> None:
+    def _paste(self, level: _LevelData, small: np.ndarray, matrix: np.ndarray) -> None:
         """Resample `small` (placed by `matrix`) into the level's chunks.
 
         Nearest-neighbour sampling at each overview pixel's center: `small` is
@@ -280,6 +297,10 @@ class OverviewPyramid:
 
         # Map every overview pixel center in the tile's bounding box back to
         # tile pixels; those that land inside the tile take its value.
+        # Bound temporary affine grids as well as retained chunks. Extreme
+        # shear/anisotropy must not allocate an unbounded bounding rectangle.
+        if (gx1 - gx0) * (gy1 - gy0) * 64 > self.max_bytes:
+            raise MemoryError("Overview resampling budget exceeded")
         wx = (np.arange(gx0, gx1) + 0.5) * res - off[0]
         wy = (np.arange(gy0, gy1) + 0.5) * res - off[1]
         px = wx[np.newaxis, :] * inv[0, 0] + wy[:, np.newaxis] * inv[1, 0]
@@ -289,6 +310,8 @@ class OverviewPyramid:
         inside = (col_idx >= 0) & (col_idx < w) & (row_idx >= 0) & (row_idx < h)
 
         for cy in range(gy0 // CHUNK_PX, (gy1 - 1) // CHUNK_PX + 1):
+            if self.cancelled.is_set():
+                return
             v0 = max(gy0, cy * CHUNK_PX)
             v1 = min(gy1, (cy + 1) * CHUNK_PX)
             for cx in range(gx0 // CHUNK_PX, (gx1 - 1) // CHUNK_PX + 1):
@@ -307,11 +330,91 @@ class OverviewPyramid:
                 dst[mask] = small[row_idx[box][mask], col_idx[box][mask]]
                 level.dirty.add(key)
 
-    def _chunk_array(self, level: _Level, key: ChunkKey) -> np.ndarray:
-        if (arr := level.arrays.get(key)) is None:
-            arr = np.zeros((CHUNK_PX, CHUNK_PX, *self._channels), dtype=self._dtype)
+    def _chunk_array(self, level: _LevelData, key: ChunkKey) -> np.ndarray:
+        arr = level.arrays.get(key)
+        if arr is None:
+            shape = (CHUNK_PX, CHUNK_PX, *self._channels)
+            size = int(np.prod(shape)) * np.dtype(self._dtype).itemsize
+            if self.nbytes() + size > self.max_bytes:
+                raise MemoryError("Overview cache budget exceeded")
+            arr = np.zeros(shape, dtype=self._dtype)
+            self._array_bytes += size
+            level.arrays[key] = arr
+        elif not arr.flags.writeable:
+            arr = arr.copy()
             level.arrays[key] = arr
         return arr
+
+    def level_arrays(self, level_index: int) -> dict[ChunkKey, np.ndarray]:
+        level = self._levels[level_index]
+        if not level.built:
+            self._build(level)
+        return level.arrays
+
+
+class _Level(_LevelData):
+    def __init__(self, res: float, parent: scene.Node) -> None:
+        super().__init__(res)
+        self.node = scene.Node(parent=parent)
+        self.node.visible = False
+        self.images: dict[ChunkKey, Image] = {}
+
+
+class OverviewPyramid:
+    """GUI-only scene displaying immutable chunks prepared by OverviewData."""
+
+    def __init__(self, parent: scene.Node, cmap: Colormap, clim: Any) -> None:
+        self.node = scene.Node(parent=parent)
+        self.node.order = -1
+        self._cmap = cmap
+        self._clim = clim
+        self._levels: list[_Level] = []
+        self._generation = -1
+        self._nbytes = 0
+        self.usable = True
+        self.active_level: int | None = None
+
+    @property
+    def has_content(self) -> bool:
+        return self.usable and bool(self._levels)
+
+    def nbytes(self) -> int:
+        # CPU pyramid, GUI snapshots, and approximate GL copies. Shared buffers
+        # are deliberately counted twice, reserving room for copy-on-write.
+        return self._nbytes + sum(
+            level.nbytes() + sum(level.arrays[k].nbytes for k in level.images)
+            for level in self._levels
+        )
+
+    def reset(self) -> None:
+        for level in self._levels:
+            level.node.parent = None
+        self._levels.clear()
+        self.active_level = None
+        self._generation = -1
+        self._nbytes = 0
+        self.usable = True
+
+    def accept(self, update: OverviewUpdate) -> None:
+        """Adopt worker buffers on the GUI thread without resampling pixels."""
+        if update.generation != self._generation:
+            self.reset()
+            self._generation = update.generation
+            self._levels = [_Level(res, self.node) for res, *_ in update.levels]
+        self.usable = update.usable
+        self._nbytes = update.nbytes
+        for level, (_, built, footprint, arrays) in zip(
+            self._levels, update.levels, strict=True
+        ):
+            level.built = built
+            level.footprint = footprint
+            level.arrays.update(arrays)
+            level.dirty.update(arrays)
+
+    def set_clims(self, clim: Any) -> None:
+        self._clim = clim
+        for image in self._images():
+            image.clim = clim
 
     def _new_image(self, level: _Level, key: ChunkKey, arr: np.ndarray) -> Image:
         image = Image(
@@ -346,34 +449,43 @@ class OverviewPyramid:
         )
 
     def level_arrays(self, level_index: int) -> dict[ChunkKey, np.ndarray]:
-        """A level's chunk arrays, building the level first if needed."""
-        level = self._levels[level_index]
-        if not level.built:
-            self._build(level)
-        return level.arrays
+        """A level's prepared chunk arrays; never builds on the GUI thread."""
+        return self._levels[level_index].arrays
 
-    def show(self, level_index: int | None, rect: Any) -> None:
+    def show(
+        self, level_index: int | None, rect: Any, limit: int = GUI_BATCH_ITEMS
+    ) -> bool:
         """Show one level, drawing only its chunks that intersect `rect`."""
         self.active_level = level_index
         for i, level in enumerate(self._levels):
             level.node.visible = i == level_index
         if level_index is None:
-            return
+            return False
         level = self._levels[level_index]
+        started = perf_counter()
+        remaining = False
         for key, arr in self.level_arrays(level_index).items():
             image = level.images.get(key)
             if not intersects(level.chunk_rect(key), rect):
                 if image is not None:
                     image.visible = False
                 continue
+            if (image is None or key in level.dirty) and (
+                limit <= 0 or perf_counter() - started >= GUI_BATCH_SECONDS
+            ):
+                remaining = True
+                continue
             if image is None:
                 level.images[key] = self._new_image(level, key, arr)
+                limit -= 1
             else:
                 if key in level.dirty:
+                    limit -= 1
                     # Keeps the array; the texture upload happens at the next draw.
                     image.set_data(arr)
                 image.visible = True
             level.dirty.discard(key)
+        return remaining
 
     def _images(self) -> Iterable[Image]:
         for level in self._levels:
