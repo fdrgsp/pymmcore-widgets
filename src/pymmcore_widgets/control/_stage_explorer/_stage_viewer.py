@@ -56,6 +56,9 @@ OVERVIEW_REFRESH_MS = 100
 # Hidden images kept for tiles coming (back) into view: enough to switch from
 # the overview back to the tiles without creating any.
 MAX_SPARE_IMAGES = OVERVIEW_MIN_TILES
+# Tiles downsampled per worker job: shown together, in one repaint, rather than
+# each repainting every tile in view. Bounded so a zoom change waits less.
+SAMPLE_BATCH = 8
 
 
 logger = logging.getLogger(__name__)
@@ -159,7 +162,9 @@ class StageViewer(QWidget):
         self.destroyed.connect(self._processor.close)
         self._epoch = 0
         self._paused = False
-        self._job: tuple[int, Tile | None, int, Factor | None] | None = None
+        self._job: (
+            tuple[int, Tile | None, int, list[tuple[Tile, int, Factor]]] | None
+        ) = None
         self._sample_pending: dict[Tile, Factor] = {}
         self._refresh_pending: set[Tile] = set()
         self._overview_limit = MAX_OVERVIEW_BYTES
@@ -526,52 +531,52 @@ class StageViewer(QWidget):
                 logger.exception("Stage map image processing failed")
             else:
                 if job is not None:
-                    epoch, tile, rank, factor = job
-                    if epoch == self._epoch and (tile is None or tile.rank == rank):
-                        self._accept_prepared(tile, factor, result)
-                        processor.accepted = result.overview is not None
+                    epoch, tile, rank, samples = job
+                    if epoch != self._epoch or (tile is not None and tile.rank != rank):
+                        result.overview = None
+                    self._accept_prepared(samples, result)
+                    processor.accepted = result.overview is not None
         # Prioritize visible tiles over offscreen overview work.
-        while self._sample_pending:
+        samples = []
+        while self._sample_pending and len(samples) < SAMPLE_BATCH:
             tile = next(iter(self._sample_pending))
             factor = self._sample_pending.pop(tile)
             if tile in self._drawn and factor == self._downsample_factor(tile):
-                key = tile.index if tile in self._overview_pending else None
-                self._overview_pending.pop(tile, None)
-                self._job = (self._epoch, tile, tile.rank, factor)
-                processor.submit(
-                    key, tile.data, tile.matrix, factor, max_bytes=self._overview_limit
-                )
-                return
+                samples.append((tile, tile.rank, factor))
+        if samples:
+            self._job = (self._epoch, None, 0, samples)
+            processor.submit(
+                samples=[(tile.data, f) for tile, _, f in samples],
+                max_bytes=self._overview_limit,
+            )
+            return
         level = self._requested_level
         if level is not None and level < len(self._overview._levels):
             if not self._overview._levels[level].built:
-                self._job = (self._epoch, None, 0, None)
+                self._job = (self._epoch, None, 0, [])
                 processor.submit(level=level, max_bytes=self._overview_limit)
                 return
         if self._overview_pending:
             tile = next(iter(self._overview_pending))
             del self._overview_pending[tile]
-            factor = self._sample_pending.pop(tile, None)
-            self._job = (self._epoch, tile, tile.rank, factor)
+            self._job = (self._epoch, tile, tile.rank, [])
             processor.submit(
-                tile.index,
-                tile.data,
-                tile.matrix,
-                factor,
-                max_bytes=self._overview_limit,
+                tile.index, tile.data, tile.matrix, max_bytes=self._overview_limit
             )
         else:
             self._processing_timer.stop()
 
     def _accept_prepared(
-        self, tile: Tile | None, factor: Factor | None, result: PreparedImages
+        self, samples: list[tuple[Tile, int, Factor]], result: PreparedImages
     ) -> None:
         if result.overview is not None:
             self._overview.accept(result.overview)
-        if tile is not None and factor is not None and result.shown is not None:
-            tile.prepared = (factor, result.shown)
-            if tile in self._drawn:
-                self._show(tile)
+        for (tile, rank, factor), shown in zip(samples, result.shown, strict=False):
+            # a tile placed again since holds other data
+            if tile.rank == rank:
+                tile.prepared = (factor, shown)
+                if tile in self._drawn:
+                    self._show(tile)
         self.cull_to_view()
 
     def overview_nbytes(self) -> int:

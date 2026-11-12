@@ -20,7 +20,10 @@ from pymmcore_widgets.control._stage_explorer._stage_explorer import (
     StageExplorer,
     _LatestFrameRelay,
 )
-from pymmcore_widgets.control._stage_explorer._stage_viewer import StageViewer
+from pymmcore_widgets.control._stage_explorer._stage_viewer import (
+    SAMPLE_BATCH,
+    StageViewer,
+)
 
 from ._utils import wait_for_stage_viewer
 
@@ -98,9 +101,9 @@ def test_visible_tile_is_prepared_before_offscreen_backlog(
     accepted = []
     original = StageViewer._accept_prepared
 
-    def accept(self: StageViewer, tile: object, *args: Any) -> None:
-        accepted.append(tile)
-        original(self, tile, *args)
+    def accept(self: StageViewer, samples: list, result: PreparedImages) -> None:
+        accepted.append((result.overview is not None, [t for t, *_ in samples]))
+        original(self, samples, result)
 
     monkeypatch.setattr(StageViewer, "_accept_prepared", accept)
     viewer = StageViewer()
@@ -110,7 +113,7 @@ def test_visible_tile_is_prepared_before_offscreen_backlog(
     source = np.ones((64, 64), np.uint16)
     matrix = np.eye(4)
     matrix[0, 3] = 100000
-    first = viewer.add_image(source, matrix)
+    viewer.add_image(source, matrix)
     viewer._process_images()
     assert started.wait(2)
     for _i in range(8):
@@ -120,10 +123,37 @@ def test_visible_tile_is_prepared_before_offscreen_backlog(
     release.set()
     wait_for_stage_viewer(qtbot, viewer)
 
-    assert accepted[:2] == [first, visible]
+    # the offscreen job already running, then the visible tile
+    assert accepted[:2] == [(True, []), (False, [visible])]
     assert visible.prepared is not None
     assert visible.image is not None and visible.image.visible
     assert len(viewer._processor.model._thumbs) == 10
+
+
+def test_visible_tiles_are_downsampled_in_batches(
+    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    batches = []
+    original = StageViewer._accept_prepared
+
+    def accept(self: StageViewer, samples: list, result: PreparedImages) -> None:
+        if samples:
+            batches.append(len(samples))
+        original(self, samples, result)
+
+    monkeypatch.setattr(StageViewer, "_accept_prepared", accept)
+    viewer = StageViewer()
+    qtbot.addWidget(viewer)
+    viewer.show()
+    viewer.view.camera.set_range(x=(0, 20000), y=(0, 20000))
+    matrix = np.eye(4)
+    tiles = []
+    for i in range(2 * SAMPLE_BATCH):
+        matrix[0, 3] = i * 100
+        tiles.append(viewer.add_image(np.ones((64, 64), np.uint16), matrix))
+    wait_for_stage_viewer(qtbot, viewer)
+    assert batches == [SAMPLE_BATCH, SAMPLE_BATCH]
+    assert all(t.image is not None and t.image.visible for t in tiles)
 
 
 def test_clear_rejects_result_and_reused_tile_index(
@@ -153,9 +183,9 @@ def test_geometry_change_rejects_result_and_preserves_other_locations(
     accepted = []
     original = StageViewer._accept_prepared
 
-    def accept(self: StageViewer, tile: object, *args: Any) -> None:
-        accepted.append(tile)
-        original(self, tile, *args)
+    def accept(self: StageViewer, samples: list, result: PreparedImages) -> None:
+        accepted.append(result.overview is not None)
+        original(self, samples, result)
 
     monkeypatch.setattr(StageViewer, "_accept_prepared", accept)
     viewer = StageViewer()
@@ -165,11 +195,12 @@ def test_geometry_change_rejects_result_and_preserves_other_locations(
     assert started.wait(2)
     matrix = np.eye(4)
     matrix[:2, 3] = (1000, 1000)
-    other = viewer.add_image(np.full((64, 64), 3, np.uint16))
+    viewer.add_image(np.full((64, 64), 3, np.uint16))
     viewer.update_image(tile, np.full((64, 64), 9, np.uint16), matrix)
     release.set()
     wait_for_stage_viewer(qtbot, viewer)
-    assert accepted == [other, tile]
+    # the stale overview is dropped, then `other` and the moved `tile` are taken
+    assert accepted == [False, True, True]
     model = viewer._processor.model
     assert model._bounds[tile.index] == (1000, 1064, 1000, 1064)
     assert len(model._thumbs) == 2

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from ._overview import MAX_OVERVIEW_BYTES, OverviewData, OverviewUpdate, downsampled
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     import numpy as np
 
 
@@ -17,7 +19,7 @@ class PreparedImages:
     """One completed job; pixel buffers are immutable after publication."""
 
     overview: OverviewUpdate | None = None
-    shown: np.ndarray | None = None
+    shown: list[np.ndarray] = field(default_factory=list)
 
 
 def prepare_images(
@@ -25,7 +27,7 @@ def prepare_images(
     key: int | None,
     data: np.ndarray | None,
     matrix: np.ndarray | None,
-    factor: tuple[int, int] | None,
+    samples: Sequence[tuple[np.ndarray, tuple[int, int]]],
     level: int | None,
     acknowledge: bool,
     max_bytes: int,
@@ -47,10 +49,12 @@ def prepare_images(
         model.reset()
         model.usable = False
     overview = model.snapshot() if key is not None or level is not None else None
-    shown = None
-    if data is not None and factor is not None and not model.cancelled.is_set():
-        shown = downsampled(data, factor)
-        shown.flags.writeable = False
+    shown = []
+    for sample, factor in samples:
+        if model.cancelled.is_set():
+            break
+        shown.append(downsampled(sample, factor))
+        shown[-1].flags.writeable = False
     return PreparedImages(overview, shown)
 
 
@@ -69,7 +73,7 @@ class ImageProcessor:
         key: int | None = None,
         data: np.ndarray | None = None,
         matrix: np.ndarray | None = None,
-        factor: tuple[int, int] | None = None,
+        samples: Sequence[tuple[np.ndarray, tuple[int, int]]] = (),
         level: int | None = None,
         max_bytes: int = MAX_OVERVIEW_BYTES,
     ) -> None:
@@ -84,7 +88,7 @@ class ImageProcessor:
             key,
             data,
             matrix,
-            factor,
+            samples,
             level,
             self.accepted,
             max_bytes,
