@@ -56,8 +56,7 @@ OVERVIEW_REFRESH_MS = 100
 # Hidden images kept for tiles coming (back) into view: enough to switch from
 # the overview back to the tiles without creating any.
 MAX_SPARE_IMAGES = OVERVIEW_MIN_TILES
-# Tiles downsampled per worker job: shown together, in one repaint, rather than
-# each repainting every tile in view. Bounded so a zoom change waits less.
+# Limit each downsampling job so zoom changes can interrupt between batches.
 SAMPLE_BATCH = 8
 
 
@@ -237,6 +236,7 @@ class StageViewer(QWidget):
         """Clear the scene."""
         self._epoch += 1
         self._processor.reset()
+        self._job = None
         self._sample_pending.clear()
         self._refresh_pending.clear()
         self._base_res_hint = None
@@ -572,18 +572,19 @@ class StageViewer(QWidget):
         if result.overview is not None:
             self._overview.accept(result.overview)
         for (tile, rank, factor), shown in zip(samples, result.shown, strict=False):
-            # a tile placed again since holds other data
             if tile.rank == rank:
                 tile.prepared = (factor, shown)
+                self._sample_pending.pop(tile, None)
                 if tile in self._drawn:
                     self._show(tile)
-        self.cull_to_view()
+        if result.overview is not None:
+            self.cull_to_view()
 
     def overview_nbytes(self) -> int:
         """Conservative memory estimate, including work not yet prepared.
 
-        Accounting never flushes pending work. Reserve thumbnails and a single
-        in-flight frame/result in addition to delivered overview buffers.
+        Accounting never flushes pending work. Reserve thumbnails and in-flight
+        frames/results in addition to delivered overview buffers.
         """
         reserve = 0
         for tile in self._overview_pending:
@@ -599,13 +600,14 @@ class StageViewer(QWidget):
                 * int(np.prod(tile.data.shape[2:]))
             )
         if self._processor.future is not None and self._job is not None:
-            job_tile = self._job[1]
+            _, job_tile, _, samples = self._job
             if job_tile is not None:
                 reserve += job_tile.data.nbytes
-        samples = sum(
+            reserve += sum(t.data.nbytes // (f[0] * f[1]) for t, _, f in samples)
+        prepared = sum(
             tile.prepared[1].nbytes for tile in self._tiles if tile.prepared is not None
         )
-        return self._overview.nbytes() + reserve + samples
+        return self._overview.nbytes() + reserve + prepared
 
     def shutdown(self) -> None:
         """Stop timers, discard results, and join the processing worker."""

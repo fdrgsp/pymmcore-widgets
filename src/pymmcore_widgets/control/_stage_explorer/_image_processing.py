@@ -32,7 +32,7 @@ def prepare_images(
     acknowledge: bool,
     max_bytes: int,
 ) -> PreparedImages:
-    """Prepare a tile or a lazy overview level, with no GUI objects in scope."""
+    """Prepare tile samples and overview updates without GUI objects."""
     if model.cancelled.is_set():
         return PreparedImages()
     model.max_bytes = max_bytes
@@ -53,8 +53,9 @@ def prepare_images(
     for sample, factor in samples:
         if model.cancelled.is_set():
             break
-        shown.append(downsampled(sample, factor))
-        shown[-1].flags.writeable = False
+        image = downsampled(sample, factor)
+        image.flags.writeable = False
+        shown.append(image)
     return PreparedImages(overview, shown)
 
 

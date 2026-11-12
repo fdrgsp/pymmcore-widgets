@@ -123,37 +123,108 @@ def test_visible_tile_is_prepared_before_offscreen_backlog(
     release.set()
     wait_for_stage_viewer(qtbot, viewer)
 
-    # the offscreen job already running, then the visible tile
     assert accepted[:2] == [(True, []), (False, [visible])]
     assert visible.prepared is not None
     assert visible.image is not None and visible.image.visible
     assert len(viewer._processor.model._thumbs) == 10
 
 
-def test_visible_tiles_are_downsampled_in_batches(
-    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    batches = []
-    original = StageViewer._accept_prepared
-
-    def accept(self: StageViewer, samples: list, result: PreparedImages) -> None:
-        if samples:
-            batches.append(len(samples))
-        original(self, samples, result)
-
-    monkeypatch.setattr(StageViewer, "_accept_prepared", accept)
+@pytest.mark.parametrize("n_tiles", [1, SAMPLE_BATCH, 2 * SAMPLE_BATCH + 1])
+def test_visible_tiles_are_downsampled_in_batches(qtbot: QtBot, n_tiles: int) -> None:
     viewer = StageViewer()
     qtbot.addWidget(viewer)
     viewer.show()
     viewer.view.camera.set_range(x=(0, 20000), y=(0, 20000))
     matrix = np.eye(4)
     tiles = []
-    for i in range(2 * SAMPLE_BATCH):
-        matrix[0, 3] = i * 100
-        tiles.append(viewer.add_image(np.ones((64, 64), np.uint16), matrix))
-    wait_for_stage_viewer(qtbot, viewer)
-    assert batches == [SAMPLE_BATCH, SAMPLE_BATCH]
+    submit = viewer._processor.submit
+    with (
+        patch.object(viewer, "_downsample_factor", return_value=(2, 2)),
+        patch.object(viewer._processor, "submit", wraps=submit) as spy,
+    ):
+        for i in range(n_tiles):
+            matrix[0, 3] = i * 100
+            tiles.append(viewer.add_image(np.full((64, 64), i, np.uint16), matrix))
+        wait_for_stage_viewer(qtbot, viewer)
+    batches = [
+        len(call.kwargs["samples"])
+        for call in spy.call_args_list
+        if "samples" in call.kwargs
+    ]
+    full, tail = divmod(n_tiles, SAMPLE_BATCH)
+    assert batches == [SAMPLE_BATCH] * full + ([tail] if tail else [])
     assert all(t.image is not None and t.image.visible for t in tiles)
+    for i, tile in enumerate(tiles):
+        assert tile.prepared is not None
+        factor, shown = tile.prepared
+        assert factor == (2, 2) and shown.shape == (32, 32)
+        assert np.all(shown == i)
+        assert not shown.flags.writeable
+
+
+@pytest.mark.parametrize("zoom", [False, True])
+def test_sample_batch_refresh(
+    qtbot: QtBot, blocked_worker: tuple[Event, Event], zoom: bool
+) -> None:
+    started, release = blocked_worker
+    viewer = StageViewer()
+    qtbot.addWidget(viewer)
+    viewer.show()
+    viewer.view.camera.set_range(x=(0, 20000), y=(0, 20000))
+    tiles = [viewer.add_image(np.ones((64, 64), np.uint16)) for _ in range(2)]
+    baseline = viewer.overview_nbytes()
+    with patch.object(
+        viewer._processor, "submit", wraps=viewer._processor.submit
+    ) as spy:
+        viewer._process_images()
+        assert started.wait(2)
+        assert viewer.overview_nbytes() > baseline
+        if zoom:
+            viewer.view.camera.set_range(x=(0, 5000), y=(0, 5000))
+        viewer.apply_downsampling()
+        release.set()
+        assert viewer._processor.future is not None
+        viewer._processor.future.result(timeout=10)
+        with patch.object(viewer, "cull_to_view", wraps=viewer.cull_to_view) as cull:
+            viewer._process_images()
+        cull.assert_not_called()
+    assert sum("samples" in call.kwargs for call in spy.call_args_list) == 1 + zoom
+    wait_for_stage_viewer(qtbot, viewer)
+    assert all(tile.factor == viewer._downsample_factor(tile) for tile in tiles)
+
+
+@pytest.mark.parametrize("clear", [False, True])
+def test_sample_batch_rejects_replaced_tiles(
+    qtbot: QtBot, blocked_worker: tuple[Event, Event], clear: bool
+) -> None:
+    started, release = blocked_worker
+    viewer = StageViewer()
+    qtbot.addWidget(viewer)
+    viewer.show()
+    viewer.view.camera.set_range(x=(0, 20000), y=(0, 20000))
+    tiles = [viewer.add_image(np.full((64, 64), i, np.uint16)) for i in (1, 2)]
+    viewer._process_images()
+    assert started.wait(2)
+    if clear:
+        release.set()
+        assert viewer._processor.future is not None
+        viewer._processor.future.result(timeout=10)
+        viewer.clear()
+        tile = viewer.add_image(np.full((64, 64), 9, np.uint16))
+    else:
+        tile = tiles[0]
+        viewer.update_image(tile, np.full((64, 64), 9, np.uint16))
+    release.set()
+    wait_for_stage_viewer(qtbot, viewer)
+    assert tile.prepared is not None
+    assert np.all(tile.prepared[1] == 9)
+    assert tile.image is not None and tile.image.visible
+    if clear:
+        assert viewer._tiles == [tile]
+        assert all(t.prepared is None for t in tiles)
+    else:
+        assert tiles[1].prepared is not None
+        assert np.all(tiles[1].prepared[1] == 2)
 
 
 def test_clear_rejects_result_and_reused_tile_index(
@@ -199,7 +270,6 @@ def test_geometry_change_rejects_result_and_preserves_other_locations(
     viewer.update_image(tile, np.full((64, 64), 9, np.uint16), matrix)
     release.set()
     wait_for_stage_viewer(qtbot, viewer)
-    # the stale overview is dropped, then `other` and the moved `tile` are taken
     assert accepted == [False, True, True]
     model = viewer._processor.model
     assert model._bounds[tile.index] == (1000, 1064, 1000, 1064)
