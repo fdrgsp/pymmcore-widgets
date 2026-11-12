@@ -373,6 +373,14 @@ def test_autofocus_section_switches_autofocus(qtbot: QtBot) -> None:
     assert not section.checked
     assert section.summary == "Off"
 
+    # disabling the editors during a run keeps the summary, like the other sections
+    af.setChecked(True)
+    wdg._enable_widgets(False)
+    assert section.summary == "On · Hardware · p"
+    wdg._enable_widgets(True)
+    assert section.summary == "On · Hardware · p"
+    af.setChecked(False)
+
     # where autofocus cannot be used, e.g. with absolute Z, the checkbox says why
     wdg.setValue(useq.MDASequence(z_plan=useq.ZTopBottom(top=1, bottom=0, step=1)))
     assert not section.checkbox.isEnabled()

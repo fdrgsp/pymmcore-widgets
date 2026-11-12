@@ -474,7 +474,8 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
     def _update_autofocus_availability(self) -> None:
         self.autofocus_section.set_checkbox_enabled(self._autofocus.isEnabled())
         self.autofocus_section.checkbox.setToolTip(self._autofocus.switchToolTip())
-        self._update_autofocus_summary()
+        if self._editor_enabled:
+            self._update_autofocus_summary()
 
     def add_supporting_sections(self, *, save_info: SaveGroupBox) -> None:
         """Append the Saving section after the axes and Autofocus."""
