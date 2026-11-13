@@ -149,6 +149,27 @@ def test_refreshed_tile_is_on_top_in_the_overview() -> None:
     assert chunk[0, 0] == 3
 
 
+def test_moved_tile_is_repainted_in_place() -> None:
+    """E.g. a snap at the stage's actual position, after the MDA's commanded one.
+
+    Rebuilding the whole overview instead would draw every tile until it is done.
+    """
+    model = OverviewData()
+    model.set_tile(0, np.full((TILE, TILE), 1, np.uint16), np.eye(4))
+    model.set_tile(1, np.full((TILE, TILE), 2, np.uint16), _translation(TILE, 0).T)
+    model.level_arrays(0)
+    generation = model.generation
+
+    # half a tile to the left, over tile 0
+    model.set_tile(1, np.full((TILE, TILE), 2, np.uint16), _translation(TILE / 2, 0).T)
+    assert model.generation == generation
+    n = TILE // BASE_FACTOR
+    row = model.level_arrays(0)[(0, 0)][0]
+    assert (row[: n // 2] == 1).all()
+    assert (row[n // 2 : n // 2 + n] == 2).all()
+    assert not row[n // 2 + n :].any()  # its old place is erased
+
+
 def test_coarser_tile_rebuilds_the_overview() -> None:
     model = OverviewData()
     model.set_tile(0, np.ones((TILE, TILE), np.uint16), np.eye(4))

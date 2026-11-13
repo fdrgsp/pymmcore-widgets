@@ -436,7 +436,7 @@ def test_rejected_build_delta_is_retained_for_other_locations() -> None:
     assert accepted.levels[0][3][(1, 0)][0, 0] == 9
 
 
-def test_affine_change_with_equal_bounds_rebuilds_overview() -> None:
+def test_affine_change_with_equal_bounds_repaints_overview() -> None:
     model = OverviewData()
     image = np.arange(64 * 64, dtype=np.uint16).reshape(64, 64)
     model.set_tile(0, image, np.eye(4))
@@ -446,7 +446,7 @@ def test_affine_change_with_equal_bounds_rebuilds_overview() -> None:
     mirror[0, 0] = -1
     mirror[3, 0] = 64
     model.set_tile(0, image, mirror)
-    assert model.generation != generation
+    assert model.generation == generation
     result = model.level_arrays(0)[(0, 0)]
     assert result[0, 0] > result[0, 15]
 

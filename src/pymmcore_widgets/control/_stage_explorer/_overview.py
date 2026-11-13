@@ -216,19 +216,14 @@ class OverviewData:
         base = BASE_FACTOR * min(rows, cols)
         bounds = world_bounds(data.shape, matrix)
         old = self._bounds.pop(key, None)
+        resampled = old is not None and not np.allclose(
+            self._matrices[key][:2, :2], matrix[:2, :2]
+        )
         if self.base_res is None or base > 2 * self.base_res:
             # First tile, or one much coarser than the rest (e.g. after
             # switching to a low-magnification objective): base the levels on
             # it rather than upsampling it into many mostly-empty chunks.
             self._new_levels(base)
-        elif old is not None and (
-            _moved(old, bounds, self._levels[0].res)
-            or not np.allclose(self._matrices[key][:2, :2], matrix[:2, :2])
-        ):
-            # A tile moved (e.g. a recalibrated pixel affine): built levels
-            # still hold it at its old place, so start them over. Stage jitter
-            # on a revisited location (under one overview pixel) is ignored.
-            self._new_levels(self._levels[0].res)
         elif old is not None:
             for level in self._levels:
                 level.footprint.subtract(level.chunk_keys(old))
@@ -247,7 +242,16 @@ class OverviewData:
         self._thumb_bytes = size
         self._thumbs[key] = thumb
         for level in self._levels:
-            if level.built:
+            if not level.built:
+                continue
+            # A tile moved (e.g. snapped at the stage's actual position, not the
+            # MDA's commanded one) or was resampled (a recalibrated affine):
+            # repaint where it was and is. Jitter under a level pixel is ignored.
+            if old is not None and (resampled or _moved(old, bounds, level.res)):
+                self._repaint(
+                    level, {*level.chunk_keys(old), *level.chunk_keys(bounds)}
+                )
+            else:
                 self._paste(level, *_reduced(*thumb, level.res))
 
     def _build(self, level: _LevelData) -> None:
@@ -257,6 +261,15 @@ class OverviewData:
                 return
             self._paste(level, *_reduced(thumb, matrix, level.res))
         level.built = True
+
+    def _repaint(self, level: _LevelData, chunks: set[ChunkKey]) -> None:
+        """Repaint `chunks` from every thumbnail over them, oldest first."""
+        for key in chunks & level.arrays.keys():
+            self._chunk_array(level, key)[:] = 0
+            level.dirty.add(key)
+        for key, (thumb, matrix) in self._thumbs.items():
+            if not chunks.isdisjoint(level.chunk_keys(self._bounds[key])):
+                self._paste(level, *_reduced(thumb, matrix, level.res), chunks)
 
     def _new_levels(self, base: float) -> None:
         """Replace the levels with unbuilt ones based at `base` world units/px.
@@ -274,8 +287,14 @@ class OverviewData:
         self._array_bytes = 0
         self.generation += 1
 
-    def _paste(self, level: _LevelData, small: np.ndarray, matrix: np.ndarray) -> None:
-        """Resample `small` (placed by `matrix`) into the level's chunks.
+    def _paste(
+        self,
+        level: _LevelData,
+        small: np.ndarray,
+        matrix: np.ndarray,
+        only: set[ChunkKey] | None = None,
+    ) -> None:
+        """Resample `small` (placed by `matrix`) into the level's chunks (or `only`).
 
         Nearest-neighbour sampling at each overview pixel's center: `small` is
         already block-averaged to about the level's resolution, so this only
@@ -315,13 +334,15 @@ class OverviewData:
             v0 = max(gy0, cy * CHUNK_PX)
             v1 = min(gy1, (cy + 1) * CHUNK_PX)
             for cx in range(gx0 // CHUNK_PX, (gx1 - 1) // CHUNK_PX + 1):
+                key = (cx, cy)
+                if only is not None and key not in only:
+                    continue
                 u0 = max(gx0, cx * CHUNK_PX)
                 u1 = min(gx1, (cx + 1) * CHUNK_PX)
                 box = (slice(v0 - gy0, v1 - gy0), slice(u0 - gx0, u1 - gx0))
                 mask = inside[box]
                 if not mask.any():
                     continue
-                key = (cx, cy)
                 arr = self._chunk_array(level, key)
                 dst = arr[
                     v0 - cy * CHUNK_PX : v1 - cy * CHUNK_PX,
