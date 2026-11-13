@@ -4,6 +4,7 @@ import contextlib
 import re
 from dataclasses import dataclass
 from datetime import timedelta
+from functools import cached_property
 from typing import TYPE_CHECKING, ClassVar, Generic, TypeVar, cast
 
 import pint
@@ -603,6 +604,10 @@ class ButtonColumn(WidgetColumn):
     checked: bool = True
     on_click: Callable[[int, int], Any] | None = None
 
+    @cached_property
+    def _icon(self) -> QIconifyIcon:
+        return QIconifyIcon(self.glyph)
+
     def isChecked(self, table: QTableWidget, row: int, col: int) -> bool:
         if wdg := table.cellWidget(row, col):
             return cast("QPushButton", wdg).isChecked()  # type: ignore
@@ -622,7 +627,7 @@ class ButtonColumn(WidgetColumn):
         if self.text:
             new_wdg.setText(self.text)
         if self.glyph:
-            new_wdg.setIcon(QIconifyIcon(self.glyph))
+            new_wdg.setIcon(self._icon)
         if self.checkable:
             new_wdg.setCheckable(True)
             new_wdg.setChecked(self.checked)
@@ -639,10 +644,11 @@ class ButtonColumn(WidgetColumn):
             new_wdg.clicked.connect(_cb)
 
         table.setCellWidget(row, col, new_wdg)
-        header = table.horizontalHeader()
-        header.setSectionResizeMode(col, header.ResizeMode.Fixed)
         # Stretch-mode widths depend on insertion order; use the button's own width.
-        table.setColumnWidth(col, new_wdg.sizeHint().width())
+        if (width := new_wdg.sizeHint().width()) != table.columnWidth(col):
+            header = table.horizontalHeader()
+            header.setSectionResizeMode(col, header.ResizeMode.Fixed)
+            table.setColumnWidth(col, width)
 
     def get_cell_data(self, table: QTableWidget, row: int, col: int) -> dict[str, Any]:
         return {}

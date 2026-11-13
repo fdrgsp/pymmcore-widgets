@@ -35,6 +35,7 @@ from pymmcore_widgets.useq_widgets import (
     _z,
 )
 from pymmcore_widgets.useq_widgets._column_info import (
+    ButtonColumn,
     FloatColumn,
     QTimeLineEdit,
     TableDoubleSpinBox,
@@ -147,6 +148,17 @@ def test_data_table(qtbot: QtBot) -> None:
     assert len(wdg.value()) == 0  # requires a is_row_selector=True column
     wdg.act_clear.trigger()
     assert table.rowCount() == 0
+
+
+def test_button_column_rows_share_icon_and_width(qtbot: QtBot) -> None:
+    wdg = DataTableWidget()
+    qtbot.addWidget(wdg)
+    table = wdg.table()
+    table.addColumn(ButtonColumn(key="go", glyph="mdi:arrow-right"))
+    table.setRowCount(3)
+    buttons = [table.cellWidget(row, 0) for row in range(3)]
+    assert len({btn.icon().cacheKey() for btn in buttons}) == 1
+    assert table.columnWidth(0) == buttons[0].sizeHint().width()
 
 
 def test_data_table_move_rows(qtbot: QtBot) -> None:
