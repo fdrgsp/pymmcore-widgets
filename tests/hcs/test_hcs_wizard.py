@@ -302,7 +302,9 @@ def test_hcs_wizard_load_uses_current_fov(
     current = (global_mmcore.getImageWidth() * px, global_mmcore.getImageHeight() * px)
     grid = useq.GridRowsColumns(rows=2, columns=2, fov_width=2600, fov_height=2600)
     plan = useq.WellPlatePlan(
-        plate="96-well", a1_center_xy=(0, 0), selected_wells=([0], [0]),
+        plate="96-well",
+        a1_center_xy=(0, 0),
+        selected_wells=([0], [0]),
         well_points_plan=grid,
     )
     wdg = HCSWizard(mmcore=global_mmcore)
@@ -315,6 +317,19 @@ def test_hcs_wizard_load_uses_current_fov(
         current
     )
     assert (grid.fov_width, grid.fov_height) == (2600, 2600)  # caller's plan intact
+
+
+def test_hcs_wizard_fov_follows_camera(
+    qtbot: QtBot, global_mmcore: CMMCorePlus, second_camera: str
+) -> None:
+    wdg = HCSWizard(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    page = wdg.points_plan_page.widget
+
+    global_mmcore.setProperty("Core", "Camera", second_camera)
+    assert (page.value().fov_width, page.value().fov_height) == (256, 128)
+    global_mmcore.setProperty("Core", "Camera", "Camera")
+    assert (page.value().fov_width, page.value().fov_height) == (512, 512)
 
 
 def test_hcs_wizard_grid_in_cover_area(

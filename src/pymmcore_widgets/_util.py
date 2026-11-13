@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, cast
 
 import psutil
 from psygnal import SignalGroup, SignalInstance
-from pymmcore_plus import CMMCorePlus
+from pymmcore_plus import CMMCorePlus, Keyword
 from qtpy.QtCore import QEvent, QMarginsF, QObject, Qt, QTimer
 from qtpy.QtGui import (
     QContextMenuEvent,
@@ -123,6 +123,24 @@ def fov_kwargs(core: CMMCorePlus) -> dict:
         *_, width, height = core.getROI()
         return {"fov_width": (width * px) or None, "fov_height": (height * px) or None}
     return {}
+
+
+# Camera properties that change the field of view or its orientation.
+_CAMERA_GEOMETRY = {
+    Keyword.Binning.value,
+    Keyword.Transpose_MirrorX.value,
+    Keyword.Transpose_MirrorY.value,
+}
+
+
+def changes_fov(core: CMMCorePlus, device: str, prop: str) -> bool:
+    """Whether a `propertyChanged` event changes the current camera's FOV.
+
+    Switching cameras or binning emits neither `roiSet` nor `pixelSizeChanged`.
+    """
+    if device == Keyword.CoreDevice:
+        return prop == Keyword.CoreCamera
+    return device == core.getCameraDevice() and prop in _CAMERA_GEOMETRY
 
 
 # examples:

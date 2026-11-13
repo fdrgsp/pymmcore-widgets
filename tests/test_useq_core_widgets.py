@@ -1929,7 +1929,9 @@ def test_core_mda_autofocus_and_z_plan(
         assert pos_table.table().isColumnHidden(af_btn_col)
 
 
-def test_grid_plan_fov_update(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
+def test_grid_plan_fov_update(
+    qtbot: QtBot, global_mmcore: CMMCorePlus, second_camera: str
+) -> None:
     mmc = global_mmcore
     wdg = MDAWidget()
     qtbot.addWidget(wdg)
@@ -2015,6 +2017,10 @@ def test_grid_plan_fov_update(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
         mmc.setPixelSizeConfig("Res20x")
     assert wdg.value().grid_plan.fov_width == 50
     assert wdg.value().grid_plan.fov_height == 75
+
+    mmc.setProperty("Core", "Camera", second_camera)
+    assert wdg.value().grid_plan.fov_width == 128
+    assert wdg.value().grid_plan.fov_height == 64
 
 
 def test_xy_bounds_mark_uses_outer_edge(
@@ -2533,7 +2539,7 @@ def test_grid_plan_bounds_by_in_left_column(
 
 
 def test_grid_plan_subsequence_fov_update(
-    qtbot: QtBot, global_mmcore: CMMCorePlus
+    qtbot: QtBot, global_mmcore: CMMCorePlus, second_camera: str
 ) -> None:
     mmc = global_mmcore
     wdg = MDAWidget()
@@ -2574,6 +2580,10 @@ def test_grid_plan_subsequence_fov_update(
     assert sp.value()[0].sequence.grid_plan.fov_height == 75
     assert sp.value()[0].sequence.channels[0].config == "FITC"
     assert "".join(sp.value()[0].sequence.axis_order) == "tpcgz"
+
+    mmc.setProperty("Core", "Camera", second_camera)
+    assert sp.value()[0].sequence.grid_plan.fov_width == 128
+    assert sp.value()[0].sequence.grid_plan.fov_height == 64
 
 
 def test_fov_refresh_preserves_unchecked_rows_and_editors(

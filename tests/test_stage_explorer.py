@@ -809,6 +809,22 @@ def test_stage_explorer_roi_changed_skipped_when_no_image_dimensions(
     np.testing.assert_array_equal(explorer._half_img_shift, half_before)
 
 
+def test_stage_explorer_follows_camera_fov(
+    qtbot: QtBot, global_mmcore: CMMCorePlus, second_camera: str
+) -> None:
+    """Switching camera, binning, or mirroring updates the FOV used for tiles."""
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+
+    global_mmcore.setProperty(Keyword.CoreDevice, Keyword.CoreCamera, second_camera)
+    np.testing.assert_array_equal(-2 * explorer._half_img_shift[:2, 3], (256, 128))
+    global_mmcore.setProperty(second_camera, Keyword.Binning, 2)
+    np.testing.assert_array_equal(-2 * explorer._half_img_shift[:2, 3], (128, 64))
+    assert explorer._affine_state.system_affine[0, 0] > 0
+    global_mmcore.setProperty(second_camera, Keyword.Transpose_MirrorX, 1)
+    assert explorer._affine_state.system_affine[0, 0] < 0
+
+
 # ---------------------------------------------------------------------------
 # StageExplorer - _update_marker_mode guard when marker is None
 # ---------------------------------------------------------------------------
@@ -1040,6 +1056,24 @@ def test_frame_relay_keeps_latest_frame_for_each_location() -> None:
     batch = relay.take_or_disarm()
     assert len(batch) == 3
     assert [int(image[0, 0]) for image, _event in batch] == [0, 1, 2]
+
+
+def test_frame_relay_maps_first_multi_camera_camera() -> None:
+    """Like a snap, the map shows a Multi Camera's first camera."""
+    relay = stage_explorer_mod._LatestFrameRelay()
+    relay.set_enabled(True)
+    event = next(iter(useq.MDASequence(stage_positions=[(0, 0)])))
+
+    for cam in (0, 1):
+        index = {**event.index, "cam": cam}
+        relay.submit(
+            np.full((8, 8), cam, dtype=np.uint16),
+            event.model_copy(update={"index": index}),
+            {},
+        )
+
+    ((image, _event),) = relay.take_or_disarm()
+    assert image[0, 0] == 0
 
 
 def test_frame_ready_burst_is_coalesced_before_qt_event_queue(

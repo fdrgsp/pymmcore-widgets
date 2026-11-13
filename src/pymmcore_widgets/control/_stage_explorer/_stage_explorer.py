@@ -44,7 +44,7 @@ from superqt import QEnumComboBox, QIconifyIcon, QLabeledRangeSlider
 from useq import OrderMode
 from vispy.scene.visuals import Markers
 
-from pymmcore_widgets._util import memory_limit_defaults
+from pymmcore_widgets._util import changes_fov, memory_limit_defaults
 from pymmcore_widgets.control._q_stage_controller import QStageMoveAccumulator
 from pymmcore_widgets.control._rois.roi_manager import GRAY, SceneROIManager
 
@@ -127,6 +127,8 @@ class _LatestFrameRelay(QObject):
         _metadata: dict[str, Any],
     ) -> None:
         """Store ``image`` and request one GUI drain when none is outstanding."""
+        if event.index.get("cam"):
+            return  # a Multi Camera maps its first camera, as a snap does
         notify = False
         rejected = False
         key = self._event_key(event)
@@ -481,6 +483,7 @@ class StageExplorer(QWidget):
         self._mmc.events.pixelSizeAffineChanged.connect(
             self._on_pixel_size_affine_changed
         )
+        self._mmc.events.propertyChanged.connect(self._on_property_changed)
 
         # connections vispy events
         self._stage_viewer.canvas.events.mouse_double_click.connect(
@@ -858,6 +861,12 @@ class StageExplorer(QWidget):
     def _on_pixel_size_affine_changed(self) -> None:
         """Refresh the affine state when pixel size affine changes."""
         self._affine_state.refresh()
+
+    def _on_property_changed(self, device: str, prop: str, _value: object) -> None:
+        """Follow the camera FOV: its size and mirroring."""
+        if changes_fov(self._mmc, device, prop):
+            self._affine_state.refresh()
+            self._on_roi_changed()
 
     def _on_mouse_double_click(self, event: MouseEvent) -> None:
         """Move the stage to the clicked position."""

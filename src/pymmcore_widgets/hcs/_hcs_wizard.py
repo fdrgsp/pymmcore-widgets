@@ -21,6 +21,7 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 from useq import WellPlatePlan
 
+from pymmcore_widgets._util import changes_fov
 from pymmcore_widgets.useq_widgets import PointsPlanWidget, WellPlateWidget
 
 from ._automated_plate_calibration_widget import AutomatedPlateCalibrationWidget
@@ -425,7 +426,7 @@ class _PointsPlanPage(QWizardPage):
 
     def _on_property_changed(self, device: str, prop: str, _value: object) -> None:
         with suppress(RuntimeError):
-            if device == self._mmc.getCameraDevice() and prop == "Binning":
+            if changes_fov(self._mmc, device, prop):
                 self._on_px_size_changed()
 
     @Slot()

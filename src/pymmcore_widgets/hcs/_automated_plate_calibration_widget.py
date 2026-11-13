@@ -4,7 +4,6 @@ from threading import Event
 from typing import TYPE_CHECKING
 
 import numpy as np
-from pymmcore_plus import Keyword
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import (
     QCheckBox,
@@ -23,7 +22,12 @@ from superqt.iconify import QIconifyIcon
 from superqt.utils import create_worker, signals_blocked
 
 from pymmcore_widgets._icons import StandardIcon
-from pymmcore_widgets._util import GREEN, SeparatorWidget, memory_limit_defaults
+from pymmcore_widgets._util import (
+    GREEN,
+    SeparatorWidget,
+    changes_fov,
+    memory_limit_defaults,
+)
 from pymmcore_widgets.control._stage_explorer._stage_explorer import AffineState
 from pymmcore_widgets.useq_widgets._well_plate_widget import WellPlateView
 
@@ -71,14 +75,6 @@ if TYPE_CHECKING:
     import useq
     from pymmcore_plus import CMMCorePlus
     from qtpy.QtGui import QShowEvent
-
-
-# Camera properties that change the field of view or its orientation.
-_CAMERA_GEOMETRY = {
-    "Binning",
-    Keyword.Transpose_MirrorX.value,
-    Keyword.Transpose_MirrorY.value,
-}
 
 
 def _scan_and_stitch(
@@ -467,7 +463,7 @@ class AutomatedPlateCalibrationWidget(QWidget):
         self._show_ready_message()
 
     def _on_property_changed(self, device: str, prop: str, value: object) -> None:
-        if device == self._mmc.getCameraDevice() and prop in _CAMERA_GEOMETRY:
+        if changes_fov(self._mmc, device, prop):
             self._fov_changed()
 
     def _read_geometry(self) -> SurveyGeometry:

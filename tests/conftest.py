@@ -129,6 +129,16 @@ def global_mmcore(qapp: QApplication) -> Iterator[CMMCorePlus]:
     # assert_max_instance_depth(2)
 
 
+@pytest.fixture
+def second_camera(global_mmcore: CMMCorePlus) -> str:
+    """A second demo camera, with a 256 x 128 sensor."""
+    global_mmcore.loadDevice("Camera2", "DemoCamera", "DCam")
+    global_mmcore.initializeDevice("Camera2")
+    global_mmcore.setProperty("Camera2", "OnCameraCCDXSize", 256)
+    global_mmcore.setProperty("Camera2", "OnCameraCCDYSize", 128)
+    return "Camera2"
+
+
 @pytest.fixture(autouse=True)
 def _mock_pyconify(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Mock pyconify.svg_path to avoid network requests in tests."""
