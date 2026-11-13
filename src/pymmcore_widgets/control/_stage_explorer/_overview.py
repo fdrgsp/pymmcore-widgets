@@ -267,8 +267,8 @@ class OverviewData:
         for key in chunks & level.arrays.keys():
             self._chunk_array(level, key)[:] = 0
             level.dirty.add(key)
-        for key, (thumb, matrix) in self._thumbs.items():
-            if not chunks.isdisjoint(level.chunk_keys(self._bounds[key])):
+        for tile, (thumb, matrix) in self._thumbs.items():
+            if not chunks.isdisjoint(level.chunk_keys(self._bounds[tile])):
                 self._paste(level, *_reduced(thumb, matrix, level.res), chunks)
 
     def _new_levels(self, base: float) -> None:
