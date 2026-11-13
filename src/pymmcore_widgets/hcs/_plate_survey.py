@@ -25,6 +25,10 @@ def storage_binning(pixel_um: float, well_um: float) -> int:
     return max(1, int(well_um / PIXELS_PER_WELL / pixel_um))
 
 
+# ITU-R BT.709 luminance of RGB pixels
+_BT709 = np.array([0.2126, 0.7152, 0.0722])
+
+
 def bin_image(image: np.ndarray, binning: int) -> np.ndarray:
     """Average `binning` x `binning` blocks, cropping the remainder symmetrically."""
     if binning == 1:
@@ -167,12 +171,11 @@ def acquire_survey(
                 raise ValueError(f"Changed during exposure: {changed}. Scan again.")
             if not np.allclose(core.getXYPosition(), (x, y), rtol=0, atol=1):
                 raise ValueError("The stage moved during exposure. Repeat the survey.")
-            if image.ndim == 2:
-                image = bin_image(image, geometry.binning)
-            if image.ndim != 2 or image.shape != geometry.shape:
-                raise ValueError(
-                    "Use a monochrome camera with unchanged frame dimensions."
-                )
+            if image.ndim == 3:  # a color camera: find the wells in its luminance
+                image = (image[..., :3] @ _BT709).astype(image.dtype)
+            image = bin_image(image, geometry.binning)
+            if image.shape != geometry.shape:
+                raise ValueError("The camera frame size changed. Scan again.")
             used_bytes += image.nbytes
             if used_bytes > max_bytes:
                 raise ValueError("The scan exceeded its memory limit.")

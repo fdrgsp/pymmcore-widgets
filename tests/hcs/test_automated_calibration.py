@@ -966,6 +966,11 @@ def test_survey_stores_binned_tiles(global_mmcore):
     assert tiles[0].image.shape == (h // 4, w // 4)
     with pytest.raises(ValueError, match="memory limit"):
         acquire_survey(global_mmcore, geometry, Event(), Mock(), max_bytes=10)
+    # a color camera's tiles are its luminance
+    global_mmcore.setProperty("Camera", "PixelType", "32bitRGB")
+    tiles = acquire_survey(global_mmcore, geometry, Event(), Mock())
+    assert tiles[0].image.shape == (h // 4, w // 4)
+    assert tiles[0].image.dtype == np.uint8
 
 
 def test_memory_limit_gates_scan(qtbot, global_mmcore):
