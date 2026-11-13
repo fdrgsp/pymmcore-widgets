@@ -825,6 +825,34 @@ def test_stage_explorer_follows_camera_fov(
     assert explorer._affine_state.system_affine[0, 0] < 0
 
 
+@pytest.mark.parametrize("clear", [True, False])
+def test_stage_explorer_asks_before_mixing_pixel_formats(
+    qtbot: QtBot,
+    global_mmcore: CMMCorePlus,
+    second_camera: str,
+    monkeypatch: pytest.MonkeyPatch,
+    clear: bool,
+) -> None:
+    """A camera of another pixel format clears the map, or is switched back."""
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.add_image(TILE_IMG, 0, 0)
+    no, yes = QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes
+    ask = MagicMock(return_value=yes if clear else no)
+    monkeypatch.setattr(QMessageBox, "question", ask)
+
+    # the same pixel format keeps the map
+    global_mmcore.setProperty(Keyword.CoreDevice, Keyword.CoreCamera, second_camera)
+    global_mmcore.setProperty(Keyword.CoreDevice, Keyword.CoreCamera, "Camera")
+    ask.assert_not_called()
+
+    global_mmcore.setProperty(second_camera, "PixelType", "32bitRGB")
+    global_mmcore.setProperty(Keyword.CoreDevice, Keyword.CoreCamera, second_camera)
+    ask.assert_called_once()
+    assert bool(explorer._tiles) is not clear
+    assert global_mmcore.getCameraDevice() == (second_camera if clear else "Camera")
+
+
 # ---------------------------------------------------------------------------
 # StageExplorer - _update_marker_mode guard when marker is None
 # ---------------------------------------------------------------------------

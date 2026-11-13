@@ -44,7 +44,7 @@ from superqt.utils import signals_blocked
 
 from pymmcore_widgets._icons import StandardIcon
 from pymmcore_widgets._models import Device, DevicePropertySetting, get_loaded_devices
-from pymmcore_widgets._util import use_combo_row_height
+from pymmcore_widgets._util import ORANGE, pixel_presets_hint, use_combo_row_height
 from pymmcore_widgets.useq_widgets import DataTable, DataTableWidget
 from pymmcore_widgets.useq_widgets._column_info import FloatColumn, TextColumn
 
@@ -170,9 +170,15 @@ class PixelConfigurationWidget(QWidget):
         btns_layout.addWidget(cancel_btn)
         btns_layout.addWidget(apply_btn)
 
+        # suggests a camera per preset when several are loaded
+        self._camera_hint = QLabel(self)
+        self._camera_hint.setWordWrap(True)
+        self._camera_hint.setStyleSheet(f"color: {ORANGE};")
+
         # main layout
         main_layout = QVBoxLayout(self)
         main_layout.addWidget(splitter)
+        main_layout.addWidget(self._camera_hint)
         main_layout.addLayout(btns_layout)
 
         # connect signals
@@ -282,7 +288,10 @@ class PixelConfigurationWidget(QWidget):
 
     @Slot()
     def _update_clean_state(self, *_: Any) -> None:
-        """Refresh the status indicator and emit `cleanChanged` on a flip."""
+        """Refresh the status and camera hint, and emit `cleanChanged` on a flip."""
+        hint = pixel_presets_hint(self._mmc, self.value())
+        self._camera_hint.setText(hint)
+        self._camera_hint.setVisible(bool(hint))
         clean = self.isClean()
         if clean:
             self._status_icon.setPixmap(self._clean_icon.pixmap(16, 16))

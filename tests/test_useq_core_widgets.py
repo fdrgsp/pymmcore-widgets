@@ -2538,6 +2538,21 @@ def test_grid_plan_bounds_by_in_left_column(
         assert abs(center_y(left_wdg) - center_y(right_wdg)) <= 1
 
 
+def test_hcs_button_needs_the_camera_pixel_size(
+    qtbot: QtBot, global_mmcore: CMMCorePlus, second_camera: str
+) -> None:
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    wdg.tab_wdg.setChecked(wdg.stage_positions, True)
+    button = wdg.stage_positions._hcs_button
+    assert not button.isEnabled()
+    assert "'Res10x'" in button.toolTip()
+
+    for preset in global_mmcore.getAvailablePixelSizeConfigs():
+        global_mmcore.definePixelSizeConfig(preset, "Core", "Camera", "Camera")
+    assert button.isEnabled()
+
+
 def test_grid_plan_subsequence_fov_update(
     qtbot: QtBot, global_mmcore: CMMCorePlus, second_camera: str
 ) -> None:

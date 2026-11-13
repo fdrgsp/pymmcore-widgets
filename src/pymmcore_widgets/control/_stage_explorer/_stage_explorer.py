@@ -358,6 +358,9 @@ class StageExplorer(QWidget):
         self._map_memory_bytes = 0
         self._next_snap_id: int = 0
         self._mda_tile_keys: dict[Hashable, Hashable] = {}
+        # The camera last used for the map, and the pixel format of its images.
+        self._camera = ""
+        self._map_format = (0, 0)
         # Frames waiting to be put on the map, newest-per-location wins.
         self._pending_tiles: dict[Hashable, tuple[np.ndarray, float, float]] = {}
         # Throttle per location so a fresh location is displayed immediately.
@@ -491,6 +494,7 @@ class StageExplorer(QWidget):
         )
 
         # initial setup
+        self._on_camera_changed()
         self._on_roi_changed()
         self._toolbar.snap_action.setChecked(self._snap_on_double_click)
         self._toolbar.show_mda_positions_action.setChecked(self._show_mda_positions)
@@ -814,6 +818,8 @@ class StageExplorer(QWidget):
     def _on_sys_config_loaded(self) -> None:
         """Clear the scene and reinitialize when the system configuration is loaded."""
         self._on_clear_action()
+        self._camera = ""
+        self._on_camera_changed()
         self._set_stage_controller()
         self._affine_state.refresh()
 
@@ -865,8 +871,36 @@ class StageExplorer(QWidget):
     def _on_property_changed(self, device: str, prop: str, _value: object) -> None:
         """Follow the camera FOV: its size and mirroring."""
         if changes_fov(self._mmc, device, prop):
+            if device == Keyword.CoreDevice:
+                self._on_camera_changed()
             self._affine_state.refresh()
             self._on_roi_changed()
+
+    def _on_camera_changed(self) -> None:
+        """Clear the map, if the user agrees, before it mixes pixel formats.
+
+        Tiles of another format (e.g. RGB and 16-bit) cannot share the contrast
+        and the overview. Declining switches back to the previous camera.
+        """
+        camera, fmt = self._mmc.getCameraDevice(), _pixel_format(self._mmc)
+        # (MMCore also emits the camera change later, from its own thread)
+        if camera == self._camera or not any(fmt):
+            return
+        previous, self._camera = self._camera, camera
+        if self._tiles and fmt != self._map_format:
+            answer = QMessageBox.question(
+                self,
+                "Clear the Stage Explorer map?",
+                f"{camera!r} takes {_format_name(fmt)} images, which cannot be "
+                f"shown with the map's {_format_name(self._map_format)} images.\n\n"
+                f"Clear the map? Otherwise, the camera is set back to {previous!r}.",
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                self._camera = previous
+                self._mmc.setProperty(Keyword.CoreDevice, Keyword.CoreCamera, previous)
+                return
+            self._on_clear_action()
+        self._map_format = fmt
 
     def _on_mouse_double_click(self, event: MouseEvent) -> None:
         """Move the stage to the clicked position."""
@@ -1687,6 +1721,16 @@ class MapMemoryMenu(QMenu):
         """Set the displayed limit, in GB, without emitting `valueChanged`."""
         with QSignalBlocker(self._limit_spin):
             self._limit_spin.setValue(gigabytes)
+
+
+def _pixel_format(core: CMMCorePlus) -> tuple[int, int]:
+    """The current camera's bytes per pixel and number of components."""
+    return core.getBytesPerPixel(), core.getNumberOfComponents()
+
+
+def _format_name(fmt: tuple[int, int]) -> str:
+    bytes_per_pixel, components = fmt
+    return "RGB" if components > 1 else f"{8 * bytes_per_pixel}-bit"
 
 
 @dataclass(slots=True)

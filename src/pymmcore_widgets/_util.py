@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING, cast
 
 import psutil
 from psygnal import SignalGroup, SignalInstance
-from pymmcore_plus import CMMCorePlus, Keyword
+from pymmcore_plus import CMMCorePlus, DeviceType, Keyword
+from pymmcore_plus.model import PixelSizeGroup
 from qtpy.QtCore import QEvent, QMarginsF, QObject, Qt, QTimer
 from qtpy.QtGui import (
     QContextMenuEvent,
@@ -37,6 +38,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
     from contextlib import AbstractContextManager
     from typing import Any
+
+    from pymmcore_plus.model import PixelSizePreset
 
 
 class ComboMessageBox(QDialog):
@@ -141,6 +144,60 @@ def changes_fov(core: CMMCorePlus, device: str, prop: str) -> bool:
     if device == Keyword.CoreDevice:
         return prop == Keyword.CoreCamera
     return device == core.getCameraDevice() and prop in _CAMERA_GEOMETRY
+
+
+def _preset_camera(preset: PixelSizePreset) -> str | None:
+    """The camera a pixel size preset is for, or None if it is for any camera."""
+    for s in preset.settings:
+        if (s.device_name, s.property_name) == (Keyword.CoreDevice, Keyword.CoreCamera):
+            return s.property_value
+    return None
+
+
+def pixel_presets_hint(
+    core: CMMCorePlus, presets: Iterable[PixelSizePreset] | None = None
+) -> str:
+    """Suggest setting the camera of `presets` (default: the core's), or "".
+
+    Micro-Manager cannot read a camera's pixel size: with several cameras, a
+    preset that does not set Core-Camera gives every camera its pixel size.
+    """
+    cameras = core.getLoadedDevicesOfType(DeviceType.Camera)
+    if len(cameras) < 2:
+        return ""
+    if presets is None:
+        presets = PixelSizeGroup.create_from_core(core).presets.values()
+    by_camera = {p.name: _preset_camera(p) for p in presets}
+    hints = []
+    if any_camera := [name for name, cam in by_camera.items() if cam is None]:
+        hints.append(
+            "Several cameras are loaded, but these pixel size presets are for any "
+            f"camera: {', '.join(any_camera)}. Micro-Manager cannot read a "
+            "camera's pixel size, so add the Core-Camera property to each preset."
+        )
+    multi = [
+        cam
+        for cam in cameras
+        if core.getDeviceName(cam) == "Multi Camera" and cam not in by_camera.values()
+    ]
+    if multi:
+        hints.append(f"Also add presets for the Multi Camera: {', '.join(multi)}.")
+    return " ".join(hints)
+
+
+def pixel_size_camera_warning(core: CMMCorePlus) -> str:
+    """Why the pixel size may be another camera's, or "" if it is this camera's."""
+    if not (preset := core.getCurrentPixelSizeConfig()):
+        return ""
+    if len(core.getLoadedDevicesOfType(DeviceType.Camera)) < 2:
+        return ""
+    if _preset_camera(PixelSizeGroup.create_from_core(core).presets[preset]):
+        return ""
+    return (
+        f"The pixel size preset {preset!r} is for any camera, and several are "
+        "loaded: its pixel size may not be the current camera's. Add the "
+        "Core-Camera property to the pixel size presets."
+    )
 
 
 # examples:

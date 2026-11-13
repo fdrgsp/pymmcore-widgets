@@ -332,6 +332,23 @@ def test_hcs_wizard_fov_follows_camera(
     assert (page.value().fov_width, page.value().fov_height) == (512, 512)
 
 
+def test_hcs_wizard_needs_the_camera_pixel_size(
+    qtbot: QtBot, global_mmcore: CMMCorePlus, second_camera: str
+) -> None:
+    """With several cameras, a pixel size for any camera blocks the FOVs."""
+    wdg = HCSWizard(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    page = wdg.points_plan_page
+    assert "'Res10x'" in page.subTitle()
+    assert not page.widget.isEnabled()
+    assert not page.isComplete()
+
+    for preset in global_mmcore.getAvailablePixelSizeConfigs():
+        global_mmcore.definePixelSizeConfig(preset, "Core", "Camera", "Camera")
+    assert not page.subTitle()
+    assert page.widget.isEnabled()
+
+
 def test_hcs_wizard_grid_in_cover_area(
     qtbot: QtBot, global_mmcore: CMMCorePlus
 ) -> None:

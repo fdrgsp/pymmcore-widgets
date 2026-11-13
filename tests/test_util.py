@@ -17,6 +17,8 @@ from pymmcore_widgets._install_widget import _InstallTable
 from pymmcore_widgets._util import (
     QWIDGETSIZE_MAX,
     combo_box_height,
+    pixel_presets_hint,
+    pixel_size_camera_warning,
     use_combo_row_height,
 )
 from pymmcore_widgets.config_presets._group_preset_widget._group_preset_table_widget import (  # noqa: E501
@@ -37,6 +39,7 @@ from pymmcore_widgets.hcs._well_calibration_widget import _CalibrationTable
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from pymmcore_plus import CMMCorePlus
     from pytestqt.qtbot import QtBot
     from qtpy.QtCore import QSize
 
@@ -123,3 +126,20 @@ def test_combo_row_height_uses_the_tables_style(qtbot: QtBot) -> None:
     table.setStyle(style)
     use_combo_row_height(table)
     assert table.rowHeight(0) == 66
+
+
+def test_pixel_presets_should_set_the_camera(
+    global_mmcore: CMMCorePlus, second_camera: str
+) -> None:
+    core = global_mmcore
+    assert "Res10x, Res20x, Res40x" in pixel_presets_hint(core)
+    assert "'Res10x'" in pixel_size_camera_warning(core)
+
+    for preset in core.getAvailablePixelSizeConfigs():
+        core.definePixelSizeConfig(preset, "Core", "Camera", "Camera")
+    assert not pixel_presets_hint(core)
+    assert not pixel_size_camera_warning(core)
+
+    core.loadDevice("Multi", "Utilities", "Multi Camera")
+    core.initializeDevice("Multi")
+    assert pixel_presets_hint(core) == "Also add presets for the Multi Camera: Multi."

@@ -25,7 +25,7 @@ from useq import WellPlatePlan
 
 from pymmcore_widgets import HCSWizard
 from pymmcore_widgets._busy import BusyOverlay, busy
-from pymmcore_widgets._util import ORANGE, changes_fov
+from pymmcore_widgets._util import ORANGE, changes_fov, pixel_size_camera_warning
 from pymmcore_widgets._z_surface import SurfaceStage
 from pymmcore_widgets.useq_widgets import PositionTable
 from pymmcore_widgets.useq_widgets._column_info import (
@@ -106,7 +106,6 @@ class CoreConnectedPositionTable(PositionTable):
         self._hcs_button = QPushButton("HCS")
         self._hcs_button.setIcon(QIconifyIcon("iconoven:baking-dish-sharp"))
         self._hcs_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._hcs_button.setToolTip("Open the HCS wizard.")
         self._hcs_button.clicked.connect(self._show_hcs)
 
         self._edit_hcs_pos = QPushButton("Unlock")
@@ -156,10 +155,12 @@ class CoreConnectedPositionTable(PositionTable):
         self._mmc.events.roiSet.connect(self._update_fov_size)
         self._mmc.events.pixelSizeChanged.connect(self._update_fov_size)
         self._mmc.events.propertyChanged.connect(self._on_fov_property_changed)
+        self._mmc.events.systemConfigurationLoaded.connect(self._update_fov_size)
 
         self.destroyed.connect(self._disconnect)
 
         self._on_sys_config_loaded()
+        self._update_fov_size()
         # hide the set-AF-offset button to begin with.
         self._on_af_per_position_toggled(self.af_per_position.isChecked())
 
@@ -610,6 +611,10 @@ class CoreConnectedPositionTable(PositionTable):
     @Slot()
     def _update_fov_size(self) -> None:
         """Update the FOV size of any grid plan subsequence."""
+        # the HCS wizard needs the current camera's pixel size
+        warning = pixel_size_camera_warning(self._mmc)
+        self._hcs_button.setEnabled(not warning)
+        self._hcs_button.setToolTip(warning or "Open the HCS wizard.")
         table = self.table()
         if not table.rowCount() or not self._mmc.getCameraDevice():
             return

@@ -131,9 +131,10 @@ def global_mmcore(qapp: QApplication) -> Iterator[CMMCorePlus]:
 
 @pytest.fixture
 def second_camera(global_mmcore: CMMCorePlus) -> str:
-    """A second demo camera, with a 256 x 128 sensor."""
+    """A second 16-bit demo camera, with a 256 x 128 sensor."""
     global_mmcore.loadDevice("Camera2", "DemoCamera", "DCam")
     global_mmcore.initializeDevice("Camera2")
+    global_mmcore.setProperty("Camera2", "PixelType", "16bit")
     global_mmcore.setProperty("Camera2", "OnCameraCCDXSize", 256)
     global_mmcore.setProperty("Camera2", "OnCameraCCDYSize", 128)
     return "Camera2"

@@ -528,3 +528,15 @@ def test_pixel_size_edit_updates_its_own_affine(qtbot, visible) -> None:
     assert second.pixel_size_um == 3.0
     assert second.affine == (3, 0, 0, 0, 3, 0)
     assert widget._affine_table.value() == first.affine
+
+
+def test_pixel_config_wdg_camera_hint(
+    qtbot: QtBot, global_mmcore: CMMCorePlus, second_camera: str
+) -> None:
+    wdg = PixelConfigurationWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    assert "Res10x" in wdg._camera_hint.text()
+    assert not wdg._camera_hint.isHidden()
+
+    wdg.setValue([PixelSizePreset("Res10x", [Setting("Core", "Camera", "Camera")])])
+    assert wdg._camera_hint.isHidden()
