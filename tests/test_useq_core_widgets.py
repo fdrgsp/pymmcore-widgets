@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 import pytest
 import useq
 from pymmcore_plus.core import SequencedEvent
-from qtpy.QtCore import QEvent, QPoint, Qt, QTimer
+from qtpy.QtCore import QEvent, QPoint, Qt
 from qtpy.QtGui import QContextMenuEvent
 from qtpy.QtWidgets import QApplication, QDialog, QMessageBox, QWidget
 
@@ -438,17 +438,13 @@ def test_position_table_connected_popup(qtbot: QtBot):
     seq_col = pos_table.table().indexOf(pos_table.SEQ)
     btn = pos_table.table().cellWidget(0, seq_col)
 
-    def handle_dialog():
-        popup = btn.findChild(_MDAPopup)
-        mda = popup.mda_tabs
-        assert isinstance(mda.z_plan, CoreConnectedZPlanWidget)
-        assert isinstance(mda.grid_plan, CoreConnectedGridPlanWidget)
-        popup.accept()
-
-    QTimer.singleShot(100, handle_dialog)
-
+    btn.seq_btn.click()
+    popup = btn.findChild(_MDAPopup)
+    mda = popup.mda_tabs
+    assert isinstance(mda.z_plan, CoreConnectedZPlanWidget)
+    assert isinstance(mda.grid_plan, CoreConnectedGridPlanWidget)
     with qtbot.waitSignal(wdg.valueChanged):
-        btn.seq_btn.click()
+        popup.accept()
 
 
 @pytest.mark.parametrize(
@@ -2641,66 +2637,59 @@ def test_sub_wdg_channel_tab(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
     btn = pos_table.cellWidget(0, seq_col_idx)
     btn = cast("MDAButton", btn)
 
-    # Click the button to open the _MDAPopup dialog
-    def handle_dialog():
-        # Find the popup dialog
-        popup = btn.findChild(_MDAPopup)
-        assert popup is not None, "MDA popup dialog should be created"
+    btn.seq_btn.click()
+    # Find the popup dialog
+    popup = btn.findChild(_MDAPopup)
+    assert popup is not None, "MDA popup dialog should be created"
 
-        # Access the channel tab (should be CoreConnectedChannelTable)
-        channels_tab = popup.mda_tabs.channels
-        assert isinstance(channels_tab, CoreConnectedChannelTable), (
-            "Channel tab should be CoreConnectedChannelTable"
+    # Access the channel tab (should be CoreConnectedChannelTable)
+    channels_tab = popup.mda_tabs.channels
+    assert isinstance(channels_tab, CoreConnectedChannelTable), (
+        "Channel tab should be CoreConnectedChannelTable"
+    )
+
+    # Get the current channel group from both the main widget and popup
+    main_channel_group = wdg.channels._mmc.getChannelGroup()
+    popup_channel_group = channels_tab._mmc.getChannelGroup()
+
+    # Check that the combo box shows the correct channel group
+    main_combo_text = wdg.channels._group_combo.currentText()
+    popup_combo_text = channels_tab._group_combo.currentText()
+
+    # Verify that the main widget is correctly synced
+    if main_channel_group:
+        assert main_combo_text == main_channel_group, (
+            f"Main combo should show '{main_channel_group}' "
+            f"but shows '{main_combo_text}'"
         )
 
-        # Get the current channel group from both the main widget and popup
-        main_channel_group = wdg.channels._mmc.getChannelGroup()
-        popup_channel_group = channels_tab._mmc.getChannelGroup()
+    # Check if popup uses the same core instance or a different one
+    is_same_core = wdg.channels._mmc is channels_tab._mmc
 
-        # Check that the combo box shows the correct channel group
-        main_combo_text = wdg.channels._group_combo.currentText()
-        popup_combo_text = channels_tab._group_combo.currentText()
+    # Verify that popup channel tab matches its core's channel group
+    if popup_channel_group:
+        assert popup_combo_text == popup_channel_group, (
+            f"Popup combo should show '{popup_channel_group}' "
+            f"but shows '{popup_combo_text}'"
+        )
 
-        # Verify that the main widget is correctly synced
-        if main_channel_group:
-            assert main_combo_text == main_channel_group, (
-                f"Main combo should show '{main_channel_group}' "
-                f"but shows '{main_combo_text}'"
-            )
+    # Since we're using the same core instance, both should show the same
+    # channel group
+    if is_same_core and main_channel_group:
+        assert popup_combo_text == main_combo_text, (
+            f"Same core instance should show same channel group: "
+            f"main='{main_combo_text}', popup='{popup_combo_text}'"
+        )
 
-        # Check if popup uses the same core instance or a different one
-        is_same_core = wdg.channels._mmc is channels_tab._mmc
+    # The main widget should always be correctly synced
+    if main_channel_group and main_combo_text != main_channel_group:
+        raise AssertionError(
+            f"Main widget combo should show '{main_channel_group}' "
+            f"but shows '{main_combo_text}'"
+        )
 
-        # Verify that popup channel tab matches its core's channel group
-        if popup_channel_group:
-            assert popup_combo_text == popup_channel_group, (
-                f"Popup combo should show '{popup_channel_group}' "
-                f"but shows '{popup_combo_text}'"
-            )
-
-        # Since we're using the same core instance, both should show the same
-        # channel group
-        if is_same_core and main_channel_group:
-            assert popup_combo_text == main_combo_text, (
-                f"Same core instance should show same channel group: "
-                f"main='{main_combo_text}', popup='{popup_combo_text}'"
-            )
-
-        # The main widget should always be correctly synced
-        if main_channel_group and main_combo_text != main_channel_group:
-            raise AssertionError(
-                f"Main widget combo should show '{main_channel_group}' "
-                f"but shows '{main_combo_text}'"
-            )
-
-        # Close the dialog
-        popup.accept()
-
-    # Use QTimer to handle the dialog after it opens
-    QTimer.singleShot(100, handle_dialog)
-
-    # Click the button (this will open the dialog)
-    btn.seq_btn.click()
+    # Close the dialog
+    popup.accept()
 
 
 # ------------------- channel light source / intensity columns -------------------

@@ -177,6 +177,7 @@ class MDAButton(QWidget):
         # keep seq_btn in place whether or not clear_btn is showing
         layout.addStretch()
 
+        self._popup: _MDAPopup | None = None
         self.setValue(None)
 
     def fitWidth(self, show_clear: bool) -> int:
@@ -187,9 +188,15 @@ class MDAButton(QWidget):
         return width
 
     def _on_click(self) -> None:
-        dialog = _MDAPopup(self._value, self)
-        if dialog.exec():
-            self.setValue(dialog.mda_tabs.value())
+        # not modal: the app stays usable, e.g. to set grid bounds in live mode
+        if (popup := self._popup) is None:
+            popup = self._popup = _MDAPopup(self._value, self)
+            popup.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            popup.accepted.connect(lambda: self.setValue(popup.mda_tabs.value()))
+            popup.finished.connect(lambda: setattr(self, "_popup", None))
+        popup.show()
+        popup.raise_()
+        popup.activateWindow()
 
     def value(self) -> useq.MDASequence | None:
         return self._value

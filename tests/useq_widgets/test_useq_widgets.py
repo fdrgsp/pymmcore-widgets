@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pint
 import pytest
 import useq
-from qtpy.QtCore import QPoint, Qt, QTimer
+from qtpy.QtCore import QPoint, Qt
 from qtpy.QtGui import QColor, QFont, QPalette
 from qtpy.QtWidgets import (
     QApplication,
@@ -383,24 +383,25 @@ def test_position_table(qtbot: QtBot):
     seq_col = wdg.table().indexOf(wdg.SEQ)
     btn = wdg.table().cellWidget(0, seq_col)
 
-    def handle_dialog():
-        popup = btn.findChild(_MDAPopup)
-        mda = popup.mda_tabs
-        # the position sub-sequence editor only exposes the grid plan; the
-        # other axes are removed entirely and cannot be checked/used.
-        assert mda.indexOf(mda.z_plan) == -1
-        assert mda.indexOf(mda.channels) == -1
-        assert mda.indexOf(mda.stage_positions) == -1
-        # no grid plan was supplied, so the grid checkbox starts unchecked
-        assert not mda.isChecked(mda.grid_plan)
-        mda.grid_plan.setValue(useq.GridRowsColumns(rows=2, columns=2))
-        mda.setChecked(mda.grid_plan, True)
-        popup.accept()
-
-    QTimer.singleShot(100, handle_dialog)
-
+    btn.seq_btn.click()
+    popup = btn.findChild(_MDAPopup)
+    # not modal: the rest of the app stays usable while it is open
+    assert popup.isVisible() and not popup.isModal()
+    btn.seq_btn.click()  # raises the open popup rather than making another
+    assert btn.findChildren(_MDAPopup) == [popup]
+    mda = popup.mda_tabs
+    # the position sub-sequence editor only exposes the grid plan; the
+    # other axes are removed entirely and cannot be checked/used.
+    assert mda.indexOf(mda.z_plan) == -1
+    assert mda.indexOf(mda.channels) == -1
+    assert mda.indexOf(mda.stage_positions) == -1
+    # no grid plan was supplied, so the grid checkbox starts unchecked
+    assert not mda.isChecked(mda.grid_plan)
+    mda.grid_plan.setValue(useq.GridRowsColumns(rows=2, columns=2))
+    mda.setChecked(mda.grid_plan, True)
     with qtbot.waitSignal(wdg.valueChanged):
-        btn.seq_btn.click()
+        popup.accept()
+    assert btn._popup is None
 
     positions = wdg.value()
     assert positions[0].sequence is not None
