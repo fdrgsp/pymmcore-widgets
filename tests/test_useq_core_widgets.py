@@ -9,7 +9,7 @@ import useq
 from pymmcore_plus.core import SequencedEvent
 from qtpy.QtCore import QEvent, QPoint, Qt, QTimer
 from qtpy.QtGui import QContextMenuEvent
-from qtpy.QtWidgets import QApplication, QMessageBox, QWidget
+from qtpy.QtWidgets import QApplication, QDialog, QMessageBox, QWidget
 
 from pymmcore_widgets import GridPlanWidget, HCSWizard, ZPlanWidget
 from pymmcore_widgets._models._core_functions import block_core
@@ -1604,6 +1604,35 @@ def test_core_mda_with_hcs_value(
 
     assert isinstance(wdg.stage_positions._hcs_wizard, HCSWizard)
     assert wdg.stage_positions._plate_plan == pos
+
+
+def test_core_mda_hcs_import_stops_live(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = CoreConnectedPositionTable(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    global_mmcore.startContinuousSequenceAcquisition()
+    plan = useq.WellPlatePlan(
+        plate="96-well", a1_center_xy=(0, 0), selected_wells=((0,), (0,))
+    )
+    wdg._update_table_positions(plan)
+    assert not global_mmcore.isSequenceRunning()
+    assert wdg.value() == plan
+
+
+def test_core_mda_run_disables_owned_dialogs(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = MDAWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wizard = wdg.stage_positions._hcs
+    nested = QDialog(wizard)
+    wdg._on_mda_started()
+    assert not wizard.isEnabled()
+    assert not nested.isEnabled()
+    wdg._on_mda_finished(useq.MDASequence())
+    assert wizard.isEnabled()
+    assert nested.isEnabled()
 
 
 def test_core_mda_with_hcs_enable_disable(

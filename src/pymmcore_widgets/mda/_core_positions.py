@@ -254,6 +254,8 @@ class CoreConnectedPositionTable(PositionTable):
 
     def _update_table_positions(self, plan: WellPlatePlan) -> None:
         """Update the table with the positions from the HCS wizard."""
+        if self._mmc.isSequenceRunning():
+            self._mmc.stopSequenceAcquisition()
         with busy(self._import_overlay, "Creating position list…"):
             self.setValue(plan)
 

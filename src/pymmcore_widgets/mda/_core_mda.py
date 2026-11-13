@@ -9,6 +9,7 @@ from pymmcore_plus._logger import logger
 from pymmcore_plus.core import SequencedEvent
 from qtpy.QtCore import QSize, Qt, Slot
 from qtpy.QtWidgets import (
+    QDialog,
     QHBoxLayout,
     QMessageBox,
     QPushButton,
@@ -650,6 +651,9 @@ class MDAWidget(MDASequenceWidget):
         self.af_axis.setEnabled(enable)
         self._save_button.setEnabled(enable)
         self._load_button.setEnabled(enable)
+        # dialogs (e.g. the HCS wizard) are windows: they ignore their parent's state
+        for dialog in self.findChildren(QDialog):
+            dialog.setEnabled(enable)
 
     @Slot()
     def _on_mda_started(self) -> None:
