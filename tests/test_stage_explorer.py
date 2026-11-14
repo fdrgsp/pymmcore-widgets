@@ -845,6 +845,7 @@ def test_stage_explorer_follows_camera_fov(
     qtbot.waitUntil(lambda: explorer._affine_state.system_affine[0, 0] < 0)
 
 
+@pytest.mark.parametrize("switch_camera", [True, False])
 @pytest.mark.parametrize("clear", [True, False])
 def test_stage_explorer_asks_before_mixing_pixel_formats(
     qtbot: QtBot,
@@ -852,8 +853,9 @@ def test_stage_explorer_asks_before_mixing_pixel_formats(
     second_camera: str,
     monkeypatch: pytest.MonkeyPatch,
     clear: bool,
+    switch_camera: bool,
 ) -> None:
-    """A camera of another pixel format clears the map, or is switched back."""
+    """A camera or pixel type of another format clears the map, or is set back."""
     explorer = StageExplorer()
     qtbot.addWidget(explorer)
     explorer.add_image(TILE_IMG, 0, 0)
@@ -866,11 +868,18 @@ def test_stage_explorer_asks_before_mixing_pixel_formats(
     global_mmcore.setProperty(Keyword.CoreDevice, Keyword.CoreCamera, "Camera")
     ask.assert_not_called()
 
-    global_mmcore.setProperty(second_camera, "PixelType", "32bitRGB")
-    global_mmcore.setProperty(Keyword.CoreDevice, Keyword.CoreCamera, second_camera)
+    if switch_camera:
+        global_mmcore.setProperty(second_camera, "PixelType", "32bitRGB")
+        setting = (Keyword.CoreDevice, Keyword.CoreCamera)
+        old, new = "Camera", second_camera
+    else:
+        setting = ("Camera", Keyword.PixelType)
+        old, new = global_mmcore.getProperty(*setting), "32bitRGB"
+    global_mmcore.setProperty(*setting, new)
     qtbot.waitUntil(lambda: ask.call_count == 1)
+    assert f"{'-'.join(setting)} is set back to {old!r}" in ask.call_args.args[2]
     assert bool(explorer._tiles) is not clear
-    assert global_mmcore.getCameraDevice() == (second_camera if clear else "Camera")
+    assert global_mmcore.getProperty(*setting) == (new if clear else old)
 
 
 # ---------------------------------------------------------------------------

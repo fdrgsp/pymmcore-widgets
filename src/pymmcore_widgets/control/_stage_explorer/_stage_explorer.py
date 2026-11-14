@@ -357,8 +357,8 @@ class StageExplorer(QWidget):
         self._map_memory_bytes = 0
         self._next_snap_id: int = 0
         self._mda_tile_keys: dict[Hashable, Hashable] = {}
-        # The camera last used for the map, and the pixel format of its images.
-        self._camera = ""
+        # The camera and pixel type last used for the map, and its images' format.
+        self._camera_state = ("", "")
         self._map_format = (0, 0)
         # Frames waiting to be put on the map, newest-per-location wins.
         self._pending_tiles: dict[Hashable, tuple[np.ndarray, float, float]] = {}
@@ -481,6 +481,7 @@ class StageExplorer(QWidget):
         self._fov_observer = FovChangeObserver(
             self._mmc, self._refresh_fov, self, affine=True
         )
+        self._mmc.events.propertyChanged.connect(self._on_property_changed)
 
         # connections vispy events
         self._stage_viewer.canvas.events.mouse_double_click.connect(
@@ -488,7 +489,7 @@ class StageExplorer(QWidget):
         )
 
         # initial setup
-        self._on_camera_changed()
+        self._check_map_format()
         self._on_roi_changed()
         self._toolbar.snap_action.setChecked(self._snap_on_double_click)
         self._toolbar.show_mda_positions_action.setChecked(self._show_mda_positions)
@@ -812,8 +813,7 @@ class StageExplorer(QWidget):
     def _on_sys_config_loaded(self) -> None:
         """Clear the scene and reinitialize when the system configuration is loaded."""
         self._on_clear_action()
-        self._camera = ""
-        self._on_camera_changed()
+        self._check_map_format()
         self._set_stage_controller()
         self._affine_state.refresh()
 
@@ -854,8 +854,13 @@ class StageExplorer(QWidget):
         if xy_dev := self._mmc.getXYStageDevice():
             self._stage_controller = QStageMoveAccumulator.for_device(xy_dev, self._mmc)
 
+    def _on_property_changed(self, device: str, prop: str, _value: object) -> None:
+        # (not the field of view, but the format and bit depth of the images)
+        if prop == Keyword.PixelType and device == self._mmc.getCameraDevice():
+            self._fov_observer.request()
+
     def _refresh_fov(self) -> None:
-        self._on_camera_changed()
+        self._check_map_format()
         self.refreshPixelGeometry()
 
     def refreshPixelGeometry(self) -> None:
@@ -863,31 +868,37 @@ class StageExplorer(QWidget):
         self._affine_state.refresh()
         self._on_roi_changed()
 
-    def _on_camera_changed(self) -> None:
+    def _check_map_format(self) -> None:
         """Clear the map, if the user agrees, before it mixes pixel formats.
 
         Tiles of another format (e.g. RGB and 16-bit) cannot share the contrast
-        and the overview. Declining switches back to the previous camera.
+        and the overview. Declining sets the camera, or its pixel type, back.
         """
         camera, fmt = self._mmc.getCameraDevice(), _pixel_format(self._mmc)
-        # (MMCore also emits the camera change later, from its own thread)
-        if camera == self._camera or not any(fmt):
+        if not any(fmt):
             return
-        previous, self._camera = self._camera, camera
         if self._tiles and fmt != self._map_format:
-            answer = QMessageBox.question(
-                self,
-                "Clear the Stage Explorer map?",
-                f"{camera!r} takes {_format_name(fmt)} images, which cannot be "
-                f"shown with the map's {_format_name(self._map_format)} images.\n\n"
-                f"Clear the map? Otherwise, the camera is set back to {previous!r}.",
-            )
-            if answer != QMessageBox.StandardButton.Yes:
-                self._camera = previous
-                self._mmc.setProperty(Keyword.CoreDevice, Keyword.CoreCamera, previous)
-                return
+            previous, pixel_type = self._camera_state
+            if camera != previous:
+                setting = (Keyword.CoreDevice, Keyword.CoreCamera, previous)
+            else:
+                setting = (camera, Keyword.PixelType, pixel_type)
+            # (without a pixel type to set back, the map can only be cleared)
+            if all(setting):
+                answer = QMessageBox.question(
+                    self,
+                    "Clear the Stage Explorer map?",
+                    f"{camera!r} takes {_format_name(fmt)} images, which cannot be "
+                    f"shown with the map's {_format_name(self._map_format)} images."
+                    f"\n\nClear the map? Otherwise, {setting[0]}-{setting[1]} is set "
+                    f"back to {setting[2]!r}.",
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    self._mmc.setProperty(*setting)
+                    return
             self._on_clear_action()
         self._map_format = fmt
+        self._camera_state = (camera, _pixel_type(self._mmc, camera))
 
     def _on_mouse_double_click(self, event: MouseEvent) -> None:
         """Move the stage to the clicked position."""
@@ -1713,6 +1724,13 @@ class MapMemoryMenu(QMenu):
 def _pixel_format(core: CMMCorePlus) -> tuple[int, int]:
     """The current camera's bytes per pixel and number of components."""
     return core.getBytesPerPixel(), core.getNumberOfComponents()
+
+
+def _pixel_type(core: CMMCorePlus, camera: str) -> str:
+    """The camera's pixel type, or "" if it has no standard one to set."""
+    if camera and core.hasProperty(camera, Keyword.PixelType):
+        return core.getProperty(camera, Keyword.PixelType)
+    return ""
 
 
 def _format_name(fmt: tuple[int, int]) -> str:
