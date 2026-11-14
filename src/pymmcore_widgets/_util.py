@@ -195,20 +195,13 @@ def _preset_camera(preset: PixelSizePreset) -> str | None:
     return None
 
 
-def is_multi_camera(core: CMMCorePlus, camera: str) -> bool:
-    """Whether `camera` is the Utilities Multi Camera, which combines others."""
-    return (core.getDeviceLibrary(camera), core.getDeviceName(camera)) == (
-        "Utilities",
-        "Multi Camera",
-    )
-
-
 def _physical_cameras(core: CMMCorePlus) -> list[str]:
     """The loaded cameras, without a Multi Camera that combines them."""
     return [
         cam
         for cam in core.getLoadedDevicesOfType(DeviceType.Camera)
-        if not is_multi_camera(core, cam)
+        if (core.getDeviceLibrary(cam), core.getDeviceName(cam))
+        != ("Utilities", "Multi Camera")
     ]
 
 

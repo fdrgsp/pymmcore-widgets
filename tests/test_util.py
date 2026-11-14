@@ -20,7 +20,6 @@ from pymmcore_widgets._util import (
     QWIDGETSIZE_MAX,
     FovChangeObserver,
     combo_box_height,
-    is_multi_camera,
     pixel_presets_hint,
     pixel_size_camera_warning,
     use_combo_row_height,
@@ -199,7 +198,5 @@ def test_multi_camera_is_not_another_camera(global_mmcore: CMMCorePlus) -> None:
     core = global_mmcore
     core.loadDevice("Multi", "Utilities", "Multi Camera")
     core.initializeDevice("Multi")
-    assert is_multi_camera(core, "Multi")
-    assert not is_multi_camera(core, "Camera")
     assert not pixel_presets_hint(core)
     assert not pixel_size_camera_warning(core)
