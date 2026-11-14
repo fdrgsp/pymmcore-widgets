@@ -880,7 +880,11 @@ class StageExplorer(QWidget):
         if self._tiles and fmt != self._map_format:
             previous, pixel_type = self._camera_state
             if camera != previous:
-                setting = (Keyword.CoreDevice, Keyword.CoreCamera, previous)
+                setting: tuple[str, str, str] = (
+                    Keyword.CoreDevice,
+                    Keyword.CoreCamera,
+                    previous,
+                )
             else:
                 setting = (camera, Keyword.PixelType, pixel_type)
             # (without a pixel type to set back, the map can only be cleared)
