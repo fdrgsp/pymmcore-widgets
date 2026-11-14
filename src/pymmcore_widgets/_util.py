@@ -208,7 +208,7 @@ def _physical_cameras(core: CMMCorePlus) -> list[str]:
 def _cameras_may_differ(cameras: Sequence[str]) -> str:
     return (
         f"{len(cameras)} cameras are loaded ({', '.join(cameras)}) and their pixel "
-        "sizes may differ"
+        "sizes may differ."
     )
 
 
@@ -227,7 +227,7 @@ def pixel_presets_hint(
     if not (any_camera := [p.name for p in presets if _preset_camera(p) is None]):
         return ""
     return (
-        f"{_cameras_may_differ(cameras)}, but the pixel size presets "
+        f"{_cameras_may_differ(cameras)}. The pixel size presets "
         f"{', '.join(any_camera)} are for any camera. It is recommended to add the "
         "Core-Camera property to each preset."
     )
