@@ -2010,16 +2010,16 @@ def test_grid_plan_fov_update(
 
     with qtbot.waitSignal(mmc.events.roiSet):
         mmc.setROI(0, 0, 100, 150)
-    assert wdg.value().grid_plan.fov_width == 100
+    qtbot.waitUntil(lambda: wdg.value().grid_plan.fov_width == 100)
     assert wdg.value().grid_plan.fov_height == 150
 
     with qtbot.waitSignal(mmc.events.pixelSizeChanged):
         mmc.setPixelSizeConfig("Res20x")
-    assert wdg.value().grid_plan.fov_width == 50
+    qtbot.waitUntil(lambda: wdg.value().grid_plan.fov_width == 50)
     assert wdg.value().grid_plan.fov_height == 75
 
     mmc.setProperty("Core", "Camera", second_camera)
-    assert wdg.value().grid_plan.fov_width == 128
+    qtbot.waitUntil(lambda: wdg.value().grid_plan.fov_width == 128)
     assert wdg.value().grid_plan.fov_height == 64
 
 
@@ -2550,7 +2550,7 @@ def test_hcs_button_needs_the_camera_pixel_size(
 
     for preset in global_mmcore.getAvailablePixelSizeConfigs():
         global_mmcore.definePixelSizeConfig(preset, "Core", "Camera", "Camera")
-    assert button.isEnabled()
+    qtbot.waitUntil(button.isEnabled)
 
 
 def test_grid_plan_subsequence_fov_update(
@@ -2583,7 +2583,7 @@ def test_grid_plan_subsequence_fov_update(
     with qtbot.waitSignal(mmc.events.roiSet):
         mmc.setROI(0, 0, 100, 150)
 
-    assert sp.value()[0].sequence.grid_plan.fov_width == 100
+    qtbot.waitUntil(lambda: sp.value()[0].sequence.grid_plan.fov_width == 100)
     assert sp.value()[0].sequence.grid_plan.fov_height == 150
     # other subsequence fields must survive the FOV refresh (regression test)
     assert sp.value()[0].sequence.channels[0].config == "FITC"
@@ -2591,13 +2591,13 @@ def test_grid_plan_subsequence_fov_update(
 
     with qtbot.waitSignal(mmc.events.pixelSizeChanged):
         mmc.setPixelSizeConfig("Res20x")
-    assert sp.value()[0].sequence.grid_plan.fov_width == 50
+    qtbot.waitUntil(lambda: sp.value()[0].sequence.grid_plan.fov_width == 50)
     assert sp.value()[0].sequence.grid_plan.fov_height == 75
     assert sp.value()[0].sequence.channels[0].config == "FITC"
     assert "".join(sp.value()[0].sequence.axis_order) == "tpcgz"
 
     mmc.setProperty("Core", "Camera", second_camera)
-    assert sp.value()[0].sequence.grid_plan.fov_width == 128
+    qtbot.waitUntil(lambda: sp.value()[0].sequence.grid_plan.fov_width == 128)
     assert sp.value()[0].sequence.grid_plan.fov_height == 64
 
 
@@ -2619,6 +2619,12 @@ def test_fov_refresh_preserves_unchecked_rows_and_editors(
     with qtbot.waitSignal(global_mmcore.events.roiSet):
         global_mmcore.setROI(0, 0, 100, 150)
 
+    qtbot.waitUntil(
+        lambda: (
+            positions.value(exclude_unchecked=False)[0].sequence.grid_plan.fov_width
+            == 100
+        )
+    )
     assert table.rowCount() == 2
     assert [table.cellWidget(row, col) for row in range(2)] == editors
     assert not positions.NAME.isChecked(table, 1, table.indexOf(positions.NAME))

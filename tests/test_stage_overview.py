@@ -170,6 +170,34 @@ def test_moved_tile_is_repainted_in_place() -> None:
     assert not row[n // 2 + n :].any()  # its old place is erased
 
 
+def test_moved_tile_keeps_unaffected_overview_chunks() -> None:
+    model = OverviewData()
+    image = np.ones((TILE, TILE), np.uint16)
+    model.set_tile(0, image, np.eye(4))
+    distance = 2 * CHUNK_PX * BASE_FACTOR
+    model.set_tile(1, image * 2, _translation(distance, 0).T)
+    arrays = model.level_arrays(0)
+    untouched = arrays[(2, 0)]
+    model._levels[0].dirty.clear()
+
+    model.set_tile(0, image * 3, _translation(TILE, 0).T)
+    assert model._levels[0].dirty == {(0, 0)}
+    assert model.level_arrays(0)[(2, 0)] is untouched
+    assert (untouched[: TILE // BASE_FACTOR, : TILE // BASE_FACTOR] == 2).all()
+
+
+@pytest.mark.parametrize("channels", [3, 4])
+def test_color_overview_keeps_each_channel(channels: int) -> None:
+    model = OverviewData()
+    color = np.arange(1, channels + 1, dtype=np.uint8) * 40
+    image = np.broadcast_to(color, (TILE, TILE, channels)).copy()
+    model.set_tile(0, image, np.eye(4))
+    n = TILE // BASE_FACTOR
+    chunk = model.level_arrays(0)[(0, 0)]
+    np.testing.assert_array_equal(chunk[:n, :n], image[:n, :n])
+    assert not chunk[n:].any()
+
+
 def test_coarser_tile_rebuilds_the_overview() -> None:
     model = OverviewData()
     model.set_tile(0, np.ones((TILE, TILE), np.uint16), np.eye(4))

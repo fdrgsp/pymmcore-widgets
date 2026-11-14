@@ -25,7 +25,7 @@ from useq import WellPlatePlan
 
 from pymmcore_widgets import HCSWizard
 from pymmcore_widgets._busy import BusyOverlay, busy
-from pymmcore_widgets._util import ORANGE, changes_fov, pixel_size_camera_warning
+from pymmcore_widgets._util import ORANGE, FovChangeObserver, pixel_size_camera_warning
 from pymmcore_widgets._z_surface import SurfaceStage
 from pymmcore_widgets.useq_widgets import PositionTable
 from pymmcore_widgets.useq_widgets._column_info import (
@@ -152,10 +152,7 @@ class CoreConnectedPositionTable(PositionTable):
         # connect
         self._mmc.events.systemConfigurationLoaded.connect(self._on_sys_config_loaded)
         self._mmc.events.propertyChanged.connect(self._on_property_changed)
-        self._mmc.events.roiSet.connect(self._update_fov_size)
-        self._mmc.events.pixelSizeChanged.connect(self._update_fov_size)
-        self._mmc.events.propertyChanged.connect(self._on_fov_property_changed)
-        self._mmc.events.systemConfigurationLoaded.connect(self._update_fov_size)
+        self._fov_observer = FovChangeObserver(self._mmc, self._update_fov_size, self)
 
         self.destroyed.connect(self._disconnect)
 
@@ -603,10 +600,6 @@ class CoreConnectedPositionTable(PositionTable):
             self._on_sys_config_loaded
         )
         self._mmc.events.propertyChanged.disconnect(self._on_property_changed)
-
-    def _on_fov_property_changed(self, device: str, prop: str, _val: object) -> None:
-        if changes_fov(self._mmc, device, prop):
-            self._update_fov_size()
 
     @Slot()
     def _update_fov_size(self) -> None:

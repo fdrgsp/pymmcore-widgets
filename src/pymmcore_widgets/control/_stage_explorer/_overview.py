@@ -268,6 +268,8 @@ class OverviewData:
             self._chunk_array(level, key)[:] = 0
             level.dirty.add(key)
         for tile, (thumb, matrix) in self._thumbs.items():
+            if self.cancelled.is_set():
+                return
             if not chunks.isdisjoint(level.chunk_keys(self._bounds[tile])):
                 self._paste(level, *_reduced(thumb, matrix, level.res), chunks)
 

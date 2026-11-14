@@ -44,7 +44,7 @@ from superqt import QEnumComboBox, QIconifyIcon, QLabeledRangeSlider
 from useq import OrderMode
 from vispy.scene.visuals import Markers
 
-from pymmcore_widgets._util import changes_fov, memory_limit_defaults
+from pymmcore_widgets._util import FovChangeObserver, memory_limit_defaults
 from pymmcore_widgets.control._q_stage_controller import QStageMoveAccumulator
 from pymmcore_widgets.control._rois.roi_manager import GRAY, SceneROIManager
 
@@ -330,7 +330,6 @@ class StageExplorer(QWidget):
         self.setWindowTitle("Stage Explorer")
 
         self._mmc = mmcore or CMMCorePlus.instance()
-        self._mmc.events.roiSet.connect(self._on_roi_changed)
 
         self._stage_controller: QStageMoveAccumulator | None = None
         self._set_stage_controller()
@@ -479,14 +478,9 @@ class StageExplorer(QWidget):
             # type argument.
             mda_events.frameReady.connect(self._frame_relay.submit)
         mda_events.sequenceFinished.connect(self._on_sequence_finished)
-        # NOTE: no @Slot on methods that subclasses override. On PySide6, a connection
-        # to an override of a @Slot isn't tied to the receiver: a signal queued from
-        # another thread is still delivered after the widget is freed, and crashes.
-        self._mmc.events.pixelSizeChanged.connect(self._on_pixel_size_changed)
-        self._mmc.events.pixelSizeAffineChanged.connect(
-            self._on_pixel_size_affine_changed
+        self._fov_observer = FovChangeObserver(
+            self._mmc, self._refresh_fov, self, affine=True
         )
-        self._mmc.events.propertyChanged.connect(self._on_property_changed)
 
         # connections vispy events
         self._stage_viewer.canvas.events.mouse_double_click.connect(
@@ -860,21 +854,14 @@ class StageExplorer(QWidget):
         if xy_dev := self._mmc.getXYStageDevice():
             self._stage_controller = QStageMoveAccumulator.for_device(xy_dev, self._mmc)
 
-    def _on_pixel_size_changed(self, value: float) -> None:
-        """Refresh the affine state when pixel size changes."""
-        self._affine_state.refresh()
+    def _refresh_fov(self) -> None:
+        self._on_camera_changed()
+        self.refreshPixelGeometry()
 
-    def _on_pixel_size_affine_changed(self) -> None:
-        """Refresh the affine state when pixel size affine changes."""
+    def refreshPixelGeometry(self) -> None:
+        """Refresh camera geometry after camera or pixel-calibration changes."""
         self._affine_state.refresh()
-
-    def _on_property_changed(self, device: str, prop: str, _value: object) -> None:
-        """Follow the camera FOV: its size and mirroring."""
-        if changes_fov(self._mmc, device, prop):
-            if device == Keyword.CoreDevice:
-                self._on_camera_changed()
-            self._affine_state.refresh()
-            self._on_roi_changed()
+        self._on_roi_changed()
 
     def _on_camera_changed(self) -> None:
         """Clear the map, if the user agrees, before it mixes pixel formats.

@@ -21,7 +21,7 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 from useq import WellPlatePlan
 
-from pymmcore_widgets._util import changes_fov, pixel_size_camera_warning
+from pymmcore_widgets._util import FovChangeObserver, pixel_size_camera_warning
 from pymmcore_widgets.useq_widgets import PointsPlanWidget, WellPlateWidget
 
 from ._automated_plate_calibration_widget import AutomatedPlateCalibrationWidget
@@ -410,11 +410,9 @@ class _PointsPlanPage(QWizardPage):
         # area), so the Finish button follows its validity
         self.widget.valueChanged.connect(lambda *_: self.completeChanged.emit())
 
-        self._mmc.events.pixelSizeChanged.connect(self._on_px_size_changed)
-        self._mmc.events.systemConfigurationLoaded.connect(self._on_px_size_changed)
-        # the image size (and thus the FOV size) also changes with ROI and binning
-        self._mmc.events.roiSet.connect(self._on_px_size_changed)
-        self._mmc.events.propertyChanged.connect(self._on_property_changed)
+        self._fov_observer = FovChangeObserver(
+            self._mmc, self._on_px_size_changed, self
+        )
         self._on_px_size_changed()
 
     def isComplete(self) -> bool:
@@ -426,11 +424,6 @@ class _PointsPlanPage(QWizardPage):
             if not cover_area.isValid():
                 return False
         return bool(super().isComplete())
-
-    def _on_property_changed(self, device: str, prop: str, _value: object) -> None:
-        with suppress(RuntimeError):
-            if changes_fov(self._mmc, device, prop):
-                self._on_px_size_changed()
 
     @Slot()
     def _on_px_size_changed(self) -> None:

@@ -327,9 +327,13 @@ def test_hcs_wizard_fov_follows_camera(
     page = wdg.points_plan_page.widget
 
     global_mmcore.setProperty("Core", "Camera", second_camera)
-    assert (page.value().fov_width, page.value().fov_height) == (256, 128)
+    qtbot.waitUntil(
+        lambda: (page.value().fov_width, page.value().fov_height) == (256, 128)
+    )
     global_mmcore.setProperty("Core", "Camera", "Camera")
-    assert (page.value().fov_width, page.value().fov_height) == (512, 512)
+    qtbot.waitUntil(
+        lambda: (page.value().fov_width, page.value().fov_height) == (512, 512)
+    )
 
 
 def test_hcs_wizard_needs_the_camera_pixel_size(
@@ -345,7 +349,7 @@ def test_hcs_wizard_needs_the_camera_pixel_size(
 
     for preset in global_mmcore.getAvailablePixelSizeConfigs():
         global_mmcore.definePixelSizeConfig(preset, "Core", "Camera", "Camera")
-    assert not page.subTitle()
+    qtbot.waitUntil(lambda: not page.subTitle())
     assert page.widget.isEnabled()
 
 

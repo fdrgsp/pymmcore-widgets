@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import Slot
 
-from pymmcore_widgets._util import changes_fov
+from pymmcore_widgets._util import FovChangeObserver
 from pymmcore_widgets.useq_widgets._grid import GridPlanWidget, Mode
 
 from ._xy_bounds import CoreXYBoundsControl
@@ -67,15 +67,8 @@ class CoreConnectedGridPlanWidget(GridPlanWidget):
             self._core_xy_bounds,
         )
 
-        self._mmc.events.systemConfigurationLoaded.connect(self._update_fov_size)
-        self._mmc.events.pixelSizeChanged.connect(self._update_fov_size)
-        self._mmc.events.roiSet.connect(self._update_fov_size)
-        self._mmc.events.propertyChanged.connect(self._on_property_changed)
+        self._fov_observer = FovChangeObserver(self._mmc, self._update_fov_size, self)
         self._update_fov_size()
-
-    def _on_property_changed(self, device: str, prop: str, _value: object) -> None:
-        if changes_fov(self._mmc, device, prop):
-            self._update_fov_size()
 
     @Slot()
     def _update_fov_size(self) -> None:

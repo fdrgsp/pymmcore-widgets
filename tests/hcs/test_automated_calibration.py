@@ -934,16 +934,16 @@ def test_scan_size_follows_fov(qtbot, global_mmcore):
     assert auto._start.isEnabled()
     # A smaller camera ROI shrinks the field of view: the scan no longer fits.
     global_mmcore.setROI(0, 0, 32, 32)
-    assert f"limit is {MAX_TILES} tiles" in auto._status.text()
+    qtbot.waitUntil(lambda: f"limit is {MAX_TILES} tiles" in auto._status.text())
     assert not auto._start.isEnabled()
     global_mmcore.clearROI()
     # CMMCore.clearROI emits nothing; the camera ROI widget emits roiSet after it.
     cam = global_mmcore.getCameraDevice()
     global_mmcore.events.roiSet.emit(cam, *global_mmcore.getROI())
-    assert "Ready to scan" in auto._status.text()
+    qtbot.waitUntil(lambda: "Ready to scan" in auto._status.text())
     # So does switching to a higher magnification (smaller pixel size).
     global_mmcore.setPixelSizeUm(global_mmcore.getCurrentPixelSizeConfig(), 0.01)
-    assert f"limit is {MAX_TILES} tiles" in auto._status.text()
+    qtbot.waitUntil(lambda: f"limit is {MAX_TILES} tiles" in auto._status.text())
     assert not auto._start.isEnabled()
 
 

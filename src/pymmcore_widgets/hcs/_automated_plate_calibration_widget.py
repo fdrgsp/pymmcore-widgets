@@ -24,8 +24,8 @@ from superqt.utils import create_worker, signals_blocked
 from pymmcore_widgets._icons import StandardIcon
 from pymmcore_widgets._util import (
     GREEN,
+    FovChangeObserver,
     SeparatorWidget,
-    changes_fov,
     memory_limit_defaults,
 )
 from pymmcore_widgets.control._stage_explorer._stage_explorer import AffineState
@@ -309,12 +309,9 @@ class AutomatedPlateCalibrationWidget(QWidget):
         self._progress.connect(self._on_progress)
         self._tileReady.connect(self._on_tile)
         self._plate_test.positionDoubleClicked.connect(self.testPositionRequested.emit)
-        # The scan size depends on the field of view: objective, ROI, and binning.
-        self._mmc.events.pixelSizeChanged.connect(self._fov_changed)
-        self._mmc.events.systemConfigurationLoaded.connect(self._fov_changed)
-        self._mmc.events.roiSet.connect(self._fov_changed)
-        self._mmc.events.pixelSizeAffineChanged.connect(self._fov_changed)
-        self._mmc.events.propertyChanged.connect(self._on_property_changed)
+        self._fov_observer = FovChangeObserver(
+            self._mmc, self._fov_changed, self, affine=True
+        )
         self._update_controls()
 
     def showEvent(self, event: QShowEvent) -> None:
@@ -461,10 +458,6 @@ class AutomatedPlateCalibrationWidget(QWidget):
     def _fov_changed(self) -> None:
         self._invalidate()
         self._show_ready_message()
-
-    def _on_property_changed(self, device: str, prop: str, value: object) -> None:
-        if changes_fov(self._mmc, device, prop):
-            self._fov_changed()
 
     def _read_geometry(self) -> SurveyGeometry:
         bounds = self._corners.bounds()

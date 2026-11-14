@@ -61,6 +61,26 @@ def test_stage_viewer_add_image(qtbot: QtBot) -> None:
     assert tuple(tile.image.transform.matrix[3, :2]) == (100, 150)
 
 
+def test_stage_explorer_displays_rgb_snap_and_mda(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    global_mmcore.setProperty("Camera", "PixelType", "32bitRGB")
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    explorer.show()
+    qtbot.waitExposed(explorer)
+    global_mmcore.snapImage()
+    qtbot.waitUntil(lambda: len(explorer._tiles) == 1)
+    image = global_mmcore.getImage()
+    np.testing.assert_array_equal(explorer._stage_viewer._tiles[0].data, image)
+
+    event = useq.MDAEvent(index={"p": 1}, x_pos=1000, y_pos=0)
+    explorer._on_frame_ready(image, event)
+    qtbot.waitUntil(lambda: len(explorer._tiles) == 2)
+    wait_for_stage_viewer(qtbot, explorer._stage_viewer)
+    np.testing.assert_array_equal(explorer._stage_viewer._tiles[1].data, image)
+
+
 def test_stage_viewer_clims_cmaps(qtbot: QtBot) -> None:
     stage_viewer = StageViewer()
     qtbot.addWidget(stage_viewer)
@@ -817,12 +837,12 @@ def test_stage_explorer_follows_camera_fov(
     qtbot.addWidget(explorer)
 
     global_mmcore.setProperty(Keyword.CoreDevice, Keyword.CoreCamera, second_camera)
-    np.testing.assert_array_equal(-2 * explorer._half_img_shift[:2, 3], (256, 128))
+    qtbot.waitUntil(lambda: tuple(-2 * explorer._half_img_shift[:2, 3]) == (256, 128))
     global_mmcore.setProperty(second_camera, Keyword.Binning, 2)
-    np.testing.assert_array_equal(-2 * explorer._half_img_shift[:2, 3], (128, 64))
+    qtbot.waitUntil(lambda: tuple(-2 * explorer._half_img_shift[:2, 3]) == (128, 64))
     assert explorer._affine_state.system_affine[0, 0] > 0
     global_mmcore.setProperty(second_camera, Keyword.Transpose_MirrorX, 1)
-    assert explorer._affine_state.system_affine[0, 0] < 0
+    qtbot.waitUntil(lambda: explorer._affine_state.system_affine[0, 0] < 0)
 
 
 @pytest.mark.parametrize("clear", [True, False])
@@ -848,7 +868,7 @@ def test_stage_explorer_asks_before_mixing_pixel_formats(
 
     global_mmcore.setProperty(second_camera, "PixelType", "32bitRGB")
     global_mmcore.setProperty(Keyword.CoreDevice, Keyword.CoreCamera, second_camera)
-    ask.assert_called_once()
+    qtbot.waitUntil(lambda: ask.call_count == 1)
     assert bool(explorer._tiles) is not clear
     assert global_mmcore.getCameraDevice() == (second_camera if clear else "Camera")
 
@@ -965,20 +985,23 @@ def test_stage_explorer_stage_controller_set_with_xy_device(
     assert explorer._stage_controller is not None
 
 
-# ---------------------------------------------------------------------------
-# StageExplorer - _on_pixel_size_changed accepts *args
-# ---------------------------------------------------------------------------
-
-
-def test_stage_explorer_pixel_size_handlers_refresh_affine(
-    qtbot: QtBot,
+def test_stage_explorer_coalesces_camera_and_calibration_changes(
+    qtbot: QtBot, global_mmcore: CMMCorePlus, second_camera: str
 ) -> None:
-    """Both pixel size handlers call _affine_state.refresh()."""
     explorer = StageExplorer()
     qtbot.addWidget(explorer)
-    # neither should raise
-    explorer._on_pixel_size_changed(0.065)
-    explorer._on_pixel_size_affine_changed()
+    for preset in global_mmcore.getAvailablePixelSizeConfigs():
+        global_mmcore.definePixelSizeConfig(preset, "Core", "Camera", "Camera")
+    qtbot.waitUntil(lambda: not explorer._fov_observer._timer.isActive())
+
+    with patch.object(
+        explorer, "refreshPixelGeometry", wraps=explorer.refreshPixelGeometry
+    ) as refresh:
+        global_mmcore.setProperty("Camera", "Binning", 2)
+        global_mmcore.events.pixelSizeAffineChanged.emit(1, 0, 0, 0, 1, 0)
+        qtbot.waitUntil(lambda: refresh.call_count > 0)
+        assert refresh.call_count == 1
+        assert tuple(-2 * explorer._half_img_shift[:2, 3]) == (256, 256)
 
 
 # ---------------------------------------------------------------------------

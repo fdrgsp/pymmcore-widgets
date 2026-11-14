@@ -8,7 +8,7 @@ import psutil
 from psygnal import SignalGroup, SignalInstance
 from pymmcore_plus import CMMCorePlus, DeviceType, Keyword
 from pymmcore_plus.model import PixelSizeGroup
-from qtpy.QtCore import QEvent, QMarginsF, QObject, Qt, QTimer
+from qtpy.QtCore import QEvent, QMarginsF, QObject, Qt, QTimer, Signal, Slot
 from qtpy.QtGui import (
     QContextMenuEvent,
     QCursor,
@@ -137,13 +137,61 @@ _CAMERA_GEOMETRY = {
 
 
 def changes_fov(core: CMMCorePlus, device: str, prop: str) -> bool:
-    """Whether a `propertyChanged` event changes the current camera's FOV.
-
-    Switching cameras or binning emits neither `roiSet` nor `pixelSizeChanged`.
-    """
+    """Whether a property change can affect the active camera's field of view."""
     if device == Keyword.CoreDevice:
         return prop == Keyword.CoreCamera
-    return device == core.getCameraDevice() and prop in _CAMERA_GEOMETRY
+    return prop in _CAMERA_GEOMETRY and device == core.getCameraDevice()
+
+
+class FovChangeObserver(QObject):
+    """Coalesce camera, ROI and pixel-calibration changes on the GUI thread."""
+
+    _requested = Signal()
+
+    def __init__(
+        self,
+        core: CMMCorePlus,
+        callback: Callable[[], None],
+        parent: QObject,
+        *,
+        affine: bool = False,
+    ) -> None:
+        super().__init__(parent)
+        self._core = core
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(callback)
+        self._requested.connect(self._schedule)
+        names = ["pixelSizeChanged", "roiSet", "systemConfigurationLoaded"]
+        if affine:
+            names.append("pixelSizeAffineChanged")
+        self._connections: list[tuple[Any, Callable[..., None]]] = [
+            (getattr(core.events, name), self.request) for name in names
+        ]
+        self._connections.append(
+            (core.events.propertyChanged, self._on_property_changed)
+        )
+        for signal, slot in self._connections:
+            signal.connect(slot)
+        parent.destroyed.connect(self._disconnect)
+
+    @Slot()
+    def request(self) -> None:
+        """Schedule one refresh after the current burst of core events."""
+        self._requested.emit()
+
+    @Slot()
+    def _schedule(self) -> None:
+        if not self._timer.isActive():
+            self._timer.start()
+
+    def _on_property_changed(self, device: str, prop: str, _value: object) -> None:
+        if changes_fov(self._core, device, prop):
+            self.request()
+
+    def _disconnect(self) -> None:
+        for signal, slot in self._connections:
+            signal.disconnect(slot)
 
 
 def _preset_camera(preset: PixelSizePreset) -> str | None:
@@ -152,6 +200,13 @@ def _preset_camera(preset: PixelSizePreset) -> str | None:
         if (s.device_name, s.property_name) == (Keyword.CoreDevice, Keyword.CoreCamera):
             return s.property_value
     return None
+
+
+def _cameras_may_differ(cameras: Sequence[str]) -> str:
+    return (
+        f"{len(cameras)} cameras are loaded ({', '.join(cameras)}) and their pixel "
+        "sizes may differ"
+    )
 
 
 def pixel_presets_hint(
@@ -171,8 +226,8 @@ def pixel_presets_hint(
     hints = []
     if any_camera := [name for name, cam in by_camera.items() if cam is None]:
         hints.append(
-            "Several cameras are loaded, but these pixel size presets are for any "
-            f"camera: {', '.join(any_camera)}. Micro-Manager cannot read a "
+            f"{_cameras_may_differ(cameras)}, but these pixel size presets are for "
+            f"any camera: {', '.join(any_camera)}. Micro-Manager cannot read a "
             "camera's pixel size, so add the Core-Camera property to each preset."
         )
     multi = [
@@ -187,16 +242,19 @@ def pixel_presets_hint(
 
 def pixel_size_camera_warning(core: CMMCorePlus) -> str:
     """Why the pixel size may be another camera's, or "" if it is this camera's."""
+    if len(cameras := core.getLoadedDevicesOfType(DeviceType.Camera)) < 2:
+        return ""
     if not (preset := core.getCurrentPixelSizeConfig()):
         return ""
-    if len(core.getLoadedDevicesOfType(DeviceType.Camera)) < 2:
-        return ""
-    if _preset_camera(PixelSizeGroup.create_from_core(core).presets[preset]):
+    if any(
+        (device, prop) == (Keyword.CoreDevice, Keyword.CoreCamera)
+        for device, prop, _ in core.getPixelSizeConfigData(preset)
+    ):
         return ""
     return (
-        f"The pixel size preset {preset!r} is for any camera, and several are "
-        "loaded: its pixel size may not be the current camera's. Add the "
-        "Core-Camera property to the pixel size presets."
+        f"The pixel size preset {preset!r} is for any camera, but "
+        f"{_cameras_may_differ(cameras)}. Add the Core-Camera property to the pixel "
+        "size presets."
     )
 
 

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from threading import Thread, get_ident
 from typing import TYPE_CHECKING
 
 import pytest
+from qtpy.QtCore import QEvent
 from qtpy.QtWidgets import (
     QProxyStyle,
     QStyle,
@@ -16,6 +18,7 @@ from pymmcore_widgets import _util
 from pymmcore_widgets._install_widget import _InstallTable
 from pymmcore_widgets._util import (
     QWIDGETSIZE_MAX,
+    FovChangeObserver,
     combo_box_height,
     pixel_presets_hint,
     pixel_size_camera_warning,
@@ -42,6 +45,7 @@ if TYPE_CHECKING:
     from pymmcore_plus import CMMCorePlus
     from pytestqt.qtbot import QtBot
     from qtpy.QtCore import QSize
+    from qtpy.QtWidgets import QApplication
 
 
 def test_qwidgetsize_max_matches_qt(qtbot: QtBot) -> None:
@@ -49,6 +53,51 @@ def test_qwidgetsize_max_matches_qt(qtbot: QtBot) -> None:
     wdg = QWidget()
     qtbot.addWidget(wdg)
     assert wdg.maximumWidth() == wdg.maximumHeight() == QWIDGETSIZE_MAX
+
+
+def test_fov_changes_coalesce_on_gui_thread(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    parent = QWidget()
+    qtbot.addWidget(parent)
+    calls = []
+    observer = FovChangeObserver(
+        global_mmcore, lambda: calls.append(get_ident()), parent, affine=True
+    )
+
+    def emit_changes() -> None:
+        events = global_mmcore.events
+        events.propertyChanged.emit("Core", "Camera", global_mmcore.getCameraDevice())
+        events.pixelSizeChanged.emit(1.0)
+        events.pixelSizeAffineChanged.emit(1, 0, 0, 0, 1, 0)
+
+    worker = Thread(target=emit_changes)
+    worker.start()
+    worker.join()
+    assert not calls
+    qtbot.waitUntil(lambda: bool(calls))
+    assert calls == [get_ident()]
+    global_mmcore.events.propertyChanged.emit("Camera", "Exposure", "5")
+    global_mmcore.events.propertyChanged.emit("OtherCamera", "Binning", "2")
+    qtbot.wait(10)
+    assert calls == [get_ident()]
+    observer.request()
+    qtbot.waitUntil(lambda: len(calls) == 2)
+
+
+def test_fov_observer_disconnects_with_its_widget(
+    qtbot: QtBot, qapp: QApplication, global_mmcore: CMMCorePlus
+) -> None:
+    parent = QWidget()
+    qtbot.addWidget(parent)
+    calls = []
+    observer = FovChangeObserver(global_mmcore, lambda: calls.append(None), parent)
+    observer.request()
+    parent.deleteLater()
+    qapp.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
+    global_mmcore.events.pixelSizeChanged.emit(1.0)
+    qtbot.wait(10)
+    assert not calls
 
 
 def test_use_combo_row_height(qtbot: QtBot, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -132,8 +181,12 @@ def test_pixel_presets_should_set_the_camera(
     global_mmcore: CMMCorePlus, second_camera: str
 ) -> None:
     core = global_mmcore
+    loaded = "2 cameras are loaded (Camera, Camera2) and their pixel sizes may differ"
+    assert pixel_presets_hint(core).startswith(f"{loaded}, but these pixel size")
     assert "Res10x, Res20x, Res40x" in pixel_presets_hint(core)
-    assert "'Res10x'" in pixel_size_camera_warning(core)
+    assert pixel_size_camera_warning(core).startswith(
+        f"The pixel size preset 'Res10x' is for any camera, but {loaded}."
+    )
 
     for preset in core.getAvailablePixelSizeConfigs():
         core.definePixelSizeConfig(preset, "Core", "Camera", "Camera")
