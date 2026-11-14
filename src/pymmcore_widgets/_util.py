@@ -136,13 +136,6 @@ _CAMERA_GEOMETRY = {
 }
 
 
-def changes_fov(core: CMMCorePlus, device: str, prop: str) -> bool:
-    """Whether a property change can affect the active camera's field of view."""
-    if device == Keyword.CoreDevice:
-        return prop == Keyword.CoreCamera
-    return prop in _CAMERA_GEOMETRY and device == core.getCameraDevice()
-
-
 class FovChangeObserver(QObject):
     """Coalesce camera, ROI and pixel-calibration changes on the GUI thread."""
 
@@ -161,16 +154,19 @@ class FovChangeObserver(QObject):
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(callback)
-        self._requested.connect(self._schedule)
-        names = ["pixelSizeChanged", "roiSet", "systemConfigurationLoaded"]
-        if affine:
-            names.append("pixelSizeAffineChanged")
-        self._connections: list[tuple[Any, Callable[..., None]]] = [
-            (getattr(core.events, name), self.request) for name in names
+        self._requested.connect(self._timer.start)
+        events = core.events
+        signals = [
+            events.pixelSizeChanged,
+            events.roiSet,
+            events.systemConfigurationLoaded,
         ]
-        self._connections.append(
-            (core.events.propertyChanged, self._on_property_changed)
-        )
+        if affine:
+            signals.append(events.pixelSizeAffineChanged)
+        self._connections: list[tuple[Any, Callable[..., None]]] = [
+            (signal, self.request) for signal in signals
+        ]
+        self._connections.append((events.propertyChanged, self._on_property_changed))
         for signal, slot in self._connections:
             signal.connect(slot)
         parent.destroyed.connect(self._disconnect)
@@ -180,13 +176,10 @@ class FovChangeObserver(QObject):
         """Schedule one refresh after the current burst of core events."""
         self._requested.emit()
 
-    @Slot()
-    def _schedule(self) -> None:
-        if not self._timer.isActive():
-            self._timer.start()
-
     def _on_property_changed(self, device: str, prop: str, _value: object) -> None:
-        if changes_fov(self._core, device, prop):
+        if (device, prop) == (Keyword.CoreDevice, Keyword.CoreCamera) or (
+            prop in _CAMERA_GEOMETRY and device == self._core.getCameraDevice()
+        ):
             self.request()
 
     def _disconnect(self) -> None:
