@@ -208,7 +208,7 @@ def _physical_cameras(core: CMMCorePlus) -> list[str]:
 def _cameras_may_differ(cameras: Sequence[str]) -> str:
     return (
         f"{len(cameras)} cameras are loaded ({', '.join(cameras)}) and their pixel "
-        "sizes may differ."
+        "sizes may differ"
     )
 
 
