@@ -195,6 +195,23 @@ def _preset_camera(preset: PixelSizePreset) -> str | None:
     return None
 
 
+def is_multi_camera(core: CMMCorePlus, camera: str) -> bool:
+    """Whether `camera` is the Utilities Multi Camera, which combines others."""
+    return (core.getDeviceLibrary(camera), core.getDeviceName(camera)) == (
+        "Utilities",
+        "Multi Camera",
+    )
+
+
+def _physical_cameras(core: CMMCorePlus) -> list[str]:
+    """The loaded cameras, without a Multi Camera that combines them."""
+    return [
+        cam
+        for cam in core.getLoadedDevicesOfType(DeviceType.Camera)
+        if not is_multi_camera(core, cam)
+    ]
+
+
 def _cameras_may_differ(cameras: Sequence[str]) -> str:
     return (
         f"{len(cameras)} cameras are loaded ({', '.join(cameras)}) and their pixel "
@@ -208,34 +225,25 @@ def pixel_presets_hint(
     """Suggest setting the camera of `presets` (default: the core's), or "".
 
     Micro-Manager cannot read a camera's pixel size: with several cameras, a
-    preset that does not set Core-Camera gives every camera its pixel size.
+    preset that does not set Core-Camera gives every camera its pixel size. A
+    Multi Camera only combines the physical cameras, so it is not counted.
     """
-    cameras = core.getLoadedDevicesOfType(DeviceType.Camera)
-    if len(cameras) < 2:
+    if len(cameras := _physical_cameras(core)) < 2:
         return ""
     if presets is None:
         presets = PixelSizeGroup.create_from_core(core).presets.values()
-    by_camera = {p.name: _preset_camera(p) for p in presets}
-    hints = []
-    if any_camera := [name for name, cam in by_camera.items() if cam is None]:
-        hints.append(
-            f"{_cameras_may_differ(cameras)}, but these pixel size presets are for "
-            f"any camera: {', '.join(any_camera)}. Micro-Manager cannot read a "
-            "camera's pixel size, so add the Core-Camera property to each preset."
-        )
-    multi = [
-        cam
-        for cam in cameras
-        if core.getDeviceName(cam) == "Multi Camera" and cam not in by_camera.values()
-    ]
-    if multi:
-        hints.append(f"Also add presets for the Multi Camera: {', '.join(multi)}.")
-    return " ".join(hints)
+    if not (any_camera := [p.name for p in presets if _preset_camera(p) is None]):
+        return ""
+    return (
+        f"{_cameras_may_differ(cameras)}, but these pixel size presets are for "
+        f"any camera: {', '.join(any_camera)}. Micro-Manager cannot read a "
+        "camera's pixel size, so add the Core-Camera property to each preset."
+    )
 
 
 def pixel_size_camera_warning(core: CMMCorePlus) -> str:
     """Why the pixel size may be another camera's, or "" if it is this camera's."""
-    if len(cameras := core.getLoadedDevicesOfType(DeviceType.Camera)) < 2:
+    if len(cameras := _physical_cameras(core)) < 2:
         return ""
     if not (preset := core.getCurrentPixelSizeConfig()):
         return ""
