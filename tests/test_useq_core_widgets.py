@@ -13,7 +13,7 @@ from qtpy.QtWidgets import QApplication, QDialog, QMessageBox, QWidget
 
 from pymmcore_widgets import GridPlanWidget, HCSWizard, ZPlanWidget
 from pymmcore_widgets._models._core_functions import block_core
-from pymmcore_widgets._util import get_next_available_path
+from pymmcore_widgets._util import NO_PIXEL_SIZE, get_next_available_path
 from pymmcore_widgets.mda import MDAWidget, MDAWidgetCollapsible
 from pymmcore_widgets.mda._channel_properties import (
     CHANNEL_PROPERTIES_KEY,
@@ -2550,6 +2550,25 @@ def test_hcs_button_needs_the_camera_pixel_size(
 
     for preset in global_mmcore.getAvailablePixelSizeConfigs():
         global_mmcore.definePixelSizeConfig(preset, "Core", "Camera", "Camera")
+    qtbot.waitUntil(button.isEnabled)
+
+
+def test_hcs_button_needs_a_pixel_size(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    global_mmcore.defineConfig(
+        "Objective", "no-px", "Objective", "Label", "Objective-2"
+    )
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    wdg.tab_wdg.setChecked(wdg.stage_positions, True)
+    button = wdg.stage_positions._hcs_button
+    assert button.isEnabled()
+
+    global_mmcore.setConfig("Objective", "no-px")
+    qtbot.waitUntil(lambda: not button.isEnabled())
+    assert button.toolTip() == NO_PIXEL_SIZE
+    global_mmcore.setConfig("Objective", "10X")
     qtbot.waitUntil(button.isEnabled)
 
 

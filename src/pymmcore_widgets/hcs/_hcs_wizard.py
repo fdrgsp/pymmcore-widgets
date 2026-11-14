@@ -21,7 +21,7 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 from useq import WellPlatePlan
 
-from pymmcore_widgets._util import FovChangeObserver, pixel_size_camera_warning
+from pymmcore_widgets._util import FovChangeObserver, fov_pixel_size_warning
 from pymmcore_widgets.useq_widgets import PointsPlanWidget, WellPlateWidget
 
 from ._automated_plate_calibration_widget import AutomatedPlateCalibrationWidget
@@ -397,7 +397,7 @@ class _PointsPlanPage(QWizardPage):
         super().__init__(parent)
         self._mmc = mmcore
         self.setTitle("Field of View Selection")
-        self._camera_warning = ""
+        self._fov_warning = ""
 
         self.widget = PointsPlanWidget()
         self.widget._selector.fov_widgets.setEnabled(False)
@@ -416,7 +416,7 @@ class _PointsPlanPage(QWizardPage):
         self._on_px_size_changed()
 
     def isComplete(self) -> bool:
-        if self._camera_warning:
+        if self._fov_warning:
             return False
         # (the Cover Area widget is always valid on its Grid tab)
         cover_area = self.widget.cover_area_wdg
@@ -427,10 +427,9 @@ class _PointsPlanPage(QWizardPage):
 
     @Slot()
     def _on_px_size_changed(self) -> None:
-        # the FOVs would be misplaced with another camera's pixel size
-        self._camera_warning = pixel_size_camera_warning(self._mmc)
-        self.setSubTitle(self._camera_warning)
-        self.widget.setEnabled(not self._camera_warning)
+        self._fov_warning = fov_pixel_size_warning(self._mmc)
+        self.setSubTitle(self._fov_warning)
+        self.widget.setEnabled(not self._fov_warning)
         val = self.widget.value()
         val.fov_width, val.fov_height = self._get_fov_size()
         self.widget.setValue(val)

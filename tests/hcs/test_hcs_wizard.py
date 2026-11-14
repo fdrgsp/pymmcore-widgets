@@ -6,6 +6,7 @@ import pytest
 import useq
 from qtpy.QtCore import QSize
 
+from pymmcore_widgets._util import NO_PIXEL_SIZE
 from pymmcore_widgets.hcs import HCSWizard
 
 if TYPE_CHECKING:
@@ -349,6 +350,28 @@ def test_hcs_wizard_needs_the_camera_pixel_size(
 
     for preset in global_mmcore.getAvailablePixelSizeConfigs():
         global_mmcore.definePixelSizeConfig(preset, "Core", "Camera", "Camera")
+    qtbot.waitUntil(lambda: not page.subTitle())
+    assert page.widget.isEnabled()
+
+
+def test_hcs_wizard_needs_a_pixel_size(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Without a pixel size there is no FOV: the points page waits for one."""
+    global_mmcore.defineConfig(
+        "Objective", "no-px", "Objective", "Label", "Objective-2"
+    )
+    wdg = HCSWizard(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    page = wdg.points_plan_page
+    assert page.widget.isEnabled()
+
+    global_mmcore.setConfig("Objective", "no-px")
+    qtbot.waitUntil(lambda: page.subTitle() == NO_PIXEL_SIZE)
+    assert not page.widget.isEnabled()
+    assert not page.isComplete()
+
+    global_mmcore.setConfig("Objective", "10X")
     qtbot.waitUntil(lambda: not page.subTitle())
     assert page.widget.isEnabled()
 

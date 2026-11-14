@@ -227,9 +227,9 @@ def pixel_presets_hint(
     if not (any_camera := [p.name for p in presets if _preset_camera(p) is None]):
         return ""
     return (
-        f"{_cameras_may_differ(cameras)}, but these pixel size presets are for "
-        f"any camera: {', '.join(any_camera)}. Micro-Manager cannot read a "
-        "camera's pixel size, so add the Core-Camera property to each preset."
+        f"{_cameras_may_differ(cameras)}, but the pixel size presets "
+        f"{', '.join(any_camera)} are for any camera. It is recommended to add the "
+        "Core-Camera property to each preset."
     )
 
 
@@ -249,6 +249,24 @@ def pixel_size_camera_warning(core: CMMCorePlus) -> str:
         f"{_cameras_may_differ(cameras)}. Add the Core-Camera property to the pixel "
         "size presets."
     )
+
+
+NO_PIXEL_SIZE = (
+    "No pixel size configuration matches the current settings. Add one in the "
+    "Pixel Configuration Editor."
+)
+
+
+def fov_pixel_size_warning(
+    core: CMMCorePlus, no_pixel_size: str = NO_PIXEL_SIZE
+) -> str:
+    """Why the camera's field of view is unknown or may be wrong, or "" if not.
+
+    `no_pixel_size` is the message for a missing pixel size.
+    """
+    if core.getPixelSizeUm() <= 0:
+        return no_pixel_size
+    return pixel_size_camera_warning(core)
 
 
 # examples:

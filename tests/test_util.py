@@ -182,7 +182,7 @@ def test_pixel_presets_should_set_the_camera(
 ) -> None:
     core = global_mmcore
     loaded = "2 cameras are loaded (Camera, Camera2) and their pixel sizes may differ"
-    assert pixel_presets_hint(core).startswith(f"{loaded}, but these pixel size")
+    assert pixel_presets_hint(core).startswith(f"{loaded}, but the pixel size presets")
     assert "Res10x, Res20x, Res40x" in pixel_presets_hint(core)
     assert pixel_size_camera_warning(core).startswith(
         f"The pixel size preset 'Res10x' is for any camera, but {loaded}."

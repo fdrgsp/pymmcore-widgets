@@ -25,7 +25,7 @@ from useq import WellPlatePlan
 
 from pymmcore_widgets import HCSWizard
 from pymmcore_widgets._busy import BusyOverlay, busy
-from pymmcore_widgets._util import ORANGE, FovChangeObserver, pixel_size_camera_warning
+from pymmcore_widgets._util import ORANGE, FovChangeObserver, fov_pixel_size_warning
 from pymmcore_widgets._z_surface import SurfaceStage
 from pymmcore_widgets.useq_widgets import PositionTable
 from pymmcore_widgets.useq_widgets._column_info import (
@@ -604,8 +604,7 @@ class CoreConnectedPositionTable(PositionTable):
     @Slot()
     def _update_fov_size(self) -> None:
         """Update the FOV size of any grid plan subsequence."""
-        # the HCS wizard needs the current camera's pixel size
-        warning = pixel_size_camera_warning(self._mmc)
+        warning = fov_pixel_size_warning(self._mmc)
         self._hcs_button.setEnabled(not warning)
         self._hcs_button.setToolTip(warning or "Open the HCS wizard.")
         table = self.table()
