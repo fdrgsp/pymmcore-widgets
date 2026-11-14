@@ -225,8 +225,7 @@ def pixel_presets_hint(
     """Suggest setting the camera of `presets` (default: the core's), or "".
 
     Micro-Manager cannot read a camera's pixel size: with several cameras, a
-    preset that does not set Core-Camera gives every camera its pixel size. A
-    Multi Camera only combines the physical cameras, so it is not counted.
+    preset that does not set Core-Camera gives every camera its pixel size.
     """
     if len(cameras := _physical_cameras(core)) < 2:
         return ""

@@ -194,11 +194,6 @@ def test_pixel_presets_should_set_the_camera(
     assert not pixel_presets_hint(core)
     assert not pixel_size_camera_warning(core)
 
-    # a Multi Camera only combines the others: it needs no presets of its own
-    core.loadDevice("Multi", "Utilities", "Multi Camera")
-    core.initializeDevice("Multi")
-    assert not pixel_presets_hint(core)
-
 
 def test_multi_camera_is_not_another_camera(global_mmcore: CMMCorePlus) -> None:
     core = global_mmcore
@@ -206,6 +201,5 @@ def test_multi_camera_is_not_another_camera(global_mmcore: CMMCorePlus) -> None:
     core.initializeDevice("Multi")
     assert is_multi_camera(core, "Multi")
     assert not is_multi_camera(core, "Camera")
-    # one physical camera and the Multi Camera: presets for any camera are fine
     assert not pixel_presets_hint(core)
     assert not pixel_size_camera_warning(core)
