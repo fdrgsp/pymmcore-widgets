@@ -1742,6 +1742,10 @@ def _format_name(fmt: tuple[int, int]) -> str:
     return "RGB" if components > 1 else f"{8 * bytes_per_pixel}-bit"
 
 
+# The affine MMCore stores for a pixel size preset that does not define one.
+_DEFAULT_PIXEL_AFFINE = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0)
+
+
 @dataclass(slots=True)
 class AffineState:
     """Cached state for the affine transformation of the stage viewer.
@@ -1770,21 +1774,50 @@ class AffineState:
         return matrix
 
     def _compute_system_affine(self) -> np.ndarray:
+        """Map camera pixels to stage microns, as a 4x4 matrix.
+
+        Follows Micro-Manager's convention (``XYNavigator`` in mmstudio): a
+        calibrated pixel-size affine is measured on the images as the camera
+        delivers them, so it already includes any mirroring and is used as is.
+        Applying the camera's mirror settings on top would flip a calibrated
+        system twice. Only without a calibration is the orientation guessed,
+        from the pixel size and the camera's mirror settings.
+        """
+        tform = np.eye(4)
+        if self._has_calibrated_affine():
+            tform[:2, :3] = np.array(self.pixel_size_affine).reshape(2, 3)
+            return tform
+
+        # A pixel size of 0 (no preset for the current objective or resolution)
+        # would make a singular matrix, which crashes as a vispy transform: fall
+        # back to no scaling.
+        px = self.pixel_size_um if self.pixel_size_um > 0 else 1.0
         flip_x = flip_y = False
         if cam := self.mmc.getCameraDevice():
             flip_x = self.mmc.getProperty(cam, Keyword.Transpose_MirrorX) == "1"
             flip_y = self.mmc.getProperty(cam, Keyword.Transpose_MirrorY) == "1"
-
-        if np.allclose(self.pixel_size_affine, (1.0, 0.0, 0.0, 0.0, 1.0, 0.0)):
-            # A pixel size of 0 (no calibration for the current objective or
-            # resolution preset) would make a singular matrix, which crashes
-            # as a vispy transform: fall back to no scaling.
-            tform = np.diag([self.pixel_size_um or 1.0] * 2 + [1.0, 1.0])
-        else:
-            tform = np.eye(4)
-            tform[:2, :3] = np.array(self.pixel_size_affine).reshape(2, 3)
-        if flip_x:
-            tform[0, 0] *= -1
-        if flip_y:
-            tform[1, 1] *= -1
+        tform[0, 0] = -px if flip_x else px
+        tform[1, 1] = -px if flip_y else px
         return tform
+
+    def _has_calibrated_affine(self) -> bool:
+        """Whether the current pixel size preset defines a usable affine.
+
+        A preset without one stores MMCore's default, the identity, which
+        `getPixelSizeAffine` then scales by binning and magnification -- so
+        the *stored* affine is what tells the two apart, not the current one.
+        """
+        if not self.pixel_size_um > 0:
+            return False
+        try:
+            preset = self.mmc.getCurrentPixelSizeConfig()
+            stored = self.mmc.getPixelSizeAffineByID(preset)
+        except Exception:
+            return False
+        if np.allclose(stored, _DEFAULT_PIXEL_AFFINE):
+            return False
+        # Like Micro-Manager, distrust an affine whose scale disagrees with the
+        # pixel size, e.g. one left behind after the pixel size was edited.
+        linear = np.array(self.pixel_size_affine).reshape(2, 3)[:, :2]
+        scale = float(np.sqrt(abs(np.linalg.det(linear))))
+        return abs(scale - self.pixel_size_um) <= 0.1 * self.pixel_size_um

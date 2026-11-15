@@ -1568,6 +1568,60 @@ def test_affine_mirrors_without_rotating(global_mmcore: CMMCorePlus) -> None:
     np.testing.assert_allclose(affine, np.diag([-px, px, 1, 1]))
 
 
+def test_affine_without_calibration_follows_binning(
+    global_mmcore: CMMCorePlus,
+) -> None:
+    """A preset with only a pixel size scales tiles by it at any binning.
+
+    MMCore scales the preset's default identity affine by binning, which must
+    not be mistaken for a calibrated 2 um/pixel affine.
+    """
+    preset = global_mmcore.getCurrentPixelSizeConfig()
+    global_mmcore.setPixelSizeUm(preset, 0.5)
+    global_mmcore.setProperty(global_mmcore.getCameraDevice(), Keyword.Binning, 2)
+    px = global_mmcore.getPixelSizeUm()
+    assert px == pytest.approx(1.0)
+    affine = stage_explorer_mod.AffineState(global_mmcore).system_affine
+    np.testing.assert_allclose(affine, np.diag([px, px, 1, 1]))
+
+
+@pytest.mark.parametrize("mirror_x", ["0", "1"])
+@pytest.mark.parametrize(
+    "linear",
+    [
+        ((0.5, 0.0), (0.0, 0.5)),  # axis-aligned
+        ((0.0, -0.5), (0.5, 0.0)),  # rotated 90 degrees
+        ((-0.5, 0.0), (0.0, 0.5)),  # mirrored in x
+        ((0.433, -0.25), (0.25, 0.433)),  # rotated 30 degrees
+    ],
+)
+def test_calibrated_affine_is_used_as_is(
+    global_mmcore: CMMCorePlus,
+    linear: tuple[tuple[float, float], tuple[float, float]],
+    mirror_x: str,
+) -> None:
+    """A calibrated affine already describes the delivered (mirrored) images."""
+    preset = global_mmcore.getCurrentPixelSizeConfig()
+    (a, b), (c, d) = linear
+    global_mmcore.setPixelSizeUm(preset, 0.5)
+    global_mmcore.setPixelSizeAffine(preset, [a, b, 0.0, c, d, 0.0])
+    cam = global_mmcore.getCameraDevice()
+    global_mmcore.setProperty(cam, Keyword.Transpose_MirrorX, mirror_x)
+    affine = stage_explorer_mod.AffineState(global_mmcore).system_affine
+    np.testing.assert_allclose(affine[:2, :2], np.array(linear))
+
+
+def test_stale_calibrated_affine_falls_back_to_pixel_size(
+    global_mmcore: CMMCorePlus,
+) -> None:
+    """An affine whose scale disagrees with the pixel size is not trusted."""
+    preset = global_mmcore.getCurrentPixelSizeConfig()
+    global_mmcore.setPixelSizeUm(preset, 0.5)
+    global_mmcore.setPixelSizeAffine(preset, [0.0, -2.0, 0.0, 2.0, 0.0, 0.0])
+    affine = stage_explorer_mod.AffineState(global_mmcore).system_affine
+    np.testing.assert_allclose(affine, np.diag([0.5, 0.5, 1, 1]))
+
+
 def test_autozoom_check_is_skipped_when_disabled(qtbot: QtBot) -> None:
     explorer = StageExplorer()
     qtbot.addWidget(explorer)
