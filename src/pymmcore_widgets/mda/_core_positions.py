@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import suppress
+from functools import partial
 from typing import TYPE_CHECKING
 
 from pymmcore_plus import CMMCorePlus
@@ -85,7 +86,12 @@ class CoreConnectedPositionTable(PositionTable):
         # must come before __init__ since they are used in super()._on_use_af_toggled
         # and super()._update_surface_focus
         self._af_btn_col = ButtonColumn(
-            key="af_btn", glyph="mdi:arrow-left", on_click=self._set_af_from_core
+            key="af_btn",
+            glyph="mdi:arrow-left",
+            on_click=self._set_af_from_core,
+            context_actions=(
+                ("Copy AF to All Positions", partial(self._copy_to_all, self.AF.key)),
+            ),
         )
         self._mmc = mmcore or CMMCorePlus.instance()
         super().__init__(rows, parent)
@@ -136,7 +142,12 @@ class CoreConnectedPositionTable(PositionTable):
             key="xy_btn", glyph="mdi:arrow-right", on_click=self._set_xy_from_core
         )
         self._z_btn_col = ButtonColumn(
-            key="z_btn", glyph="mdi:arrow-left", on_click=self._set_z_from_core
+            key="z_btn",
+            glyph="mdi:arrow-left",
+            on_click=self._set_z_from_core,
+            context_actions=(
+                ("Copy Z to All Positions", partial(self._copy_to_all, self.Z.key)),
+            ),
         )
         table = self.table()
         table.addColumn(self._xy_btn_col, table.indexOf(self.X))
@@ -474,6 +485,14 @@ class CoreConnectedPositionTable(PositionTable):
         elif self._mmc.isContinuousFocusLocked():
             data = {self.AF.key: self._mmc.getAutoFocusOffset()}
             self.table().setRowData(row, data)
+
+    def _copy_to_all(self, key: str, row: int, col: int = 0) -> None:
+        table = self.table()
+        data = {key: table.rowData(row)[key]}
+        with signals_blocked(self):
+            for r in range(table.rowCount()):
+                table.setRowData(r, data)
+        self.valueChanged.emit()
 
     @Slot()
     def _on_selection_change(self) -> None:

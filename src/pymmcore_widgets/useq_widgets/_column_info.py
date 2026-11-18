@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, ClassVar, Generic, TypeVar, cast
 
 import pint
 from qtpy.QtCore import Qt, Signal, SignalInstance
-from qtpy.QtGui import QFocusEvent, QKeyEvent, QValidator
+from qtpy.QtGui import QAction, QFocusEvent, QKeyEvent, QValidator
 from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -603,6 +603,8 @@ class ButtonColumn(WidgetColumn):
     checkable: bool = False
     checked: bool = True
     on_click: Callable[[int, int], Any] | None = None
+    # (text, callback) pairs shown in the button's right-click menu
+    context_actions: tuple[tuple[str, Callable[[int, int], Any]], ...] = ()
 
     @cached_property
     def _icon(self) -> QIconifyIcon:
@@ -632,16 +634,25 @@ class ButtonColumn(WidgetColumn):
             new_wdg.setCheckable(True)
             new_wdg.setChecked(self.checked)
 
-        if callable(onclk := self.on_click):
-
+        def _at_cell(fn: Callable[[int, int], Any]) -> Callable[..., None]:
             def _cb(*_: Any, tbl: QTableWidget = table) -> None:
                 for row in range(tbl.rowCount()):
                     for col in range(tbl.columnCount()):
                         if tbl.cellWidget(row, col) is new_wdg:
-                            onclk(row, col)
+                            fn(row, col)
                             return
 
-            new_wdg.clicked.connect(_cb)
+            return _cb
+
+        if callable(onclk := self.on_click):
+            new_wdg.clicked.connect(_at_cell(onclk))
+
+        if self.context_actions:
+            new_wdg.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
+            for text, callback in self.context_actions:
+                action = QAction(text, new_wdg)
+                action.triggered.connect(_at_cell(callback))
+                new_wdg.addAction(action)
 
         table.setCellWidget(row, col, new_wdg)
         # Stretch-mode widths depend on insertion order; use the button's own width.

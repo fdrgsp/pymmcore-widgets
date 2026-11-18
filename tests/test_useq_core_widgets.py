@@ -182,6 +182,25 @@ def test_core_connected_position_wdg(qtbot: QtBot, qapp) -> None:
     pos_table._on_selection_change()
 
 
+def test_position_table_copy_z_and_af_to_all(qtbot: QtBot) -> None:
+    pos = CoreConnectedPositionTable(3)
+    qtbot.addWidget(pos)
+    pos.af_per_position.setChecked(True)
+    table = pos.table()
+    table.setRowData(1, {pos.Z.key: 33, pos.AF.key: 7})
+
+    def _column(key: str) -> list[float]:
+        return [table.rowData(row)[key] for row in range(table.rowCount())]
+
+    for btn_col, key in ((pos._z_btn_col, pos.Z.key), (pos._af_btn_col, pos.AF.key)):
+        btn = table.cellWidget(1, table.indexOf(btn_col))
+        assert btn is not None
+        assert btn.contextMenuPolicy() == Qt.ContextMenuPolicy.ActionsContextMenu
+        with qtbot.waitSignal(pos.valueChanged):
+            btn.actions()[0].trigger()
+        assert _column(key) == [table.rowData(1)[key]] * 3
+
+
 def _assert_position_wdg_state(
     stage: str, pos_table: CoreConnectedPositionTable, is_hidden: bool
 ) -> None:
