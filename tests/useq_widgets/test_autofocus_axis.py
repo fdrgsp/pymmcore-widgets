@@ -418,6 +418,105 @@ def test_no_plan_without_axes(qtbot: QtBot) -> None:
     assert wdg.value().autofocus_plan is None
 
 
+# -------------------------------- keep locked --------------------------------
+
+
+def _keep_locked(wdg: MDASequenceWidget) -> None:
+    """Hardware autofocus on no axis, keeping the lock."""
+    wdg.af_axis.setKind("hardware")
+    wdg.af_axis.keep_locked.setChecked(True)
+
+
+def test_keep_locked_round_trip(qtbot: QtBot) -> None:
+    wdg = _wdg(qtbot)
+    plan = useq.AxesBasedAF(axes=(), autofocus_motor_offset=10.0, keep_locked=True)
+    wdg.setValue(useq.MDASequence(stage_positions=[(0, 0)], autofocus_plan=plan))
+
+    assert wdg.af_axis.keep_locked.isChecked()
+    assert wdg.value().autofocus_plan == plan
+
+
+def test_keep_locked_on_no_axis_is_in_use(qtbot: QtBot) -> None:
+    wdg = _wdg(qtbot)
+    _keep_locked(wdg)
+
+    plan = wdg.value().autofocus_plan
+    assert isinstance(plan, useq.AxesBasedAF)
+    assert plan.keep_locked and plan.axes == ()
+    # like any autofocus in use, it rules out an absolute Z plan
+    assert wdg.z_plan.isModeBlocked(wdg.z_plan.Mode.TOP_BOTTOM)
+
+
+def test_keep_locked_only_counts_for_hardware_autofocus_in_use(qtbot: QtBot) -> None:
+    wdg = _wdg(qtbot)
+    _keep_locked(wdg)
+
+    # left checked, but ignored: software autofocus has no lock to keep
+    wdg.af_axis.setKind("software")
+    assert wdg.af_axis.keep_locked.isChecked()
+    assert not wdg.af_axis.keep_locked.isEnabled()
+    assert not wdg.af_axis.inUse()
+    assert wdg.value().autofocus_plan is None
+
+    # and nothing is in use with autofocus off
+    wdg.af_axis.setKind(None)
+    assert not wdg.af_axis.inUse()
+    assert wdg.value().autofocus_plan is None
+
+    wdg.af_axis.setKind("hardware")
+    plan = wdg.value().autofocus_plan
+    assert isinstance(plan, useq.AxesBasedAF) and plan.keep_locked
+
+
+@pytest.mark.parametrize("move_z", ["z_stack", "z_offset"])
+def test_keep_locked_is_ruled_out_by_z_moves(qtbot: QtBot, move_z: str) -> None:
+    """The lock holds Z: not with a Z stack, nor with channel Z offsets."""
+    wdg = _wdg(qtbot)
+    _keep_locked(wdg)
+    if move_z == "z_stack":
+        wdg.z_plan.setValue(useq.ZRangeAround(range=2.0, step=1.0))
+        wdg.tab_wdg.setChecked(wdg.z_plan, True)
+    else:
+        wdg.channels.setValue([useq.Channel(config="DAPI", z_offset=1.0)])
+        wdg.tab_wdg.setChecked(wdg.channels, True)
+
+    box = wdg.af_axis.keep_locked
+    assert box.isChecked() and not box.isEnabled()
+    assert "the lock holds Z" in box.toolTip()
+    plan = wdg.value().autofocus_plan  # no error from a sequence useq rejects
+    assert plan is None or not plan.keep_locked
+
+
+def test_per_position_offsets_keep_the_global_settings(qtbot: QtBot) -> None:
+    """Each position's own plan used to keep only the axes of the global settings."""
+    wdg = _wdg(qtbot)
+    settings = {
+        "axes": ("p",),
+        "every_n_timepoints": 3,
+        "search_below_um": 10.0,
+        "keep_locked": True,
+    }
+    wdg.setValue(
+        useq.MDASequence(
+            stage_positions=[
+                {
+                    "x": x,
+                    "y": 0,
+                    "sequence": {
+                        "autofocus_plan": {**settings, "autofocus_motor_offset": x}
+                    },
+                }
+                for x in (1.0, 2.0)
+            ]
+        )
+    )
+
+    for pos, x in zip(wdg.value().stage_positions, (1.0, 2.0), strict=True):
+        assert pos.sequence is not None
+        expected = useq.AxesBasedAF(**settings, autofocus_motor_offset=x)
+        assert pos.sequence.autofocus_plan == expected
+
+
 # --------------------------------- tooltips ---------------------------------
 
 
@@ -438,6 +537,7 @@ def test_every_control_explains_itself(qtbot: QtBot) -> None:
         af.every_n_positions,
         af.every_n_grid_positions,
         af.every_n_timepoints,
+        af.keep_locked,
     )
     for wdg in controls:
         assert len(wdg.toolTip()) > 20, wdg

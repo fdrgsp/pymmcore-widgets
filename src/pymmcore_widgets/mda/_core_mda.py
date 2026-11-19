@@ -64,7 +64,8 @@ if TYPE_CHECKING:
 # telling them to select an axis would be a dead end.
 AF_NO_AXIS = (
     "'Autofocus' is checked, but no axis is selected in 'On Axis', so it would "
-    "never run.\n\nSelect an axis, or uncheck 'Autofocus'."
+    "never run.\n\nSelect an axis (or 'Keep locked' for hardware autofocus), or "
+    "uncheck 'Autofocus'."
 )
 AF_ENGAGED_NO_AXIS = (
     "The {af} autofocus device is currently engaged, but no autofocus axis is "
@@ -333,8 +334,8 @@ class MDAWidget(MDASequenceWidget):
         # in case the user does not press enter after editing the save name.
         self.save_info.save_name.editingFinished.emit()
 
-        # autofocus on no axis would silently never run
-        if self.af_axis.kind() is not None and not self.af_axis.value():
+        # autofocus on no axis (and not keeping the lock) would silently never run
+        if self.af_axis.kind() is not None and not self.af_axis.inUse():
             QMessageBox.warning(self, "Autofocus", AF_NO_AXIS)
             return False
 
@@ -343,11 +344,11 @@ class MDAWidget(MDASequenceWidget):
         # routine drives the focus stage from images and needs no autofocus device,
         # so none of this applies to it.
         pos = self.stage_positions
-        uses_hardware_af = bool(
-            self.af_axis.kind() == "hardware" and self.af_axis.value()
-        )
+        uses_hardware_af = self.af_axis.kind() == "hardware" and self.af_axis.inUse()
         if (
             uses_hardware_af
+            # keeping the lock, the acquisition engages the device itself
+            and not self.af_axis.keepLocked()
             and not self._mmc.isContinuousFocusLocked()
             and (not self.tab_wdg.isChecked(pos) or not self._use_af_per_position())
             and not self._confirm_af_intentions()

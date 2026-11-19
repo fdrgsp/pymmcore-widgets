@@ -214,6 +214,15 @@ AF_SEARCH_STEP_TOOLTIP = (
     "Smaller is more thorough but slower; it should be no larger than the device's\n"
     "lock range."
 )
+AF_KEEP_LOCKED_TOOLTIP = (
+    "Keep the autofocus device locked for the whole acquisition, e.g. Nikon PFS.\n"
+    "Autofocus then runs only on the axes checked here; at every other new\n"
+    "position the lock is kept and only that position's offset is applied."
+)
+AF_KEEP_LOCKED_Z_TOOLTIP = "Cannot keep the lock with a Z stack: the lock holds Z."
+AF_KEEP_LOCKED_Z_OFFSET_TOOLTIP = (
+    "Cannot keep the lock with channel Z offsets: the lock holds Z."
+)
 
 
 class MDATabs(CheckableTabWidget):
@@ -570,6 +579,13 @@ class AutofocusAxis(QWidget):
         self.use_af_g = QCheckBox("g")
         for box in (self.use_af_p, self.use_af_t, self.use_af_g):
             box.setToolTip(AF_ON_AXIS_TOOLTIP)
+        # hardware only, and only while nothing else needs to move Z
+        self.keep_locked = QCheckBox("Keep locked")
+        # returns what says why "Keep locked" cannot be used now, if it is still
+        # there (see `setKeepLockedConflict`)
+        self._keep_locked_conflict: Callable[[], Callable[[], str] | None] = (
+            lambda: None
+        )
 
         # --- which kind of autofocus (exclusive) ---
         self._mode_label = QLabel("Mode:")
@@ -651,6 +667,8 @@ class AutofocusAxis(QWidget):
             row.addWidget(label)
             row.addWidget(spin)
             axis_row.addWidget(group)
+        axis_row.addSpacing(15)
+        axis_row.addWidget(self.keep_locked)
         axis_row.addStretch()
         search_row = _row(
             self.search_below_um,
@@ -716,6 +734,7 @@ class AutofocusAxis(QWidget):
         # one connection is enough: the two radios are exclusive, so any change
         # toggles `use_hardware`
         self.use_hardware.toggled.connect(self._on_af_state_changed)
+        self.keep_locked.toggled.connect(self.valueChanged)
         self.search_below_um.valueChanged.connect(self._on_search_range_changed)
         self.search_above_um.valueChanged.connect(self._on_search_range_changed)
         self.search_step_um.valueChanged.connect(self.valueChanged)
@@ -971,6 +990,7 @@ class AutofocusAxis(QWidget):
             tooltip = self._software_unavailable_reason or AF_NO_SOFTWARE_TOOLTIP
         self.use_software.setToolTip(tooltip)
 
+        self.updateKeepLocked()
         index = 0 if self.use_hardware.isChecked() else 1
         self._kind_stack.setCurrentIndex(index)
         self._kind_labels.setCurrentIndex(index)
@@ -982,6 +1002,47 @@ class AutofocusAxis(QWidget):
             for wdg in (label, spin):
                 wdg.setEnabled(enabled)
                 wdg.setToolTip(tooltip)
+
+    # ---------------------------- keep locked -----------------------------
+
+    def setKeepLockedConflict(self, conflict: Callable[[], str]) -> None:
+        """Set what says why "Keep locked" cannot be used now, or `""` if it can.
+
+        It is asked whenever the plan is built, so it is never out of date; call
+        `updateKeepLocked` when its answer may have changed, to update the checkbox.
+        A method of a Python object is kept weakly, so its owner can be freed.
+        """
+        if isinstance(conflict, MethodType):
+            self._keep_locked_conflict = WeakMethod(conflict)
+        else:
+            self._keep_locked_conflict = lambda: conflict
+        self.updateKeepLocked()
+
+    def _keep_locked_reason(self) -> str:
+        conflict = self._keep_locked_conflict()
+        return conflict() if conflict is not None else ""
+
+    def updateKeepLocked(self) -> None:
+        """Enable "Keep locked" only for hardware autofocus, and say why if not."""
+        conflict = self._keep_locked_reason()
+        self.keep_locked.setEnabled(self.kind() == "hardware" and not conflict)
+        self.keep_locked.setToolTip(conflict or AF_KEEP_LOCKED_TOOLTIP)
+
+    def keepLocked(self) -> bool:
+        """Whether hardware autofocus keeps continuous focus locked between finds.
+
+        A checked box that cannot be used now (software autofocus, autofocus off, or
+        a conflict) keeps its state, but is ignored.
+        """
+        return (
+            self.kind() == "hardware"
+            and self.keep_locked.isChecked()
+            and not self._keep_locked_reason()
+        )
+
+    def inUse(self) -> bool:
+        """Whether autofocus will run: on some axes, or keeping the lock."""
+        return bool(self.value()) or self.keepLocked()
 
     # ------------------------------- value --------------------------------
 
@@ -1028,6 +1089,7 @@ class AutofocusAxis(QWidget):
         updates["search_below_um"] = self.search_below_um.value()
         updates["search_above_um"] = self.search_above_um.value()
         updates["search_step_um"] = self.search_step_um.value()
+        updates["keep_locked"] = self.keepLocked()
         hard = self._hardware_plan or useq.AxesBasedAF(axes=axes)
         return hard.replace(**(updates | kwargs))
 
@@ -1055,6 +1117,7 @@ class AutofocusAxis(QWidget):
                 self.search_below_um.setValue(plan.search_below_um)
                 self.search_above_um.setValue(plan.search_above_um)
                 self.search_step_um.setValue(plan.search_step_um)
+                self.keep_locked.setChecked(plan.keep_locked)
                 self.setKind("hardware")
 
 
@@ -1219,6 +1282,8 @@ class MDASequenceWidget(QWidget):
         self.valueChanged.connect(self._update_time_estimate)
 
         self.keep_shutter_open.valueChanged.connect(self.valueChanged)
+        self.af_axis.setKeepLockedConflict(self._keep_locked_conflict)
+        self.valueChanged.connect(self.af_axis.updateKeepLocked)
         self.af_axis.valueChanged.connect(self.valueChanged)
         # the radios are exclusive, so any change of kind toggles `use_hardware`
         self.af_axis.use_hardware.toggled.connect(self._on_af_kind_toggled)
@@ -1287,9 +1352,9 @@ class MDASequenceWidget(QWidget):
             # check if the autofocus offsets are the same for all positions
             # and simplify to a single global autofocus plan if so.
             replace.update(self._simplify_af_offsets(val))
-        elif not absolute_z and (af_axes := self.af_axis.value()):
+        elif not absolute_z and self.af_axis.inUse():
             # otherwise use selected af axes as global autofocus plan
-            replace["autofocus_plan"] = self.af_axis.plan(af_axes)
+            replace["autofocus_plan"] = self.af_axis.plan(self.af_axis.value())
 
         surface = self.stage_positions.surface()
         if self.stage_positions.surface_focus.isChecked() and not absolute_z:
@@ -1464,7 +1529,7 @@ class MDASequenceWidget(QWidget):
         reasons = []
         if self.stage_positions.surface_focus.isChecked():
             reasons.append(SURFACE_CHECKED_TOOLTIP)
-        if self.af_axis.value() or self._use_af_per_position():
+        if self.af_axis.inUse() or self._use_af_per_position():
             reasons.append(TOP_BOTTOM_AF_TOOLTIP)
         z_plan = self.z_plan
         if reasons and z_plan.mode() == Mode.TOP_BOTTOM:
@@ -1582,6 +1647,21 @@ class MDASequenceWidget(QWidget):
             self.af_axis.setChecked(True)
             self.af_axis.use_af_p.setChecked(True)
 
+    def _keep_locked_conflict(self) -> str:
+        """Why autofocus cannot keep the lock now, or `""`: the lock holds Z."""
+        z_plan = self.z_plan.value()
+        if (
+            self.tab_wdg.isChecked(self.z_plan)
+            and z_plan is not None
+            and z_plan.num_positions() > 1
+        ):
+            return AF_KEEP_LOCKED_Z_TOOLTIP
+        if self.tab_wdg.isChecked(self.channels) and any(
+            c.z_offset for c in self.channels.value()
+        ):
+            return AF_KEEP_LOCKED_Z_OFFSET_TOOLTIP
+        return ""
+
     def _uses_absolute_z(self) -> bool:
         """Return whether an absolute (top-bottom) z plan is selected."""
         return bool(
@@ -1660,11 +1740,16 @@ class MDASequenceWidget(QWidget):
     def _update_af_axes(
         self, positions: Sequence[useq.Position]
     ) -> Sequence[useq.Position]:
-        """Add the autofocus axes to each subsequence."""
+        """Give each subsequence's plan the global settings, keeping its offset."""
         new_pos = []
         for pos in positions:
-            if (seq := pos.sequence) and (af_plan := seq.autofocus_plan):
-                af_plan = af_plan.replace(axes=self.af_axis.value())
+            if (seq := pos.sequence) and isinstance(
+                af_plan := seq.autofocus_plan, useq.AxesBasedAF
+            ):
+                af_plan = self.af_axis.plan(
+                    self.af_axis.value(),
+                    autofocus_motor_offset=af_plan.autofocus_motor_offset,
+                )
                 pos = pos.replace(sequence=seq.replace(autofocus_plan=af_plan))
             new_pos.append(pos)
 

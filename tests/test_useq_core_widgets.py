@@ -931,6 +931,24 @@ def test_run_mda_af_needs_an_axis(qtbot: QtBot, kind: str) -> None:
     execute.assert_called_once()
 
 
+def test_run_mda_keep_locked_needs_no_axis_nor_engaged_device(qtbot: QtBot) -> None:
+    """Keeping the lock runs on no axis, and the acquisition engages the device."""
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    wdg.setValue(useq.MDASequence(stage_positions=[useq.Position(x=0, y=0, z=0)]))
+    wdg.af_axis.setKind("hardware")
+    wdg.af_axis.keep_locked.setChecked(True)
+
+    with (
+        patch.object(wdg._mmc, "isContinuousFocusLocked", return_value=False),
+        patch.object(QMessageBox, "warning") as warning,
+        patch.object(wdg, "execute_mda") as execute,
+    ):
+        wdg.control_btns.run_btn.click()
+    warning.assert_not_called()
+    execute.assert_called_once()
+
+
 def test_run_mda_software_af_does_not_want_an_autofocus_device(qtbot: QtBot):
     """A software routine drives the focus stage itself, so the AF device is moot."""
     wdg = MDAWidget()
