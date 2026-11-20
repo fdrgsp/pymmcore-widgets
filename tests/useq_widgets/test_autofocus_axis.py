@@ -223,6 +223,22 @@ def test_switching_kind_keeps_layout_size(
         rows_y = ys
 
 
+def test_keep_locked_row_sits_between_axes_and_search(qtbot: QtBot) -> None:
+    af = AutofocusAxis()
+    qtbot.addWidget(af)
+    af.show()
+    qtbot.waitExposed(af)
+
+    def pos(wdg: QWidget) -> QPoint:
+        return wdg.mapTo(af, wdg.rect().center())
+
+    label = af._keep_locked_label
+    assert pos(af.label).y() < pos(label).y() < pos(af._search_label).y()
+    # the text first, then the box
+    assert pos(label).x() < pos(af.keep_locked).x()
+    assert pos(label).y() == pos(af.keep_locked).y()
+
+
 def test_kind_change_emits_value_changed(qtbot: QtBot) -> None:
     af = AutofocusAxis()
     qtbot.addWidget(af)
@@ -455,6 +471,7 @@ def test_keep_locked_only_counts_for_hardware_autofocus_in_use(qtbot: QtBot) -> 
     wdg.af_axis.setKind("software")
     assert wdg.af_axis.keep_locked.isChecked()
     assert not wdg.af_axis.keep_locked.isEnabled()
+    assert not wdg.af_axis._keep_locked_label.isEnabled()
     assert not wdg.af_axis.inUse()
     assert wdg.value().autofocus_plan is None
 
@@ -483,6 +500,7 @@ def test_keep_locked_is_ruled_out_by_z_moves(qtbot: QtBot, move_z: str) -> None:
     box = wdg.af_axis.keep_locked
     assert box.isChecked() and not box.isEnabled()
     assert "the lock holds Z" in box.toolTip()
+    assert wdg.af_axis._keep_locked_label.toolTip() == box.toolTip()
     plan = wdg.value().autofocus_plan  # no error from a sequence useq rejects
     assert plan is None or not plan.keep_locked
 

@@ -580,11 +580,12 @@ class AutofocusAxis(QWidget):
         for box in (self.use_af_p, self.use_af_t, self.use_af_g):
             box.setToolTip(AF_ON_AXIS_TOOLTIP)
         # hardware only, and only while nothing else needs to move Z
-        self.keep_locked = QCheckBox("Keep locked")
+        self._keep_locked_label = QLabel("Keep locked:")
+        self.keep_locked = QCheckBox()
         # returns what says why "Keep locked" cannot be used now, if it is still
         # there (see `setKeepLockedConflict`)
-        self._keep_locked_conflict: Callable[[], Callable[[], str] | None] = (
-            lambda: None
+        self._keep_locked_conflict: Callable[[], Callable[[], str] | None] = lambda: (
+            None
         )
 
         # --- which kind of autofocus (exclusive) ---
@@ -648,7 +649,12 @@ class AutofocusAxis(QWidget):
         self._software_plan: useq.SoftwareAxesBasedAF | None = None
 
         # one label column for the rows below the mode, so their controls line up
-        labels = (self.label, self._search_label, self._method_label)
+        labels = (
+            self.label,
+            self._keep_locked_label,
+            self._search_label,
+            self._method_label,
+        )
         label_width = max(w.sizeHint().width() for w in labels)
         for w in labels:
             w.setFixedWidth(label_width)
@@ -667,8 +673,6 @@ class AutofocusAxis(QWidget):
             row.addWidget(label)
             row.addWidget(spin)
             axis_row.addWidget(group)
-        axis_row.addSpacing(15)
-        axis_row.addWidget(self.keep_locked)
         axis_row.addStretch()
         search_row = _row(
             self.search_below_um,
@@ -714,8 +718,10 @@ class AutofocusAxis(QWidget):
         form.setColumnStretch(1, 1)
         form.addWidget(self.label, 0, 0)
         form.addLayout(axis_row, 0, 1)
-        form.addWidget(kind_label, 1, 0)
-        form.addWidget(options, 1, 1)
+        form.addWidget(self._keep_locked_label, 1, 0)
+        form.addWidget(self.keep_locked, 1, 1)
+        form.addWidget(kind_label, 2, 0)
+        form.addWidget(options, 2, 1)
 
         # everything but the switch, which its container provides
         self._body = QWidget()
@@ -1025,8 +1031,9 @@ class AutofocusAxis(QWidget):
     def updateKeepLocked(self) -> None:
         """Enable "Keep locked" only for hardware autofocus, and say why if not."""
         conflict = self._keep_locked_reason()
-        self.keep_locked.setEnabled(self.kind() == "hardware" and not conflict)
-        self.keep_locked.setToolTip(conflict or AF_KEEP_LOCKED_TOOLTIP)
+        for wdg in (self._keep_locked_label, self.keep_locked):
+            wdg.setEnabled(self.kind() == "hardware" and not conflict)
+            wdg.setToolTip(conflict or AF_KEEP_LOCKED_TOOLTIP)
 
     def keepLocked(self) -> bool:
         """Whether hardware autofocus keeps continuous focus locked between finds.
