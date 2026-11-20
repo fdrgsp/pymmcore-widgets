@@ -486,8 +486,8 @@ def test_keep_locked_only_counts_for_hardware_autofocus_in_use(qtbot: QtBot) -> 
 
 
 @pytest.mark.parametrize("move_z", ["z_stack", "z_offset"])
-def test_keep_locked_is_ruled_out_by_z_moves(qtbot: QtBot, move_z: str) -> None:
-    """The lock holds Z: not with a Z stack, nor with channel Z offsets."""
+def test_keep_locked_with_z_moves(qtbot: QtBot, move_z: str) -> None:
+    """The acquisition releases the lock for a Z stack or channel Z offsets."""
     wdg = _wdg(qtbot)
     _keep_locked(wdg)
     if move_z == "z_stack":
@@ -497,12 +497,9 @@ def test_keep_locked_is_ruled_out_by_z_moves(qtbot: QtBot, move_z: str) -> None:
         wdg.channels.setValue([useq.Channel(config="DAPI", z_offset=1.0)])
         wdg.tab_wdg.setChecked(wdg.channels, True)
 
-    box = wdg.af_axis.keep_locked
-    assert box.isChecked() and not box.isEnabled()
-    assert "the lock holds Z" in box.toolTip()
-    assert wdg.af_axis._keep_locked_label.toolTip() == box.toolTip()
-    plan = wdg.value().autofocus_plan  # no error from a sequence useq rejects
-    assert plan is None or not plan.keep_locked
+    assert wdg.af_axis.keep_locked.isEnabled()
+    plan = wdg.value().autofocus_plan
+    assert isinstance(plan, useq.AxesBasedAF) and plan.keep_locked
 
 
 def test_per_position_offsets_keep_the_global_settings(qtbot: QtBot) -> None:
