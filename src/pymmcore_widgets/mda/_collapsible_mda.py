@@ -623,8 +623,11 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
             self.autofocus_section.set_summary("Off", status=False)
             return
         name = "Hardware" if kind == "hardware" else autofocus.softwareMethod()
-        axes = ", ".join(autofocus.value()) or "No axis"
-        self.autofocus_section.set_summary(f"On · {name} · {axes}", status=True)
+        details = [", ".join(autofocus.value())]
+        if autofocus.keepLocked():
+            details.append("Keep locked")
+        detail = " · ".join(filter(None, details)) or "No axis"
+        self.autofocus_section.set_summary(f"On · {name} · {detail}", status=True)
 
     def _update_save_summary(self) -> None:
         save = self._save_info

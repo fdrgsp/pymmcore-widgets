@@ -369,6 +369,13 @@ def test_autofocus_section_switches_autofocus(qtbot: QtBot) -> None:
     assert af.isChecked()
     af.use_af_p.setChecked(True)
     assert section.summary == "On · Hardware · p"
+    af.keep_locked.setChecked(True)
+    assert section.summary == "On · Hardware · p · Keep locked"
+    af.use_af_p.setChecked(False)
+    assert section.summary == "On · Hardware · Keep locked"
+    af.keep_locked.setChecked(False)
+    assert section.summary == "On · Hardware · No axis"
+    af.use_af_p.setChecked(True)
     af.setChecked(False)
     assert not section.checked
     assert section.summary == "Off"
