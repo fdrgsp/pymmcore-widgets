@@ -18,7 +18,7 @@ from qtpy.QtCore import (
     Qt,
     Signal,
 )
-from qtpy.QtGui import QCursor, QIcon, QMouseEvent, QPixmap
+from qtpy.QtGui import QCursor, QIcon, QMouseEvent, QPalette, QPixmap
 from qtpy.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -31,6 +31,7 @@ from qtpy.QtWidgets import (
     QTableView,
     QWidget,
 )
+from superqt.iconify import QIconifyIcon
 
 from ._column_info import ButtonColumn, ColumnInfo, WidgetColumn
 
@@ -271,6 +272,7 @@ class ColumnDelegate(QStyledItemDelegate):
         self._view = view
         # the cell and the button in it under a mouse press
         self._pressed: tuple[QPersistentModelIndex, int] | None = None
+        self._icons_cache: dict[tuple[str, str], QIcon] = {}
 
     def fixedWidth(self, column: ColumnInfo) -> int | None:
         """Return the width of a column of buttons, or None for a stretching one."""
@@ -280,8 +282,18 @@ class ColumnDelegate(QStyledItemDelegate):
         """Return the buttons painted in the cell at `index`, which covers `rect`."""
         column = _column(index)
         if isinstance(column, ButtonColumn):
-            return [(rect, column._icon if column.glyph else QIcon())]
+            return [(rect, self._glyph_icon(column.glyph))]
         return []
+
+    def _glyph_icon(self, glyph: str) -> QIcon:
+        """Return `glyph` in the buttons' text color, which follows the theme."""
+        if not glyph:
+            return QIcon()
+        template = self._view.buttonTemplate()
+        color = template.palette().color(QPalette.ColorRole.ButtonText).name()
+        if (key := (glyph, color)) not in self._icons_cache:
+            self._icons_cache[key] = QIconifyIcon(glyph, color=color)
+        return self._icons_cache[key]
 
     def buttonClicked(self, index: QModelIndex, button: int) -> None:
         """Respond to a click on the `button`-th button of the cell at `index`."""

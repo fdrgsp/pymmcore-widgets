@@ -9,7 +9,7 @@ import pytest
 import useq
 from pymmcore_plus.core import SequencedEvent
 from qtpy.QtCore import QEvent, QObject, QPoint, QRect, Qt
-from qtpy.QtGui import QContextMenuEvent, QResizeEvent
+from qtpy.QtGui import QColor, QContextMenuEvent, QPalette, QResizeEvent
 from qtpy.QtWidgets import QApplication, QDialog, QMessageBox, QWidget
 
 from pymmcore_widgets import GridPlanWidget, HCSWizard, ZPlanWidget
@@ -381,6 +381,24 @@ def test_position_table_grid_button_matches_arrow_buttons(
     assert table.columnWidth(seq_col) > arrow_col_width
     table.removeRow(1)
     assert table.columnWidth(seq_col) == arrow_col_width
+
+
+def test_position_table_arrows_follow_the_palette(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = CoreConnectedPositionTable(1, mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    table = wdg.table()
+    template = table.buttonTemplate()
+    palette = template.palette()
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor("white"))
+    template.setPalette(palette)
+
+    index = table.model().index(0, table.indexOf(wdg._xy_btn_col))
+    ((_, icon),) = wdg.delegate().buttons(index, table.visualRect(index))
+    image = icon.pixmap(16, 16).toImage()
+    pixels = (image.pixelColor(x, y) for x in range(16) for y in range(16))
+    assert {c.name() for c in pixels if c.alpha() == 255} == {"#ffffff"}
 
 
 def test_core_position_table_add_position(
