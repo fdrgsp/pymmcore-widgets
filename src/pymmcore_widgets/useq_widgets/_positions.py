@@ -16,7 +16,6 @@ from qtpy.QtWidgets import (
     QHBoxLayout,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -143,83 +142,6 @@ class _MDAPopup(QDialog):
         frame = 2 * scroll.frameWidth()
         cut = content.sizeHint() + QSize(frame, frame) - scroll.sizeHint()
         return hint + QSize(max(0, cut.width()), max(0, cut.height()))
-
-
-class MDAButton(QWidget):
-    valueChanged = Signal()
-    _value: useq.MDASequence | None
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.seq_btn = QPushButton()
-        # Fixed width: an icon-only button, as wide as a ButtonColumn's button.
-        # Preferred height: grow to the row's height rather than the button's
-        # small default.
-        self.seq_btn.setSizePolicy(
-            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred
-        )
-        self.seq_btn.clicked.connect(self._on_click)
-        self.seq_btn.setIcon(QIconifyIcon("mdi:grid"))
-        self.seq_btn.setToolTip(GRID_BTN_TOOLTIP)
-
-        self.clear_btn = QPushButton()
-        self.clear_btn.setIcon(QIconifyIcon("mdi:close-circle", color="red"))
-        # Narrower than seq_btn: a secondary action next to the primary one.
-        self.clear_btn.setFixedWidth(CLEAR_BTN_WIDTH)
-        self.clear_btn.setSizePolicy(
-            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred
-        )
-        self.clear_btn.hide()
-        self.clear_btn.clicked.connect(lambda: self.setValue(None))
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(CLEAR_BTN_SPACING)
-        layout.addWidget(self.seq_btn)
-        layout.addWidget(self.clear_btn)
-        # keep seq_btn in place whether or not clear_btn is showing
-        layout.addStretch()
-
-        self._popup: _MDAPopup | None = None
-        self.setValue(None)
-
-    def fitWidth(self, show_clear: bool) -> int:
-        """Return the width needed for seq_btn and, optionally, clear_btn."""
-        width = int(self.seq_btn.sizeHint().width())
-        if show_clear:
-            width += CLEAR_BTN_SPACING + self.clear_btn.minimumWidth()
-        return width
-
-    def _on_click(self) -> None:
-        # not modal: the app stays usable, e.g. to set grid bounds in live mode
-        if (popup := self._popup) is None:
-            popup = self._popup = _MDAPopup(self._value, self)
-            popup.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-            popup.accepted.connect(lambda: self.setValue(popup.mda_tabs.value()))
-            popup.finished.connect(lambda: setattr(self, "_popup", None))
-        popup.show()
-        popup.raise_()
-        popup.activateWindow()
-
-    def value(self) -> useq.MDASequence | None:
-        return self._value
-
-    def setValue(self, value: useq.MDASequence | dict | None) -> None:
-        if isinstance(value, dict):
-            value = useq.MDASequence(**value)
-        elif value and not isinstance(value, useq.MDASequence):  # pragma: no cover
-            raise TypeError(f"Expected useq.MDASequence, got {type(value)}")
-        old_val, self._value = getattr(self, "_value", None), value
-        if old_val != value:
-            # if sub-sequence is equal to the null sequence (useq.MDASequence())
-            # treat it as None
-            if value and value != NULL_SEQUENCE:
-                self.seq_btn.setIcon(QIconifyIcon("mdi:grid", color="green"))
-                self.clear_btn.show()
-            else:
-                self.seq_btn.setIcon(QIconifyIcon("mdi:grid"))
-                self.clear_btn.hide()
-            self.valueChanged.emit()
 
 
 @dataclass(frozen=True)
