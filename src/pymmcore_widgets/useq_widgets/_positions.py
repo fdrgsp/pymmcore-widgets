@@ -345,8 +345,8 @@ class PositionTable(DataTableWidget):
         super().__init__(rows, parent)
         use_combo_row_height(self._table)
 
-        # the open grid plan pop-ups, by the index of their row's Grid cell
-        self._popups: list[tuple[QPersistentModelIndex, _MDAPopup]] = []
+        # the open grid plan pop-ups, with the index of their row's Grid cell
+        self._popups: dict[_MDAPopup, QPersistentModelIndex] = {}
         model = self.table().model()
         model.rowsRemoved.connect(self._close_orphan_popups)
         model.modelReset.connect(self._close_orphan_popups)
@@ -543,18 +543,16 @@ class PositionTable(DataTableWidget):
         """Open the grid plan editor of the position at `row` (or raise it)."""
         table = self.table()
         index = QPersistentModelIndex(table.model().index(row, table.indexOf(self.SEQ)))
-        popup = next((p for i, p in self._popups if i == index), None)
+        popup = next((p for p, i in self._popups.items() if i == index), None)
         if popup is None:
             # not modal: the app stays usable, e.g. to set grid bounds in live mode
             popup = _MDAPopup(index.data(Qt.ItemDataRole.EditRole), table)
             popup.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-            entry = (index, popup)
-            self._popups.append(entry)
-            # ignored if the row is gone
-            popup.accepted.connect(
-                lambda: table.model().setData(index, popup.mda_tabs.value())
-            )
-            popup.finished.connect(lambda: self._popups.remove(entry))
+            self._popups[popup] = index
+            # bound methods, not closures holding the popup: those keep it (and
+            # its children) alive after it is deleted, and crash PySide6
+            popup.accepted.connect(self._on_popup_accepted)
+            popup.finished.connect(self._on_popup_finished)
         popup.show()
         popup.raise_()
         popup.activateWindow()
@@ -641,9 +639,17 @@ class PositionTable(DataTableWidget):
             QModelIndex(), max(row, other), QModelIndex(), min(row, other)
         )
 
+    def _on_popup_accepted(self) -> None:
+        popup = cast("_MDAPopup", self.sender())
+        # ignored if the row is gone
+        self.table().model().setData(self._popups[popup], popup.mda_tabs.value())
+
+    def _on_popup_finished(self) -> None:
+        self._popups.pop(cast("_MDAPopup", self.sender()), None)
+
     def _close_orphan_popups(self) -> None:
         """Close the pop-ups of the rows that are gone."""
-        for index, popup in list(self._popups):
+        for popup, index in list(self._popups.items()):
             if not index.isValid():
                 popup.reject()
 
