@@ -7,7 +7,7 @@ from qtpy.QtGui import QColor, QPalette
 from qtpy.QtWidgets import QWidget
 from useq import MDASequence, WellPlate, WellPlatePlan
 
-from pymmcore_widgets._busy import BusyOverlay, busy
+from pymmcore_widgets._busy import BusyOverlay, busy, progress
 from pymmcore_widgets.mda._core_positions import CoreConnectedPositionTable
 from pymmcore_widgets.useq_widgets import MDASequenceWidget
 
@@ -45,6 +45,54 @@ def test_busy_overlay_uses_parent_palette(
             for x in range(image.width())
         )
     assert overlay.isHidden()
+
+
+def test_busy_overlay_shows_reported_progress(qtbot: QtBot) -> None:
+    parent = QWidget()
+    parent.resize(300, 120)
+    qtbot.addWidget(parent)
+    overlay = BusyOverlay(parent)
+    parent.show()
+    highlight = parent.palette().color(QPalette.ColorRole.Highlight).name()
+
+    def bar_pixels() -> int:
+        image = overlay.grab().toImage()
+        return sum(
+            image.pixelColor(x, y).name() == highlight
+            for y in range(image.height())
+            for x in range(image.width())
+        )
+
+    progress(1, 2)  # outside a busy block: nothing to report to
+    with busy(overlay, "Working…"):
+        assert overlay._fraction is None
+        progress(1, 4)
+        assert overlay._fraction == 0.25
+        quarter = bar_pixels()
+        progress(3, 4)
+        assert bar_pixels() > quarter > 0
+    with busy(overlay, "Working…"):
+        assert overlay._fraction is None
+        assert bar_pixels() == 0
+
+
+def test_position_import_reports_progress(
+    qtbot: QtBot, global_mmcore: CMMCorePlus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    editor = CoreConnectedPositionTable(mmcore=global_mmcore)
+    qtbot.addWidget(editor)
+    editor.show()
+    plan = WellPlatePlan(
+        plate=WellPlate.from_str("96-well"),
+        a1_center_xy=(1000, 2000),
+        selected_wells=((0, 0, 1), (0, 1, 1)),
+    )
+    reported: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        BusyOverlay, "setProgress", lambda _, *step: reported.append(step)
+    )
+    editor._update_table_positions(plan)
+    assert reported == [(1, 3), (2, 3), (3, 3)]
 
 
 @pytest.mark.parametrize("hidden", [False, True])

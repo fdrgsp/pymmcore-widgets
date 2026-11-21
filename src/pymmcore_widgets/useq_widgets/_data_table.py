@@ -21,6 +21,7 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
+from pymmcore_widgets._busy import progress
 from pymmcore_widgets._icons import StandardIcon
 
 from ._column_info import ColumnInfo
@@ -134,6 +135,7 @@ class DataTable(QTableWidget):
             self.setRowCount(len(_records))
             for row, record in enumerate(_records):
                 self.setRowData(row, record)
+                progress(row + 1, len(_records))
 
     @contextmanager
     def batchUpdate(self) -> Iterator[None]:
