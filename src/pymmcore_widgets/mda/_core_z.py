@@ -132,8 +132,10 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         self.set_reference_btn = _tool_button(
             "mdi:crosshairs-gps", "Set the reference Z to the current position."
         )
-        # no taller than Poll, so hiding it doesn't resize the widget
-        self.set_reference_btn.setFixedHeight(self.poll_z.sizeHint().height())
+        # as tall as Poll, at any zoom, so hiding it doesn't resize the widget
+        self.set_reference_btn.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Ignored
+        )
 
         self._move_layout = QGridLayout(self._move_buttons)
         self._move_layout.setContentsMargins(0, 0, 0, 0)
@@ -183,14 +185,6 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
             self._move_buttons, ROW_FIRST_BOUND, 2, 2, 1, Qt.AlignmentFlag.AlignLeft
         )
 
-        bound_height = max(
-            self.top.sizeHint().height(),
-            self.top_btn.sizeHint().height(),
-            self.bottom_btn.sizeHint().height(),
-        )
-        self._grid_layout.setRowMinimumHeight(ROW_FIRST_BOUND, bound_height)
-        self._grid_layout.setRowMinimumHeight(ROW_SECOND_BOUND, bound_height)
-
         self._edit_menu = QMenu(self)
         self._edit_action = self._edit_menu.addAction("Enable Editing")
         self._edit_action.setCheckable(True)
@@ -233,10 +227,8 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         mode = Mode(mode)
         if mode != self._mode:
             self._reference_z = self._last_visit_z = None
-        super().setMode(mode)
-        absolute = self._mode is Mode.TOP_BOTTOM
-        for buttons in (self.top_btn, self.bottom_btn):
-            buttons.mark.setVisible(absolute)
+        # Arrange the buttons first, then show them: super() lays out the widget
+        # for the new mode, and an earlier layout would see half of the change.
         for widget in (
             self.top_btn,
             self.bottom_btn,
@@ -245,21 +237,24 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         ):
             self._move_layout.removeWidget(widget)
         self._move_layout.addWidget(self.top_btn, 0, 0)
-        if self._mode is not Mode.RANGE_AROUND:
+        if mode is not Mode.RANGE_AROUND:
             self._move_layout.addWidget(self.bottom_btn, 1, 0)
             self._move_layout.addWidget(self.center_btn, 0, 1, 2, 1)
         else:
             self._move_layout.addWidget(self.bottom_btn, 0, 1)
             self._move_layout.addWidget(self.center_btn, 0, 2)
-        self.reference_btn.setVisible(self._mode is Mode.ABOVE_BELOW)
-        self.set_reference_btn.setVisible(self._mode is not Mode.TOP_BOTTOM)
-        if self._mode is Mode.ABOVE_BELOW:
+        if mode is Mode.ABOVE_BELOW:
             self._move_layout.addWidget(self.reference_btn, 0, 2, 2, 1)
+        absolute = mode is Mode.TOP_BOTTOM
+        for buttons in (self.top_btn, self.bottom_btn):
+            buttons.mark.setVisible(absolute)
+        self.reference_btn.setVisible(mode is Mode.ABOVE_BELOW)
+        self.set_reference_btn.setVisible(not absolute)
         alignment = Qt.AlignmentFlag.AlignLeft
-        if self._mode is Mode.RANGE_AROUND:
+        if mode is Mode.RANGE_AROUND:
             alignment |= Qt.AlignmentFlag.AlignVCenter
         self._grid_layout.setAlignment(self._move_buttons, alignment)
-        self._sync_visual_height()
+        super().setMode(mode)
         self._update_live_marker()
 
     def enable_editing(self, enabled: bool) -> None:
@@ -281,6 +276,15 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         for button, tooltip in self._move_tooltips.items():
             button.setEnabled(enabled)
             button.setToolTip(_moving_tooltip(tooltip, enabled))
+
+    def _sync_visual_height(self) -> None:
+        # measured each time, as the buttons' size follows the app's zoom
+        bound_height = max(
+            self.top_btn.sizeHint().height(), self.bottom_btn.sizeHint().height()
+        )
+        for row in (ROW_FIRST_BOUND, ROW_SECOND_BOUND):
+            self._grid_layout.setRowMinimumHeight(row, bound_height)
+        super()._sync_visual_height()
 
     def setStackActive(self, active: bool) -> None:
         """Allow polling only when the containing Z-stack axis is checked."""

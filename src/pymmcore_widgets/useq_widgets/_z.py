@@ -4,7 +4,7 @@ import enum
 from typing import Final, Literal
 
 import useq
-from qtpy.QtCore import QPointF, QRect, QRectF, QSize, Qt, Signal
+from qtpy.QtCore import QEvent, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from qtpy.QtGui import QColor, QPainter, QPen, QPolygonF
 from qtpy.QtWidgets import (
     QButtonGroup,
@@ -392,8 +392,14 @@ class ZPlanWidget(QWidget):
 
         # All mode-specific controls are still visible here, so this captures the
         # tallest possible base layout before setMode() begins hiding rows.
-        self._reserved_controls_height = self._controls_widget.sizeHint().height()
-        self._controls_widget.setMinimumHeight(self._reserved_controls_height)
+        self._controls_widget.setMinimumHeight(
+            self._controls_widget.sizeHint().height()
+        )
+        # a zoom changes the style and the font: lay out again once it is done
+        self._resync_timer = QTimer(self)
+        self._resync_timer.setSingleShot(True)
+        self._resync_timer.setInterval(0)
+        self._resync_timer.timeout.connect(self._sync_visual_height)
 
         self._viz_layout = QVBoxLayout()
         self._viz_layout.setSpacing(4)
@@ -582,6 +588,15 @@ class ZPlanWidget(QWidget):
 
     Mode: Final[type[Mode]] = Mode
 
+    def changeEvent(self, a0: QEvent | None) -> None:
+        """Lay out the widget again after a style or font change, e.g. a zoom."""
+        super().changeEvent(a0)
+        if a0 is not None and a0.type() in (
+            QEvent.Type.StyleChange,
+            QEvent.Type.FontChange,
+        ):
+            self._resync_timer.start()
+
     # ------------------------- Private API -------------------------
 
     def _on_mode_toggled(self, button: QRadioButton, checked: bool) -> None:
@@ -591,11 +606,11 @@ class ZPlanWidget(QWidget):
 
     def _sync_visual_height(self) -> None:
         self._grid_layout.activate()
+        # the minimum, not a stored height, so that it follows the app's zoom
         height = max(
-            self._reserved_controls_height,
+            self._controls_widget.minimumHeight(),
             self._controls_widget.sizeHint().height(),
         )
-        self._reserved_controls_height = height
         self._controls_widget.setMinimumHeight(height)
         # The viz column spans the controls box border to border, and widgets
         # added under the viz (e.g. a poll checkbox) take their share of it.

@@ -937,6 +937,21 @@ def test_format_z_drops_negative_zero(value: float, spec: str, expected: str) ->
     assert _z.format_z(value, spec) == expected
 
 
+def test_z_plan_lays_out_again_after_a_font_change(qtbot: QtBot) -> None:
+    """Regression test: after a zoom, the first mode switch resized the widget."""
+    wdg = ZPlanWidget()
+    qtbot.addWidget(wdg)
+    wdg.show()
+    font = wdg.font()
+    font.setPointSizeF(font.pointSizeF() * 1.5)
+    wdg.setFont(font)
+    qtbot.wait(10)
+    height = wdg._viz.height()
+
+    wdg.setMode(wdg.mode())
+    assert wdg._viz.height() == height
+
+
 def test_z_plan_controls_fill_the_width(qtbot: QtBot) -> None:
     wdg = ZPlanWidget()
     qtbot.addWidget(wdg)

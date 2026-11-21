@@ -7,8 +7,8 @@ from unittest.mock import Mock, patch
 import pytest
 import useq
 from pymmcore_plus.core import SequencedEvent
-from qtpy.QtCore import QEvent, QPoint, Qt
-from qtpy.QtGui import QContextMenuEvent
+from qtpy.QtCore import QEvent, QObject, QPoint, Qt
+from qtpy.QtGui import QContextMenuEvent, QResizeEvent
 from qtpy.QtWidgets import QApplication, QDialog, QMessageBox, QWidget
 
 from pymmcore_widgets import GridPlanWidget, HCSWizard, ZPlanWidget
@@ -518,6 +518,61 @@ def test_z_suggestion_updates_with_objective(
         global_mmcore.events.propertyChanged.emit("Objective", "Label", "Plan Apo 40X")
         assert wdg.suggestedStep() is None
         assert wdg._use_suggested_btn.isHidden()
+
+
+def test_z_modes_keep_one_height_after_rescaling(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Regression test: a zoom that resized the buttons made the modes' heights differ.
+
+    An app zoom rescales the widgets' pixel sizes, as done here; the rows' heights
+    and the reserved height used to stay as measured when the widget was built.
+    """
+    wdg = CoreConnectedZPlanWidget(global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.show()
+    for buttons in (wdg.top_btn, wdg.bottom_btn):
+        buttons.mark.setFixedSize(45, 40)
+    for button in (wdg.top_btn.visit, wdg.bottom_btn.visit, wdg.center_btn):
+        button.setMinimumHeight(40)
+    controls = wdg._controls_widget
+    controls.setMinimumHeight(controls.minimumHeight() * 3 // 2)
+    qtbot.wait(10)
+
+    heights = set()
+    # Symmetric first: it is the shortest without the reserved height
+    for mode in ("range_around", "above_below", "top_bottom", "range_around"):
+        wdg.setMode(mode)
+        qtbot.wait(10)
+        heights.add(wdg.minimumSizeHint().height())
+    assert len(heights) == 1
+
+
+def test_z_mode_switch_does_not_show_a_half_switched_layout(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Regression test: the Move buttons flickered between Asymmetric and Top & Bottom.
+
+    The Mark buttons were shown, and laid out, in the old mode's arrangement.
+    """
+    wdg = CoreConnectedZPlanWidget(global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.setMode("above_below")
+    wdg.show()
+    qtbot.wait(10)
+    sizes = []
+
+    class Spy(QObject):
+        def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+            if isinstance(a1, QResizeEvent):
+                sizes.append(a1.size())
+            return False
+
+    spy = Spy()
+    wdg._move_buttons.installEventFilter(spy)
+    wdg.setMode("top_bottom")
+    qtbot.wait(10)
+    assert set(sizes) <= {wdg._move_buttons.size()}
 
 
 @pytest.mark.parametrize(
