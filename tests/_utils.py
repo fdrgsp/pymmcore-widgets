@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
-from unittest.mock import Mock
+from typing import TYPE_CHECKING, cast
+from unittest.mock import Mock, patch
 
 from qtpy.QtCore import QEvent, QPointF, Qt
-from qtpy.QtGui import QMouseEvent
+from qtpy.QtGui import QCursor, QMouseEvent
+from qtpy.QtWidgets import QApplication
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from pytestqt.qtbot import QtBot
     from qtpy.QtCore import SignalInstance
+    from qtpy.QtWidgets import QTableView
 
     from pymmcore_widgets.control._stage_explorer._stage_viewer import StageViewer
+    from pymmcore_widgets.useq_widgets._record_model import ColumnDelegate
 
 
 def wait_for_stage_viewer(qtbot: QtBot, viewer: StageViewer) -> None:
@@ -57,3 +60,20 @@ def wait_signal(
         qtbot.waitUntil(lambda: mock.call_count > 0, timeout=timeout)
     finally:
         signal.disconnect(mock)
+
+
+def click_cell(
+    qtbot: QtBot, table: QTableView, row: int, col: int, button: int | None = None
+) -> None:
+    """Click a cell of a (shown) `table`, or the `button`-th button painted in it."""
+    qtbot.waitExposed(table)
+    QApplication.processEvents()  # settle the layout, e.g. stretching columns
+    index = table.model().index(row, col)
+    rect = table.visualRect(index)
+    if button is not None:
+        delegate = cast("ColumnDelegate", table.itemDelegate())
+        rect = delegate.buttons(index, rect)[button][0]
+    viewport, pos = table.viewport(), rect.center()
+    # the position table reads the cursor, which a synthetic click does not move
+    with patch.object(QCursor, "pos", return_value=viewport.mapToGlobal(pos)):
+        qtbot.mouseClick(viewport, Qt.MouseButton.LeftButton, pos=pos)

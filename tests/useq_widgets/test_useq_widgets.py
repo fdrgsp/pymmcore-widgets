@@ -4,12 +4,12 @@ import enum
 import time
 from datetime import timedelta
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pint
 import pytest
 import useq
-from qtpy.QtCore import QPoint, Qt
+from qtpy.QtCore import QModelIndex, QPoint, Qt
 from qtpy.QtGui import QColor, QFont, QPalette
 from qtpy.QtWidgets import (
     QApplication,
@@ -19,6 +19,7 @@ from qtpy.QtWidgets import (
     QScrollArea,
     QTableWidgetSelectionRange,
 )
+from tests._utils import click_cell
 
 import pymmcore_widgets
 from pymmcore_widgets import _icons
@@ -44,7 +45,13 @@ from pymmcore_widgets.useq_widgets._column_info import (
     parse_timedelta,
 )
 from pymmcore_widgets.useq_widgets._mda_sequence import AF_PER_POS_SOFTWARE_TOOLTIP
-from pymmcore_widgets.useq_widgets._positions import MDAButton, QFileDialog, _MDAPopup
+from pymmcore_widgets.useq_widgets._positions import (
+    GLOBAL_GRID_TOOLTIP,
+    GRID_BTN_TOOLTIP,
+    SUB_SEQ_GRID_TOOLTIP,
+    QFileDialog,
+    _MDAPopup,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -379,16 +386,16 @@ def test_position_table(qtbot: QtBot):
     qtbot.addWidget(wdg)
     wdg.show()
 
-    wdg.table().setRowCount(1)
-    seq_col = wdg.table().indexOf(wdg.SEQ)
-    btn = wdg.table().cellWidget(0, seq_col)
+    table = wdg.table()
+    table.setRowCount(1)
+    seq_col = table.indexOf(wdg.SEQ)
 
-    btn.seq_btn.click()
-    popup = btn.findChild(_MDAPopup)
+    click_cell(qtbot, table, 0, seq_col, button=0)
+    popup = table.findChild(_MDAPopup)
     # not modal: the rest of the app stays usable while it is open
     assert popup.isVisible() and not popup.isModal()
-    btn.seq_btn.click()  # raises the open popup rather than making another
-    assert btn.findChildren(_MDAPopup) == [popup]
+    wdg.editSubSequence(0)  # raises the open popup rather than making another
+    assert table.findChildren(_MDAPopup) == [popup]
     mda = popup.mda_tabs
     # the position sub-sequence editor only exposes the grid plan; the
     # other axes are removed entirely and cannot be checked/used.
@@ -401,7 +408,7 @@ def test_position_table(qtbot: QtBot):
     mda.setChecked(mda.grid_plan, True)
     with qtbot.waitSignal(wdg.valueChanged):
         popup.accept()
-    assert btn._popup is None
+    assert not wdg._popups
 
     positions = wdg.value()
     assert positions[0].sequence is not None
@@ -419,11 +426,11 @@ def test_position_table_set_value(qtbot: QtBot) -> None:
     wdg.setValue([pos])
 
     assert len(wdg.value()) == 1
-    # make sure to not set any sub-sequence if the sub-sequence is not None but empty
-    seq_btn_idx = wdg.table().indexOf(wdg.SEQ)
-    mda_btn = wdg.table().cellWidget(0, seq_btn_idx)
-    assert isinstance(mda_btn, MDAButton)
-    assert mda_btn.clear_btn.isHidden()
+    # an empty sub-sequence shows as none: no clear button
+    table = wdg.table()
+    index = table.model().index(0, table.indexOf(wdg.SEQ))
+    assert len(wdg.delegate().buttons(index, table.visualRect(index))) == 1
+    assert index.data(Qt.ItemDataRole.ToolTipRole) == GRID_BTN_TOOLTIP
 
     pos = useq.Position(
         x=1,
@@ -432,10 +439,17 @@ def test_position_table_set_value(qtbot: QtBot) -> None:
         sequence=useq.MDASequence(grid_plan=useq.GridRowsColumns(rows=1, columns=1)),
     )
     wdg.setValue([pos])
+    index = table.model().index(0, table.indexOf(wdg.SEQ))
+    assert len(wdg.delegate().buttons(index, table.visualRect(index))) == 2
 
-    mda_btn = wdg.table().cellWidget(0, seq_btn_idx)
-    assert isinstance(mda_btn, MDAButton)
-    assert mda_btn.clear_btn.isVisible()
+
+EDIT = Qt.ItemDataRole.EditRole
+
+
+def _xy_indexes(wdg: PositionTable, row: int = 0) -> tuple[QModelIndex, QModelIndex]:
+    table = wdg.table()
+    index = table.model().index
+    return index(row, table.indexOf(wdg.X)), index(row, table.indexOf(wdg.Y))
 
 
 def test_position_table_absolute_grid_shows_first_fov_disabled(qtbot: QtBot) -> None:
@@ -461,11 +475,11 @@ def test_position_table_absolute_grid_shows_first_fov_disabled(qtbot: QtBot) -> 
     wdg.setValue([pos])
 
     first = next(iter(grid))
-    x_wdg = wdg.table().cellWidget(0, wdg.table().indexOf(wdg.X))
-    y_wdg = wdg.table().cellWidget(0, wdg.table().indexOf(wdg.Y))
-    assert (x_wdg.value(), y_wdg.value()) == (first.x, first.y) == (50.0, 187.0)
-    assert not x_wdg.isEnabled()
-    assert not y_wdg.isEnabled()
+    x, y = _xy_indexes(wdg)
+    assert (x.data(EDIT), y.data(EDIT)) == (first.x, first.y) == (50.0, 187.0)
+    assert not x.flags() & Qt.ItemFlag.ItemIsEnabled
+    assert not y.flags() & Qt.ItemFlag.ItemIsEnabled
+    assert x.data(Qt.ItemDataRole.ToolTipRole) == SUB_SEQ_GRID_TOOLTIP
 
     # the displayed point is purely cosmetic: the real Position keeps x/y
     # unset, matching what useq.AbsolutePosition itself requires.
@@ -496,12 +510,9 @@ def test_position_table_degenerate_grid_does_not_hang(qtbot: QtBot) -> None:
     wdg.setValue([pos])
     assert time.perf_counter() - start < 5
 
-    x_wdg = wdg.table().cellWidget(0, wdg.table().indexOf(wdg.X))
-    assert not x_wdg.isEnabled()
-    assert (
-        x_wdg.value(),
-        wdg.table().cellWidget(0, wdg.table().indexOf(wdg.Y)).value(),
-    ) == (0.0, 2500.0)
+    x, y = _xy_indexes(wdg)
+    assert not x.flags() & Qt.ItemFlag.ItemIsEnabled
+    assert (x.data(EDIT), y.data(EDIT)) == (0.0, 2500.0)
 
 
 def test_position_table_relative_grid_leaves_xy_enabled(qtbot: QtBot) -> None:
@@ -517,12 +528,80 @@ def test_position_table_relative_grid_leaves_xy_enabled(qtbot: QtBot) -> None:
     )
     wdg.setValue([pos])
 
-    x_wdg = wdg.table().cellWidget(0, wdg.table().indexOf(wdg.X))
-    y_wdg = wdg.table().cellWidget(0, wdg.table().indexOf(wdg.Y))
-    assert x_wdg.value() == 5
-    assert y_wdg.value() == 6
-    assert x_wdg.isEnabled()
-    assert y_wdg.isEnabled()
+    x, y = _xy_indexes(wdg)
+    assert (x.data(EDIT), y.data(EDIT)) == (5, 6)
+    assert x.flags() & Qt.ItemFlag.ItemIsEnabled
+    assert y.flags() & Qt.ItemFlag.ItemIsEnabled
+
+    # a global absolute grid disables them too
+    wdg.setXYEnabled(False)
+    assert not x.flags() & Qt.ItemFlag.ItemIsEnabled
+    assert x.data(Qt.ItemDataRole.ToolTipRole) == GLOBAL_GRID_TOOLTIP
+    wdg.setXYEnabled(True)
+    assert x.flags() & Qt.ItemFlag.ItemIsEnabled
+
+
+def test_position_table_edits_through_delegate(qtbot: QtBot) -> None:
+    wdg = PositionTable()
+    qtbot.addWidget(wdg)
+    wdg.show()
+    wdg.setValue([useq.Position(x=1.234, y=2, z=3)])
+    table = wdg.table()
+    x, _ = _xy_indexes(wdg)
+    # no cell widgets: an editor exists only while a cell is edited
+    assert not table.viewport().findChildren(TableDoubleSpinBox)
+    changed = Mock()
+    wdg.valueChanged.connect(changed)
+
+    # one click edits a coordinate, as its spin box did
+    click_cell(qtbot, table, 0, x.column())
+    editor = table.indexWidget(x)
+    assert isinstance(editor, TableDoubleSpinBox)
+    # closing the editor unchanged keeps the value, not rounded to its decimals
+    qtbot.keyClick(editor, Qt.Key.Key_Return)
+    qtbot.waitUntil(lambda: table.indexWidget(x) is None)
+    assert wdg.value()[0].x == 1.234
+    changed.assert_not_called()
+
+    click_cell(qtbot, table, 0, x.column())
+    editor = table.indexWidget(x)
+    editor.lineEdit().setText("5.5")  # typed: keyboard tracking is off
+    qtbot.keyClick(editor, Qt.Key.Key_Return)
+    qtbot.waitUntil(lambda: table.indexWidget(x) is None)
+    assert wdg.value()[0].x == 5.5
+    changed.assert_called_once()
+
+
+def test_position_table_move_rows_keeps_whole_rows(qtbot: QtBot) -> None:
+    wdg = PositionTable()
+    qtbot.addWidget(wdg)
+    grid = useq.MDASequence(grid_plan=useq.GridRowsColumns(rows=2, columns=2))
+    af = useq.MDASequence(
+        autofocus_plan=useq.AxesBasedAF(
+            autofocus_device_name="Z", autofocus_motor_offset=5, axes=("p",)
+        )
+    )
+    wdg.setValue(
+        [
+            useq.Position(name="a", x=1, y=1, sequence=grid),
+            useq.Position(name="b", x=2, y=2, sequence=af),
+        ]
+    )
+    table = wdg.table()
+    model = table.model()
+    name = model.index(0, table.indexOf(wdg.NAME))
+    model.setData(name, Qt.CheckState.Unchecked, Qt.ItemDataRole.CheckStateRole)
+
+    table.selectRow(0)
+    with qtbot.waitSignal(wdg.valueChanged):
+        wdg.act_move_down.trigger()
+
+    a, b = wdg.value(exclude_unchecked=False)[::-1]
+    assert (b.name, a.name) == ("b", "a")
+    assert a.sequence.grid_plan == grid.grid_plan
+    assert b.sequence.autofocus_plan.autofocus_motor_offset == 5
+    assert [model.isChecked(row) for row in range(2)] == [True, False]
+    assert {i.row() for i in table.selectionModel().selectedIndexes()} == {1}
 
 
 def test_position_load_save(

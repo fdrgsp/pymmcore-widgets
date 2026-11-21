@@ -76,25 +76,6 @@ def test_busy_overlay_shows_reported_progress(qtbot: QtBot) -> None:
         assert bar_pixels() == 0
 
 
-def test_position_import_reports_progress(
-    qtbot: QtBot, global_mmcore: CMMCorePlus, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    editor = CoreConnectedPositionTable(mmcore=global_mmcore)
-    qtbot.addWidget(editor)
-    editor.show()
-    plan = WellPlatePlan(
-        plate=WellPlate.from_str("96-well"),
-        a1_center_xy=(1000, 2000),
-        selected_wells=((0, 0, 1), (0, 1, 1)),
-    )
-    reported: list[tuple[int, int]] = []
-    monkeypatch.setattr(
-        BusyOverlay, "setProgress", lambda _, *step: reported.append(step)
-    )
-    editor._update_table_positions(plan)
-    assert reported == [(1, 3), (2, 3), (3, 3)]
-
-
 @pytest.mark.parametrize("hidden", [False, True])
 @pytest.mark.parametrize("fail", [False, True])
 def test_position_import_feedback_clears_after_success_or_error(

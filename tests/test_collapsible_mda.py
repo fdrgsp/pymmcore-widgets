@@ -9,7 +9,7 @@ from qtpy.QtWidgets import QWidget
 from pymmcore_widgets import MDAWidget, MDAWidgetCollapsible
 from pymmcore_widgets.mda import CollapsibleCoreMDATabs, SectionMetrics
 from pymmcore_widgets.useq_widgets._mda_sequence import AF_DISABLED_TOOLTIP
-from pymmcore_widgets.useq_widgets._positions import MDAButton, _MDAPopup
+from pymmcore_widgets.useq_widgets._positions import _MDAPopup
 
 if TYPE_CHECKING:
     from pytestqt.qtbot import QtBot
@@ -204,13 +204,9 @@ def test_collapsible_position_subsequence_popup_only_exposes_grid(
     assert not wdg.tabs.section("c").expanded
     # the table starts empty: add the position whose sub-sequence button we need
     wdg.stage_positions.setValue([useq.Position(x=1, y=2)])
-    table = wdg.stage_positions.table()
-    button = table.cellWidget(0, table.indexOf(wdg.stage_positions.SEQ))
-    assert isinstance(button, MDAButton)
-
     popup = _MDAPopup(
         useq.MDASequence(stage_positions=[useq.Position(x=1, y=2)]),
-        button,
+        wdg.stage_positions.table(),
     )
     qtbot.addWidget(popup)
 

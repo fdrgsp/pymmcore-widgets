@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from unittest.mock import Mock, patch
@@ -7,7 +8,7 @@ from unittest.mock import Mock, patch
 import pytest
 import useq
 from pymmcore_plus.core import SequencedEvent
-from qtpy.QtCore import QEvent, QObject, QPoint, Qt
+from qtpy.QtCore import QEvent, QObject, QPoint, QRect, Qt
 from qtpy.QtGui import QContextMenuEvent, QResizeEvent
 from qtpy.QtWidgets import QApplication, QDialog, QMessageBox, QWidget
 
@@ -44,12 +45,8 @@ from pymmcore_widgets.useq_widgets._mda_sequence import (
     MDASequenceWidget,
     QFileDialog,
 )
-from pymmcore_widgets.useq_widgets._positions import (
-    AF_PER_POS_TOOLTIP,
-    MDAButton,
-    _MDAPopup,
-)
-from tests._utils import right_press
+from pymmcore_widgets.useq_widgets._positions import AF_PER_POS_TOOLTIP, _MDAPopup
+from tests._utils import click_cell, right_press
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -166,10 +163,9 @@ def test_core_connected_position_wdg(qtbot: QtBot, qapp) -> None:
     wdg._mmc.setXYPosition(11, 22)
     wdg._mmc.setZPosition(33)
     wdg._mmc.waitForSystem()
-    xyidx = pos_table.table().indexOf(pos_table._xy_btn_col)
-    z_idx = pos_table.table().indexOf(pos_table._z_btn_col)
-    pos_table.table().cellWidget(0, xyidx).click()
-    pos_table.table().cellWidget(0, z_idx).click()
+    table = pos_table.table()
+    click_cell(qtbot, table, 0, table.indexOf(pos_table._xy_btn_col), button=0)
+    click_cell(qtbot, table, 0, table.indexOf(pos_table._z_btn_col), button=0)
 
     p0 = pos_table.value()[0]
     assert round(p0.x) == 11
@@ -193,12 +189,16 @@ def test_position_table_copy_z_and_af_to_all(qtbot: QtBot) -> None:
         return [table.rowData(row)[key] for row in range(table.rowCount())]
 
     for btn_col, key in ((pos._z_btn_col, pos.Z.key), (pos._af_btn_col, pos.AF.key)):
-        btn = table.cellWidget(1, table.indexOf(btn_col))
-        assert btn is not None
-        assert btn.contextMenuPolicy() == Qt.ContextMenuPolicy.ActionsContextMenu
-        with qtbot.waitSignal(pos.valueChanged):
-            btn.actions()[0].trigger()
+        menu = table._context_menu(table.model().index(1, table.indexOf(btn_col)))
+        assert menu is not None
+        changed = Mock()
+        pos.valueChanged.connect(changed)
+        menu.actions()[0].trigger()
+        changed.assert_called_once()
+        pos.valueChanged.disconnect(changed)
         assert _column(key) == [table.rowData(1)[key]] * 3
+    # a column without context actions has no menu
+    assert table._context_menu(table.model().index(1, table.indexOf(pos.X))) is None
 
 
 def _assert_position_wdg_state(
@@ -352,26 +352,32 @@ def test_position_table_grid_button_matches_arrow_buttons(
 
     table = wdg.table()
     seq_col = table.indexOf(wdg.SEQ)
-    arrow = table.cellWidget(0, table.indexOf(wdg._xy_btn_col))
-    no_plan = cast("MDAButton", table.cellWidget(0, seq_col))
-    with_plan = cast("MDAButton", table.cellWidget(1, seq_col))
-    assert no_plan.clear_btn.isHidden()
-    assert with_plan.clear_btn.isVisible()
+    arrow_col = table.indexOf(wdg._xy_btn_col)
+    delegate = wdg.delegate()
 
-    for btn in (no_plan.seq_btn, with_plan.seq_btn):
-        assert btn.size() == arrow.size()
+    def _buttons(row: int) -> list[QRect]:
+        index = table.model().index(row, seq_col)
+        return [rect for rect, _ in delegate.buttons(index, table.visualRect(index))]
+
+    def _arrow() -> QRect:
+        return table.visualRect(table.model().index(0, arrow_col))
+
+    (no_plan,) = _buttons(0)
+    with_plan, clear = _buttons(1)
+    for btn in (no_plan, with_plan):
+        assert btn.size() == _arrow().size()
     # the clear button fits next to it, rather than being cut off by the cell
-    assert with_plan.clear_btn.geometry().right() < with_plan.width()
+    assert clear.right() <= table.visualRect(table.model().index(1, seq_col)).right()
 
     # without a plan on any row, there is no space left of or right of the button
-    arrow_col_width = table.columnWidth(table.indexOf(wdg._xy_btn_col))
-    with_plan.clear_btn.click()
-    QApplication.processEvents()
+    arrow_col_width = table.columnWidth(arrow_col)
+    click_cell(qtbot, table, 1, seq_col, button=1)
+    assert wdg.value()[1].sequence is None
     assert table.columnWidth(seq_col) == arrow_col_width
-    assert no_plan.seq_btn.size() == arrow.size()
+    assert _buttons(0)[0].size() == _arrow().size()
 
     # setting a plan widens the column, and removing that row narrows it again
-    with_plan.setValue(plan)
+    table.setRowData(1, {wdg.SEQ.key: plan})
     assert table.columnWidth(seq_col) > arrow_col_width
     table.removeRow(1)
     assert table.columnWidth(seq_col) == arrow_col_width
@@ -390,6 +396,7 @@ def test_core_position_table_add_position(
 
     wdg._mmc.setXYPosition(11, 22)
     wdg._mmc.setZPosition(33)
+    wdg._mmc.waitForSystem()
 
     wdg.stage_positions.af_per_position.setChecked(True)
 
@@ -454,11 +461,9 @@ def test_position_table_connected_popup(qtbot: QtBot):
 
     pos_table = wdg.stage_positions
     assert isinstance(pos_table, CoreConnectedPositionTable)
-    seq_col = pos_table.table().indexOf(pos_table.SEQ)
-    btn = pos_table.table().cellWidget(0, seq_col)
-
-    btn.seq_btn.click()
-    popup = btn.findChild(_MDAPopup)
+    table = pos_table.table()
+    click_cell(qtbot, table, 0, table.indexOf(pos_table.SEQ), button=0)
+    popup = table.findChild(_MDAPopup)
     mda = popup.mda_tabs
     assert isinstance(mda.z_plan, CoreConnectedZPlanWidget)
     assert isinstance(mda.grid_plan, CoreConnectedGridPlanWidget)
@@ -1770,9 +1775,11 @@ def test_core_mda_with_hcs_enable_disable(
     mda = useq.MDASequence(stage_positions=[(0, 0, 0), (1, 1, 1)])
     wdg.setValue(mda)
 
+    model = table.model()
+    tooltip = Qt.ItemDataRole.ToolTipRole
     # edit table btn is hidden
     assert wdg.stage_positions._edit_hcs_pos.isHidden()
-    assert not table.toolTip()
+    assert not model.index(0, name_col).data(tooltip)
     # all table visible
     assert not table.isColumnHidden(name_col)
     assert not table.isColumnHidden(xy_btn_col)
@@ -1781,8 +1788,7 @@ def test_core_mda_with_hcs_enable_disable(
     assert not table.isColumnHidden(sub_seq_btn_col)
     # name_col_checkbox can be checked
     for row in range(table.rowCount()):
-        item = table.item(row, name_col)
-        assert item.flags() & Qt.ItemFlag.ItemIsUserCheckable
+        assert model.index(row, name_col).flags() & Qt.ItemFlag.ItemIsUserCheckable
     # all toolbar actions enabled
     assert all(action.isEnabled() for action in wdg.stage_positions.toolBar().actions())
     # include_z checkbox enabled
@@ -1801,17 +1807,18 @@ def test_core_mda_with_hcs_enable_disable(
 
     # edit table btn is visible
     assert not wdg.stage_positions._edit_hcs_pos.isHidden()
-    assert table.toolTip() == HCS_LOCKED_TOOLTIP
+    assert model.index(0, name_col).data(tooltip) == HCS_LOCKED_TOOLTIP
     # all columns hidden but name
     assert not table.isColumnHidden(name_col)
     assert table.isColumnHidden(xy_btn_col)
     assert table.isColumnHidden(z_btn_col)
     assert table.isColumnHidden(z_col)
     assert table.isColumnHidden(sub_seq_btn_col)
-    # name_col_checkbox cannot be checked
+    # name_col_checkbox cannot be checked, but the row can still be selected
     for row in range(table.rowCount()):
-        item = table.item(row, name_col)
-        assert not (item.flags() & Qt.ItemFlag.ItemIsUserCheckable)
+        flags = model.index(row, name_col).flags()
+        assert not flags & Qt.ItemFlag.ItemIsUserCheckable
+        assert flags & Qt.ItemFlag.ItemIsSelectable
     # all toolbar actions disabled but the move stage checkbox
     assert all(
         not action.isEnabled() for action in wdg.stage_positions.toolBar().actions()[1:]
@@ -1820,6 +1827,82 @@ def test_core_mda_with_hcs_enable_disable(
     assert wdg.stage_positions.include_z.isHidden()
     # autofocus checkbox disabled
     assert wdg.stage_positions.af_per_position.isHidden()
+
+
+def test_core_mda_hcs_import_is_fast_and_has_no_cell_widgets(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = CoreConnectedPositionTable(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.show()
+    plan = useq.WellPlatePlan(
+        plate=useq.WellPlate.from_str("96-well"),
+        a1_center_xy=(0, 0),
+        selected_wells=(
+            tuple(r for r in range(8) for _ in range(12)),
+            tuple(c for _ in range(8) for c in range(12)),
+        ),
+        well_points_plan=useq.GridRowsColumns(
+            rows=15, columns=7, fov_width=10, fov_height=10
+        ),
+    )
+    assert len(plan) > 10_000
+    assert wdg._hcs  # create the wizard: the import syncs it, but it is not timed
+
+    start = time.perf_counter()
+    wdg.setValue(plan)
+    QApplication.processEvents()
+    # generous: a widget per cell took seconds for a quarter of these positions
+    assert time.perf_counter() - start < 2
+    table = wdg.table()
+    assert table.rowCount() == len(plan)
+    assert not table.viewport().findChildren(QWidget)
+
+
+def test_core_mda_hcs_double_click_asks_to_unlock(
+    qtbot: QtBot, global_mmcore: CMMCorePlus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wdg = CoreConnectedPositionTable(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.show()
+    plan = useq.WellPlatePlan(
+        plate="96-well", a1_center_xy=(0, 0), selected_wells=((0,), (0,))
+    )
+    wdg.setValue(plan)
+    table = wdg.table()
+    x = table.model().index(0, table.indexOf(wdg.X))
+    assert not x.flags() & Qt.ItemFlag.ItemIsEditable
+
+    monkeypatch.setattr(QMessageBox, "exec", lambda _: QMessageBox.StandardButton.Yes)
+    # a double-click starts with a press, which QTest's mouseDClick leaves out
+    click_cell(qtbot, table, 0, x.column())
+    pos = table.visualRect(x).center()
+    qtbot.mouseDClick(table.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+    assert wdg._plate_plan is None
+    assert x.flags() & Qt.ItemFlag.ItemIsEditable
+
+
+def test_core_position_table_moves_stage_only_from_name(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = CoreConnectedPositionTable(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.resize(900, 400)
+    wdg.show()
+    wdg.setValue([useq.Position(x=100, y=200, z=1), useq.Position(x=300, y=400, z=2)])
+    wdg.move_to_selection.setChecked(True)
+    table = wdg.table()
+
+    with patch.object(global_mmcore, "setXYPosition") as move:
+        # a click on a coordinate edits it, and does not move the stage
+        click_cell(qtbot, table, 1, table.indexOf(wdg.X))
+        assert table.indexWidget(table.model().index(1, table.indexOf(wdg.X)))
+        # nor does one on a button setting it from the stage
+        click_cell(qtbot, table, 0, table.indexOf(wdg._z_btn_col), button=0)
+        move.assert_not_called()
+        # a click on a Name does
+        click_cell(qtbot, table, 0, table.indexOf(wdg.NAME))
+        move.assert_called_once_with(100, 200)
 
 
 @pytest.mark.parametrize("ext", ["json", "yaml"])
@@ -2766,7 +2849,7 @@ def test_grid_plan_subsequence_fov_update(
     assert sp.value()[0].sequence.grid_plan.fov_height == 64
 
 
-def test_fov_refresh_preserves_unchecked_rows_and_editors(
+def test_fov_refresh_preserves_unchecked_rows(
     qtbot: QtBot, global_mmcore: CMMCorePlus
 ) -> None:
     positions = CoreConnectedPositionTable(mmcore=global_mmcore)
@@ -2774,12 +2857,9 @@ def test_fov_refresh_preserves_unchecked_rows_and_editors(
     sequence = useq.MDASequence(grid_plan=useq.GridRowsColumns(rows=2, columns=2))
     positions.setValue([useq.Position(z=z, sequence=sequence) for z in (10, 20)])
     table = positions.table()
-    positions.NAME.setCheckState(
-        table, 1, table.indexOf(positions.NAME), Qt.CheckState.Unchecked
-    )
+    name = table.model().index(1, table.indexOf(positions.NAME))
+    table.model().setData(name, Qt.CheckState.Unchecked, Qt.ItemDataRole.CheckStateRole)
     positions.include_z.setChecked(False)
-    col = table.indexOf(positions.SEQ)
-    editors = [table.cellWidget(row, col) for row in range(2)]
 
     with qtbot.waitSignal(global_mmcore.events.roiSet):
         global_mmcore.setROI(0, 0, 100, 150)
@@ -2791,8 +2871,7 @@ def test_fov_refresh_preserves_unchecked_rows_and_editors(
         )
     )
     assert table.rowCount() == 2
-    assert [table.cellWidget(row, col) for row in range(2)] == editors
-    assert not positions.NAME.isChecked(table, 1, table.indexOf(positions.NAME))
+    assert not table.model().isChecked(1)
     values = positions.value(exclude_unchecked=False, exclude_hidden_cols=False)
     assert [pos.z for pos in values] == [10, 20]
     assert [pos.sequence.grid_plan.fov_width for pos in values] == [100, 100]
@@ -2828,14 +2907,9 @@ def test_sub_wdg_channel_tab(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
     wdg.setValue(seq)
 
     # Get the sequence button from the position table
-    pos_table = wdg.stage_positions.table()
-    seq_col_idx = pos_table.indexOf(wdg.stage_positions.SEQ)
-    btn = pos_table.cellWidget(0, seq_col_idx)
-    btn = cast("MDAButton", btn)
-
-    btn.seq_btn.click()
+    wdg.stage_positions.editSubSequence(0)
     # Find the popup dialog
-    popup = btn.findChild(_MDAPopup)
+    popup = wdg.stage_positions.table().findChild(_MDAPopup)
     assert popup is not None, "MDA popup dialog should be created"
 
     # Access the channel tab (should be CoreConnectedChannelTable)

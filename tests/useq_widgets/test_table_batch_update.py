@@ -19,6 +19,9 @@ if TYPE_CHECKING:
     from pytestqt.qtbot import QtBot
 
 
+EDITABLE = Qt.ItemFlag.ItemIsEditable
+
+
 class SampleTable(DataTable):
     NAME = TextColumn(key="name")
     X = FloatColumn(key="x")
@@ -130,11 +133,11 @@ def test_hcs_bulk_import_preserves_positions_and_read_only_state(
     assert table.rowCount() == 288
     assert table.isHidden() == hidden
     assert table.isColumnHidden(table.indexOf(editor.SEQ))
+    x_col = table.indexOf(editor.X)
     for row, pos in enumerate(plan):
         record = table.rowData(row)
         assert (record["name"], record["x"], record["y"]) == (pos.name, pos.x, pos.y)
-        x_cell = table.cellWidget(row, table.indexOf(editor.X))
-        assert x_cell is not None and not x_cell.isEnabled()
+        assert not table.model().index(row, x_col).flags() & EDITABLE
 
     # Updating an existing HCS plan also keeps the read-only columns and data.
     updated = plan.model_copy(update={"a1_center_xy": (3000, 4000)})
@@ -152,12 +155,12 @@ def test_hcs_bulk_import_preserves_positions_and_read_only_state(
     assert observed == [positions]
     assert table.isHidden() == hidden
     assert not table.isColumnHidden(table.indexOf(editor.SEQ))
-    assert table.cellWidget(0, table.indexOf(editor.X)).isEnabled()
+    assert table.model().index(0, x_col).flags() & EDITABLE
 
 
 @pytest.mark.parametrize("accept", [False, True])
 @pytest.mark.parametrize("hidden", [False, True])
-def test_make_editable_preserves_coordinates_and_existing_editors(
+def test_make_editable_preserves_coordinates(
     qtbot: QtBot,
     global_mmcore: CMMCorePlus,
     monkeypatch: pytest.MonkeyPatch,
@@ -180,13 +183,7 @@ def test_make_editable_preserves_coordinates_and_existing_editors(
     if hidden:
         table.hide()
     records = list(table.iterRecords())
-    cells = [
-        table.cellWidget(row, col)
-        for row in range(table.rowCount())
-        for col in range(table.columnCount())
-    ]
     model = table.model()
-    assert model is not None
     inserted, removed = Mock(), Mock()
     model.rowsInserted.connect(inserted)
     model.rowsRemoved.connect(removed)
@@ -194,7 +191,7 @@ def test_make_editable_preserves_coordinates_and_existing_editors(
     editor.valueChanged.connect(changed)
     result = QMessageBox.StandardButton.Yes if accept else QMessageBox.StandardButton.No
     monkeypatch.setattr(QMessageBox, "exec", lambda self: result)
-    # Conversion must use the existing cells, not regenerate the plate's FOVs.
+    # Conversion must use the existing rows, not regenerate the plate's FOVs.
     monkeypatch.setattr(
         useq.WellPlatePlan,
         "__iter__",
@@ -207,18 +204,10 @@ def test_make_editable_preserves_coordinates_and_existing_editors(
     assert editor._plate_plan is (None if accept else plan)
     assert table.isHidden() == hidden
     assert list(table.iterRecords()) == records
-    assert [
-        table.cellWidget(row, col)
-        for row in range(table.rowCount())
-        for col in range(table.columnCount())
-    ] == cells
     inserted.assert_not_called()
     removed.assert_not_called()
     assert changed.call_count == int(accept)
     assert table.isColumnHidden(table.indexOf(editor.SEQ)) == (not accept)
     for row in range(table.rowCount()):
-        x_cell = table.cellWidget(row, table.indexOf(editor.X))
-        name = table.item(row, table.indexOf(editor.NAME))
-        assert x_cell is not None and name is not None
-        assert x_cell.isEnabled() == accept
-        assert bool(name.flags() & Qt.ItemFlag.ItemIsEditable) == accept
+        for col in (table.indexOf(editor.X), table.indexOf(editor.NAME)):
+            assert bool(model.index(row, col).flags() & EDITABLE) == accept

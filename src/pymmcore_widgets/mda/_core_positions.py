@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import suppress
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from pymmcore_plus import CMMCorePlus
 from pymmcore_plus._logger import logger
@@ -38,6 +38,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from useq import Position
+
+    from pymmcore_widgets.useq_widgets._positions import PositionTableModel
 
 UPDATE_POSITIONS = "Update Positions List"
 ADD_POSITIONS = "Add to Positions List"
@@ -153,12 +155,14 @@ class CoreConnectedPositionTable(PositionTable):
         table.addColumn(self._xy_btn_col, table.indexOf(self.X))
         table.addColumn(self._z_btn_col, table.indexOf(self.Z) + 1)
         table.addColumn(self._af_btn_col, table.indexOf(self.AF) + 1)
+        # an absolute grid plan sets X/Y, so the stage cannot
+        cast("PositionTableModel", table.model()).xy_keys.add(self._xy_btn_col.key)
 
         # add move_to_selection to toolbar and link up callback
         toolbar = self.toolBar()
         action0 = next(x for x in toolbar.children() if isinstance(x, QWidgetAction))
         toolbar.insertWidget(action0, self.move_to_selection)
-        table.itemSelectionChanged.connect(self._on_selection_change)
+        table.selectionModel().selectionChanged.connect(self._on_selection_change)
 
         # connect
         self._mmc.events.systemConfigurationLoaded.connect(self._on_sys_config_loaded)
@@ -185,8 +189,14 @@ class CoreConnectedPositionTable(PositionTable):
     def setValue(self, value: Sequence[Position]) -> None:  # type: ignore [override]
         """Set the value of the positions table."""
         was_hcs = self._plate_plan is not None
-        with self.table().batchUpdate(), signals_blocked(self):
-            super().setValue(value)
+        with signals_blocked(self):
+            if isinstance(value, WellPlatePlan):
+                # display-only: the plan's positions need no validation
+                name, x, y = self.NAME.key, self.X.key, self.Y.key
+                records = [{name: p.name, x: p.x, y: p.y} for p in value]
+                self._set_records(records, include_z=False, use_af=False)
+            else:
+                super().setValue(value)
             self._update_z_enablement()
             self._update_autofocus_enablement()
             if isinstance(value, WellPlatePlan):
@@ -289,8 +299,7 @@ class CoreConnectedPositionTable(PositionTable):
         dialog.setDefaultButton(QMessageBox.StandardButton.No)
         if dialog.exec() == QMessageBox.StandardButton.Yes:
             self._plate_plan = None
-            with self.table().batchUpdate():
-                self._set_position_table_editable(True)
+            self._set_position_table_editable(True)
             self.valueChanged.emit()
 
     def _set_position_table_editable(self, state: bool) -> None:
@@ -304,7 +313,6 @@ class CoreConnectedPositionTable(PositionTable):
 
         # Hide or show all columns that are irrelevant when using the HCS wizard
         table = self.table()
-        table.setToolTip("" if state else HCS_LOCKED_TOOLTIP)
         inc_z = self.include_z.isChecked()
         table.setColumnHidden(table.indexOf(self._xy_btn_col), not state)
         table.setColumnHidden(table.indexOf(self._z_btn_col), not state or not inc_z)
@@ -315,45 +323,20 @@ class CoreConnectedPositionTable(PositionTable):
         for action in self.toolBar().actions()[1:]:
             action.setEnabled(state)
 
-        self._enable_table_items(state)
+        table.model().setReadOnly(not state, HCS_LOCKED_TOOLTIP)
         # connect/disconnect the double click event and rename the button
         if state:
             self._rename_hcs_position_button(ADD_POSITIONS)
             with suppress(RuntimeError):
-                self.table().cellDoubleClicked.disconnect(self._show_pos_editing_dialog)
+                table.doubleClicked.disconnect(self._show_pos_editing_dialog)
         else:
             self._rename_hcs_position_button(UPDATE_POSITIONS)
             # using UniqueConnection to avoid multiple connections
             # but catching the TypeError if the connection is already made
             with suppress(TypeError, RuntimeError):
-                self.table().cellDoubleClicked.connect(
+                table.doubleClicked.connect(
                     self._show_pos_editing_dialog, Qt.ConnectionType.UniqueConnection
                 )
-
-    def _enable_table_items(self, state: bool) -> None:
-        """Enable or disable the table items depending on the use of the HCS wizard."""
-        table = self.table()
-        name_col = table.indexOf(self.NAME)
-        x_col = table.indexOf(self.X)
-        y_col = table.indexOf(self.Y)
-        with signals_blocked(table):
-            for row in range(table.rowCount()):
-                table.cellWidget(row, x_col).setEnabled(state)
-                table.cellWidget(row, y_col).setEnabled(state)
-                # enable/disable the name cells
-                name_item = table.item(row, name_col)
-                flags = name_item.flags() | Qt.ItemFlag.ItemIsEnabled
-                if state:
-                    flags |= (
-                        Qt.ItemFlag.ItemIsEditable | Qt.ItemFlag.ItemIsUserCheckable
-                    )
-                else:
-                    # keep the name column enabled but NOT editable. We do not disable
-                    # to keep available the "Move Stage to Selected Point" option
-                    flags &= ~(
-                        Qt.ItemFlag.ItemIsEditable | Qt.ItemFlag.ItemIsUserCheckable
-                    )
-                name_item.setFlags(flags)
 
     @Slot()
     def _on_sys_config_loaded(self) -> None:
@@ -488,37 +471,26 @@ class CoreConnectedPositionTable(PositionTable):
 
     def _copy_to_all(self, key: str, row: int, col: int = 0) -> None:
         table = self.table()
-        data = {key: table.rowData(row)[key]}
-        with signals_blocked(self):
-            for r in range(table.rowCount()):
-                table.setRowData(r, data)
-        self.valueChanged.emit()
+        table.model().setColumnValue(key, table.rowData(row)[key])
 
     @Slot()
     def _on_selection_change(self) -> None:
         if not self.move_to_selection.isChecked():
             return
-        # Do not trigger a stage move when the selection change was caused by
-        # clicking one of the 'set from core' button columns.  When a mouse
-        # button is physically held, the cursor is still over the cell that was
-        # pressed.  If that cell belongs to a button column, the click should
-        # only update the table — not move the stage.
+        # A click on a value (but a Name) edits it rather than moving the stage.
+        # While a mouse button is held, the cursor is still over the cell that
+        # was pressed.
+        table = self.table()
         if QApplication.mouseButtons():
-            vp = self.table().viewport()
-            idx = self.table().indexAt(vp.mapFromGlobal(QCursor.pos()))
-            if idx.isValid():
-                btn_col_indices = {
-                    self.table().indexOf(self._xy_btn_col),
-                    self.table().indexOf(self._z_btn_col),
-                    self.table().indexOf(self._af_btn_col),
-                }
-                if idx.column() in btn_col_indices:
-                    return
+            idx = table.indexAt(table.viewport().mapFromGlobal(QCursor.pos()))
+            editable = idx.flags() & Qt.ItemFlag.ItemIsEditable
+            if editable and idx.column() != table.indexOf(self.NAME):
+                return
 
         if not self._mmc.getXYStageDevice() and not self._mmc.getFocusDevice():
             return
 
-        selected_rows: set[int] = {i.row() for i in self.table().selectedItems()}
+        selected_rows = {i.row() for i in table.selectionModel().selectedIndexes()}
 
         if len(selected_rows) == 1:
             row = next(iter(selected_rows))
@@ -589,21 +561,6 @@ class CoreConnectedPositionTable(PositionTable):
         if z_dev := self._mmc.getFocusDevice():
             self._mmc.waitForDevice(z_dev)
 
-    def _set_row_xy_enabled(
-        self,
-        row: int,
-        enabled: bool,
-        tip: str = "",
-        xy: tuple[float, float] | None = None,
-    ) -> None:
-        """Enable/disable the XY columns and button for a specific row."""
-        super()._set_row_xy_enabled(row, enabled, tip, xy)
-        table = self.table()
-        xy_btn_col = table.indexOf(self._xy_btn_col)
-        if xy_btn := table.cellWidget(row, xy_btn_col):
-            xy_btn.setEnabled(enabled)
-            xy_btn.setToolTip(tip)
-
     def _on_include_z_toggled(self, checked: bool) -> None:
         z_btn_col = self.table().indexOf(self._z_btn_col)
         self.table().setColumnHidden(z_btn_col, not checked)
@@ -626,27 +583,25 @@ class CoreConnectedPositionTable(PositionTable):
         warning = fov_pixel_size_warning(self._mmc)
         self._hcs_button.setEnabled(not warning)
         self._hcs_button.setToolTip(warning or "Open the HCS wizard.")
-        table = self.table()
-        if not table.rowCount() or not self._mmc.getCameraDevice():
+        model = self.table().model()
+        if not model.rowCount() or not self._mmc.getCameraDevice():
             return
         px = self._mmc.getPixelSizeUm()
         fov_w = self._mmc.getImageWidth() * px
         fov_h = self._mmc.getImageHeight() * px
 
-        col = table.indexOf(self.SEQ)
         changed = False
-        # Include unchecked rows and keep their editors alive during a refresh.
-        with signals_blocked(self), signals_blocked(table):
-            for row in range(table.rowCount()):
-                seq = self.SEQ.get_cell_data(table, row, col).get("sequence")
+        # Include unchecked rows.
+        with signals_blocked(self):
+            for row in range(model.rowCount()):
+                seq = model.value(row, self.SEQ)
                 if seq is None or (grid := seq.grid_plan) is None:
                     continue
                 if grid.fov_width == fov_w and grid.fov_height == fov_h:
                     continue
                 grid = grid.model_copy(update={"fov_width": fov_w, "fov_height": fov_h})
-                self.SEQ.set_cell_data(
-                    table, row, col, seq.model_copy(update={"grid_plan": grid})
-                )
+                seq = seq.model_copy(update={"grid_plan": grid})
+                model.setRecord(row, {self.SEQ.key: seq})
                 changed = True
         if changed:
             self.valueChanged.emit()

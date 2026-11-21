@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import useq
-from qtpy.QtCore import QSize, Qt, Signal
+from qtpy.QtCore import QModelIndex, QPersistentModelIndex, QRect, QSize, Qt, Signal
 from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -26,24 +26,27 @@ from superqt.utils import signals_blocked
 from pymmcore_widgets._util import GREEN, RED, use_combo_row_height
 from pymmcore_widgets._z_surface import METHODS, SurfaceStage, ZSurface
 
-from ._column_info import FloatColumn, TextColumn, WdgGetSet, WidgetColumn
+from ._column_info import ColumnInfo, FloatColumn, TextColumn
 from ._data_table import DataTableWidget
+from ._record_model import ColumnDelegate, RecordTableModel, RecordTableView, _column
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from typing import Any
 
-    from qtpy.QtCore import SignalInstance
-    from qtpy.QtGui import QShowEvent
-    from qtpy.QtWidgets import QTableWidget
+    from qtpy.QtGui import QIcon, QShowEvent
 
-    from ._column_info import TableDoubleSpinBox
-    from ._data_table import DataTable
+    from ._record_model import Button, Index, Record
     from ._z_surface_dialog import ZSurfaceDialog
 
 OK_CANCEL = QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
 NULL_SEQUENCE = useq.MDASequence()
 MAX = 9999999
 CLEAR_BTN_SPACING = 4
+CLEAR_BTN_WIDTH = 24
+GRID_BTN_TOOLTIP = "Set a Grid Plan for this position"
+SUB_SEQ_GRID_TOOLTIP = "X/Y defined by the absolute grid in the sub-sequence."
+GLOBAL_GRID_TOOLTIP = "X/Y defined by the global absolute grid plan."
 AF_PER_POS_TOOLTIP = (
     "If checked, the user can set a different Hardware Autofocus Offset for each "
     "Position in the table."
@@ -157,12 +160,12 @@ class MDAButton(QWidget):
         )
         self.seq_btn.clicked.connect(self._on_click)
         self.seq_btn.setIcon(QIconifyIcon("mdi:grid"))
-        self.seq_btn.setToolTip("Set a Grid Plan for this position")
+        self.seq_btn.setToolTip(GRID_BTN_TOOLTIP)
 
         self.clear_btn = QPushButton()
         self.clear_btn.setIcon(QIconifyIcon("mdi:close-circle", color="red"))
         # Narrower than seq_btn: a secondary action next to the primary one.
-        self.clear_btn.setFixedWidth(24)
+        self.clear_btn.setFixedWidth(CLEAR_BTN_WIDTH)
         self.clear_btn.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred
         )
@@ -219,48 +222,113 @@ class MDAButton(QWidget):
             self.valueChanged.emit()
 
 
-_MDAButton = WdgGetSet(
-    MDAButton,
-    MDAButton.value,
-    MDAButton.setValue,
-    lambda w, cb: w.valueChanged.connect(cb),
-)
-
-
 @dataclass(frozen=True)
-class SubSeqColumn(WidgetColumn):
-    """Column for editing a position's grid-plan sub-sequence."""
+class SubSeqColumn(ColumnInfo):
+    """Column of a position's grid-plan sub-sequence, edited in a pop-up."""
 
-    data_type: WdgGetSet = _MDAButton
+    data_type: type = useq.MDASequence
 
-    def init_cell(
-        self, table: QTableWidget, row: int, col: int, change_signal: SignalInstance
-    ) -> None:
-        super().init_cell(table, row, col, change_signal)
-        header = table.horizontalHeader()
-        header.setSectionResizeMode(col, header.ResizeMode.Fixed)
-        wdg = cast("MDAButton", table.cellWidget(row, col))
-        # The grid line takes a pixel from every cell, which is how a ButtonColumn's
-        # button ends up one pixel narrower than its size hint.  Match it.
-        grid_line = int(table.showGrid())
-        wdg.seq_btn.setFixedWidth(wdg.seq_btn.sizeHint().width() - grid_line)
-        wdg.valueChanged.connect(lambda: self.fitWidth(table))
-        # later rows start with clear_btn hidden, so they cannot change the width
-        if row == 0:
-            self.fitWidth(table)
 
-    def fitWidth(self, table: QTableWidget) -> None:
-        """Fit the column to seq_btn, widening it only if a row shows clear_btn."""
-        col = cast("DataTable", table).indexOf(self)
-        if (first := table.cellWidget(0, col)) is None:
-            return
-        wdgs = (table.cellWidget(row, col) for row in range(table.rowCount()))
-        show_clear = any(
-            not cast("MDAButton", wdg).clear_btn.isHidden()
-            for wdg in wdgs
-            if wdg is not None
+def _has_sub_sequence(seq: useq.MDASequence | None) -> bool:
+    # an empty sub-sequence (useq.MDASequence()) is treated as none
+    return bool(seq and seq != NULL_SEQUENCE)
+
+
+class PositionTableModel(RecordTableModel):
+    """The positions: an absolute grid plan, of a row or global, sets X/Y."""
+
+    def __init__(self, columns: Sequence[ColumnInfo], rows: int = 0) -> None:
+        super().__init__(columns, rows)
+        self._xy_locked = False
+        # the columns that an absolute grid plan disables
+        self.xy_keys = {PositionTable.X.key, PositionTable.Y.key}
+
+    def setXYLocked(self, locked: bool) -> None:
+        """Disable X/Y in every row, as a global absolute grid plan sets them."""
+        self._xy_locked = locked
+        self._all_changed()
+
+    def value(self, row: int, column: ColumnInfo) -> Any:
+        # an absolute grid plan's first FOV, purely for display: PositionTable.value()
+        # drops x/y (useq.AbsolutePosition rejects them alongside an absolute grid)
+        if column.key in (PositionTable.X.key, PositionTable.Y.key) and (
+            xy := _grid_first_point(self._rows[row].get(PositionTable.SEQ.key))
+        ):
+            return xy[column.key == PositionTable.Y.key]
+        return super().value(row, column)
+
+    def data(self, index: Index, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+        if role == Qt.ItemDataRole.ToolTipRole:
+            if tip := self._xy_tooltip(index):
+                return tip
+            if self._columns[index.column()].key == PositionTable.SEQ.key:
+                return GRID_BTN_TOOLTIP
+        return super().data(index, role)
+
+    def flags(self, index: Index) -> Qt.ItemFlag:
+        flags = super().flags(index)
+        if self._xy_tooltip(index):
+            flags &= ~Qt.ItemFlag.ItemIsEnabled
+        return flags
+
+    def _xy_tooltip(self, index: Index) -> str:
+        """Return why a grid plan sets the X/Y at `index`, or `""`."""
+        if self._columns[index.column()].key not in self.xy_keys:
+            return ""
+        if _seq_has_absolute_grid(self._rows[index.row()].get(PositionTable.SEQ.key)):
+            return SUB_SEQ_GRID_TOOLTIP
+        return GLOBAL_GRID_TOOLTIP if self._xy_locked else ""
+
+
+class PositionDelegate(ColumnDelegate):
+    """Also paint the Grid column: a grid plan button and, once set, a clear one."""
+
+    # the row whose grid plan button was clicked
+    editRequested = Signal(int)
+
+    def __init__(self, view: RecordTableView) -> None:
+        super().__init__(view)
+        self.setIcons(
+            QIconifyIcon("mdi:grid"),
+            QIconifyIcon("mdi:grid", color="green"),
+            QIconifyIcon("mdi:close-circle", color="red"),
         )
-        table.setColumnWidth(col, cast("MDAButton", first).fitWidth(show_clear))
+
+    def setIcons(self, empty: QIcon, configured: QIcon, clear: QIcon) -> None:
+        """Set the icons of the grid plan button, without and with a plan, and clear."""
+        self._icons = (empty, configured, clear)
+        self._view.viewport().update()
+
+    def fixedWidth(self, column: ColumnInfo) -> int | None:
+        if not isinstance(column, SubSeqColumn):
+            return super().fixedWidth(column)
+        # widen for the clear button only while some row shows it
+        model = self._view.model()
+        rows = range(model.rowCount())
+        if any(_has_sub_sequence(model.value(row, column)) for row in rows):
+            return self._view.buttonWidth() + CLEAR_BTN_SPACING + CLEAR_BTN_WIDTH
+        return self._view.buttonWidth()
+
+    def buttons(self, index: QModelIndex, rect: QRect) -> list[Button]:
+        if not isinstance(_column(index), SubSeqColumn):
+            return super().buttons(index, rect)
+        # the grid line takes a pixel from each cell, as from a ButtonColumn's
+        width = self._view.buttonWidth() - int(self._view.showGrid())
+        grid = QRect(rect.x(), rect.y(), width, rect.height())
+        empty, configured, clear_icon = self._icons
+        if not _has_sub_sequence(index.data(Qt.ItemDataRole.EditRole)):
+            return [(grid, empty)]
+        x = grid.right() + 1 + CLEAR_BTN_SPACING
+        clear = QRect(x, rect.y(), CLEAR_BTN_WIDTH, rect.height())
+        return [(grid, configured), (clear, clear_icon)]
+
+    def buttonClicked(self, index: QModelIndex, button: int) -> None:
+        if not isinstance(_column(index), SubSeqColumn):
+            super().buttonClicked(index, button)
+        elif button:
+            index.model().setData(index, None)
+        else:
+            self.editRequested.emit(index.row())
 
 
 class PositionTable(DataTableWidget):
@@ -277,16 +345,12 @@ class PositionTable(DataTableWidget):
         super().__init__(rows, parent)
         use_combo_row_height(self._table)
 
-        # track whether a global absolute grid disables all x/y
-        self._global_xy_disabled = False
-
-        # when a sub-sequence changes, update x/y enabled state for that row
-        if model := self.table().model():
-            model.rowsInserted.connect(self._on_table_rows_inserted)
-            # removing the last row with a grid plan lets the Grid column shrink
-            model.rowsRemoved.connect(lambda: self.SEQ.fitWidth(self.table()))
-            if (rows := self.table().rowCount()) > 0:
-                self._on_table_rows_inserted(None, 0, rows - 1)
+        # the open grid plan pop-ups, by the index of their row's Grid cell
+        self._popups: list[tuple[QPersistentModelIndex, _MDAPopup]] = []
+        model = self.table().model()
+        model.rowsRemoved.connect(self._close_orphan_popups)
+        model.modelReset.connect(self._close_orphan_popups)
+        self.delegate().editRequested.connect(self.editSubSequence)
 
         self.include_z = QCheckBox("Include Z")
         self.include_z.setChecked(True)
@@ -356,6 +420,13 @@ class PositionTable(DataTableWidget):
         self._update_surface_focus()
 
     # ------------------------- Public API -------------------------
+
+    def table(self) -> RecordTableView:
+        return cast("RecordTableView", self._table)
+
+    def delegate(self) -> PositionDelegate:
+        """Return the delegate that paints the table, e.g. to `setIcons`."""
+        return cast("PositionDelegate", self._table.itemDelegate())
 
     def value(
         self, exclude_unchecked: bool = True, exclude_hidden_cols: bool = True
@@ -462,14 +533,31 @@ class PositionTable(DataTableWidget):
 
                 _use_af = True
 
-            _values.append({**v.model_dump(exclude_unset=True), **_af})
+            # the sub-sequence as is: model_dump would make it a dict
+            seq = v.sequence
+            _values.append({**v.model_dump(exclude_unset=True), **_af, "sequence": seq})
 
-        super().setValue(_values)
-        with signals_blocked(self):
-            # with Surface Focus, the Z is kept but not used
-            self.include_z.setChecked(_include_z and not self.surface_focus.isChecked())
-            self.af_per_position.setChecked(_use_af)
-        self.valueChanged.emit()
+        self._set_records(_values, _include_z, _use_af)
+
+    def editSubSequence(self, row: int) -> None:
+        """Open the grid plan editor of the position at `row` (or raise it)."""
+        table = self.table()
+        index = QPersistentModelIndex(table.model().index(row, table.indexOf(self.SEQ)))
+        popup = next((p for i, p in self._popups if i == index), None)
+        if popup is None:
+            # not modal: the app stays usable, e.g. to set grid bounds in live mode
+            popup = _MDAPopup(index.data(Qt.ItemDataRole.EditRole), table)
+            popup.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            entry = (index, popup)
+            self._popups.append(entry)
+            # ignored if the row is gone
+            popup.accepted.connect(
+                lambda: table.model().setData(index, popup.mda_tabs.value())
+            )
+            popup.finished.connect(lambda: self._popups.remove(entry))
+        popup.show()
+        popup.raise_()
+        popup.activateWindow()
 
     def save(self, file: str | Path | None = None) -> None:
         """Save the current positions to a JSON file."""
@@ -529,81 +617,35 @@ class PositionTable(DataTableWidget):
 
     def setXYEnabled(self, enabled: bool) -> None:
         """Disable or enable X/Y columns for all rows (e.g. global absolute grid)."""
-        self._global_xy_disabled = not enabled
-        table = self.table()
-        seq_col = table.indexOf(self.SEQ)
-        tip = "X/Y defined by the global absolute grid plan." if not enabled else ""
-        for row in range(table.rowCount()):
-            # skip rows that have their own absolute sub-sequence grid
-            if enabled:
-                wdg = table.cellWidget(row, seq_col)
-                if isinstance(wdg, MDAButton) and _seq_has_absolute_grid(wdg.value()):
-                    continue
-            self._set_row_xy_enabled(row, enabled, tip)
-
-    # ------------------- sub-sequence grid helpers -------------------
-
-    def _on_table_rows_inserted(self, parent: object, start: int, end: int) -> None:
-        """Connect MDAButton.valueChanged for newly inserted rows."""
-        table = self.table()
-        seq_col = table.indexOf(self.SEQ)
-        tip = "X/Y defined by the global absolute grid plan."
-        for row in range(start, end + 1):
-            wdg = table.cellWidget(row, seq_col)
-            if isinstance(wdg, MDAButton):
-                wdg.valueChanged.connect(self._on_sub_seq_changed)
-            # apply global disable to newly added rows
-            if self._global_xy_disabled:
-                self._set_row_xy_enabled(row, False, tip)
-
-    def _on_sub_seq_changed(self) -> None:
-        """Disable x/y for the row if its sub-sequence has an absolute grid."""
-        btn = self.sender()
-        if not isinstance(btn, MDAButton):
-            return
-        table = self.table()
-        seq_col = table.indexOf(self.SEQ)
-        for row in range(table.rowCount()):
-            if table.cellWidget(row, seq_col) is btn:
-                seq = btn.value()
-                has_abs = _seq_has_absolute_grid(seq)
-                # global disable takes precedence
-                if self._global_xy_disabled and not has_abs:
-                    return
-                tip = (
-                    "X/Y defined by the absolute grid in the sub-sequence."
-                    if has_abs
-                    else ""
-                )
-                self._set_row_xy_enabled(row, not has_abs, tip, _grid_first_point(seq))
-                break
-
-    def _set_row_xy_enabled(
-        self,
-        row: int,
-        enabled: bool,
-        tip: str = "",
-        xy: tuple[float, float] | None = None,
-    ) -> None:
-        """Enable/disable x/y widgets for a single row.
-
-        `xy`, when given, is shown as the (disabled) X/Y values -- typically
-        the first FOV an absolute grid plan will acquire -- purely for display.
-        useq.AbsolutePosition itself rejects x/y set alongside an absolute
-        grid plan (see ROI.create_useq_position), so this never reaches the
-        real Position: value()/iterRecords() strips x/y from any row whose
-        sub-sequence has an absolute grid before constructing it.
-        """
-        table = self.table()
-        for i, col_info in enumerate((self.X, self.Y)):
-            if raw := table.cellWidget(row, table.indexOf(col_info)):
-                wdg = cast("TableDoubleSpinBox", raw)
-                if not enabled and xy is not None:
-                    wdg.setValue(xy[i])
-                wdg.setEnabled(enabled)
-                wdg.setToolTip(tip)
+        cast("PositionTableModel", self.table().model()).setXYLocked(not enabled)
 
     # ------------------------- Private API -------------------------
+
+    def _create_table(self, rows: int) -> RecordTableView:
+        model = PositionTableModel(self.COLUMNS, rows)
+        return RecordTableView(model, self, PositionDelegate)
+
+    def _set_records(
+        self, records: Sequence[Record], include_z: bool, use_af: bool
+    ) -> None:
+        super().setValue(records)
+        with signals_blocked(self):
+            # with Surface Focus, the Z is kept but not used
+            self.include_z.setChecked(include_z and not self.surface_focus.isChecked())
+            self.af_per_position.setChecked(use_af)
+        self.valueChanged.emit()
+
+    def _swap_rows(self, row: int, other: int) -> None:
+        # moving keeps all of the row, e.g. its check state
+        self.table().model().moveRow(
+            QModelIndex(), max(row, other), QModelIndex(), min(row, other)
+        )
+
+    def _close_orphan_popups(self) -> None:
+        """Close the pop-ups of the rows that are gone."""
+        for index, popup in list(self._popups):
+            if not index.isValid():
+                popup.reject()
 
     def _surface_focus_problem(self) -> str:
         """Return why Surface Focus cannot be used now, or `""`."""

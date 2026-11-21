@@ -12,6 +12,7 @@ from qtpy.QtWidgets import (
     QHeaderView,
     QSizePolicy,
     QSpinBox,
+    QTableView,
     QTableWidget,
     QTableWidgetItem,
     QToolBar,
@@ -31,6 +32,8 @@ if TYPE_CHECKING:
     from typing import Any
 
     from qtpy.QtGui import QMouseEvent, QPaintEvent
+
+    from ._record_model import RecordTableView
 
     ValueWidget = type[QCheckBox | QSpinBox | QDoubleSpinBox | QComboBox]
 
@@ -234,7 +237,7 @@ class _TableResizeGrip(QWidget):
 
     GRIP_HEIGHT = 8
 
-    def __init__(self, table: QTableWidget, parent: QWidget | None = None) -> None:
+    def __init__(self, table: QTableView, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._table = table
         self._press_y = 0
@@ -313,7 +316,7 @@ class DataTableWidget(QWidget):
 
         # -------- table --------
 
-        self._table = DataTable(rows, self)
+        self._table = self._create_table(rows)
         self._table.valueChanged.connect(self.valueChanged)
 
         # -------- actions (for toolbar below) --------
@@ -380,7 +383,7 @@ class DataTableWidget(QWidget):
     # ################ Public methods ####################
 
     def table(self) -> DataTable:
-        return self._table
+        return cast("DataTable", self._table)
 
     def toolBar(self) -> QToolBar:
         return self._toolbar
@@ -395,6 +398,9 @@ class DataTableWidget(QWidget):
             self._table.setValue(value)
 
     # #################### Private methods ####################
+
+    def _create_table(self, rows: int) -> DataTable | RecordTableView:
+        return DataTable(rows, self)
 
     def _add_row(self) -> None:
         """Add a new to the end of the table."""

@@ -54,6 +54,32 @@ class ColumnInfo:
             return self.key.title().replace("_", " ")
         return self.header
 
+    # ---- model/view protocol (RecordTableModel and ColumnDelegate) ----
+
+    def stores_value(self) -> bool:
+        """Whether the column holds a value in each record."""
+        return True
+
+    def default_value(self) -> Any:
+        return self.default_factory() if self.default_factory else self.default
+
+    def display(self, value: Any) -> str:
+        return "" if value is None else str(value)
+
+    def editable(self) -> bool:
+        return False
+
+    def create_editor(self, parent: QWidget) -> QWidget:
+        raise NotImplementedError("Must be implemented by editable columns")
+
+    def set_editor_value(self, editor: QWidget, value: Any) -> None:
+        raise NotImplementedError("Must be implemented by editable columns")
+
+    def editor_value(self, editor: QWidget) -> Any:
+        raise NotImplementedError("Must be implemented by editable columns")
+
+    # ---- widget protocol (DataTable) ----
+
     def init_cell(
         self, table: QTableWidget, row: int, col: int, change_signal: SignalInstance
     ) -> None:
@@ -96,6 +122,20 @@ class TextColumn(ColumnInfo):
     default: str | None = None
     checkable: bool = False
     checked: bool = True
+
+    def editable(self) -> bool:
+        return True
+
+    def create_editor(self, parent: QWidget) -> QLineEdit:
+        editor = QLineEdit(parent)
+        editor.setFrame(False)
+        return editor
+
+    def set_editor_value(self, editor: QWidget, value: Any) -> None:
+        cast("QLineEdit", editor).setText(self.display(value))
+
+    def editor_value(self, editor: QWidget) -> str:
+        return cast("QLineEdit", editor).text()  # type: ignore[no-any-return]
 
     def init_cell(
         self, table: QTableWidget, row: int, col: int, change_signal: SignalInstance
@@ -163,6 +203,20 @@ class WidgetColumn(ColumnInfo, Generic[W, T]):
         return self.data_type.widget()  # type: ignore
         # if self.choices and hasattr(new_wdg, "addItems"):
         #     new_wdg.addItems(self.choices)
+
+    def editable(self) -> bool:
+        return True
+
+    def create_editor(self, parent: QWidget) -> W:
+        editor = self._init_widget()
+        editor.setParent(parent)
+        return editor
+
+    def set_editor_value(self, editor: QWidget, value: Any) -> None:
+        self.data_type.setter(cast("W", editor), value)
+
+    def editor_value(self, editor: QWidget) -> T:
+        return self.data_type.getter(cast("W", editor))
 
     def init_cell(
         self, table: QTableWidget, row: int, col: int, change_signal: SignalInstance
@@ -273,6 +327,9 @@ class _RangeColumn(WidgetColumn, Generic[W, T]):
     minimum: float = 0
     maximum: float = 999_999
     decimals: int = 2
+
+    def display(self, value: Any) -> str:
+        return "" if value is None else f"{value:.{self.decimals}f}"
 
     def _init_widget(self) -> W:
         wdg = self.data_type.widget()
@@ -609,6 +666,12 @@ class ButtonColumn(WidgetColumn):
     @cached_property
     def _icon(self) -> QIconifyIcon:
         return QIconifyIcon(self.glyph)
+
+    def stores_value(self) -> bool:
+        return False
+
+    def editable(self) -> bool:
+        return False
 
     def isChecked(self, table: QTableWidget, row: int, col: int) -> bool:
         if wdg := table.cellWidget(row, col):
