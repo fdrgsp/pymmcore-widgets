@@ -43,6 +43,11 @@ ROW_SECOND_BOUND = 4
 UM = "\u00b5m"  # MICRO SIGN
 
 
+def format_z(value: float, spec: str = ".3f") -> str:
+    """Format a Z value without a minus sign on values that round to zero."""
+    return format(round(value, 3) + 0.0, spec)
+
+
 class ZStackViz(QWidget):
     """A compact, palette-aware visualization of a Z stack."""
 
@@ -93,7 +98,8 @@ class ZStackViz(QWidget):
 
     def setStagePosition(self, position: float | None) -> None:
         """Set the live position in the plan's coordinate system, or hide it."""
-        self.setToolTip("" if position is None else f"Live Z: {position:.3f} {UM}")
+        tooltip = "" if position is None else f"Live Z: {format_z(position)} {UM}"
+        self.setToolTip(tooltip)
         if position != self._stage_position:
             self._stage_position = position
             self.update()
@@ -181,7 +187,7 @@ class ZStackViz(QWidget):
         painter.drawText(
             QRectF(rect.left(), rect.top(), rect.width(), label_height),
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-            f"{self._top:.3f}",
+            format_z(self._top),
         )
         painter.drawText(
             QRectF(
@@ -191,7 +197,7 @@ class ZStackViz(QWidget):
                 label_height,
             ),
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-            f"{self._bottom:.3f}",
+            format_z(self._bottom),
         )
 
 

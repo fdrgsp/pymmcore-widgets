@@ -543,6 +543,7 @@ def test_z_visit_bounds(
     wdg.above.setValue(8)
     wdg.below.setValue(16)
     wdg.setMode(mode)
+    wdg.enable_moving(True)
     global_mmcore.setZPosition(100)
     global_mmcore.waitForSystem()
 
@@ -630,6 +631,35 @@ def test_z_right_click_opens_the_editing_menu(
     menu.reset_mock()
     wdg.setEnabled(False)
     QApplication.sendEvent(wdg.top.lineEdit(), right_press())
+    qtbot.wait(20)
+    menu.assert_not_called()
+
+
+@pytest.mark.parametrize("mode", ["top_bottom", "range_around", "above_below"])
+def test_z_moving_is_disabled_until_enabled(
+    qtbot: QtBot, global_mmcore: CMMCorePlus, mode: str
+) -> None:
+    wdg = CoreConnectedZPlanWidget(global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.setMode(mode)
+    buttons = (wdg.top_btn.visit, wdg.bottom_btn.visit, wdg.center_btn)
+    if mode == "above_below":
+        buttons += (wdg.reference_btn,)
+    assert not any(button.isEnabled() for button in buttons)
+    assert all("Right-click to enable moving" in b.toolTip() for b in buttons)
+
+    menu = wdg._move_menu.exec = Mock(side_effect=lambda *_: wdg.enable_moving(True))
+    QApplication.sendEvent(wdg.center_btn, right_press())
+    qtbot.waitUntil(lambda: menu.called)
+    assert all(button.isEnabled() for button in buttons)
+    assert all("Right-click to disable moving" in b.toolTip() for b in buttons)
+
+    # not while the whole editor is disabled, as when its section is unticked
+    wdg._move_action.setChecked(False)
+    assert not any(button.isEnabled() for button in buttons)
+    menu.reset_mock()
+    wdg.setEnabled(False)
+    QApplication.sendEvent(wdg.center_btn, right_press())
     qtbot.wait(20)
     menu.assert_not_called()
 
@@ -2176,6 +2206,7 @@ def test_xy_bounds_compact_mark_and_move_buttons(
 
     wdg = CoreXYBoundsControl(core=mmc, compact_layout=True)
     qtbot.addWidget(wdg)
+    wdg.enable_moving(True)
     wdg._corner_mode.setChecked(True)
 
     device = mmc.getXYStageDevice()
@@ -2279,10 +2310,14 @@ def test_xy_bounds_visit_returns_to_marked_position(
 def _xy_bounds_at(
     qtbot: QtBot, mmc: CMMCorePlus, x: float, y: float
 ) -> CoreXYBoundsControl:
-    """A compact control, with a 100 x 200 um FOV and the stage at (x, y)."""
+    """A compact control, with a 100 x 200 um FOV and the stage at (x, y).
+
+    Its Move buttons are enabled.
+    """
     mmc.setROI(0, 0, 100, 200)  # fov_width=100um, fov_height=200um @ px=1.0
     wdg = CoreXYBoundsControl(core=mmc, compact_layout=True)
     qtbot.addWidget(wdg)
+    wdg.enable_moving(True)
     device = mmc.getXYStageDevice()
     mmc.setXYPosition(device, x, y)
     mmc.waitForDevice(device)
@@ -2343,6 +2378,25 @@ def test_xy_bounds_right_click_opens_the_editing_menu(
             QContextMenuEvent(QContextMenuEvent.Reason.Mouse, point, point),
         )
         qtbot.waitUntil(lambda: menu.called)
+
+
+def test_xy_bounds_moving_is_disabled_until_enabled(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = CoreXYBoundsControl(core=global_mmcore, compact_layout=True)
+    qtbot.addWidget(wdg)
+    buttons = wdg.visit_buttons.values()
+    assert not any(button.isEnabled() for button in buttons)
+    assert all("Right-click to enable moving" in b.toolTip() for b in buttons)
+
+    menu = wdg._move_menu.exec = Mock(side_effect=lambda *_: wdg.enable_moving(True))
+    QApplication.sendEvent(wdg.visit_buttons["top"], right_press())
+    qtbot.waitUntil(lambda: menu.called)
+    assert all(button.isEnabled() for button in buttons)
+    assert all("Right-click to disable moving" in b.toolTip() for b in buttons)
+
+    wdg._move_action.setChecked(False)
+    assert not any(button.isEnabled() for button in buttons)
 
 
 def test_xy_bounds_enabling_from_the_menu_does_not_reopen_it(

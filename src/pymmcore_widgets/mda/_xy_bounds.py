@@ -73,6 +73,12 @@ ICONS_MARK: dict[str, tuple[str, Flip | None]] = {
 _READ_ONLY_TOOLTIP = "Set by the Mark buttons. Right-click to enable editing."
 _EDITABLE_TOOLTIP = "Right-click to disable editing."
 
+
+def _moving_tooltip(tooltip: str, enabled: bool) -> str:
+    """Append how to toggle a Move button, for one with an "Enable Moving" menu."""
+    return f"{tooltip} Right-click to {'disable' if enabled else 'enable'} moving."
+
+
 # Short row labels of the compact layout; the full name is the label's tooltip.
 BOUND_LABELS: dict[str, str] = {
     "top": "Top",
@@ -337,6 +343,14 @@ class CoreXYBoundsControl(XYBoundsControl):
         RightClickMenu(self._edit_menu, self._bound_fields, self.isEnabled)
         self.enable_editing(False)
 
+        self._visit_tooltips = {b: b.toolTip() for b in self.visit_buttons.values()}
+        self._move_menu = QMenu(self)
+        self._move_action = self._move_menu.addAction("Enable Moving")
+        self._move_action.setCheckable(True)
+        self._move_action.toggled.connect(self.enable_moving)
+        RightClickMenu(self._move_menu, self.visit_buttons.values(), self.isEnabled)
+        self.enable_moving(False)
+
         self.btn_top.clicked.connect(lambda: self._mark_or_visit(top=True))
         self.btn_left.clicked.connect(lambda: self._mark_or_visit(left=True))
         self.btn_right.clicked.connect(lambda: self._mark_or_visit(left=False))
@@ -371,6 +385,16 @@ class CoreXYBoundsControl(XYBoundsControl):
         for field in self._bound_fields:
             field.setEnabled(enabled)
             field.setToolTip(_EDITABLE_TOOLTIP if enabled else _READ_ONLY_TOOLTIP)
+
+    def enable_moving(self, enabled: bool) -> None:
+        """Toggle whether the Move buttons can visit the bounds.
+
+        They are disabled by default, so that a click does not move the stage.
+        """
+        self._move_action.setChecked(enabled)
+        for button, tooltip in self._visit_tooltips.items():
+            button.setEnabled(enabled)
+            button.setToolTip(_moving_tooltip(tooltip, enabled))
 
     def value(self) -> dict[str, float]:
         """Return the current value of the grid plan widget."""

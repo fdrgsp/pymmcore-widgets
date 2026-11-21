@@ -25,6 +25,7 @@ def live_z(
 ) -> Iterator[CoreConnectedZPlanWidget]:
     widget = CoreConnectedZPlanWidget(global_mmcore)
     qtbot.addWidget(widget)
+    widget.enable_moving(True)
     yield widget
     widget.poll_z.setChecked(False)
     qtbot.waitUntil(lambda: not widget._poll_pending)
@@ -137,6 +138,48 @@ def test_live_coordinates_and_fixed_reference(
             global_mmcore.waitForSystem()
             qtbot.waitUntil(lambda: live_z._live_z == 100)
             assert live_z._viz._stage_position == 0
+
+
+@pytest.mark.parametrize("poll", [True, False])
+@pytest.mark.parametrize(
+    "mode",
+    [
+        CoreConnectedZPlanWidget.Mode.RANGE_AROUND,
+        CoreConnectedZPlanWidget.Mode.ABOVE_BELOW,
+    ],
+)
+def test_set_reference_rehomes_the_relative_plan(
+    live_z: CoreConnectedZPlanWidget,
+    global_mmcore: CMMCorePlus,
+    qtbot: QtBot,
+    mode: CoreConnectedZPlanWidget.Mode,
+    poll: bool,
+) -> None:
+    live_z.setMode(mode)
+    live_z.range.setValue(100)
+    live_z.above.setValue(50)
+    live_z.below.setValue(50)
+    global_mmcore.setZPosition(0)
+    global_mmcore.waitForSystem()
+    live_z.show()
+    assert live_z.set_reference_btn.isVisible()
+    live_z.poll_z.setChecked(poll)
+
+    live_z.top_btn.visit.click()
+    global_mmcore.waitForSystem()
+    assert live_z._reference_z == 0
+    # Mark the top as the new reference: the next visits are around it.
+    live_z.set_reference_btn.click()
+    assert live_z._reference_z == 50
+    if poll:
+        qtbot.waitUntil(lambda: live_z._live_z == 50)
+        assert live_z._viz._stage_position == 0
+    live_z.bottom_btn.visit.click()
+    global_mmcore.waitForSystem()
+    assert global_mmcore.getZPosition() == 0
+
+    live_z.setMode(live_z.Mode.TOP_BOTTOM)
+    assert not live_z.set_reference_btn.isVisible()
 
 
 def test_poll_recovers_from_errors_and_focus_device_changes(

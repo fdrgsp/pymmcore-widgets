@@ -25,9 +25,15 @@ from pymmcore_widgets.useq_widgets._z import (
     ROW_SECOND_BOUND,
     Mode,
     ZPlanWidget,
+    format_z,
 )
 
-from ._xy_bounds import _EDITABLE_TOOLTIP, _READ_ONLY_TOOLTIP, ICONS_GO
+from ._xy_bounds import (
+    _EDITABLE_TOOLTIP,
+    _READ_ONLY_TOOLTIP,
+    ICONS_GO,
+    _moving_tooltip,
+)
 
 if TYPE_CHECKING:
     from qtpy.QtGui import QHideEvent, QShowEvent
@@ -123,6 +129,12 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         # smaller layout rect, and its column then grows by the difference,
         # leaving a gap between the Z graphic above and the divider beside it.
         self.poll_z.setAttribute(Qt.WidgetAttribute.WA_LayoutUsesWidgetRect)
+        self.set_reference_btn = _tool_button(
+            "mdi:crosshairs-gps", "Set the reference Z to the current position."
+        )
+        self.set_reference_btn.setAutoRaise(True)
+        # no taller than Poll, so hiding it doesn't resize the widget
+        self.set_reference_btn.setFixedHeight(self.poll_z.sizeHint().height())
 
         self._move_layout = QGridLayout(self._move_buttons)
         self._move_layout.setContentsMargins(0, 0, 0, 0)
@@ -152,7 +164,13 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         self.poll_z.toggled.connect(self._update_polling)
         self.valueChanged.connect(self._update_live_marker)
 
-        self._viz_layout.addWidget(self.poll_z, 0, Qt.AlignmentFlag.AlignHCenter)
+        poll_row = QWidget()
+        poll_layout = QHBoxLayout(poll_row)
+        poll_layout.setContentsMargins(0, 0, 0, 0)
+        poll_layout.setSpacing(2)
+        poll_layout.addWidget(self.poll_z)
+        poll_layout.addWidget(self.set_reference_btn)
+        self._viz_layout.addWidget(poll_row, 0, Qt.AlignmentFlag.AlignHCenter)
 
         self.bottom_btn.mark.clicked.connect(self._mark_bottom)
         self.top_btn.mark.clicked.connect(self._mark_top)
@@ -160,6 +178,7 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         self.top_btn.visit.clicked.connect(self._visit_top)
         self.center_btn.clicked.connect(self._visit_center)
         self.reference_btn.clicked.connect(self._visit_reference)
+        self.set_reference_btn.clicked.connect(self._set_reference)
 
         self._grid_layout.addWidget(
             self._move_buttons, ROW_FIRST_BOUND, 2, 2, 1, Qt.AlignmentFlag.AlignLeft
@@ -179,6 +198,22 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         self._edit_action.toggled.connect(self.enable_editing)
         RightClickMenu(self._edit_menu, (self.top, self.bottom), self.isEnabled)
         self.enable_editing(False)
+
+        self._move_tooltips = {
+            button: button.toolTip()
+            for button in (
+                self.top_btn.visit,
+                self.bottom_btn.visit,
+                self.center_btn,
+                self.reference_btn,
+            )
+        }
+        self._move_menu = QMenu(self)
+        self._move_action = self._move_menu.addAction("Enable Moving")
+        self._move_action.setCheckable(True)
+        self._move_action.toggled.connect(self.enable_moving)
+        RightClickMenu(self._move_menu, self._move_tooltips, self.isEnabled)
+        self.enable_moving(False)
 
         self._sync_visual_height()
         self.setMode(self._mode)
@@ -218,6 +253,7 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
             self._move_layout.addWidget(self.bottom_btn, 0, 1)
             self._move_layout.addWidget(self.center_btn, 0, 2)
         self.reference_btn.setVisible(self._mode is Mode.ABOVE_BELOW)
+        self.set_reference_btn.setVisible(self._mode is not Mode.TOP_BOTTOM)
         if self._mode is Mode.ABOVE_BELOW:
             self._move_layout.addWidget(self.reference_btn, 0, 2, 2, 1)
         alignment = Qt.AlignmentFlag.AlignLeft
@@ -236,6 +272,16 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         for field in (self.top, self.bottom):
             field.setEnabled(enabled)
             field.setToolTip(_EDITABLE_TOOLTIP if enabled else _READ_ONLY_TOOLTIP)
+
+    def enable_moving(self, enabled: bool) -> None:
+        """Toggle whether the Move buttons can move the Z stage.
+
+        They are disabled by default, so that a click does not move the stage.
+        """
+        self._move_action.setChecked(enabled)
+        for button, tooltip in self._move_tooltips.items():
+            button.setEnabled(enabled)
+            button.setToolTip(_moving_tooltip(tooltip, enabled))
 
     def setStackActive(self, active: bool) -> None:
         """Allow polling only when the containing Z-stack axis is checked."""
@@ -339,17 +385,19 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
 
     @Slot()
     def _update_live_marker(self) -> None:
-        position = self._live_z
-        if position is not None and self._mode is not Mode.TOP_BOTTOM:
-            if self._reference_z is None:
-                self._reference_z = position
-            position -= self._reference_z
+        live = self._live_z
+        if live is None or self._mode is Mode.TOP_BOTTOM:
+            self._viz.setStagePosition(live)
+            return
+        if self._reference_z is None:
+            self._reference_z = live
+        offset = live - self._reference_z
         # setStagePosition sets the absolute tooltip; relative modes extend it.
-        self._viz.setStagePosition(position)
-        if self._live_z is not None and self._mode is not Mode.TOP_BOTTOM:
-            self._viz.setToolTip(
-                f"Live Z: {self._live_z:.3f} µm ({position:+.3f} µm from reference)"
-            )
+        self._viz.setStagePosition(offset)
+        self._viz.setToolTip(
+            f"Live Z: {format_z(live)} µm "
+            f"({format_z(offset, '+.3f')} µm from reference)"
+        )
 
     @Slot()
     @ensure_main_thread
@@ -365,6 +413,10 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
 
     def _mark_top(self) -> None:
         self.top.setValue(self._mmc.getZPosition())
+
+    def _set_reference(self) -> None:
+        self._reference_z = self._last_visit_z = self._mmc.getZPosition()
+        self._update_live_marker()
 
     def _visit_bottom(self) -> None:
         self._visit_bound("bottom")

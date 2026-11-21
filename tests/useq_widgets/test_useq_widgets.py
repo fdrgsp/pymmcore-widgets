@@ -923,6 +923,20 @@ def test_grid_plan_mode_row_does_not_set_the_width(qtbot: QtBot) -> None:
     assert mode_row.minimumSize().width() <= mode_row.sizeHint().width() - 50
 
 
+@pytest.mark.parametrize(
+    ("value", "spec", "expected"),
+    [
+        (-0.0, ".3f", "0.000"),
+        (-1e-9, ".3f", "0.000"),
+        (-4e-4, "+.3f", "+0.000"),
+        (-0.002, ".3f", "-0.002"),
+        (1.5, "+.3f", "+1.500"),
+    ],
+)
+def test_format_z_drops_negative_zero(value: float, spec: str, expected: str) -> None:
+    assert _z.format_z(value, spec) == expected
+
+
 def test_z_plan_controls_fill_the_width(qtbot: QtBot) -> None:
     wdg = ZPlanWidget()
     qtbot.addWidget(wdg)
