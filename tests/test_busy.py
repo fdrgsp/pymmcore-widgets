@@ -50,10 +50,14 @@ def test_busy_overlay_uses_parent_palette(
 def test_busy_overlay_shows_reported_progress(qtbot: QtBot) -> None:
     parent = QWidget()
     parent.resize(300, 120)
+    # a color the antialiased (gray) text cannot have, unlike some styles' highlight
+    highlight = "#ff00ff"
+    palette = parent.palette()
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(highlight))
+    parent.setPalette(palette)
     qtbot.addWidget(parent)
     overlay = BusyOverlay(parent)
     parent.show()
-    highlight = parent.palette().color(QPalette.ColorRole.Highlight).name()
 
     def bar_pixels() -> int:
         image = overlay.grab().toImage()

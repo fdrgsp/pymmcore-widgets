@@ -114,7 +114,8 @@ def test_hcs_wizard_fits_points_plan_panel(
         pytest.skip("the screen is too small for the wizard to fit the panel")
     # neither scrolls nor leaves the cards stretched over spare height
     assert missing == 0
-    assert not selector._scroll.verticalScrollBar().isVisible()
+    # the scroll area hides its bar on a later layout pass
+    qtbot.waitUntil(lambda: not selector._scroll.verticalScrollBar().isVisible())
 
 
 def test_single_area_hides_automated(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
