@@ -132,7 +132,6 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         self.set_reference_btn = _tool_button(
             "mdi:crosshairs-gps", "Set the reference Z to the current position."
         )
-        self.set_reference_btn.setAutoRaise(True)
         # no taller than Poll, so hiding it doesn't resize the widget
         self.set_reference_btn.setFixedHeight(self.poll_z.sizeHint().height())
 
