@@ -29,6 +29,8 @@ from pymmcore_widgets.mda._core_positions import (
     CoreConnectedPositionTable,
 )
 from pymmcore_widgets.mda._core_z import (
+    SET_CENTER_TOOLTIP,
+    SET_REFERENCE_TOOLTIP,
     CoreConnectedZPlanWidget,
     _suggested_step_from_name,
 )
@@ -754,10 +756,13 @@ def test_z_move_button_layout(qtbot: QtBot) -> None:
     wdg = CoreConnectedZPlanWidget()
     qtbot.addWidget(wdg)
     wdg.show()
+    widths = set()
 
     for mode in wdg.Mode:
         wdg.setMode(mode)
         qtbot.wait(10)
+        # the range field makes room for Symmetric's row of buttons
+        widths.add(wdg.sizeHint().width())
         top = wdg.top_btn.visit
         bottom = wdg.bottom_btn.visit
         center = wdg.center_btn
@@ -766,6 +771,8 @@ def test_z_move_button_layout(qtbot: QtBot) -> None:
         assert wdg.bottom_btn.mark.isVisible() == (mode is wdg.Mode.TOP_BOTTOM)
         assert not center.icon().isNull()
         assert wdg.reference_btn.isVisible() == (mode is wdg.Mode.ABOVE_BELOW)
+        set_reference = wdg.set_reference_btn
+        assert set_reference.isVisible() == (mode is not wdg.Mode.TOP_BOTTOM)
 
         if mode is not wdg.Mode.RANGE_AROUND:
             assert center.mapTo(wdg, QPoint()).x() > top.mapTo(wdg, QPoint()).x()
@@ -778,15 +785,18 @@ def test_z_move_button_layout(qtbot: QtBot) -> None:
                 - top.mapTo(wdg, QPoint()).y()
             )
             if mode is wdg.Mode.ABOVE_BELOW:
+                # return to the reference Z on top, reset it below
                 reference = wdg.reference_btn
                 assert (
                     reference.mapTo(wdg, QPoint()).x() > center.mapTo(wdg, QPoint()).x()
                 )
-                assert (
-                    reference.mapTo(wdg, QPoint()).y()
-                    == center.mapTo(wdg, QPoint()).y()
+                top_y = top.mapTo(wdg, QPoint()).y()
+                assert reference.mapTo(wdg, QPoint()).y() == top_y
+                assert set_reference.mapTo(wdg, QPoint()) == QPoint(
+                    reference.mapTo(wdg, QPoint()).x(),
+                    bottom.mapTo(wdg, QPoint()).y(),
                 )
-                assert reference.height() == center.height()
+                assert set_reference.toolTip() == SET_REFERENCE_TOOLTIP
                 assert (
                     wdg.above.mapTo(wdg, QPoint()).y()
                     < wdg.below.mapTo(wdg, QPoint()).y()
@@ -801,8 +811,13 @@ def test_z_move_button_layout(qtbot: QtBot) -> None:
                 top.mapTo(wdg, QPoint()).x()
                 < bottom.mapTo(wdg, QPoint()).x()
                 < center.mapTo(wdg, QPoint()).x()
+                < set_reference.mapTo(wdg, QPoint()).x()
             )
+            top_y = top.mapTo(wdg, QPoint()).y()
+            assert set_reference.mapTo(wdg, QPoint()).y() == top_y
             assert top.height() == bottom.height() == center.height()
+            assert set_reference.toolTip() == SET_CENTER_TOOLTIP
+    assert len(widths) == 1
 
 
 def test_core_position_table_checkboxes_toggled(qtbot: QtBot):

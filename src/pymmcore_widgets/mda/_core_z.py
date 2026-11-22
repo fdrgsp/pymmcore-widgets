@@ -42,6 +42,8 @@ ICON_SIZE = 16
 # Core-driven moves arrive via stagePositionChanged; polling only has to catch
 # moves the core doesn't report (focus knob, joystick).
 POLL_INTERVAL_MS = 250
+SET_CENTER_TOOLTIP = "Reset the center to the current position."
+SET_REFERENCE_TOOLTIP = "Reset the reference Z to the current position."
 ICONS_MARK_V2 = {
     "top": "mingcute:arrow-to-up-fill",
     "bottom": "mingcute:arrow-to-down-fill",
@@ -112,6 +114,9 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
             "Return to reference Z (starting position).",
             self._move_buttons,
         )
+        self.set_reference_btn = _tool_button(
+            "mdi:crosshairs-gps", SET_REFERENCE_TOOLTIP, self._move_buttons
+        )
         self._reference_z: float | None = None
         self._last_visit_z: float | None = None
         self._live_z: float | None = None
@@ -129,13 +134,13 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         # smaller layout rect, and its column then grows by the difference,
         # leaving a gap between the Z graphic above and the divider beside it.
         self.poll_z.setAttribute(Qt.WidgetAttribute.WA_LayoutUsesWidgetRect)
-        self.set_reference_btn = _tool_button(
-            "mdi:crosshairs-gps", "Set the reference Z to the current position."
-        )
-        # as tall as Poll, at any zoom, so hiding it doesn't resize the widget
-        self.set_reference_btn.setSizePolicy(
-            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Ignored
-        )
+
+        # In Symmetric mode the buttons are one row, wider than their column: they
+        # share a row with the range field, which makes room for them, so the
+        # widget does not grow.
+        self._range_row = QWidget()
+        self._range_layout = QHBoxLayout(self._range_row)
+        self._range_layout.setContentsMargins(0, 0, 0, 0)
 
         self._move_layout = QGridLayout(self._move_buttons)
         self._move_layout.setContentsMargins(0, 0, 0, 0)
@@ -148,6 +153,7 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
             self.top_btn.visit,
             self.center_btn,
             self.reference_btn,
+            self.set_reference_btn,
         ):
             button.setFixedWidth(30)
             button.setMinimumHeight(26)
@@ -165,13 +171,7 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         self.poll_z.toggled.connect(self._update_polling)
         self.valueChanged.connect(self._update_live_marker)
 
-        poll_row = QWidget()
-        poll_layout = QHBoxLayout(poll_row)
-        poll_layout.setContentsMargins(0, 0, 0, 0)
-        poll_layout.setSpacing(2)
-        poll_layout.addWidget(self.poll_z)
-        poll_layout.addWidget(self.set_reference_btn)
-        self._viz_layout.addWidget(poll_row, 0, Qt.AlignmentFlag.AlignHCenter)
+        self._viz_layout.addWidget(self.poll_z, 0, Qt.AlignmentFlag.AlignHCenter)
 
         self.bottom_btn.mark.clicked.connect(self._mark_bottom)
         self.top_btn.mark.clicked.connect(self._mark_top)
@@ -181,9 +181,10 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         self.reference_btn.clicked.connect(self._visit_reference)
         self.set_reference_btn.clicked.connect(self._set_reference)
 
-        self._grid_layout.addWidget(
-            self._move_buttons, ROW_FIRST_BOUND, 2, 2, 1, Qt.AlignmentFlag.AlignLeft
-        )
+        self._grid_layout.removeWidget(self.range)
+        self._range_layout.insertWidget(0, self.range, 1)
+        self._range_layout.setSpacing(self._grid_layout.horizontalSpacing())
+        self._grid_layout.addWidget(self._range_row, ROW_FIRST_BOUND, 1, 2, 2)
 
         self._edit_menu = QMenu(self)
         self._edit_action = self._edit_menu.addAction("Enable Editing")
@@ -234,8 +235,25 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
             self.bottom_btn,
             self.center_btn,
             self.reference_btn,
+            self.set_reference_btn,
         ):
             self._move_layout.removeWidget(widget)
+        self._grid_layout.removeWidget(self._move_buttons)
+        self._range_layout.removeWidget(self._move_buttons)
+        if mode is Mode.RANGE_AROUND:
+            self._range_layout.addWidget(
+                self._move_buttons, 0, Qt.AlignmentFlag.AlignVCenter
+            )
+        else:
+            self._grid_layout.addWidget(
+                self._move_buttons,
+                ROW_FIRST_BOUND,
+                2,
+                2,
+                1,
+                Qt.AlignmentFlag.AlignLeft,
+            )
+        self._range_row.setVisible(mode is Mode.RANGE_AROUND)
         self._move_layout.addWidget(self.top_btn, 0, 0)
         if mode is not Mode.RANGE_AROUND:
             self._move_layout.addWidget(self.bottom_btn, 1, 0)
@@ -243,17 +261,17 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         else:
             self._move_layout.addWidget(self.bottom_btn, 0, 1)
             self._move_layout.addWidget(self.center_btn, 0, 2)
+            self._move_layout.addWidget(self.set_reference_btn, 0, 3)
+            self.set_reference_btn.setToolTip(SET_CENTER_TOOLTIP)
         if mode is Mode.ABOVE_BELOW:
-            self._move_layout.addWidget(self.reference_btn, 0, 2, 2, 1)
+            self._move_layout.addWidget(self.reference_btn, 0, 2)
+            self._move_layout.addWidget(self.set_reference_btn, 1, 2)
+            self.set_reference_btn.setToolTip(SET_REFERENCE_TOOLTIP)
         absolute = mode is Mode.TOP_BOTTOM
         for buttons in (self.top_btn, self.bottom_btn):
             buttons.mark.setVisible(absolute)
         self.reference_btn.setVisible(mode is Mode.ABOVE_BELOW)
         self.set_reference_btn.setVisible(not absolute)
-        alignment = Qt.AlignmentFlag.AlignLeft
-        if mode is Mode.RANGE_AROUND:
-            alignment |= Qt.AlignmentFlag.AlignVCenter
-        self._grid_layout.setAlignment(self._move_buttons, alignment)
         super().setMode(mode)
         self._update_live_marker()
 
