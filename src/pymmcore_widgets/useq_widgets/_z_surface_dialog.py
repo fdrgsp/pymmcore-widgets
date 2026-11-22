@@ -99,8 +99,10 @@ class _ReferenceTable(DataTableWidget):
         # numbered like the points on the map and in the messages
         table.verticalHeader().setVisible(True)
         # every reference point is used: there is no row selection
-        self.act_check_all.setVisible(False)
-        self.act_check_none.setVisible(False)
+        actions = self.toolBar().actions()
+        separator = actions[actions.index(self.act_check_none) + 1]
+        for action in (self.act_check_all, self.act_check_none, separator):
+            action.setVisible(False)
         if stage is not None:
             self.act_add_row.setToolTip("Add the current stage position")
             # as in the position table: set XY, or Z after focusing, from the stage

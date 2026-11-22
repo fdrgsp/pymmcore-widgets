@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -385,6 +386,16 @@ def test_dialog_without_stage_has_no_hint(qtbot: QtBot) -> None:
     assert dialog.map._hint == ""
     assert dialog.map.minimumSizeHint().width() == MAP_MIN_WIDTH
     assert dialog.map._canvas_rect().top() == 1
+
+
+def test_dialog_toolbar_has_no_empty_group(qtbot: QtBot) -> None:
+    """The hidden row-selection actions take their separator with them."""
+    dialog = ZSurfaceDialog(SURFACE)
+    qtbot.addWidget(dialog)
+    visible = [a for a in dialog.points.toolBar().actions() if a.isVisible()]
+    assert not any(
+        a.isSeparator() and b.isSeparator() for a, b in itertools.pairwise(visible)
+    )
 
 
 def test_dialog_save_load(qtbot: QtBot, tmp_path: Path) -> None:

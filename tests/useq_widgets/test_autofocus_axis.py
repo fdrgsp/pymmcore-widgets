@@ -11,7 +11,10 @@ from qtpy.QtCore import QPoint, Qt
 from qtpy.QtWidgets import QCheckBox, QVBoxLayout, QWidget
 
 from pymmcore_widgets.useq_widgets import MDASequenceWidget
-from pymmcore_widgets.useq_widgets._mda_sequence import AutofocusAxis
+from pymmcore_widgets.useq_widgets._mda_sequence import (
+    DEFAULT_AF_SEARCH_STEP_UM,
+    AutofocusAxis,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -221,6 +224,17 @@ def test_switching_kind_keeps_layout_size(
         if rows_y is not None:
             assert ys == rows_y
         rows_y = ys
+        # each row's first control starts in one column
+        first = (af.method,) if kind == "software" else (af.keep_locked, af.use_search)
+        xs = {w.mapTo(af, w.rect().topLeft()).x() for w in (af.use_af_p, *first)}
+        assert len(xs) == 1
+        if kind == "hardware":
+            # evenly spaced, whatever their controls
+            y = [
+                label.mapTo(af, label.rect().center()).y()
+                for label in (af.label, af._keep_locked_label, af._search_label)
+            ]
+            assert abs((y[1] - y[0]) - (y[2] - y[1])) <= 1
 
 
 def test_keep_locked_row_sits_between_axes_and_search(qtbot: QtBot) -> None:
@@ -272,28 +286,36 @@ def test_no_search_by_default(qtbot: QtBot) -> None:
     assert plan.every_n_timepoints == 1
 
 
-def test_asking_for_a_range_fills_in_a_step(qtbot: QtBot) -> None:
-    """A range with no step is not a search, and the schema refuses to build one."""
+def test_search_checkbox_switches_the_search(qtbot: QtBot) -> None:
+    """The fields stay as entered when the search is off, but are not used."""
     wdg = _wdg(qtbot)
-    wdg.af_axis.setChecked(True)
-    wdg.af_axis.use_af_p.setChecked(True)
-    assert wdg.af_axis.search_step_um.value() == 0.0
+    af = wdg.af_axis
+    af.setChecked(True)
+    af.use_af_p.setChecked(True)
+    assert not af.use_search.isChecked()
+    assert not af.search_below_um.isEnabled()
+    assert af.search_step_um.value() == DEFAULT_AF_SEARCH_STEP_UM
 
-    wdg.af_axis.search_below_um.setValue(20.0)
-    assert wdg.af_axis.search_step_um.value() > 0.0
-
+    with qtbot.waitSignal(af.valueChanged):
+        af.use_search.setChecked(True)
+    assert all(spin.isEnabled() for spin in af._search_spins)
+    af.search_below_um.setValue(20.0)
     plan = wdg.value().autofocus_plan
     assert plan is not None
     assert plan.search_below_um == 20.0
-    assert plan.search_step_um == wdg.af_axis.search_step_um.value()
+    assert plan.search_step_um == DEFAULT_AF_SEARCH_STEP_UM
 
+    af.use_search.setChecked(False)
+    assert not af.search_below_um.isEnabled()
+    assert af.search_below_um.value() == 20.0
+    plan = wdg.value().autofocus_plan
+    assert plan is not None
+    assert plan.search_below_um == 0.0
 
-def test_a_step_already_set_is_left_alone(qtbot: QtBot) -> None:
-    wdg = _wdg(qtbot)
-    wdg.af_axis.setChecked(True)
-    wdg.af_axis.search_step_um.setValue(1.5)
-    wdg.af_axis.search_above_um.setValue(8.0)
-    assert wdg.af_axis.search_step_um.value() == 1.5
+    # software autofocus has no search
+    af.setSoftwareMethods(["oughtafocus"])
+    af.use_software.setChecked(True)
+    assert not af.use_search.isEnabled()
 
 
 def test_search_values_round_trip(qtbot: QtBot) -> None:
@@ -303,6 +325,7 @@ def test_search_values_round_trip(qtbot: QtBot) -> None:
     )
     wdg.setValue(useq.MDASequence(stage_positions=[(0, 0)], autofocus_plan=plan))
 
+    assert wdg.af_axis.use_search.isChecked()
     assert wdg.af_axis.search_below_um.value() == 20.0
     assert wdg.af_axis.search_above_um.value() == 30.0
     assert wdg.af_axis.search_step_um.value() == 2.5
@@ -313,6 +336,7 @@ def test_search_is_editable(qtbot: QtBot) -> None:
     wdg = _wdg(qtbot)
     wdg.af_axis.setChecked(True)
     wdg.af_axis.use_af_p.setChecked(True)
+    wdg.af_axis.use_search.setChecked(True)
     wdg.af_axis.search_below_um.setValue(12.0)
     wdg.af_axis.search_above_um.setValue(4.0)
     wdg.af_axis.search_step_um.setValue(2.0)

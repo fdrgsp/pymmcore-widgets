@@ -11,7 +11,7 @@ from weakref import WeakMethod
 
 import useq
 from pydantic import ValidationError
-from qtpy.QtCore import QEvent, Qt, Signal
+from qtpy.QtCore import QEvent, Qt, QTimer, Signal
 from qtpy.QtGui import QIcon
 from qtpy.QtWidgets import (
     QApplication,
@@ -200,7 +200,7 @@ AF_SEARCH_TOOLTIP = (
     "outside it. The focus device is then stepped down, and then up, retrying at\n"
     "each step until it locks.\n"
     "\n"
-    "Set both distances to 0 to disable the search and only try the current position."
+    "Uncheck to only try the current position."
 )
 AF_SEARCH_BELOW_TOOLTIP = (
     "How far below the starting position to search for a lock. 0 disables it."
@@ -600,11 +600,20 @@ class AutofocusAxis(QWidget):
 
         # --- hardware only: search for a lock if autofocus fails where it starts ---
         self._search_label = QLabel("Search:")
-        self._search_label.setToolTip(AF_SEARCH_TOOLTIP)
-        # all zero: autofocus is only attempted where it starts, until asked for more
+        # off: autofocus is only attempted where it starts
+        self.use_search = QCheckBox()
+        for wdg in (self._search_label, self.use_search):
+            wdg.setToolTip(AF_SEARCH_TOOLTIP)
         self.search_below_um = self._search_spin("below ", AF_SEARCH_BELOW_TOOLTIP)
         self.search_above_um = self._search_spin("above ", AF_SEARCH_ABOVE_TOOLTIP)
         self.search_step_um = self._search_spin("step ", AF_SEARCH_STEP_TOOLTIP)
+        self.search_step_um.setMinimum(0.1)
+        self.search_step_um.setValue(DEFAULT_AF_SEARCH_STEP_UM)
+        self._search_spins = (
+            self.search_below_um,
+            self.search_above_um,
+            self.search_step_um,
+        )
 
         # --- software only: which routine, and its settings ---
         self._method_label = QLabel("Method:")
@@ -669,11 +678,7 @@ class AutofocusAxis(QWidget):
             row.addWidget(spin)
             axis_row.addWidget(group)
         axis_row.addStretch()
-        search_row = _row(
-            self.search_below_um,
-            self.search_above_um,
-            self.search_step_um,
-        )
+        search_row = _row(self.use_search, *self._search_spins)
 
         software_row = _row(self.method, self.settings_button)
 
@@ -707,14 +712,19 @@ class AutofocusAxis(QWidget):
         mode_row.addWidget(self.use_software)
         mode_row.addStretch()
 
-        form = QGridLayout()
+        self._form = form = QGridLayout()
         form.setHorizontalSpacing(10)
         form.setVerticalSpacing(5)
         form.setColumnStretch(1, 1)
         form.addWidget(self.label, 0, 0)
         form.addLayout(axis_row, 0, 1)
         form.addWidget(self._keep_locked_label, 1, 0)
-        form.addWidget(self.keep_locked, 1, 1)
+        # in a row like the other controls, which lines it up with them on macOS
+        keep_locked_row = QWidget()
+        keep_locked_layout = _row(self.keep_locked)
+        keep_locked_layout.setContentsMargins(0, 0, 0, 0)
+        keep_locked_row.setLayout(keep_locked_layout)
+        form.addWidget(keep_locked_row, 1, 1)
         form.addWidget(kind_label, 2, 0)
         form.addWidget(options, 2, 1)
 
@@ -736,9 +746,9 @@ class AutofocusAxis(QWidget):
         # toggles `use_hardware`
         self.use_hardware.toggled.connect(self._on_af_state_changed)
         self.keep_locked.toggled.connect(self.valueChanged)
-        self.search_below_um.valueChanged.connect(self._on_search_range_changed)
-        self.search_above_um.valueChanged.connect(self._on_search_range_changed)
-        self.search_step_um.valueChanged.connect(self.valueChanged)
+        self.use_search.toggled.connect(self._on_af_state_changed)
+        for spin in self._search_spins:
+            spin.valueChanged.connect(self.valueChanged)
         self.method.currentTextChanged.connect(self._on_method_changed)
         self.settings_button.clicked.connect(self._edit_settings)
 
@@ -776,12 +786,34 @@ class AutofocusAxis(QWidget):
 
     def event(self, event: QEvent | None) -> bool:
         handled = bool(super().event(event))
-        if event is not None and event.type() in (
-            QEvent.Type.EnabledChange,
-            QEvent.Type.ToolTipChange,
-        ):
-            self.availabilityChanged.emit()
+        if event is not None:
+            if event.type() in (QEvent.Type.EnabledChange, QEvent.Type.ToolTipChange):
+                self.availabilityChanged.emit()
+            elif event.type() == QEvent.Type.Show:
+                self._equalize_form_rows()
+            elif event.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange):
+                # once the controls have taken the change too
+                QTimer.singleShot(0, self._equalize_form_rows)
         return handled
+
+    def _equalize_form_rows(self) -> None:
+        """Space the labels under the mode evenly.
+
+        Their controls differ in height (spin boxes, a lone checkbox, the software
+        page's taller combo box), and with the style and font. Giving the first and
+        last rows one height is enough: the middle one then sits halfway between them.
+        Measured once shown: before, the controls are hidden and take no room.
+        """
+        form = self._form
+        outer = (0, form.rowCount() - 1)
+        height = max(
+            item.sizeHint().height()
+            for row in outer
+            for col in range(form.columnCount())
+            if (item := form.itemAtPosition(row, col)) is not None
+        )
+        for row in outer:
+            form.setRowMinimumHeight(row, height)
 
     def _search_spin(self, prefix: str, tooltip: str) -> QDoubleSpinBox:
         spin = QDoubleSpinBox()
@@ -793,21 +825,6 @@ class AutofocusAxis(QWidget):
         spin.setToolTip(tooltip)
         disable_wheel_scroll(spin)
         return spin
-
-    def _on_search_range_changed(self) -> None:
-        """Give the search a step as soon as a range asks for one.
-
-        A range with no step is not a search anyone meant to configure, and the
-        schema rejects it, so asking for one fills in a usable step rather than
-        leaving the section in a state that cannot be turned into a plan.
-        """
-        wants_search = bool(
-            self.search_below_um.value() or self.search_above_um.value()
-        )
-        if wants_search and not self.search_step_um.value():
-            with signals_blocked(self.search_step_um):
-                self.search_step_um.setValue(DEFAULT_AF_SEARCH_STEP_UM)
-        self.valueChanged.emit()
 
     # -------------------------------- kind --------------------------------
 
@@ -991,8 +1008,11 @@ class AutofocusAxis(QWidget):
             tooltip = self._software_unavailable_reason or AF_NO_SOFTWARE_TOOLTIP
         self.use_software.setToolTip(tooltip)
 
-        for wdg in (self._keep_locked_label, self.keep_locked):
-            wdg.setEnabled(self.kind() == "hardware")
+        hardware = self.kind() == "hardware"
+        for wdg in (self._keep_locked_label, self.keep_locked, self.use_search):
+            wdg.setEnabled(hardware)
+        for spin in self._search_spins:
+            spin.setEnabled(hardware and self.use_search.isChecked())
         index = 0 if self.use_hardware.isChecked() else 1
         self._kind_stack.setCurrentIndex(index)
         self._kind_labels.setCurrentIndex(index)
@@ -1061,9 +1081,12 @@ class AutofocusAxis(QWidget):
                 updates["settings"] = self.softwareSettings()
             soft = self._software_plan or useq.SoftwareAxesBasedAF(axes=axes, method="")
             return soft.replace(**(updates | kwargs))
-        updates["search_below_um"] = self.search_below_um.value()
-        updates["search_above_um"] = self.search_above_um.value()
-        updates["search_step_um"] = self.search_step_um.value()
+        if self.use_search.isChecked():
+            updates["search_below_um"] = self.search_below_um.value()
+            updates["search_above_um"] = self.search_above_um.value()
+            updates["search_step_um"] = self.search_step_um.value()
+        else:
+            updates["search_below_um"] = updates["search_above_um"] = 0.0
         updates["keep_locked"] = self.keepLocked()
         hard = self._hardware_plan or useq.AxesBasedAF(axes=axes)
         return hard.replace(**(updates | kwargs))
@@ -1089,9 +1112,13 @@ class AutofocusAxis(QWidget):
                 self.setKind("software")
             else:
                 self._hardware_plan = plan
-                self.search_below_um.setValue(plan.search_below_um)
-                self.search_above_um.setValue(plan.search_above_um)
-                self.search_step_um.setValue(plan.search_step_um)
+                search = bool(plan.search_below_um or plan.search_above_um)
+                # without a search, the fields keep what was last entered in them
+                if search:
+                    self.search_below_um.setValue(plan.search_below_um)
+                    self.search_above_um.setValue(plan.search_above_um)
+                    self.search_step_um.setValue(plan.search_step_um)
+                self.use_search.setChecked(search)
                 self.keep_locked.setChecked(plan.keep_locked)
                 self.setKind("hardware")
 
