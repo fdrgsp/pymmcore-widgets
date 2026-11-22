@@ -159,6 +159,19 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
             button.setMinimumHeight(26)
             button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
 
+        # what "Enable Moving" enables, each with its tooltip before the menu hint
+        self._moving = False
+        self._move_tooltips = {
+            button: button.toolTip()
+            for button in (
+                self.top_btn.visit,
+                self.bottom_btn.visit,
+                self.center_btn,
+                self.reference_btn,
+                self.set_reference_btn,
+            )
+        }
+
         super().__init__(parent)
         self._mmc = mmcore or CMMCorePlus.instance()
         self._mda_running = self._mmc.mda.is_running()
@@ -193,15 +206,6 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         RightClickMenu(self._edit_menu, (self.top, self.bottom), self.isEnabled)
         self.enable_editing(False)
 
-        self._move_tooltips = {
-            button: button.toolTip()
-            for button in (
-                self.top_btn.visit,
-                self.bottom_btn.visit,
-                self.center_btn,
-                self.reference_btn,
-            )
-        }
         self._move_menu = QMenu(self)
         self._move_action = self._move_menu.addAction("Enable Moving")
         self._move_action.setCheckable(True)
@@ -262,11 +266,12 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
             self._move_layout.addWidget(self.bottom_btn, 0, 1)
             self._move_layout.addWidget(self.center_btn, 0, 2)
             self._move_layout.addWidget(self.set_reference_btn, 0, 3)
-            self.set_reference_btn.setToolTip(SET_CENTER_TOOLTIP)
+            self._move_tooltips[self.set_reference_btn] = SET_CENTER_TOOLTIP
         if mode is Mode.ABOVE_BELOW:
             self._move_layout.addWidget(self.reference_btn, 0, 2)
             self._move_layout.addWidget(self.set_reference_btn, 1, 2)
-            self.set_reference_btn.setToolTip(SET_REFERENCE_TOOLTIP)
+            self._move_tooltips[self.set_reference_btn] = SET_REFERENCE_TOOLTIP
+        self._update_move_button(self.set_reference_btn)
         absolute = mode is Mode.TOP_BOTTOM
         for buttons in (self.top_btn, self.bottom_btn):
             buttons.mark.setVisible(absolute)
@@ -288,12 +293,17 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
     def enable_moving(self, enabled: bool) -> None:
         """Toggle whether the Move buttons can move the Z stage.
 
-        They are disabled by default, so that a click does not move the stage.
+        They are disabled by default, so that a click does not move the stage. The
+        reset of the reference they move around goes with them.
         """
+        self._moving = enabled
         self._move_action.setChecked(enabled)
-        for button, tooltip in self._move_tooltips.items():
-            button.setEnabled(enabled)
-            button.setToolTip(_moving_tooltip(tooltip, enabled))
+        for button in self._move_tooltips:
+            self._update_move_button(button)
+
+    def _update_move_button(self, button: QToolButton) -> None:
+        button.setEnabled(self._moving)
+        button.setToolTip(_moving_tooltip(self._move_tooltips[button], self._moving))
 
     def _sync_visual_height(self) -> None:
         # measured each time, as the buttons' size follows the app's zoom

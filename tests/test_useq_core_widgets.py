@@ -725,6 +725,8 @@ def test_z_moving_is_disabled_until_enabled(
     buttons = (wdg.top_btn.visit, wdg.bottom_btn.visit, wdg.center_btn)
     if mode == "above_below":
         buttons += (wdg.reference_btn,)
+    if mode != "top_bottom":
+        buttons += (wdg.set_reference_btn,)
     assert not any(button.isEnabled() for button in buttons)
     assert all("Right-click to enable moving" in b.toolTip() for b in buttons)
 
@@ -796,7 +798,7 @@ def test_z_move_button_layout(qtbot: QtBot) -> None:
                     reference.mapTo(wdg, QPoint()).x(),
                     bottom.mapTo(wdg, QPoint()).y(),
                 )
-                assert set_reference.toolTip() == SET_REFERENCE_TOOLTIP
+                assert set_reference.toolTip().startswith(SET_REFERENCE_TOOLTIP)
                 assert (
                     wdg.above.mapTo(wdg, QPoint()).y()
                     < wdg.below.mapTo(wdg, QPoint()).y()
@@ -816,7 +818,7 @@ def test_z_move_button_layout(qtbot: QtBot) -> None:
             top_y = top.mapTo(wdg, QPoint()).y()
             assert set_reference.mapTo(wdg, QPoint()).y() == top_y
             assert top.height() == bottom.height() == center.height()
-            assert set_reference.toolTip() == SET_CENTER_TOOLTIP
+            assert set_reference.toolTip().startswith(SET_CENTER_TOOLTIP)
     assert len(widths) == 1
 
 
