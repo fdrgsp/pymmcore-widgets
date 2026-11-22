@@ -713,6 +713,11 @@ class AutofocusAxis(QWidget):
         mode_row.addStretch()
 
         self._form = form = QGridLayout()
+        # owned, so it cannot fire once the widget is gone
+        self._equalize_timer = QTimer(self)
+        self._equalize_timer.setSingleShot(True)
+        self._equalize_timer.setInterval(0)
+        self._equalize_timer.timeout.connect(self._equalize_form_rows)
         form.setHorizontalSpacing(10)
         form.setVerticalSpacing(5)
         form.setColumnStretch(1, 1)
@@ -793,7 +798,7 @@ class AutofocusAxis(QWidget):
                 self._equalize_form_rows()
             elif event.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange):
                 # once the controls have taken the change too
-                QTimer.singleShot(0, self._equalize_form_rows)
+                self._equalize_timer.start()
         return handled
 
     def _equalize_form_rows(self) -> None:
