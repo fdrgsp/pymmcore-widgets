@@ -135,13 +135,6 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         # leaving a gap between the Z graphic above and the divider beside it.
         self.poll_z.setAttribute(Qt.WidgetAttribute.WA_LayoutUsesWidgetRect)
 
-        # In Symmetric mode the buttons are one row, wider than their column: they
-        # share a row with the range field, which makes room for them, so the
-        # widget does not grow.
-        self._range_row = QWidget()
-        self._range_layout = QHBoxLayout(self._range_row)
-        self._range_layout.setContentsMargins(0, 0, 0, 0)
-
         self._move_layout = QGridLayout(self._move_buttons)
         self._move_layout.setContentsMargins(0, 0, 0, 0)
         self._move_layout.setHorizontalSpacing(5)
@@ -194,10 +187,9 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         self.reference_btn.clicked.connect(self._visit_reference)
         self.set_reference_btn.clicked.connect(self._set_reference)
 
-        self._grid_layout.removeWidget(self.range)
-        self._range_layout.insertWidget(0, self.range, 1)
-        self._range_layout.setSpacing(self._grid_layout.horizontalSpacing())
-        self._grid_layout.addWidget(self._range_row, ROW_FIRST_BOUND, 1, 2, 2)
+        self._grid_layout.addWidget(
+            self._move_buttons, ROW_FIRST_BOUND, 2, 2, 1, Qt.AlignmentFlag.AlignLeft
+        )
 
         self._edit_menu = QMenu(self)
         self._edit_action = self._edit_menu.addAction("Enable Editing")
@@ -242,32 +234,13 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
             self.set_reference_btn,
         ):
             self._move_layout.removeWidget(widget)
-        self._grid_layout.removeWidget(self._move_buttons)
-        self._range_layout.removeWidget(self._move_buttons)
-        if mode is Mode.RANGE_AROUND:
-            self._range_layout.addWidget(
-                self._move_buttons, 0, Qt.AlignmentFlag.AlignVCenter
-            )
-        else:
-            self._grid_layout.addWidget(
-                self._move_buttons,
-                ROW_FIRST_BOUND,
-                2,
-                2,
-                1,
-                Qt.AlignmentFlag.AlignLeft,
-            )
-        self._range_row.setVisible(mode is Mode.RANGE_AROUND)
         self._move_layout.addWidget(self.top_btn, 0, 0)
-        if mode is not Mode.RANGE_AROUND:
-            self._move_layout.addWidget(self.bottom_btn, 1, 0)
-            self._move_layout.addWidget(self.center_btn, 0, 1, 2, 1)
-        else:
-            self._move_layout.addWidget(self.bottom_btn, 0, 1)
-            self._move_layout.addWidget(self.center_btn, 0, 2)
-            self._move_layout.addWidget(self.set_reference_btn, 0, 3)
+        self._move_layout.addWidget(self.bottom_btn, 1, 0)
+        self._move_layout.addWidget(self.center_btn, 0, 1, 2, 1)
+        if mode is Mode.RANGE_AROUND:
+            self._move_layout.addWidget(self.set_reference_btn, 0, 2, 2, 1)
             self._move_tooltips[self.set_reference_btn] = SET_CENTER_TOOLTIP
-        if mode is Mode.ABOVE_BELOW:
+        elif mode is Mode.ABOVE_BELOW:
             self._move_layout.addWidget(self.reference_btn, 0, 2)
             self._move_layout.addWidget(self.set_reference_btn, 1, 2)
             self._move_tooltips[self.set_reference_btn] = SET_REFERENCE_TOOLTIP

@@ -763,62 +763,52 @@ def test_z_move_button_layout(qtbot: QtBot) -> None:
     for mode in wdg.Mode:
         wdg.setMode(mode)
         qtbot.wait(10)
-        # the range field makes room for Symmetric's row of buttons
         widths.add(wdg.sizeHint().width())
         top = wdg.top_btn.visit
         bottom = wdg.bottom_btn.visit
         center = wdg.center_btn
+        set_reference = wdg.set_reference_btn
         assert all(button.isVisible() for button in (top, bottom, center))
         assert wdg.top_btn.mark.isVisible() == (mode is wdg.Mode.TOP_BOTTOM)
         assert wdg.bottom_btn.mark.isVisible() == (mode is wdg.Mode.TOP_BOTTOM)
         assert not center.icon().isNull()
         assert wdg.reference_btn.isVisible() == (mode is wdg.Mode.ABOVE_BELOW)
-        set_reference = wdg.set_reference_btn
         assert set_reference.isVisible() == (mode is not wdg.Mode.TOP_BOTTOM)
 
-        if mode is not wdg.Mode.RANGE_AROUND:
-            assert center.mapTo(wdg, QPoint()).x() > top.mapTo(wdg, QPoint()).x()
-            assert top.mapTo(wdg, QPoint()).x() == bottom.mapTo(wdg, QPoint()).x()
-            assert top.mapTo(wdg, QPoint()).y() < bottom.mapTo(wdg, QPoint()).y()
-            assert center.mapTo(wdg, QPoint()).y() == top.mapTo(wdg, QPoint()).y()
-            assert center.height() == (
-                bottom.mapTo(wdg, QPoint()).y()
-                + bottom.height()
-                - top.mapTo(wdg, QPoint()).y()
-            )
-            if mode is wdg.Mode.ABOVE_BELOW:
-                # return to the reference Z on top, reset it below
-                reference = wdg.reference_btn
-                assert (
-                    reference.mapTo(wdg, QPoint()).x() > center.mapTo(wdg, QPoint()).x()
-                )
-                top_y = top.mapTo(wdg, QPoint()).y()
-                assert reference.mapTo(wdg, QPoint()).y() == top_y
-                assert set_reference.mapTo(wdg, QPoint()) == QPoint(
-                    reference.mapTo(wdg, QPoint()).x(),
-                    bottom.mapTo(wdg, QPoint()).y(),
-                )
-                assert set_reference.toolTip().startswith(SET_REFERENCE_TOOLTIP)
-                assert (
-                    wdg.above.mapTo(wdg, QPoint()).y()
-                    < wdg.below.mapTo(wdg, QPoint()).y()
-                )
-                assert center.height() >= (
-                    wdg.below.mapTo(wdg, QPoint()).y()
-                    + wdg.below.height()
-                    - wdg.above.mapTo(wdg, QPoint()).y()
-                )
-        else:
-            assert (
-                top.mapTo(wdg, QPoint()).x()
-                < bottom.mapTo(wdg, QPoint()).x()
-                < center.mapTo(wdg, QPoint()).x()
-                < set_reference.mapTo(wdg, QPoint()).x()
-            )
-            top_y = top.mapTo(wdg, QPoint()).y()
-            assert set_reference.mapTo(wdg, QPoint()).y() == top_y
-            assert top.height() == bottom.height() == center.height()
+        # move to top above move to bottom, then the full-height move to center
+        top_pos, bottom_pos = top.mapTo(wdg, QPoint()), bottom.mapTo(wdg, QPoint())
+        center_pos = center.mapTo(wdg, QPoint())
+        assert top_pos.x() == bottom_pos.x() < center_pos.x()
+        assert top_pos.y() < bottom_pos.y()
+        assert center_pos.y() == top_pos.y()
+        assert center.height() == bottom_pos.y() + bottom.height() - top_pos.y()
+        if mode is wdg.Mode.RANGE_AROUND:
+            # reset the center: full height, after move to center
+            set_pos = set_reference.mapTo(wdg, QPoint())
+            assert set_pos.y() == top_pos.y()
+            assert set_pos.x() > center_pos.x()
+            assert set_reference.height() == center.height()
             assert set_reference.toolTip().startswith(SET_CENTER_TOOLTIP)
+            # the range field is centered on the buttons
+            range_mid = wdg.range.mapTo(wdg, QPoint()).y() + wdg.range.height() / 2
+            assert abs(range_mid - (top_pos.y() + center.height() / 2)) <= 1
+        elif mode is wdg.Mode.ABOVE_BELOW:
+            # return to the reference Z on top, reset it below
+            reference_pos = wdg.reference_btn.mapTo(wdg, QPoint())
+            assert reference_pos.y() == top_pos.y()
+            assert reference_pos.x() > center_pos.x()
+            assert set_reference.mapTo(wdg, QPoint()) == QPoint(
+                reference_pos.x(), bottom_pos.y()
+            )
+            assert set_reference.toolTip().startswith(SET_REFERENCE_TOOLTIP)
+            assert (
+                wdg.above.mapTo(wdg, QPoint()).y() < wdg.below.mapTo(wdg, QPoint()).y()
+            )
+            assert center.height() >= (
+                wdg.below.mapTo(wdg, QPoint()).y()
+                + wdg.below.height()
+                - wdg.above.mapTo(wdg, QPoint()).y()
+            )
     assert len(widths) == 1
 
 
