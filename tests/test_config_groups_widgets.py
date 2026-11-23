@@ -4,9 +4,20 @@ from typing import TYPE_CHECKING
 
 import pytest
 from pymmcore_plus import CMMCorePlus, DeviceType
-from qtpy.QtCore import QEvent, QPointF, Qt
-from qtpy.QtGui import QContextMenuEvent, QKeyEvent, QMouseEvent, QUndoStack
-from qtpy.QtWidgets import QDialog, QMenu
+from qtpy.QtCore import QEvent, QPointF, QRect, Qt
+from qtpy.QtGui import (
+    QColor,
+    QContextMenuEvent,
+    QImage,
+    QKeyEvent,
+    QMouseEvent,
+    QPainter,
+    QPalette,
+    QStandardItem,
+    QStandardItemModel,
+    QUndoStack,
+)
+from qtpy.QtWidgets import QDialog, QMenu, QStyle, QStyleOptionViewItem
 
 from pymmcore_widgets import ConfigGroupsTree
 from pymmcore_widgets._models import (
@@ -121,6 +132,31 @@ def test_config_groups_tree(qtbot: QtBot, core: CMMCorePlus) -> None:
 
 
 # ── ConfigPresetsTable tests ──────────────────────────────────────
+
+
+def test_delegate_tints_selected_cell(qtbot: QtBot) -> None:
+    """A selected cell is tinted, not filled with the view's solid highlight."""
+    item = QStandardItem()
+    setting = DevicePropertySetting(device=Device(label="Dev"), property_name="P")
+    item.setData(setting, Qt.ItemDataRole.UserRole)
+    model = QStandardItemModel()
+    model.appendRow(item)
+
+    highlight, base = QColor("#4a9eff"), QColor("#121212")
+    opt = QStyleOptionViewItem()
+    opt.rect = QRect(0, 0, 200, 26)
+    opt.state = QStyle.StateFlag.State_Enabled | QStyle.StateFlag.State_Selected
+    opt.palette.setColor(QPalette.ColorRole.Highlight, highlight)
+    opt.palette.setColor(QPalette.ColorRole.Base, base)
+    image = QImage(200, 26, QImage.Format.Format_ARGB32)
+    image.fill(highlight)  # what QTableView paints under a selected cell
+    painter = QPainter(image)
+    PropertySettingDelegate().paint(painter, opt, model.index(0, 0))
+    painter.end()
+
+    # the empty right end of the cell: between the base and the highlight
+    pixel = image.pixelColor(190, 13)
+    assert base.blue() < pixel.blue() < highlight.blue()
 
 
 def test_config_presets_table(qtbot: QtBot, core: CMMCorePlus) -> None:

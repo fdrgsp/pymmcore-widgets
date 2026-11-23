@@ -15,6 +15,7 @@ from qtpy.QtCore import (
     Qt,
     QTimer,
 )
+from qtpy.QtGui import QColor, QPalette
 from qtpy.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -83,7 +84,12 @@ class PropertySettingDelegate(QStyledItemDelegate):
             super().paint(painter, option, index)
             return
 
-        # Draw selection / hover background
+        # Selection is a tint over the control, not QTableView's solid fill
+        # (painted before the delegate), which opaque controls like combo boxes
+        # hide and others blend into: a slider's groove is the highlight color.
+        if selected := bool(opt.state & QStyle.StateFlag.State_Selected):
+            painter.fillRect(opt.rect, opt.palette.base())
+            opt.state &= ~QStyle.StateFlag.State_Selected
         style.drawPrimitive(
             QStyle.PrimitiveElement.PE_PanelItemViewItem, opt, painter, opt.widget
         )
@@ -100,6 +106,10 @@ class PropertySettingDelegate(QStyledItemDelegate):
             self._paint_spinbox(painter, opt, value, style)
         else:
             self._draw_text(painter, opt.rect.adjusted(4, 0, -4, 0), value, opt)
+        if selected:
+            tint = QColor(opt.palette.color(QPalette.ColorRole.Highlight))
+            tint.setAlpha(70)
+            painter.fillRect(opt.rect, tint)
 
     def _paint_checkbox(
         self,
