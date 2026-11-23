@@ -30,9 +30,9 @@ def test_hcs_wizard(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
     wdg.setValue(plan)
     qtbot.addWidget(wdg)
     wdg.show()
-    wdg.next()
-    wdg.next()
-    wdg.next()
+    for _ in range(3):
+        wdg.next()
+    assert wdg.currentPage() is wdg.points_plan_page
     wdg.accept()
 
     value = wdg.value()
@@ -93,8 +93,9 @@ def test_hcs_wizard_fits_points_plan_panel(
     wdg.show()
     qtbot.waitExposed(wdg)
     size = wdg.size()
-    wdg.next()
-    wdg.next()
+    for _ in range(3):
+        wdg.next()
+    assert wdg.currentPage() is wdg.points_plan_page
     qtbot.wait(50)
 
     # sized once: reopening keeps whatever size the user left it at (shrunk, not
@@ -230,9 +231,7 @@ def test_hcs_wizard_cover_area_blocks_finish(
     page.widget._selector.fov_w.setValue(512)
     page.widget._selector.cover_area_radio_btn.setChecked(True)
     cov_value = cov.value()
-    plate_value = wdg.plate_page.widget.value()
-    wdg.plate_page.widget.setValue(plate_value.replace(selected_wells=([0, 1], [0, 0])))
-    wdg._on_plate_changed(wdg.plate_page.widget.value())  # as on a user selection
+    wdg.well_page.view.setSelectedIndices([(0, 0), (1, 0)])
     assert cov.value() == cov_value
     assert "(2 wells)" in page.widget._well_view.infoText()
 
@@ -397,3 +396,38 @@ def test_hcs_wizard_grid_in_cover_area(
     # a grid doesn't need the coverage validation
     selector.fov_w.setValue(0)
     assert wdg.points_plan_page.isComplete()
+
+
+def test_hcs_wizard_selects_wells_after_calibration(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Wells are selected on their own page, after the plate calibration."""
+    wdg = HCSWizard(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    view = wdg.plate_page.widget._view
+    assert view.selectionMode() == view.SelectionMode.NoSelection
+    assert view.dragMode() == view.DragMode.NoDrag
+    assert not view._clear_overlay.isVisibleTo(view)
+
+    plan = useq.WellPlatePlan(
+        plate="96-well", a1_center_xy=(0, 0), rotation=0.3, selected_wells=([1], [2])
+    )
+    wdg.setValue(plan)
+    assert not wdg.plate_page.widget.currentSelection()
+    page = wdg.well_page
+    assert page.view.selectedIndices() == ((1, 2),)
+    assert page.isComplete()
+    assert "(1 well)" in wdg.points_plan_page.widget._well_view.infoText()
+
+    # recalibrating the same plate keeps the selection
+    wdg.calibration_page.widget.setValue(plan.replace(a1_center_xy=(10, 10)))
+    assert page.view.selectedIndices() == ((1, 2),)
+
+    # a plate change clears it, and the page needs a well to go on
+    wdg.plate_page.widget.plate_name.setCurrentText("24-well")
+    assert not page.view.selectedIndices()
+    assert not page.isComplete()
+    assert "(0 wells)" in wdg.points_plan_page.widget._well_view.infoText()
+    page.view.setSelectedIndices([(0, 0), (0, 1)])
+    assert page.isComplete()
+    assert "(2 wells)" in wdg.points_plan_page.widget._well_view.infoText()

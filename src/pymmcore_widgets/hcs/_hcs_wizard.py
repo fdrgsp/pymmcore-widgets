@@ -23,6 +23,7 @@ from useq import WellPlatePlan
 
 from pymmcore_widgets._util import FovChangeObserver, fov_pixel_size_warning
 from pymmcore_widgets.useq_widgets import PointsPlanWidget, WellPlateWidget
+from pymmcore_widgets.useq_widgets._well_plate_widget import WellPlateView
 
 from ._automated_plate_calibration_widget import AutomatedPlateCalibrationWidget
 from ._plate_calibration import supports_automated_calibration
@@ -68,9 +69,10 @@ def read_wizard_file(path: str | Path) -> useq.WellPlatePlan:
 class HCSWizard(QWizard):
     """A wizard to setup an High Content Screening (HCS) experiment.
 
-    This widget can be used to select a plate, calibrate it, and then select the number
-    of images (and their arrangement) to acquire per well.  The output is a
-    [useq.WellPlatePlan][] object, which can be retrieved with the `value()` method.
+    This widget can be used to select a plate, calibrate it, select the wells, and then
+    select the number of images (and their arrangement) to acquire per well.  The
+    output is a [useq.WellPlatePlan][] object, which can be retrieved with the
+    `value()` method.
 
     Parameters
     ----------
@@ -95,10 +97,12 @@ class HCSWizard(QWizard):
 
         self.plate_page = _PlatePage(self)
         self.calibration_page = _PlateCalibrationPage(self._mmc, self)
+        self.well_page = _WellSelectionPage(self)
         self.points_plan_page = _PointsPlanPage(self._mmc, self)
 
         self.addPage(self.plate_page)
         self.addPage(self.calibration_page)
+        self.addPage(self.well_page)
         self.addPage(self.points_plan_page)
 
         # SAVE/LOAD BUTTONS ----------------------
@@ -124,6 +128,7 @@ class HCSWizard(QWizard):
 
         self.plate_page.widget.valueChanged.connect(self._on_plate_changed)
         self._on_plate_changed(self.plate_page.widget.value())
+        self.well_page.view.selectionChanged.connect(self._on_wells_changed)
         self.calibration_page.widget.calibrationChanged.connect(
             self._on_calibration_changed
         )
@@ -138,7 +143,12 @@ class HCSWizard(QWizard):
         if self._initial_size_set or (page := self.currentPage()) is None:
             return
         self._initial_size_set = True
-        pages = (self.plate_page, self.calibration_page, self.points_plan_page)
+        pages = (
+            self.plate_page,
+            self.calibration_page,
+            self.well_page,
+            self.points_plan_page,
+        )
         size = self.points_plan_page.sizeHint()
         for p in pages:
             size = size.expandedTo(p.minimumSizeHint())
@@ -182,11 +192,7 @@ class HCSWizard(QWizard):
             warnings.warn("Plate Plan and Calibration Plan do not match.", stacklevel=2)
             return None
 
-        selected_rows, selected_columns = plate_plan.selected_wells or ((), ())
-        rows = groupby(
-            sorted(zip(selected_rows, selected_columns, strict=True)),
-            key=lambda well: well[0],
-        )
+        rows = groupby(self.well_page.view.selectedIndices(), key=lambda well: well[0])
         wells: list[tuple[int, int]] = []
         for index, (_, row) in enumerate(rows):
             row_wells = list(row)
@@ -201,11 +207,12 @@ class HCSWizard(QWizard):
 
     def setValue(self, value: useq.WellPlatePlan) -> None:
         """Set the state of the wizard to a WellPlatePlan."""
-        self.plate_page.widget.setValue(value)
+        self.plate_page.widget.setValue(value.replace(selected_wells=None))
         self.calibration_page.widget.setValue(value)
         # WellPlateWidget.setValue doesn't emit, so synchronize the well geometry
         # (after the calibration, so that it isn't reset as a plate change)
         self._on_plate_changed(self.plate_page.widget.value())
+        self.well_page.setPlate(value)
         # the FOV follows the current camera and objective (a saved plan may come
         # from another objective); the saved FOV is only used without a pixel size
         point_plan = value.well_points_plan
@@ -248,6 +255,7 @@ class HCSWizard(QWizard):
         )
         if plate_changed:
             self.calibration_page.widget.setValue(plate_plan.plate)
+            self.well_page.setPlate(plate_plan.plate)
 
         pp_widget = self.points_plan_page.widget
 
@@ -262,9 +270,6 @@ class HCSWizard(QWizard):
             else useq.Shape.RECTANGLE
         )
         pp_widget.setWellShape(shape)
-        # the well view shows the total number of FOVs across the selected wells
-        selected = plate_plan.selected_wells
-        pp_widget.setSelectedWellCount(len(selected[0]) if selected else 0)
 
         # additionally, restrict the max width and height of the random points widget
         # to the plate size minus the fov size.
@@ -290,6 +295,12 @@ class HCSWizard(QWizard):
         random_wdg.max_height.setMaximum(well_height * 1000)
         random_wdg.max_height.setValue(well_height * 1000 - fovh / 1.4)
 
+    @Slot()
+    def _on_wells_changed(self) -> None:
+        # the well view shows the total number of FOVs across the selected wells
+        count = len(self.well_page.view.selectedIndices())
+        self.points_plan_page.widget.setSelectedWellCount(count)
+
     @Slot(bool)
     def _on_calibration_changed(self, calibrated: bool) -> None:
         self._calibrated = calibrated
@@ -309,10 +320,15 @@ class _PlatePage(QWizardPage):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        self.setTitle("Plate and Well Selection")
+        self.setTitle("Plate Selection")
 
         self.widget = WellPlateWidget()
         self.widget.setShowRotation(False)
+        # wells are selected after the calibration, on the Well Selection page
+        view = self.widget._view
+        view.setDragMode(WellPlateView.DragMode.NoDrag)
+        view.setSelectionMode(WellPlateView.SelectionMode.NoSelection)
+        view.setClearButtonVisible(False)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.widget)
@@ -390,6 +406,28 @@ class _PlateCalibrationPage(QWizardPage):
             self.automated.setPlate(plan.plate)
             self.automated.setCalibration(plan if calibrated else None)
         self.completeChanged.emit()
+
+
+class _WellSelectionPage(QWizardPage):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setTitle("Well Selection")
+
+        self.view = WellPlateView(self)
+        self.view.setClearButtonVisible(True)
+        self.view.selectionChanged.connect(self.completeChanged)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.addWidget(self.view)
+
+    def isComplete(self) -> bool:
+        return bool(self.view.selectedIndices())
+
+    def setPlate(self, plate: useq.WellPlate | useq.WellPlatePlan) -> None:
+        """Draw the plate (unrotated), selecting the plan's wells if any."""
+        if isinstance(plate, useq.WellPlatePlan):
+            plate = plate.replace(rotation=None)
+        self.view.drawPlate(plate)
 
 
 class _PointsPlanPage(QWizardPage):
