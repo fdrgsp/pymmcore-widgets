@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from pymmcore_plus import CMMCorePlus
     from pytestqt.qtbot import QtBot
 
+    from pymmcore_widgets._models import DevicePropertySetting
+
 
 @pytest.fixture
 def editor(qtbot: QtBot, global_mmcore: CMMCorePlus) -> Iterator[ConfigGroupsEditor]:
@@ -374,6 +376,34 @@ def test_editor_dirty_groups(editor: ConfigGroupsEditor) -> None:
     assert changed == []
     assert deleted == []
     assert channel is None
+
+
+def test_update_from_core_refreshes_property_metadata(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """A device loaded after the editor shows up in existing settings' choices."""
+    global_mmcore.defineConfig("Channel", "DAPI", "Core", "Shutter", "Shutter")
+    editor = ConfigGroupsEditor.create_from_core(global_mmcore)
+    qtbot.addWidget(editor)
+
+    def core_shutter() -> DevicePropertySetting:
+        group = next(g for g in editor.data() if g.name == "Channel")
+        settings = group.presets["DAPI"].settings
+        return next(s for s in settings if s.key() == ("Core", "Shutter"))
+
+    before = core_shutter()
+    editor._add_group()  # an unsaved edit, which the refresh must keep
+    global_mmcore.loadDevice("Shutter2", "DemoCamera", "DShutter")
+    global_mmcore.initializeDevice("Shutter2")
+
+    editor.update_from_core(global_mmcore)
+
+    after = core_shutter()
+    assert after.allowed_values == (*before.allowed_values, "Shutter2")
+    assert after.value == "Shutter"
+    # the new group is the only change: metadata alone is not one
+    changed, _, _ = editor.dirtyGroups()
+    assert [g.name for g in changed] == ["New Group"]
 
 
 def test_editor_dirty_groups_channel_only(editor: ConfigGroupsEditor) -> None:

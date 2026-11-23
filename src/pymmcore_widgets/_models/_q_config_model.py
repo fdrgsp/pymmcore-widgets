@@ -16,7 +16,7 @@ from ._core_functions import get_config_groups
 from ._py_config_model import ConfigGroup, ConfigPreset, DevicePropertySetting
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping
     from typing import Self
 
     from pymmcore_plus import CMMCorePlus
@@ -477,6 +477,25 @@ class QConfigGroupsModel(_BaseTreeModel):
                 )
 
         self.update_preset_settings(preset_idx, final_settings)
+
+    def refresh_property_metadata(
+        self, properties: Mapping[tuple[str, str], DevicePropertySetting]
+    ) -> None:
+        """Update every setting's property metadata, keeping values.
+
+        See `ConfigPreset.refresh_property_metadata`.
+        """
+        last_col = self.columnCount() - 1
+        for group_node in self._root.children:
+            for preset_node in group_node.children:
+                preset = cast("ConfigPreset", preset_node.payload)
+                for row in preset.refresh_property_metadata(properties):
+                    node = preset_node.children[row]
+                    node.payload = preset.settings[row]
+                    self.dataChanged.emit(
+                        self.createIndex(row, 0, node._id),
+                        self.createIndex(row, last_col, node._id),
+                    )
 
     # name uniqueness ---------------------------------------------------------
 

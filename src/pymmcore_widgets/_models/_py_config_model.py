@@ -8,7 +8,7 @@ from pymmcore_plus import DeviceType, Keyword, PropertyType
 from pymmcore_widgets._icons import StandardIcon
 
 if TYPE_CHECKING:
-    from collections.abc import Hashable
+    from collections.abc import Hashable, Mapping
 
 AffineTuple: TypeAlias = tuple[float, float, float, float, float, float]
 
@@ -182,6 +182,26 @@ class ConfigPreset(_BaseModel):
             and self.parent is not None
             and self.parent.is_system_group
         )
+
+    def refresh_property_metadata(
+        self, properties: Mapping[tuple[str, str], DevicePropertySetting]
+    ) -> list[int]:
+        """Give each setting the metadata of its property, keeping its value.
+
+        `properties` maps a setting key to a setting carrying what the core
+        reports about that property (e.g. from `get_loaded_devices`). Settings
+        not in `properties` are kept. Returns the indices of the replaced settings.
+        """
+        changed = []
+        for i, setting in enumerate(self.settings):
+            if (prop := properties.get(setting.key())) is None:
+                continue
+            keep = {"value": setting.value, "device": setting.device, "parent": self}
+            new = prop.model_copy(update=keep)
+            if new != setting:
+                self.settings[i] = new
+                changed.append(i)
+        return changed
 
 
 class ConfigGroup(_BaseModel):

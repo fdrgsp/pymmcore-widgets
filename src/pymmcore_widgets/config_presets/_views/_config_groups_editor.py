@@ -109,7 +109,9 @@ class ConfigGroupsEditor(QWidget):
         update_devices : bool
             If True, refresh the list of loaded devices and their properties.
             This determines which devices and properties appear in the "Edit Properties"
-            and "Add Property" dialogs.
+            and "Add Property" dialogs. Unless `update_configs` is True, the settings
+            already in the editor also get their properties' refreshed metadata
+            (e.g. allowed values), keeping their values.
         update_configs : bool
             If True, replace the current editor contents with config groups, presets,
             and their settings from the core. If False, the current groups/presets will
@@ -121,6 +123,13 @@ class ConfigGroupsEditor(QWidget):
             self._preset_table.setAvailableDevices(self._loaded_devices)
         if update_configs:
             self.setData(get_config_groups(core))
+        elif update_devices:
+            props = {p.key(): p for d in self._loaded_devices for p in d.properties}
+            self._model.refresh_property_metadata(props)
+            # so that metadata alone does not make dirtyGroups() report a change
+            for group in self._clean_groups.values():
+                for preset in group.presets.values():
+                    preset.refresh_property_metadata(props)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
