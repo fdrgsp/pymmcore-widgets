@@ -1678,7 +1678,7 @@ class StageExplorerToolbar(QToolBar):
         )
         self.addSeparator()
         self.scan_action = self.addAction(
-            QIconifyIcon("mdi:play-circle-outline", color=GRAY),
+            QIconifyIcon("mdi:selection-search", color=GRAY),
             "Scan Selected ROI",
         )
         self.send_to_mda_action = self.addAction(
