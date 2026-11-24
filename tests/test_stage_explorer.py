@@ -462,7 +462,7 @@ def test_scan_menu_default_value(qtbot: QtBot) -> None:
     menu = ScanMenu()
     qtbot.addWidget(menu)
     overlap, mode = menu.value()
-    assert overlap == 0.0
+    assert overlap == util_mod.DEFAULT_OVERLAP
     assert mode == useq.OrderMode.spiral
 
 
@@ -470,8 +470,8 @@ def test_scan_menu_value_changed_signal(qtbot: QtBot) -> None:
     menu = ScanMenu()
     qtbot.addWidget(menu)
     with qtbot.waitSignal(menu.valueChanged):
-        menu._overlap_spin.setValue(10.0)
-    assert menu.value()[0] == 10.0
+        menu._overlap_spin.setValue(20.0)
+    assert menu.value()[0] == 20.0
 
 
 def test_scan_menu_mode_change(qtbot: QtBot) -> None:
@@ -485,6 +485,16 @@ def test_scan_menu_mode_change(qtbot: QtBot) -> None:
 # ---------------------------------------------------------------------------
 # StageExplorer - scan options propagation
 # ---------------------------------------------------------------------------
+
+
+def test_scan_options_start_as_the_menu_shows(qtbot: QtBot) -> None:
+    """The ROI manager starts with the scan menu's overlap and order."""
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+
+    overlap, mode = explorer._toolbar.scan_menu.value()
+    assert explorer.roi_manager.scan_overlap == overlap == util_mod.DEFAULT_OVERLAP
+    assert explorer.roi_manager.scan_mode == mode
 
 
 def test_scan_options_propagate_to_manager(qtbot: QtBot) -> None:

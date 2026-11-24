@@ -12,6 +12,8 @@ from qtpy.QtWidgets import (
 )
 from useq import GridRowsColumns, OrderMode
 
+from pymmcore_widgets._util import DEFAULT_OVERLAP
+
 from ._common import LabelAligner, OverlapWidget, labeled_row
 
 if TYPE_CHECKING:
@@ -136,9 +138,9 @@ class GridRowColumnWidget(QWidget):
         self._relative_to = value.relative_to.value
 
     def reset(self) -> None:
-        """Reset value to 1x1, row-wise-snake, with 0 overlap."""
+        """Reset value to 1x1, row-wise-snake, with the default overlap."""
         self.rows.setValue(1)
         self.columns.setValue(1)
-        self.overlap_wdg.setValue((0, 0))
+        self.overlap_wdg.setValue(DEFAULT_OVERLAP)
         self.mode.setCurrentText(OrderMode.row_wise_snake.value)
         self.fov_size = (None, None)

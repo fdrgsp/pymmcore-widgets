@@ -44,7 +44,11 @@ from superqt import QEnumComboBox, QIconifyIcon, QLabeledRangeSlider
 from useq import OrderMode
 from vispy.scene.visuals import Markers
 
-from pymmcore_widgets._util import FovChangeObserver, memory_limit_defaults
+from pymmcore_widgets._util import (
+    DEFAULT_OVERLAP,
+    FovChangeObserver,
+    memory_limit_defaults,
+)
 from pymmcore_widgets.control._q_stage_controller import QStageMoveAccumulator
 from pymmcore_widgets.control._rois.roi_manager import GRAY, SceneROIManager
 
@@ -441,6 +445,7 @@ class StageExplorer(QWidget):
         tb.send_to_mda_action.triggered.connect(self._on_send_to_mda)
         tb.marker_mode_action_group.triggered.connect(self._update_marker_mode)
         tb.scan_menu.valueChanged.connect(self._on_scan_options_changed)
+        self._on_scan_options_changed(tb.scan_menu.value())
         tb.map_memory_menu.valueChanged.connect(self._on_map_memory_limit_changed)
         tb.map_memory_menu.set_value(self._max_map_memory_mb / 1000)
 
@@ -1662,6 +1667,7 @@ class ScanMenu(QMenu):
         self._overlap_spin = QDoubleSpinBox(opts_widget)
         self._overlap_spin.setRange(-100, 100)
         self._overlap_spin.setSuffix(" %")
+        self._overlap_spin.setValue(DEFAULT_OVERLAP)
         form.addRow("Overlap", self._overlap_spin)
 
         self._mode_cbox = QEnumComboBox(self, OrderMode)

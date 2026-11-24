@@ -10,6 +10,7 @@ from qtpy.QtGui import QMouseEvent
 from qtpy.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsRectItem
 from useq import GridRowsColumns, OrderMode, RandomPoints, RelativePosition, Shape
 
+from pymmcore_widgets._util import DEFAULT_OVERLAP
 from pymmcore_widgets.useq_widgets import points_plans as pp
 
 if TYPE_CHECKING:
@@ -71,8 +72,8 @@ def test_grid_plan_widget(qtbot: QtBot) -> None:
     qtbot.addWidget(wdg)
     assert wdg.rows.value() == 3
     assert wdg.columns.value() == 3
-    assert wdg.overlap_x.value() == 0
-    assert wdg.overlap_y.value() == 0
+    assert wdg.overlap_x.value() == DEFAULT_OVERLAP
+    assert wdg.overlap_y.value() == DEFAULT_OVERLAP
     assert wdg.mode.currentText() == "row_wise_snake"
 
     with qtbot.waitSignal(wdg.valueChanged):

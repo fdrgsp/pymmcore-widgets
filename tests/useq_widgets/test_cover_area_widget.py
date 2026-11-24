@@ -284,17 +284,19 @@ def test_cover_area_tabs_share_settings(qtbot: QtBot) -> None:
 
 
 def test_overlap_widget(qtbot: QtBot) -> None:
+    from pymmcore_widgets._util import DEFAULT_OVERLAP
     from pymmcore_widgets.useq_widgets.points_plans._common import OverlapWidget
 
     wdg = OverlapWidget(0, 99)
     qtbot.addWidget(wdg)
     wdg.show()
     # a single value for x and y by default
+    assert wdg.value() == (DEFAULT_OVERLAP, DEFAULT_OVERLAP)
     assert not wdg.isSeparate()
     assert not wdg.overlap_y.isVisible()
     with qtbot.waitSignal(wdg.valueChanged):
-        wdg.overlap_x.setValue(10)
-    assert wdg.value() == (10, 10)
+        wdg.overlap_x.setValue(20)
+    assert wdg.value() == (20, 20)
 
     # right-click menu: different x and y overlaps
     action = wdg.contextMenu().actions()[0]
@@ -304,10 +306,10 @@ def test_overlap_widget(qtbot: QtBot) -> None:
     assert wdg.overlap_y.isVisible()
     assert wdg.overlap_x.prefix() == "x: "
     wdg.overlap_y.setValue(5)
-    assert wdg.value() == (10, 5)
+    assert wdg.value() == (20, 5)
     # turning it off uses the x overlap for both
     wdg.contextMenu().actions()[0].setChecked(False)
-    assert wdg.value() == (10, 10)
+    assert wdg.value() == (20, 20)
     assert not wdg.overlap_y.isVisible()
 
     # different values (e.g. from a plan) show both spin boxes

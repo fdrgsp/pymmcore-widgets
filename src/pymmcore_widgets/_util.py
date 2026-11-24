@@ -42,6 +42,10 @@ if TYPE_CHECKING:
     from pymmcore_plus.model import PixelSizePreset
 
 
+# default overlap (%) between adjacent fields of view of every tiling plan
+DEFAULT_OVERLAP = 10.0
+
+
 class ComboMessageBox(QDialog):
     """Dialog that presents a combo box of `items`."""
 

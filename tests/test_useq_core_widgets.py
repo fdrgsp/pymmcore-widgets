@@ -3603,6 +3603,7 @@ def test_grid_plan_bounds_edit_updates_summary(
     qtbot.addWidget(wdg)
     wdg.setFovWidth(512)
     wdg.setFovHeight(512)
+    wdg.overlap.setValue(0)
     wdg.setMode("bounds")
     assert wdg._summary.text().startswith("1 tile ")
 

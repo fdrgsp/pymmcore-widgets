@@ -46,6 +46,7 @@ from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
 from pymmcore_widgets._util import (
+    DEFAULT_OVERLAP,
     QWIDGETSIZE_MAX,
     SeparatorWidget,
     disable_wheel_scroll_recursive,
@@ -172,7 +173,7 @@ class GridPlanWidget(QWidget):
 
         self.overlap = QDoubleSpinBox()
         self.overlap.setRange(-1000, 1000)
-        self.overlap.setValue(0)
+        self.overlap.setValue(DEFAULT_OVERLAP)
         self.overlap.setSuffix(" %")
         self.order = _OrderButtons()
 

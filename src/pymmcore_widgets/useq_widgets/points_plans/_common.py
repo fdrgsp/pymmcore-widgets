@@ -14,6 +14,8 @@ from qtpy.QtWidgets import (
 )
 from superqt.utils import signals_blocked
 
+from pymmcore_widgets._util import DEFAULT_OVERLAP
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
@@ -121,6 +123,8 @@ class OverlapWidget(QWidget):
         self.overlap_x = double_spin(minimum, maximum, "Overlap x (%)")
         self.overlap_y = double_spin(minimum, maximum, "Overlap y (%)")
         self.overlap_y.hide()
+        self.overlap_x.setValue(DEFAULT_OVERLAP)
+        self.overlap_y.setValue(DEFAULT_OVERLAP)
         for spin in (self.overlap_x, self.overlap_y):
             spin.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             spin.customContextMenuRequested.connect(
