@@ -9,6 +9,7 @@ from qtpy.QtCore import (
     QItemSelectionModel,
     QModelIndex,
     QObject,
+    QPoint,
     QPointF,
     Qt,
     Signal,
@@ -56,6 +57,8 @@ class SceneROIManager(QObject):
     """
 
     modeChanged = Signal(str)
+    # (roi, global position): an ROI was right-clicked on the canvas
+    roiContextMenuRequested = Signal(object, QPoint)
 
     def __init__(self, canvas: SceneCanvas) -> None:
         super().__init__()

@@ -9,7 +9,9 @@ import numpy as np
 import pytest
 import useq
 from pymmcore_plus import CMMCorePlus, Keyword
-from qtpy.QtWidgets import QMessageBox, QToolButton
+from qtpy.QtCore import QPoint, QPointF, Qt
+from qtpy.QtGui import QContextMenuEvent, QMouseEvent
+from qtpy.QtWidgets import QApplication, QMessageBox, QToolButton
 from vispy.app.canvas import MouseEvent
 
 from pymmcore_widgets import _util as util_mod
@@ -625,6 +627,8 @@ def test_stage_explorer_update_actions_enabled(qtbot: QtBot) -> None:
     assert tb.poll_stage_action.isEnabled()
     assert tb.scan_action.isEnabled()
     assert tb.delete_rois_action.isEnabled()
+    assert tb.delete_roi_action.isEnabled()
+    assert tb.roi_settings_action.isEnabled()
     assert tb.stop_scan_action.isEnabled()
     for action in explorer.roi_manager.mode_actions.actions():
         assert action.isEnabled()
@@ -644,6 +648,8 @@ def test_stage_explorer_update_actions_disabled_without_devices(
     assert not tb.poll_stage_action.isEnabled()
     assert not tb.scan_action.isEnabled()
     assert not tb.delete_rois_action.isEnabled()
+    assert not tb.delete_roi_action.isEnabled()
+    assert not tb.roi_settings_action.isEnabled()
     assert tb.stop_scan_action.isEnabled()
     for action in explorer.roi_manager.mode_actions.actions():
         assert not action.isEnabled()
@@ -1082,6 +1088,112 @@ def test_send_to_mda_emits_roi_positions(qtbot: QtBot) -> None:
     assert len(positions) == 1
     assert isinstance(positions[0], useq.AbsolutePosition)
     assert replace is True
+
+
+def test_roi_toolbar(qtbot: QtBot) -> None:
+    """The cog opens the scan options; scan only scans; delete only the selection."""
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    tb = explorer._toolbar
+    actions = tb.actions()
+    start = actions.index(tb.roi_settings_action)
+    assert actions[start - 1] is explorer.roi_manager.mode_actions.actions()[-1]
+    assert actions[start : start + 3] == [
+        tb.roi_settings_action,
+        tb.delete_roi_action,
+        tb.delete_rois_action,
+    ]
+    assert actions[start + 3].isSeparator()
+    assert actions[start + 4] is tb.scan_action
+
+    settings_btn = tb.widgetForAction(tb.roi_settings_action)
+    assert settings_btn.menu() is tb.scan_menu
+    assert settings_btn.popupMode() == QToolButton.ToolButtonPopupMode.InstantPopup
+    assert tb.widgetForAction(tb.scan_action).menu() is None
+    assert not tb.scan_menu.send_roi_action.isVisible()
+
+    manager = explorer.roi_manager
+    keep = manager.add_roi(RectangleROI((0, 0), (10, 10), fov_size=(5, 5)))
+    drop = manager.add_roi(RectangleROI((20, 20), (30, 30), fov_size=(5, 5)))
+    manager.select_roi(drop)
+    tb.delete_roi_action.trigger()
+    assert manager.all_rois() == [keep]
+
+
+def _context_menu_at(explorer: StageExplorer, x: float, y: float) -> None:
+    """Right-click the map at stage position (x, y)."""
+    native = explorer.roi_manager._canvas.native
+    cx, cy = explorer.roi_manager.view.scene.transform.map((x, y))[:2]
+    pos = QPoint(round(cx), round(cy))
+    QApplication.sendEvent(
+        native, QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, pos)
+    )
+
+
+def test_roi_context_menu_sends_only_that_roi(qtbot: QtBot) -> None:
+    explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    menu = explorer._toolbar.scan_menu
+    manager = explorer.roi_manager
+    manager.add_roi(RectangleROI((0, 0), (100, 100), fov_size=(50, 50)))
+    clicked = manager.add_roi(RectangleROI((500, 0), (600, 100), fov_size=(50, 50)))
+
+    shown: list[bool] = []
+
+    def choose_send(*_: Any) -> Any:
+        shown.append(menu.send_roi_action.isVisible())
+        return menu.send_roi_action
+
+    def choose_add(msg: QMessageBox) -> int:
+        next(btn for btn in msg.buttons() if btn.text() == "Add").click()
+        return 0
+
+    with (
+        patch.object(type(menu), "exec", choose_send),
+        patch.object(QMessageBox, "exec", choose_add),
+        qtbot.waitSignal(explorer.sendToMDARequested) as emitted,
+    ):
+        _context_menu_at(explorer, 550, 50)
+
+    assert shown == [True]
+    assert not menu.send_roi_action.isVisible()
+    assert manager.selected_rois() == [clicked]
+    (position,), replace = emitted.args
+    assert (position.x, position.y) == pytest.approx((550, 50))
+    assert replace is False
+
+
+def test_roi_context_menu_ignores_empty_map_and_right_drag(qtbot: QtBot) -> None:
+    # patched before the explorer connects it
+    with patch.object(StageViewer, "_show_context_menu") as flip_menu:
+        explorer = StageExplorer()
+    qtbot.addWidget(explorer)
+    manager = explorer.roi_manager
+    manager.add_roi(RectangleROI((0, 0), (100, 100), fov_size=(50, 50)))
+    menu = explorer._toolbar.scan_menu
+
+    with patch.object(type(menu), "exec") as exec_menu:
+        _context_menu_at(explorer, 1000, 1000)
+        # a right-drag (camera zoom) that ends on the ROI
+        QApplication.sendEvent(
+            manager._canvas.native,
+            QMouseEvent(
+                QMouseEvent.Type.MouseButtonPress,
+                QPointF(0, 0),
+                QPointF(0, 0),
+                Qt.MouseButton.RightButton,
+                Qt.MouseButton.RightButton,
+                Qt.KeyboardModifier.NoModifier,
+            ),
+        )
+        _context_menu_at(explorer, 50, 50)
+        exec_menu.assert_not_called()
+        # both fall through to the map's own menu
+        assert flip_menu.call_count == 2
+
+        _context_menu_at(explorer, 50, 50)
+        exec_menu.assert_called_once()
+        assert flip_menu.call_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -1704,16 +1816,15 @@ def test_map_memory_menu_property_sync_both_directions(qtbot: QtBot) -> None:
 
 
 def test_map_memory_action_is_instant_popup(qtbot: QtBot) -> None:
-    """The whole button opens the menu -- unlike poll/scan, it has no other job.
+    """The whole button opens the menu -- unlike poll, it has no other job.
 
-    poll_stage_action/scan_action use MenuButtonPopup because each has a
-    primary action distinct from its menu (toggle polling, start a scan);
-    the split-button look communicates that. This button's only job is
-    showing the limit editor, so InstantPopup is correct here even though it
-    looks different from those two -- a real click isn't simulated (that
-    enters a native event loop that only returns once the popup is
-    dismissed, which would hang a headless test), just the wiring that
-    produces that behavior.
+    poll_stage_action uses MenuButtonPopup because it has a primary action
+    distinct from its menu (toggle polling); the split-button look
+    communicates that. This button's only job is showing the limit editor,
+    so InstantPopup is correct here even though it looks different -- a real
+    click isn't simulated (that enters a native event loop that only returns
+    once the popup is dismissed, which would hang a headless test), just the
+    wiring that produces that behavior.
     """
     explorer = StageExplorer()
     qtbot.addWidget(explorer)

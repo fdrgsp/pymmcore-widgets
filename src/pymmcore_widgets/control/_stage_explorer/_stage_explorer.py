@@ -16,6 +16,7 @@ from pymmcore_plus import CMMCorePlus, Keyword
 from qtpy.QtCore import (
     QEvent,
     QObject,
+    QPoint,
     QSignalBlocker,
     QSize,
     Qt,
@@ -63,6 +64,8 @@ if TYPE_CHECKING:
 
     from qtpy.QtGui import QCloseEvent, QHideEvent, QKeyEvent, QShowEvent
     from vispy.app.canvas import MouseEvent
+
+    from pymmcore_widgets.control._rois.roi_model import ROI
 
     from ._stage_viewer import Tile
 
@@ -417,7 +420,7 @@ class StageExplorer(QWidget):
         self._toolbar = tb = StageExplorerToolbar()
         # (also add the actions from the ROI manager)
         self._toolbar.insertActions(
-            tb.delete_rois_action, self.roi_manager.mode_actions.actions()
+            tb.roi_settings_action, self.roi_manager.mode_actions.actions()
         )
         self._stage_pos_label = _CornerLabel(self._stage_viewer)
         # opposite the stage position: MDA grids too big to mark on the map
@@ -440,6 +443,8 @@ class StageExplorer(QWidget):
         )
         tb.show_grid_action.triggered.connect(self._on_show_grid_action)
         tb.delete_rois_action.triggered.connect(self.roi_manager.clear)
+        tb.delete_roi_action.triggered.connect(self.roi_manager.delete_selected_rois)
+        self.roi_manager.roiContextMenuRequested.connect(self._on_roi_context_menu)
         tb.scan_action.triggered.connect(self._on_scan_action)
         tb.stop_scan_action.triggered.connect(self._on_stop_scan_action)
         tb.send_to_mda_action.triggered.connect(self._on_send_to_mda)
@@ -642,6 +647,8 @@ class StageExplorer(QWidget):
         tb.poll_stage_action.setEnabled(has_devices)
         tb.scan_action.setEnabled(has_devices)
         tb.delete_rois_action.setEnabled(has_devices)
+        tb.delete_roi_action.setEnabled(has_devices)
+        tb.roi_settings_action.setEnabled(has_devices)
         tb.stop_scan_action.setEnabled(True)
         for action in self.roi_manager.mode_actions.actions():
             action.setEnabled(has_devices)
@@ -769,6 +776,27 @@ class StageExplorer(QWidget):
     @Slot()
     def _on_send_to_mda(self) -> None:
         """Send every Explorer ROI to an MDA position table."""
+        self._send_to_mda(self.roi_manager.all_rois())
+
+    @Slot(object, QPoint)
+    def _on_roi_context_menu(self, roi: ROI, global_pos: QPoint) -> None:
+        """Show the ROI settings for `roi`, with an entry to send it to the MDA."""
+        tb = self._toolbar
+        if not tb.roi_settings_action.isEnabled():
+            return
+        self.roi_manager.select_roi(roi)
+        menu = tb.scan_menu
+        menu.send_roi_action.setEnabled(tb.send_to_mda_action.isEnabled())
+        menu.send_roi_action.setVisible(True)
+        try:
+            chosen = menu.exec(global_pos)
+        finally:
+            menu.send_roi_action.setVisible(False)
+        if chosen is menu.send_roi_action:
+            self._send_to_mda([roi])
+
+    def _send_to_mda(self, rois: Iterable[ROI]) -> None:
+        """Send `rois` to an MDA position table, replacing or adding to it."""
         fov_w, fov_h = self._fov_w_h()
         z_pos = self._mmc.getZPosition() if self._mmc.getFocusDevice() else None
         manager = self.roi_manager
@@ -780,7 +808,7 @@ class StageExplorer(QWidget):
                 overlap=manager.scan_overlap,
                 mode=manager.scan_mode,
             )
-            for roi in manager.all_rois()
+            for roi in rois
         ]
         if not positions:
             return
@@ -1630,19 +1658,29 @@ class StageExplorerToolbar(QToolBar):
         memory_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
         self.addSeparator()
+        self.roi_settings_action = self.addAction(
+            QIconifyIcon("mdi:cog-outline", color=GRAY),
+            "ROI Settings",
+        )
+        settings_btn = cast(
+            "QToolButton", self.widgetForAction(self.roi_settings_action)
+        )
+        self.scan_menu = ScanMenu(self)
+        settings_btn.setMenu(self.scan_menu)
+        settings_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.delete_roi_action = self.addAction(
+            QIconifyIcon("mdi:vector-square-minus", color=GRAY),
+            "Delete Selected ROI",
+        )
         self.delete_rois_action = self.addAction(
             QIconifyIcon("mdi:vector-square-remove", color=GRAY),
             "Delete All ROIs",
         )
         self.addSeparator()
         self.scan_action = self.addAction(
-            QIconifyIcon("ph:path-duotone", color=GRAY),
+            QIconifyIcon("mdi:play-circle-outline", color=GRAY),
             "Scan Selected ROI",
         )
-        scan_btn = cast("QToolButton", self.widgetForAction(self.scan_action))
-        self.scan_menu = ScanMenu(self)
-        scan_btn.setMenu(self.scan_menu)
-        scan_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         self.send_to_mda_action = self.addAction(
             QIconifyIcon("mdi:send", color=GRAY),
             "Send to MDA",
@@ -1677,6 +1715,11 @@ class ScanMenu(QMenu):
         action = QWidgetAction(self)
         action.setDefaultWidget(opts_widget)
         self.addAction(action)
+
+        # only shown when the menu opens on an ROI (see StageExplorer)
+        self.addSeparator()
+        self.send_roi_action = self.addAction("Send to MDA")
+        self.send_roi_action.setVisible(False)
 
         self._overlap_spin.valueChanged.connect(self._emit)
         self._mode_cbox.currentTextChanged.connect(self._emit)

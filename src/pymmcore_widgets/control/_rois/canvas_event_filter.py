@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from qtpy.QtCore import QEvent, QObject, QPointF, Qt
-from qtpy.QtGui import QCursor, QKeyEvent, QMouseEvent
+from qtpy.QtGui import QContextMenuEvent, QCursor, QKeyEvent, QMouseEvent
 
 from pymmcore_widgets.control._rois.roi_model import ROI, RectangleROI
 
@@ -29,6 +29,8 @@ class CanvasROIEventFilter(QObject):
         self._drag_vertex_idx: int | None = None
         self._drag_start: tuple[float, float] = (0.0, 0.0)
         self._creating: ROI | None = None
+        # where the right button went down: a right-drag zooms, opening no menu
+        self._right_press: QPointF | None = None
 
         # how close (in canvas pixels) a click must be to a handle
         self._handle_pick_tol = 8
@@ -40,6 +42,9 @@ class CanvasROIEventFilter(QObject):
             # no key events ever get passed to vispy
             event.ignore()
             return True
+
+        if isinstance(event, QContextMenuEvent):
+            return self._handle_context_menu(event)
 
         if isinstance(event, QMouseEvent):
             if event.type() == QEvent.Type.MouseButtonDblClick:
@@ -86,7 +91,22 @@ class CanvasROIEventFilter(QObject):
                 return True
         return False
 
+    def _handle_context_menu(self, event: QContextMenuEvent) -> bool:
+        pos = QPointF(event.pos())
+        if (press := self._right_press) is not None:
+            self._right_press = None
+            if (press - pos).manhattanLength() > self._handle_pick_tol:
+                return False
+        if not (rois := self.roi_model.pick_rois(self.manager.canvas_to_world(pos))):
+            return False
+        selected = self.manager.selected_rois()
+        roi = next((r for r in rois if r in selected), rois[0])
+        self.manager.roiContextMenuRequested.emit(roi, event.globalPos())
+        return True
+
     def _handle_mouse_press(self, event: QMouseEvent) -> bool:
+        if event.button() == Qt.MouseButton.RightButton:
+            self._right_press = event.position()
         if event.button() != Qt.MouseButton.LeftButton:
             return False
 
