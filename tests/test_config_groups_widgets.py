@@ -916,6 +916,34 @@ def test_table_mouse_click_opens_editor(
     view.mousePressEvent(event)
 
 
+def test_first_click_works_the_editor_control(qtbot: QtBot, core: CMMCorePlus) -> None:
+    """The click that opens a slider also moves it: no second click needed."""
+    core.defineConfig("Light", "On", "Camera", "TestProperty2", "0")  # -200..200
+    table = ConfigPresetsTable.create_from_core(core)
+    qtbot.addWidget(table)
+    table.setGroup("Light")
+    table.show()
+    qtbot.waitExposed(table)
+    view = table.view
+    idx = view._get_pivot_model().index(0, 0)
+    rect = view.visualRect(idx)
+    pos = QPointF(rect.left() + 6, rect.center().y())  # left of the handle
+
+    def mouse(kind: QEvent.Type) -> QMouseEvent:
+        return QMouseEvent(
+            kind,
+            pos,
+            QPointF(view.viewport().mapToGlobal(pos.toPoint())),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+
+    view.mousePressEvent(mouse(QEvent.Type.MouseButtonPress))
+    view.mouseReleaseEvent(mouse(QEvent.Type.MouseButtonRelease))
+    assert float(idx.data(Qt.ItemDataRole.UserRole).value) < 0
+
+
 def test_table_double_click_empty_cell(table: ConfigPresetsTable, qtbot: QtBot) -> None:
     """Double-click on an empty cell calls _add_cell_setting."""
     view = table.view

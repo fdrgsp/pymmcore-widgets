@@ -8,12 +8,15 @@ from qtpy.QtCore import (
     QAbstractItemModel,
     QModelIndex,
     QPoint,
+    QPointF,
     QSize,
     Qt,
     QTransposeProxyModel,
 )
-from qtpy.QtGui import QAction
+from qtpy.QtGui import QAction, QMouseEvent
 from qtpy.QtWidgets import (
+    QApplication,
+    QComboBox,
     QHeaderView,
     QMenu,
     QTableView,
@@ -73,6 +76,10 @@ class ConfigPresetsTableView(QTableView):
         self._pivot_model: ConfigGroupPivotModel | None = None
         self._undo_stack: QUndoStack | None = None
         self._loaded_devices: tuple[Device, ...] = ()
+        # the editor control a click opened, which gets that click until release
+        self._clicked_editor: QWidget | None = None
+        # an event the control ignores comes back up to this view: drop it then
+        self._forwarding = False
 
         self.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
 
@@ -272,6 +279,8 @@ class ConfigPresetsTableView(QTableView):
 
     def mousePressEvent(self, event: Any) -> None:
         """Single left-click on a cell opens the editor (spreadsheet-like)."""
+        if self._forwarding:
+            return
         super().mousePressEvent(event)
         mods = event.modifiers()
         extend = Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.ControlModifier
@@ -279,6 +288,57 @@ class ConfigPresetsTableView(QTableView):
             idx = self.indexAt(event.pos())
             if idx.isValid() and self.state() != QTableView.State.EditingState:
                 self.edit(idx)
+                self._pass_click_to_editor(event)
+
+    def _pass_click_to_editor(self, event: QMouseEvent) -> None:
+        """Give the click that opened an editor to the control under it.
+
+        Otherwise a slider, spin box or text field only reacts to a second click.
+        A combo box opens its list by itself.
+        """
+        viewport = self.viewport()
+        target = viewport.childAt(event.pos()) if viewport else None
+        if target is None or isinstance(target, QComboBox):
+            return
+        self._clicked_editor = target
+        self._send_to_editor(event)
+
+    def _send_to_editor(self, event: QMouseEvent) -> bool:
+        """Send `event` to the clicked editor control; False if there is none."""
+        target, viewport = self._clicked_editor, self.viewport()
+        if target is None or viewport is None:
+            return False
+        if self._forwarding:
+            return True
+        pos = target.mapFrom(viewport, event.pos())
+        forwarded = QMouseEvent(
+            event.type(),
+            QPointF(pos),
+            event.globalPosition(),
+            event.button(),
+            event.buttons(),
+            event.modifiers(),
+        )
+        self._forwarding = True
+        try:
+            QApplication.sendEvent(target, forwarded)
+        except RuntimeError:  # pragma: no cover  # the editor closed meanwhile
+            self._clicked_editor = None
+            return False
+        finally:
+            self._forwarding = False
+        return True
+
+    def mouseMoveEvent(self, event: Any) -> None:
+        """While the button is down, a drag moves the clicked editor control."""
+        if not self._send_to_editor(event):
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: Any) -> None:
+        if self._send_to_editor(event):
+            self._clicked_editor = None
+        else:
+            super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event: Any) -> None:
         """Double-click on an empty cell adds the property to that preset."""
