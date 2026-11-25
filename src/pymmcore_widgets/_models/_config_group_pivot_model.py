@@ -7,7 +7,7 @@ from qtpy.QtCore import QAbstractTableModel, QModelIndex, QSize, Qt
 from pymmcore_widgets._icons import StandardIcon
 
 from ._py_config_model import ConfigGroup, ConfigPreset, DevicePropertySetting
-from ._q_config_model import QConfigGroupsModel
+from ._q_config_model import Col, QConfigGroupsModel
 
 if TYPE_CHECKING:
     from qtpy.QtWidgets import QWidget
@@ -286,10 +286,23 @@ class ConfigGroupPivotModel(QAbstractTableModel):
         roles: list[int] | None = None,
     ) -> None:
         """Handle dataChanged signals from the source model."""
-        if not self._in_set_data and self._should_rebuild_for_changes(
-            top_left, bottom_right
-        ):
+        if self._in_set_data:
+            return
+        if (cell := self._cell_for_value_change(top_left, bottom_right)) is not None:
+            # a rebuild would close an open editor, ending e.g. a slider drag
+            index = self.index(*cell)
+            self.dataChanged.emit(index, index, [])
+        elif self._should_rebuild_for_changes(top_left, bottom_right):
             self._rebuild()
+
+    def _cell_for_value_change(
+        self, top_left: QModelIndex, bottom_right: QModelIndex
+    ) -> tuple[int, int] | None:
+        """The cell showing a setting whose value alone changed (in place)."""
+        if top_left != bottom_right or top_left.column() != Col.Value:
+            return None
+        setting = top_left.data(Qt.ItemDataRole.UserRole)
+        return next((cell for cell, s in self._data.items() if s is setting), None)
 
     def _should_rebuild_for_changes(
         self, top_left: QModelIndex, bottom_right: QModelIndex

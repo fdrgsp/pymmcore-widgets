@@ -518,6 +518,17 @@ class ChangePropertyValueCommand(_ModelCommand):
             self._model.setData(idx, self._old_value)
         self._last_affected = idx.parent() if idx.isValid() else QModelIndex()
 
+    def id(self) -> int:
+        return 1  # consecutive changes of one value (e.g. a slider drag) merge
+
+    def mergeWith(self, other: QUndoCommand | None) -> bool:
+        if not isinstance(other, ChangePropertyValueCommand) or (
+            other._target.resolve(self._model) != self._target.resolve(self._model)
+        ):
+            return False
+        self._new_value = other._new_value
+        return True
+
 
 # ---------------------------------------------------------------------------
 # Channel group command

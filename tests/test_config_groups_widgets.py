@@ -21,6 +21,7 @@ from qtpy.QtWidgets import (
     QApplication,
     QDialog,
     QMenu,
+    QSlider,
     QStyle,
     QStyleOptionViewItem,
     QWidget,
@@ -958,6 +959,41 @@ def test_first_click_works_the_editor_control(qtbot: QtBot, core: CMMCorePlus) -
     view.mousePressEvent(_mouse(view, QEvent.Type.MouseButtonPress, pos, left))
     view.mouseReleaseEvent(_mouse(view, QEvent.Type.MouseButtonRelease, pos, left))
     assert float(idx.data(Qt.ItemDataRole.UserRole).value) < 0
+
+
+def test_slider_editor_stays_open_while_dragging(
+    qtbot: QtBot, core: CMMCorePlus
+) -> None:
+    """With undo, each value change used to rebuild the table and close the editor.
+
+    That ended a slider drag after its first step.
+    """
+    table = _slider_table(qtbot, core)
+    stack = QUndoStack()
+    table.setUndoStack(stack)
+    view = table.view
+    idx = view._get_pivot_model().index(0, 0)
+    rect = view.visualRect(idx)
+    pos = QPointF(rect.left() + 6, rect.center().y())
+    left = Qt.MouseButton.LeftButton
+    view.mousePressEvent(_mouse(view, QEvent.Type.MouseButtonPress, pos, left))
+    (slider,) = view.viewport().findChildren(QSlider)
+    for _ in range(3):  # the drag goes on
+        slider.setValue(slider.value() - 5)
+    view.mouseReleaseEvent(_mouse(view, QEvent.Type.MouseButtonRelease, pos, left))
+
+    # a released editor is only deleted later, by the event loop
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    assert view.state() == view.State.EditingState
+    assert view.viewport().findChildren(QSlider) == [slider]  # same editor
+    assert float(idx.data(Qt.ItemDataRole.UserRole).value) < 0
+    # the whole drag is one undo step
+    assert stack.count() == 1
+    stack.undo()
+    assert (
+        float(view._get_pivot_model().index(0, 0).data(Qt.ItemDataRole.UserRole).value)
+        == 0
+    )
 
 
 def test_click_survives_its_editor_closing(qtbot: QtBot, core: CMMCorePlus) -> None:
