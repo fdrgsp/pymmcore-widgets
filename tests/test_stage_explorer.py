@@ -11,7 +11,7 @@ import useq
 from pymmcore_plus import CMMCorePlus, Keyword
 from qtpy.QtCore import QPoint, QPointF, Qt
 from qtpy.QtGui import QContextMenuEvent, QMouseEvent
-from qtpy.QtWidgets import QApplication, QMessageBox, QToolButton
+from qtpy.QtWidgets import QApplication, QLabel, QMessageBox, QToolButton
 from vispy.app.canvas import MouseEvent
 
 from pymmcore_widgets import _util as util_mod
@@ -482,6 +482,15 @@ def test_scan_menu_mode_change(qtbot: QtBot) -> None:
     with qtbot.waitSignal(menu.valueChanged):
         menu._mode_cbox.setCurrentEnum(useq.OrderMode.row_wise_snake)
     assert menu.value()[1] == useq.OrderMode.row_wise_snake
+
+
+def test_scan_menu_labels_share_the_widest_width(qtbot: QtBot) -> None:
+    menu = ScanMenu()
+    qtbot.addWidget(menu)
+    labels = {lbl.text(): lbl for lbl in menu.findChildren(QLabel)}
+    overlap, order = labels["Overlap"], labels["Order"]
+    assert overlap.width() == order.width() == overlap.sizeHint().width()
+    assert overlap.alignment() & Qt.AlignmentFlag.AlignLeft
 
 
 # ---------------------------------------------------------------------------
@@ -1111,6 +1120,8 @@ def test_roi_toolbar(qtbot: QtBot) -> None:
     assert settings_btn.popupMode() == QToolButton.ToolButtonPopupMode.InstantPopup
     assert tb.widgetForAction(tb.scan_action).menu() is None
     assert not tb.scan_menu.send_roi_action.isVisible()
+    assert not tb.scan_menu.send_roi_action.icon().isNull()
+    assert tb.scan_menu.send_roi_action.isIconVisibleInMenu()
 
     manager = explorer.roi_manager
     keep = manager.add_roi(RectangleROI((0, 0), (10, 10), fov_size=(5, 5)))

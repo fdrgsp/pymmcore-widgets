@@ -29,6 +29,7 @@ from qtpy.QtGui import QAction, QActionGroup, QColor, QIcon, QPalette
 from qtpy.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -1699,18 +1700,26 @@ class ScanMenu(QMenu):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         opts_widget = QWidget(self)
-        form = QFormLayout(opts_widget)
-        form.setContentsMargins(8, 8, 8, 8)
+        # A grid (not a QFormLayout) keeps the labels left-aligned on every style.
+        grid = QGridLayout(opts_widget)
+        grid.setContentsMargins(8, 8, 8, 8)
 
         self._overlap_spin = QDoubleSpinBox(opts_widget)
         self._overlap_spin.setRange(-100, 100)
         self._overlap_spin.setSuffix(" %")
         self._overlap_spin.setValue(DEFAULT_OVERLAP)
-        form.addRow("Overlap", self._overlap_spin)
 
         self._mode_cbox = QEnumComboBox(self, OrderMode)
         self._mode_cbox.setCurrentEnum(OrderMode.spiral)
-        form.addRow("Order", self._mode_cbox)
+
+        labels = [QLabel("Overlap", opts_widget), QLabel("Order", opts_widget)]
+        label_width = max(lbl.sizeHint().width() for lbl in labels)
+        for row, (label, editor) in enumerate(
+            zip(labels, (self._overlap_spin, self._mode_cbox), strict=True)
+        ):
+            label.setFixedWidth(label_width)
+            grid.addWidget(label, row, 0, Qt.AlignmentFlag.AlignLeft)
+            grid.addWidget(editor, row, 1)
 
         action = QWidgetAction(self)
         action.setDefaultWidget(opts_widget)
@@ -1718,7 +1727,11 @@ class ScanMenu(QMenu):
 
         # only shown when the menu opens on an ROI (see StageExplorer)
         self.addSeparator()
-        self.send_roi_action = self.addAction("Send to MDA")
+        self.send_roi_action = self.addAction(
+            QIconifyIcon("mdi:send", color=GRAY), "Send to MDA"
+        )
+        # Qt hides menu icons by default on macOS.
+        self.send_roi_action.setIconVisibleInMenu(True)
         self.send_roi_action.setVisible(False)
 
         self._overlap_spin.valueChanged.connect(self._emit)
