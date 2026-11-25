@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, TypedDict
 
 from pymmcore_plus import PropertyType
 
+from pymmcore_widgets._light_sources import device_value
+
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
@@ -46,7 +48,7 @@ def settings_properties(
     props: list[tuple[str, str, str, float | int]] = []
     source = settings["light_source"]
     for device, prop in light_sources.get(source, ()):
-        intensity: float | int = settings["intensity"]
+        intensity: float | int = device_value(core, device, prop, settings["intensity"])
         if core.getPropertyType(device, prop) is PropertyType.Integer:
             intensity = int(intensity)
         props.append((source, device, prop, intensity))

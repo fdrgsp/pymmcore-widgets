@@ -16,6 +16,7 @@ from pymmcore_widgets._light_sources import (
     NO_LIGHT_SOURCE,
     IntensityColumn,
     IntensitySpinBox,
+    device_value,
     find_light_sources,
     light_source_limits,
 )
@@ -343,7 +344,8 @@ class CoreConnectedChannelTable(ChannelTable):
                 self._light_source_column.set_cell_data(table, row, ls_col, label)
                 # range must be set before the value, or it would be clamped away
                 self._configure_intensity_widget(row, int_col, label)
-                self.INTENSITY.set_cell_data(table, row, int_col, entry["value"])
+                intensity = device_value(self._mmc, *dev_prop, entry["value"])
+                self.INTENSITY.set_cell_data(table, row, int_col, intensity)
 
     def lightSources(self) -> Mapping[str, list[tuple[str, str]]]:
         """Return available light sources as ``{label: [(device, property), ...]}``.

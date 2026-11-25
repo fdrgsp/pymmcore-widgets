@@ -82,6 +82,28 @@ def find_light_sources(core: CMMCorePlus) -> dict[str, list[tuple[str, str]]]:
     return dict(sorted(sources.items(), key=lambda kv: kv[0].casefold()))
 
 
+def _runs_backwards(core: CMMCorePlus, device: str, prop: str) -> bool:
+    """Lumencor's legacy LIDA driver: 0 is full power, the maximum is off."""
+    return (
+        prop.endswith("_Intensity")
+        and core.getDeviceLibrary(device) == "Lumencor"
+        and core.hasProperty(device, "Model")
+        and core.getProperty(device, "Model") == "LIDA"
+    )
+
+
+def device_value(core: CMMCorePlus, device: str, prop: str, value: float) -> float:
+    """Convert a light source value to the device's, or back (the same flip).
+
+    Unchanged except for properties that run backwards, which are flipped within
+    their limits so that the widgets' maximum is always full power.
+    """
+    if not _runs_backwards(core, device, prop):
+        return value
+    lower = core.getPropertyLowerLimit(device, prop)
+    return lower + core.getPropertyUpperLimit(device, prop) - value
+
+
 def light_source_limits(
     core: CMMCorePlus, dev_props: Iterable[tuple[str, str]]
 ) -> tuple[float, float, bool]:

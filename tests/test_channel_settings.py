@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
+from unittest.mock import Mock
 
 import pytest
+from pymmcore_plus import PropertyType
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import QHeaderView
 
 from pymmcore_widgets import ChannelSettingsTable
-from pymmcore_widgets._light_sources import IntensitySpinBox
+from pymmcore_widgets._channel_settings import ChannelSettings, settings_properties
+from pymmcore_widgets._light_sources import IntensitySpinBox, device_value
 from pymmcore_widgets.mda import CoreConnectedChannelTable
 
 if TYPE_CHECKING:
@@ -359,3 +362,33 @@ def test_group_combo_sets_the_channel_group(
     # and the combo follows the core
     global_mmcore.setChannelGroup("Channel")
     assert tbl.channelGroup() == "Channel"
+
+
+def _lumencor_core(model: str) -> Mock:
+    core = Mock()
+    core.getDeviceLibrary.return_value = "Lumencor"
+    core.hasProperty.return_value = True
+    core.getProperty.return_value = model
+    core.getPropertyLowerLimit.return_value = 0
+    core.getPropertyUpperLimit.return_value = 100
+    core.getPropertyType.return_value = PropertyType.Integer
+    return core
+
+
+def test_lida_intensity_runs_the_right_way() -> None:
+    """Lumencor's legacy LIDA driver runs backwards: 0 is full power."""
+    core = _lumencor_core("LIDA")
+    sources = {"LIDA": [("LIDA", "RED_Intensity"), ("LIDA", "GREEN_Intensity")]}
+    settings = ChannelSettings(exposure=10, light_source="LIDA", intensity=100)
+    assert settings_properties(core, settings, sources) == [
+        ("LIDA", "LIDA", "RED_Intensity", 0),
+        ("LIDA", "LIDA", "GREEN_Intensity", 0),
+    ]
+    # reading the device back is the same flip
+    assert device_value(core, "LIDA", "RED_Intensity", 30) == 70
+    assert device_value(core, "LIDA", "RED_Intensity", 70) == 30
+
+    # other properties and models are left alone
+    assert device_value(core, "LIDA", "RED", 1) == 1
+    other = _lumencor_core("SPECTRAX")
+    assert device_value(other, "LIDA", "RED_Intensity", 30) == 30

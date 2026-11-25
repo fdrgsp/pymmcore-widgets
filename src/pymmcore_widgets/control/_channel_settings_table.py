@@ -31,6 +31,7 @@ from pymmcore_widgets._light_sources import (
     NO_LIGHT_SOURCE,
     IntensityColumn,
     IntensitySpinBox,
+    device_value,
     find_light_sources,
     light_source_limits,
 )
@@ -521,7 +522,8 @@ class ChannelSettingsTable(DataTableWidget):
         wdg.setPropertyLimits(source, (lower, upper), is_int)
         device, prop = dev_props[0]
         try:
-            wdg.setValue(float(self._mmc.getProperty(device, prop)))
+            value = float(self._mmc.getProperty(device, prop))
+            wdg.setValue(device_value(self._mmc, device, prop, value))
         except (RuntimeError, ValueError):  # pragma: no cover
             pass
 
