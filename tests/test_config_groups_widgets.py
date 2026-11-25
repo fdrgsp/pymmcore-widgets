@@ -17,7 +17,14 @@ from qtpy.QtGui import (
     QStandardItemModel,
     QUndoStack,
 )
-from qtpy.QtWidgets import QDialog, QMenu, QStyle, QStyleOptionViewItem
+from qtpy.QtWidgets import (
+    QApplication,
+    QDialog,
+    QMenu,
+    QStyle,
+    QStyleOptionViewItem,
+    QWidget,
+)
 
 from pymmcore_widgets import ConfigGroupsTree
 from pymmcore_widgets._models import (
@@ -916,32 +923,58 @@ def test_table_mouse_click_opens_editor(
     view.mousePressEvent(event)
 
 
-def test_first_click_works_the_editor_control(qtbot: QtBot, core: CMMCorePlus) -> None:
-    """The click that opens a slider also moves it: no second click needed."""
+def _slider_table(qtbot: QtBot, core: CMMCorePlus) -> ConfigPresetsTable:
     core.defineConfig("Light", "On", "Camera", "TestProperty2", "0")  # -200..200
     table = ConfigPresetsTable.create_from_core(core)
     qtbot.addWidget(table)
     table.setGroup("Light")
     table.show()
     qtbot.waitExposed(table)
+    return table
+
+
+def _mouse(
+    view: QWidget, kind: QEvent.Type, pos: QPointF, buttons: Qt.MouseButton
+) -> QMouseEvent:
+    button = Qt.MouseButton.NoButton if kind == QEvent.Type.MouseMove else buttons
+    return QMouseEvent(
+        kind,
+        pos,
+        QPointF(view.mapToGlobal(pos.toPoint())),
+        button or Qt.MouseButton.LeftButton,
+        buttons,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+
+def test_first_click_works_the_editor_control(qtbot: QtBot, core: CMMCorePlus) -> None:
+    """The click that opens a slider also moves it: no second click needed."""
+    table = _slider_table(qtbot, core)  # keeps the view alive
     view = table.view
     idx = view._get_pivot_model().index(0, 0)
     rect = view.visualRect(idx)
     pos = QPointF(rect.left() + 6, rect.center().y())  # left of the handle
-
-    def mouse(kind: QEvent.Type) -> QMouseEvent:
-        return QMouseEvent(
-            kind,
-            pos,
-            QPointF(view.viewport().mapToGlobal(pos.toPoint())),
-            Qt.MouseButton.LeftButton,
-            Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier,
-        )
-
-    view.mousePressEvent(mouse(QEvent.Type.MouseButtonPress))
-    view.mouseReleaseEvent(mouse(QEvent.Type.MouseButtonRelease))
+    left = Qt.MouseButton.LeftButton
+    view.mousePressEvent(_mouse(view, QEvent.Type.MouseButtonPress, pos, left))
+    view.mouseReleaseEvent(_mouse(view, QEvent.Type.MouseButtonRelease, pos, left))
     assert float(idx.data(Qt.ItemDataRole.UserRole).value) < 0
+
+
+def test_click_survives_its_editor_closing(qtbot: QtBot, core: CMMCorePlus) -> None:
+    """An editor closed mid-click (e.g. on commit) is left alone, hover included."""
+    table = _slider_table(qtbot, core)  # keeps the view alive
+    view = table.view
+    rect = view.visualRect(view._get_pivot_model().index(0, 0))
+    pos = QPointF(rect.left() + 6, rect.center().y())
+    left, none = Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton
+    view.mousePressEvent(_mouse(view, QEvent.Type.MouseButtonPress, pos, left))
+    for editor in view.viewport().findChildren(QWidget):
+        editor.deleteLater()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+    view.mouseMoveEvent(_mouse(view, QEvent.Type.MouseMove, pos, left))
+    view.mouseReleaseEvent(_mouse(view, QEvent.Type.MouseButtonRelease, pos, left))
+    view.mouseMoveEvent(_mouse(view, QEvent.Type.MouseMove, pos, none))
 
 
 def test_table_double_click_empty_cell(table: ConfigPresetsTable, qtbot: QtBot) -> None:

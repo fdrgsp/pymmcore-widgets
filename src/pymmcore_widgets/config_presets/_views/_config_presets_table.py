@@ -303,42 +303,44 @@ class ConfigPresetsTableView(QTableView):
         self._clicked_editor = target
         self._send_to_editor(event)
 
-    def _send_to_editor(self, event: QMouseEvent) -> bool:
-        """Send `event` to the clicked editor control; False if there is none."""
+    def _send_to_editor(self, event: QMouseEvent) -> None:
+        """Send `event` to the clicked editor control, if it is still there."""
         target, viewport = self._clicked_editor, self.viewport()
-        if target is None or viewport is None:
-            return False
-        if self._forwarding:
-            return True
-        pos = target.mapFrom(viewport, event.pos())
-        forwarded = QMouseEvent(
-            event.type(),
-            QPointF(pos),
-            event.globalPosition(),
-            event.button(),
-            event.buttons(),
-            event.modifiers(),
-        )
+        if target is None or viewport is None or self._forwarding:
+            return
         self._forwarding = True
         try:
+            forwarded = QMouseEvent(
+                event.type(),
+                QPointF(target.mapFrom(viewport, event.pos())),
+                event.globalPosition(),
+                event.button(),
+                event.buttons(),
+                event.modifiers(),
+            )
             QApplication.sendEvent(target, forwarded)
-        except RuntimeError:  # pragma: no cover  # the editor closed meanwhile
-            self._clicked_editor = None
-            return False
+        except RuntimeError:  # the editor was closed meanwhile, e.g. on commit
+            pass
         finally:
             self._forwarding = False
-        return True
 
     def mouseMoveEvent(self, event: Any) -> None:
         """While the button is down, a drag moves the clicked editor control."""
-        if not self._send_to_editor(event):
+        if self._clicked_editor is not None and not (
+            event.buttons() & Qt.MouseButton.LeftButton
+        ):
+            self._clicked_editor = None  # its release went elsewhere
+        if self._clicked_editor is None:
             super().mouseMoveEvent(event)
+        else:
+            self._send_to_editor(event)
 
     def mouseReleaseEvent(self, event: Any) -> None:
-        if self._send_to_editor(event):
-            self._clicked_editor = None
-        else:
+        if self._clicked_editor is None:
             super().mouseReleaseEvent(event)
+        else:
+            self._send_to_editor(event)
+            self._clicked_editor = None
 
     def mouseDoubleClickEvent(self, event: Any) -> None:
         """Double-click on an empty cell adds the property to that preset."""
