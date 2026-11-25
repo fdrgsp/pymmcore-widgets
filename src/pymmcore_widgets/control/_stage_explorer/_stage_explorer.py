@@ -1727,9 +1727,10 @@ class ScanMenu(QMenu):
 
         # only shown when the menu opens on an ROI (see StageExplorer)
         self.addSeparator()
-        self.send_roi_action = self.addAction(
-            QIconifyIcon("mdi:send", color=GRAY), "Send to MDA"
+        self.send_roi_action = QAction(
+            QIconifyIcon("mdi:send", color=GRAY), "Send to MDA", self
         )
+        self.addAction(self.send_roi_action)
         # Qt hides menu icons by default on macOS.
         self.send_roi_action.setIconVisibleInMenu(True)
         self.send_roi_action.setVisible(False)
