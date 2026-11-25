@@ -54,6 +54,7 @@ class DataTable(QTableWidget):
 
     def __init__(self, rows: int = 0, parent: QWidget | None = None):
         super().__init__(rows, 0, parent=parent)
+        self._locked_keys: set[str] = set()
 
         self.verticalHeader().setVisible(False)
         h_header = cast("QHeaderView", self.horizontalHeader())
@@ -104,6 +105,27 @@ class DataTable(QTableWidget):
         self._populate_new_column(column_info, col=col)
         if column_info.hidden:
             self.setColumnHidden(col, True)
+
+    def setColumnLocked(self, key: str, locked: bool) -> None:
+        """Disable the cell widgets of the column with `key`, also those added later.
+
+        For columns of cell widgets that don't set their own enabled state.
+        """
+        if locked:
+            self._locked_keys.add(key)
+        else:
+            self._locked_keys.discard(key)
+        for col in range(self.columnCount()):
+            if (info := self.columnInfo(col)) and info.key == key:
+                for row in range(self.rowCount()):
+                    if wdg := self.cellWidget(row, col):
+                        wdg.setEnabled(not locked)
+
+    def setCellWidget(self, row: int, column: int, widget: QWidget | None) -> None:
+        super().setCellWidget(row, column, widget)
+        info = self.columnInfo(column)
+        if widget is not None and info and info.key in self._locked_keys:
+            widget.setEnabled(False)
 
     def indexOf(self, header: str | ColumnInfo) -> int:
         if isinstance(header, ColumnInfo):

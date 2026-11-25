@@ -37,6 +37,23 @@ def _cell(tbl: ChannelSettingsTable, row: int, key: str):  # type: ignore[no-unt
     return table.cellWidget(row, col) or table.item(row, col)
 
 
+def test_locked_light_source_column(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
+    """A locked column's cells are disabled, also in rows added later."""
+    tbl = CoreConnectedChannelTable(mmcore=global_mmcore)
+    qtbot.addWidget(tbl)
+    tbl._add_row()
+    table = tbl.table()
+    table.setColumnLocked("light_source", True)
+    tbl._add_row()
+    tbl.refresh()  # rebuilds the light source column, as a config load does
+    for row in range(table.rowCount()):
+        assert not _cell(tbl, row, "light_source").isEnabled()
+    table.setColumnLocked("light_source", False)
+    assert all(
+        _cell(tbl, row, "light_source").isEnabled() for row in range(table.rowCount())
+    )
+
+
 def test_rows_are_the_group_presets(global_mmcore: CMMCorePlus, qtbot: QtBot) -> None:
     tbl = ChannelSettingsTable(mmcore=global_mmcore)
     qtbot.addWidget(tbl)
