@@ -190,7 +190,8 @@ class ConfigGroupPivotModel(QAbstractTableModel):
         if not index.isValid():  # pragma: no cover
             return Qt.ItemFlag.NoItemFlags
         base = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
-        if self._data.get((index.row(), index.column())) is not None:
+        editable = self._src is None or not self._src.isReadOnly()
+        if editable and self._data.get((index.row(), index.column())) is not None:
             base |= Qt.ItemFlag.ItemIsEditable
         return base
 

@@ -338,6 +338,7 @@ class PropertySettingDelegate(QStyledItemDelegate):
             and event
             and event.type() == QEvent.Type.MouseButtonRelease
             and model
+            and index.flags() & Qt.ItemFlag.ItemIsEditable
         ):
             new_val = "0" if setting.value == "1" else "1"
             model.setData(index, new_val, Qt.ItemDataRole.EditRole)

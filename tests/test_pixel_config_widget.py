@@ -12,6 +12,7 @@ from pymmcore_widgets.config_presets._pixel_configuration_widget import (
     ID,
     NEW,
     PixelConfigurationWidget,
+    _PixelTable,
 )
 from pymmcore_widgets.config_presets._views._device_property_selector import (
     DevicePropertySelector,
@@ -540,3 +541,30 @@ def test_pixel_config_wdg_camera_hint(
 
     wdg.setValue([PixelSizePreset("Res10x", [Setting("Core", "Camera", "Camera")])])
     assert wdg._camera_hint.isHidden()
+
+
+def test_pixel_config_read_only(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
+    """Read-only resolutionIDs can be selected, but not changed."""
+    wdg = PixelConfigurationWidget()
+    qtbot.addWidget(wdg)
+    wdg.setValue(TEST_VALUE)
+    table = wdg._px_table.table()
+
+    wdg.setReadOnly(True)
+    table.selectRow(1)
+    assert ("Camera", "Binning", "2") in _displayed(wdg)
+    assert not wdg._px_table.toolBar().isEnabled()
+    assert not wdg._value_table._toolbar.isEnabled()
+    assert table.editTriggers() == table.EditTrigger.NoEditTriggers
+    assert not table.cellWidget(1, table.indexOf(_PixelTable.VALUE)).isEnabled()
+    assert not wdg._affine_table.cellWidget(0, 0).isEnabled()
+    value = wdg._value_table.view.model().index(0, 1)
+    assert not value.flags() & Qt.ItemFlag.ItemIsEditable
+
+    wdg.setReadOnly(False)
+    assert wdg._px_table.toolBar().isEnabled()
+    assert table.editTriggers() != table.EditTrigger.NoEditTriggers
+    assert table.cellWidget(1, table.indexOf(_PixelTable.VALUE)).isEnabled()
+    assert wdg._affine_table.cellWidget(0, 0).isEnabled()
+    assert not wdg._affine_table.cellWidget(2, 0).isEnabled()
+    assert value.flags() & Qt.ItemFlag.ItemIsEditable

@@ -20,6 +20,7 @@ from qtpy.QtCore import (
 )
 from qtpy.QtGui import QAction
 from qtpy.QtWidgets import (
+    QAbstractItemView,
     QAbstractSpinBox,
     QDialog,
     QDialogButtonBox,
@@ -283,6 +284,12 @@ class PixelConfigurationWidget(QWidget):
         # track those edits and the widget could never look dirty.
         self._clean_state = deepcopy(self.value())
         self._update_clean_state()
+
+    def setReadOnly(self, read_only: bool) -> None:
+        """Let the user browse the resolutionIDs without changing them."""
+        self._px_table.setReadOnly(read_only)
+        self._affine_table.setReadOnly(read_only)
+        self._value_table.setReadOnly(read_only)
 
     # -------------- Private API --------------
 
@@ -678,6 +685,14 @@ class _PixelTable(DataTableWidget):
         h_header = cast("QHeaderView", self._table.horizontalHeader())
         h_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         h_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self._edit_triggers = self._table.editTriggers()
+
+    def setReadOnly(self, read_only: bool) -> None:
+        """Keep the rows selectable but their names and values unchangeable."""
+        self._toolbar.setEnabled(not read_only)
+        no_edit = QAbstractItemView.EditTrigger.NoEditTriggers
+        self._table.setEditTriggers(no_edit if read_only else self._edit_triggers)
+        self.table().setColumnLocked(PX, read_only)
 
 
 class AffineTable(QTableWidget):
@@ -726,6 +741,11 @@ class AffineTable(QTableWidget):
             else:
                 spin.valueChanged.connect(self.valueChanged)
 
+    def setReadOnly(self, read_only: bool) -> None:
+        """Disable the spin boxes of the first two rows (the last one always is)."""
+        for row, col in itertools.product(range(2), range(3)):
+            cast("QDoubleSpinBox", self.cellWidget(row, col)).setEnabled(not read_only)
+
     def value(self) -> tuple[float, float, float, float, float, float]:
         """Return the current widget value describing the affine transformation."""
         value: list[float] = []
@@ -760,6 +780,7 @@ class _PropertyValueModel(QAbstractTableModel):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._settings: list[DevicePropertySetting] = []
+        self._read_only = False
 
     # -- data access ---------------------------------------------------------
 
@@ -776,6 +797,9 @@ class _PropertyValueModel(QAbstractTableModel):
         self.beginResetModel()
         self._settings = list(settings)
         self.endResetModel()
+
+    def setReadOnly(self, read_only: bool) -> None:
+        self._read_only = read_only
 
     # -- QAbstractTableModel -------------------------------------------------
 
@@ -806,7 +830,11 @@ class _PropertyValueModel(QAbstractTableModel):
         if not index.isValid():  # pragma: no cover
             return Qt.ItemFlag.NoItemFlags
         flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
-        if index.column() == 1 and not self._settings[index.row()].is_read_only:
+        if (
+            index.column() == 1
+            and not self._read_only
+            and not self._settings[index.row()].is_read_only
+        ):
             flags |= Qt.ItemFlag.ItemIsEditable
         return flags
 
@@ -881,8 +909,7 @@ class _PropertyValueTableView(QTableView):
         if event.button() == Qt.MouseButton.LeftButton and not (mods & extend):
             idx = self.indexAt(event.pos())
             if (
-                idx.isValid()
-                and idx.column() == 1
+                idx.flags() & Qt.ItemFlag.ItemIsEditable
                 and self.state() != QTableView.State.EditingState
             ):
                 self.edit(idx)
@@ -954,6 +981,11 @@ class _PropertyValueTable(QWidget):
     def setSettings(self, settings: Iterable[DevicePropertySetting]) -> None:
         """Replace the displayed settings."""
         self._model.setSettings(settings)
+
+    def setReadOnly(self, read_only: bool) -> None:
+        """Keep the values readable but not editable, and the toolbar off."""
+        self._model.setReadOnly(read_only)
+        self._toolbar.setEnabled(not read_only)
 
     def selectedKeys(self) -> list[tuple[str, str]]:
         """Return the (device, property) pairs of the selected rows."""

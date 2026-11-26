@@ -155,6 +155,7 @@ class PropertyValueDelegate(PropertySettingDelegate):
             isinstance(setting, DevicePropertySetting)
             and _control_type(setting) is ControlType.CHECKBOX
             and event.type() == QEvent.Type.MouseButtonRelease
+            and index.flags() & Qt.ItemFlag.ItemIsEditable
         ):
             src_model, src_index = _resolve_source(model, index)
             if src_model is not None and src_index.isValid():

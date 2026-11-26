@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from pymmcore_plus import CMMCorePlus
+    from pytestqt.logging import QtLoggingPlugin
     from pytestqt.qtbot import QtBot
 
     from pymmcore_widgets._models import DevicePropertySetting
@@ -552,3 +553,52 @@ def test_config_groups_help_dialog(qtbot: QtBot) -> None:
     qtbot.addWidget(dialog)
     dialog.show()
     dialog.close()
+
+
+def test_editor_read_only(
+    editor: ConfigGroupsEditor,
+    qtbot: QtBot,
+    qtlog: QtLoggingPlugin,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A read-only editor can be browsed, but nothing in it can be changed."""
+    import pymmcore_widgets.config_presets._views._config_presets_table as table_mod
+
+    view = editor._preset_table.view
+    stack = editor.undoStack()
+    view.show()
+    qtbot.waitExposed(view)
+    editor.setCurrentGroup("Channel")
+    empty = view.model().index(0, 0)
+    view._remove_cell_setting(empty)
+    assert stack.count() == 1
+    full = view.model().index(0, 1)
+    assert full.data(Qt.ItemDataRole.UserRole) is not None
+
+    editor.setReadOnly(True)
+    editor._tb.remove_action.setEnabled(True)  # as a new selection would
+    assert not any(a.isEnabled() for a in editor._tb.edit_actions.actions())
+
+    # browsing still works
+    preset = editor.setCurrentPreset("Channel", "FITC")
+    assert editor._group_preset_sel.currentPreset() == preset
+    assert not preset.flags() & Qt.ItemFlag.ItemIsEditable
+
+    # a click opens no editor, a double click on an empty cell adds nothing
+    left = Qt.MouseButton.LeftButton
+    qtbot.mouseClick(view.viewport(), left, pos=view.visualRect(full).center())
+    assert view.state() != view.State.EditingState
+    assert not qtlog.records  # e.g. Qt's "edit: editing failed"
+    qtbot.mouseDClick(view.viewport(), left, pos=view.visualRect(empty).center())
+    menu = Mock()
+    monkeypatch.setattr(table_mod, "QMenu", menu)
+    view._on_header_context_menu(view.visualRect(full).center())
+    view.contextMenuEvent(Mock(pos=lambda: view.visualRect(full).center()))
+    menu.assert_not_called()
+    assert stack.count() == 1
+
+    editor.setReadOnly(False)
+    assert editor._tb.remove_action.isEnabled()
+    assert editor._tb.undo_action.isEnabled()
+    qtbot.mouseClick(view.viewport(), left, pos=view.visualRect(full).center())
+    assert view.state() == view.State.EditingState

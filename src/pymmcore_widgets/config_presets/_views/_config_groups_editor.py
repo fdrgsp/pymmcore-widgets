@@ -296,6 +296,11 @@ class ConfigGroupsEditor(QWidget):
         """Return the undo stack for this editor."""
         return self._undo_stack
 
+    def setReadOnly(self, read_only: bool) -> None:
+        """Let the user browse groups and presets without changing them."""
+        self._model.setReadOnly(read_only)
+        self._tb.edit_actions.setEnabled(not read_only)
+
     # ------------------------------------------------------------------
     # Private methods and slots
     # ------------------------------------------------------------------
@@ -752,7 +757,7 @@ class _ConfigEditorToolbar(QToolBar):
 
         self.addSeparator()
 
-        self.addAction(
+        add_group_action = self.addAction(
             StandardIcon.FOLDER_ADD.icon(),
             "Add Group",
             parent._add_group,
@@ -823,6 +828,21 @@ class _ConfigEditorToolbar(QToolBar):
         for action in (self.undo_action, self.redo_action):
             if btn := self.widgetForAction(action):
                 btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+
+        # the actions that change the configuration: a disabled group keeps
+        # them disabled whatever enabled state the editor gives them meanwhile
+        self.edit_actions = QActionGroup(self)
+        for action in (
+            add_group_action,
+            self.add_preset_action,
+            self.edit_properties_action,
+            self.duplicate_action,
+            self.remove_action,
+            self.set_channel_action,
+            self.undo_action,
+            self.redo_action,
+        ):
+            self.edit_actions.addAction(action)
 
         spacer = QWidget(self)
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)

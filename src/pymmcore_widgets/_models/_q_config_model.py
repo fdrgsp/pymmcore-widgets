@@ -42,6 +42,7 @@ class QConfigGroupsModel(_BaseTreeModel):
     def __init__(self, groups: Iterable[ConfigGroup] | None = None) -> None:
         super().__init__()
         self._in_undo_redo = False  # Track when we're in undo/redo operation
+        self._read_only = False
         if groups:
             self.set_groups(groups)
 
@@ -56,6 +57,13 @@ class QConfigGroupsModel(_BaseTreeModel):
         restoration of original names that may temporarily conflict.
         """
         self._in_undo_redo = enabled
+
+    def isReadOnly(self) -> bool:
+        return self._read_only
+
+    def setReadOnly(self, read_only: bool) -> None:
+        """Make every item non-editable, while it stays selectable."""
+        self._read_only = read_only
 
     def columnCount(self, _parent: QModelIndex | None = None) -> int:
         # In most subclasses, the number of columns is independent of the parent.
@@ -179,6 +187,8 @@ class QConfigGroupsModel(_BaseTreeModel):
             return Qt.ItemFlag.NoItemFlags
 
         fl = Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+        if self._read_only:
+            return fl
         if isinstance((grp := node.payload), ConfigGroup) and grp.is_system_group:
             # system group name cannot be changed
             return fl

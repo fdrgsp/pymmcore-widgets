@@ -248,6 +248,7 @@ class ConfigPresetsTableView(QTableView):
             (hh := self.horizontalHeader()) is None
             or (col := hh.logicalIndexAt(pos)) < 0
             or (model := self.model()) is None
+            or self.sourceModel().isReadOnly()
         ):
             return
 
@@ -286,7 +287,11 @@ class ConfigPresetsTableView(QTableView):
         extend = Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.ControlModifier
         if event.button() == Qt.MouseButton.LeftButton and not (mods & extend):
             idx = self.indexAt(event.pos())
-            if idx.isValid() and self.state() != QTableView.State.EditingState:
+            # `edit` warns "editing failed" on a cell that isn't editable
+            if (
+                idx.flags() & Qt.ItemFlag.ItemIsEditable
+                and self.state() != QTableView.State.EditingState
+            ):
                 self.edit(idx)
                 self._pass_click_to_editor(event)
 
@@ -345,13 +350,19 @@ class ConfigPresetsTableView(QTableView):
     def mouseDoubleClickEvent(self, event: Any) -> None:
         """Double-click on an empty cell adds the property to that preset."""
         idx = self.indexAt(event.pos())
-        if idx.isValid() and idx.data(Qt.ItemDataRole.UserRole) is None:
+        if (
+            idx.isValid()
+            and idx.data(Qt.ItemDataRole.UserRole) is None
+            and not self.sourceModel().isReadOnly()
+        ):
             self._add_cell_setting(idx)
             return
         super().mouseDoubleClickEvent(event)  # pragma: no cover
 
     def contextMenuEvent(self, event: Any) -> None:
         """Right-click context menu: add/remove property for a single cell."""
+        if self.sourceModel().isReadOnly():
+            return
         idx = self.indexAt(event.pos())
         if not idx.isValid():  # pragma: no cover
             super().contextMenuEvent(event)
