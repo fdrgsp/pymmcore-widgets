@@ -326,7 +326,6 @@ class WellPlateView(ResizingGraphicsView):
         self._draw_labels: bool = True
         self._draw_well_edge_spots: bool = False
 
-        self.setStyleSheet("background:grey; border-radius: 5px;")
         self.setRenderHints(
             QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform
         )
@@ -339,6 +338,9 @@ class WellPlateView(ResizingGraphicsView):
         # all the graphics items that label wells
         self._well_labels: list[QGraphicsItem] = []
         self._well_edge_spots: list[QGraphicsItem] = []
+        # after the items `changeEvent` recolors: under a parent with a style
+        # sheet, this sends a PaletteChange right away
+        self.setStyleSheet("background:grey; border-radius: 5px;")
 
         # we manually manage the selection state of items
         self._selected_items: set[QAbstractGraphicsShapeItem] = set()

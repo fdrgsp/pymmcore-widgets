@@ -7,8 +7,11 @@ import qtpy
 import useq
 from qtpy.QtCore import Qt
 from qtpy.QtGui import QMouseEvent
+from qtpy.QtWidgets import QWidget
 
 from pymmcore_widgets.useq_widgets import WellPlateWidget
+from pymmcore_widgets.useq_widgets._well_plate_widget import WellPlateView
+from pymmcore_widgets.useq_widgets.points_plans._well_graphics_view import WellView
 
 if TYPE_CHECKING:
     from pytestqt.qtbot import QtBot
@@ -123,3 +126,12 @@ def test_plate_mouse_press(qtbot: QtBot) -> None:
     with qtbot.waitSignal(wdg._view.selectionChanged):
         wdg._view._on_rubber_band_changed(wdg.rect())
     assert len(wdg._view._selected_items) == 0
+
+
+@pytest.mark.parametrize("view", [WellPlateView, WellView])
+def test_plate_views_under_a_styled_parent(qtbot: QtBot, view: type[QWidget]) -> None:
+    """Their own style sheet sends a PaletteChange before __init__ is done."""
+    parent = QWidget()
+    qtbot.addWidget(parent)
+    parent.setStyleSheet("QWidget { color: red; }")
+    view(parent)

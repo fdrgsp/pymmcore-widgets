@@ -48,7 +48,6 @@ class WellView(ResizingGraphicsView):
         self._scene = QGraphicsScene()
 
         super().__init__(self._scene, parent)
-        self.setStyleSheet("background:grey; border-radius: 5px;")
         self.setRenderHints(
             QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform
         )
@@ -76,6 +75,9 @@ class WellView(ResizingGraphicsView):
         self._fov_items: list[QAbstractGraphicsShapeItem] = []
         # the lines connecting consecutive FOVs
         self._line_items: list[QGraphicsLineItem | QGraphicsPathItem] = []
+        # after the items `changeEvent` recolors: under a parent with a style
+        # sheet, this sends a PaletteChange right away
+        self.setStyleSheet("background:grey; border-radius: 5px;")
 
         # plan statistics (e.g. number of FOVs), drawn at the bottom right
         self._info_label = QLabel(self)
