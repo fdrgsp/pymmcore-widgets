@@ -279,6 +279,9 @@ def fov_pixel_size_warning(
 # "name_001_002" -> ("name_001", "002")
 # "name_02" -> ('name_02', None)
 NUM_SPLIT = re.compile(r"(.*?)(?:_(\d{3,}))?$")
+# A multi-position OME-TIFF is written as a folder named like the file without
+# its extension, with one file per position (ome-writers).
+OME_TIFF_EXTENSIONS = (".ome.tif", ".ome.tiff")
 
 
 def get_next_available_path(requested_path: Path | str, min_digits: int = 3) -> Path:
@@ -304,7 +307,7 @@ def get_next_available_path(requested_path: Path | str, min_digits: int = 3) -> 
         extension = ".ome" + extension
         stem = stem[:-4]
 
-    bare_path = directory / stem
+    requested_folder = stem.casefold()
     # remove any existing counter from the stem to get the base name
     requested_num = None
     if match := NUM_SPLIT.match(stem):
@@ -314,25 +317,26 @@ def get_next_available_path(requested_path: Path | str, min_digits: int = 3) -> 
             stem = base_stem
 
     # look for existing files in the folder that share the same base stem.
-    # Multi-file formats (e.g. multi-position OME-TIFF) collapse the requested
-    # "<stem><extension>" file into a bare "<stem>" directory holding one file
-    # per position, so also match directories that dropped the extension.
+    # A multi-position OME-TIFF is a folder "stem" or "stem_###" instead.
+    # Folders are compared without case, so that "EXP_001" blocks "exp_001" on
+    # case-insensitive file systems.
     current_max = 0
-    exists = requested_path.exists() or (bool(extension) and bare_path.is_dir())
+    exists = requested_path.exists()
     for existing in directory.glob("*"):
         name = existing.name
         if not extension:
-            base = name
+            base, target = name, stem
         elif name.endswith(extension):
-            base = name[: -len(extension)]
-        elif existing.is_dir():
-            base = name
+            base, target = name[: -len(extension)], stem
+        elif extension in OME_TIFF_EXTENSIONS and existing.is_dir():
+            base, target = name.casefold(), stem.casefold()
+            exists = exists or base == requested_folder
         else:
             continue
         # if the base name ends with a number, increase the current_max
         if (
             (match := NUM_SPLIT.match(base))
-            and match.group(1) == stem
+            and match.group(1) == target
             and (num := match.group(2))
         ):
             current_max = max(int(num), current_max)

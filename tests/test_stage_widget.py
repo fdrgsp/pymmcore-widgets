@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import re
-from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
+import pytest
 from pymmcore_plus import DeviceType
-from qtpy.QtWidgets import QApplication, QGridLayout
+from qtpy.QtWidgets import QApplication
 
 from pymmcore_widgets.control._stage_widget import MoveStageButton, StageWidget
 from tests._utils import right_press
@@ -296,18 +295,14 @@ def test_invert_axis(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
     assert global_mmcore.getPosition() == 10.0
 
 
-def test_button_paths(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
-    """Tests that Windows paths are never present in stylesheet urls."""
-    stage_xy = StageWidget("Z")
-    qtbot.addWidget(stage_xy)
-    btn_grid = stage_xy._move_btns.layout()
-    assert isinstance(btn_grid, QGridLayout)
-    # For each button in the grid...
-    for child in btn_grid.children():
-        if not isinstance(child, MoveStageButton):
-            continue
-        # ...ensure each url...
-        for match in re.finditer(r"(?<=url\().*?(?=\);)", child.styleSheet()):
-            # ...is a valid path without backslashes.
-            assert "\\" not in match.group(0), "Backslashes shouldn't be in stylesheets"
-            assert Path(match.group(0)).is_file(), f"Invalid path: {match.group(0)}"
+def test_move_button_survives_icon_fetch_failure(qtbot: QtBot) -> None:
+    """A failed icon download warns instead of raising."""
+    with (
+        patch("superqt.iconify.svg_path", side_effect=OSError("offline")),
+        pytest.warns(UserWarning, match="Error fetching icon"),
+    ):
+        btn = MoveStageButton("mdi:chevron-up", 0, 1)
+    qtbot.addWidget(btn)
+    assert not btn.icon().isNull()
+    btn.show()
+    btn.grab()
