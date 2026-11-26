@@ -2881,6 +2881,25 @@ def test_fov_refresh_preserves_unchecked_rows(
     assert [pos.sequence.grid_plan.fov_width for pos in values] == [100, 100]
 
 
+def test_fov_refresh_ignores_zero_pixel_size(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    positions = CoreConnectedPositionTable(mmcore=global_mmcore)
+    qtbot.addWidget(positions)
+    grid = useq.GridRowsColumns(rows=2, columns=2, fov_width=512, fov_height=512)
+    positions.setValue([useq.Position(sequence=useq.MDASequence(grid_plan=grid))])
+    value_changed = Mock()
+    positions.valueChanged.connect(value_changed)
+
+    # e.g. an objective without pixel size config
+    with patch.object(global_mmcore, "getPixelSizeUm", return_value=0):
+        global_mmcore.events.pixelSizeChanged.emit(0)
+        qtbot.waitUntil(lambda: not positions._fov_observer._timer.isActive())
+
+    assert positions.value()[0].sequence.grid_plan == grid
+    value_changed.assert_not_called()
+
+
 def test_sub_wdg_channel_tab(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
     wdg = MDAWidget()
     qtbot.addWidget(wdg)

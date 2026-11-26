@@ -589,6 +589,8 @@ class CoreConnectedPositionTable(PositionTable):
         px = self._mmc.getPixelSizeUm()
         fov_w = self._mmc.getImageWidth() * px
         fov_h = self._mmc.getImageHeight() * px
+        if not (fov_w and fov_h):  # e.g. no pixel size config
+            return
 
         changed = False
         # Include unchecked rows.
