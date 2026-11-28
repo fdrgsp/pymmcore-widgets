@@ -15,7 +15,9 @@ from qtpy.QtWidgets import (
     QDialogButtonBox,
     QGraphicsScene,
     QGraphicsView,
+    QHeaderView,
     QLabel,
+    QTableView,
     QVBoxLayout,
     QWidget,
 )
@@ -246,6 +248,46 @@ def disable_wheel_scroll_recursive(widget: QWidget) -> None:
     targets.extend(widget.findChildren(QAbstractSpinBox))
     for target in targets:
         disable_wheel_scroll(target)
+
+
+class _ComboRowHeight(QObject):
+    """Event filter keeping a table's rows as tall as a combo box."""
+
+    def __init__(self, table: QTableView) -> None:
+        super().__init__(table)
+        self._table = table
+        self.apply()
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        if a1 is not None and a1.type() in (
+            QEvent.Type.FontChange,
+            QEvent.Type.StyleChange,
+        ):
+            self.apply()
+        return False
+
+    def apply(self) -> None:
+        combo = QComboBox()
+        combo.setStyle(self._table.style())
+        combo.setFont(self._table.font())
+        height = combo.sizeHint().height() + int(self._table.showGrid())
+        header = self._table.verticalHeader()
+        if header is not None:
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+            header.setDefaultSectionSize(height)
+        # the default is only for new rows
+        if (model := self._table.model()) is not None:
+            for row in range(model.rowCount()):
+                self._table.setRowHeight(row, height)
+
+
+def use_combo_row_height(table: QTableView) -> None:
+    """Keep the rows of `table` as tall as a combo box, whatever the font or style.
+
+    So that rows look the same in every table, whatever they hold.
+    """
+    table._combo_row_height = row_height = _ComboRowHeight(table)
+    table.installEventFilter(row_height)
 
 
 # Qt's default (unset) maximum widget size: PyQt has QtWidgets.QWIDGETSIZE_MAX,

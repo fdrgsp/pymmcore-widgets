@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 import pint
 import pytest
 import useq
-from qtpy.QtCore import QPoint, Qt, QTimer
-from qtpy.QtGui import QColor, QFont, QPalette
-from qtpy.QtWidgets import QLabel, QWidget
+from qtpy.QtCore import QPoint, QPointF, Qt, QTimer
+from qtpy.QtGui import QColor, QFont, QPalette, QWheelEvent
+from qtpy.QtWidgets import QApplication, QComboBox, QLabel, QWidget
 
 import pymmcore_widgets
 from pymmcore_widgets.useq_widgets import (
@@ -949,3 +949,32 @@ def test_time_plan_set_value_selects_no_row(qtbot: QtBot) -> None:
     # what `_resolve_duration` goes by
     assert table.currentRow() == 1
     assert table.currentColumn() == table.indexOf(wdg.LOOPS)
+
+
+def test_tables_rows_as_tall_as_a_combo(qtbot: QtBot) -> None:
+    combo_height = QComboBox().sizeHint().height()
+    for cls in (ChannelTable, TimePlanWidget, PositionTable):
+        wdg = cls(2)
+        qtbot.addWidget(wdg)
+        table = wdg.table()
+        expected = combo_height + int(table.showGrid())
+        assert {table.rowHeight(row) for row in range(2)} == {expected}
+
+
+def test_wheel_does_not_change_z_fields(qtbot: QtBot) -> None:
+    wdg = ZPlanWidget()
+    qtbot.addWidget(wdg)
+    wdg.show()
+    step = wdg.step.value()
+    event = QWheelEvent(
+        QPointF(5, 5),
+        QPointF(5, 5),
+        QPoint(0, 0),
+        QPoint(0, 120),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    QApplication.sendEvent(wdg.step, event)
+    assert wdg.step.value() == step

@@ -9,6 +9,8 @@ from pymmcore_plus import Keyword
 from qtpy.QtWidgets import QComboBox, QHBoxLayout, QLabel, QWidget, QWidgetAction
 from superqt.utils import signals_blocked
 
+from pymmcore_widgets._util import disable_wheel_scroll, use_combo_row_height
+
 from ._column_info import (
     BoolColumn,
     ChoiceColumn,
@@ -39,7 +41,9 @@ class ChannelTable(DataTableWidget):
     # fmt: on
     def __init__(self, rows: int = 0, parent: QWidget | None = None):
         super().__init__(rows, parent)
+        use_combo_row_height(self._table)
         self._group_combo = QComboBox()
+        disable_wheel_scroll(self._group_combo)
         self._group_combo.currentTextChanged.connect(self._on_group_changed)
 
         self._group_wdg = QWidget()

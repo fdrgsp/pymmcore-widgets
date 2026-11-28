@@ -25,6 +25,7 @@ from qtpy.QtWidgets import (
 from superqt.iconify import QIconifyIcon
 
 from pymmcore_widgets._humanize import humanize_time, parse_time_string
+from pymmcore_widgets._util import disable_wheel_scroll
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -234,7 +235,7 @@ class _TableSpinboxMixin:
         self.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         self.setKeyboardTracking(False)
         self.setMinimumWidth(70)
-        self.setStyleSheet("QAbstractSpinBox { border: none; }")
+        self.setFrame(False)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
     def wheelEvent(self, event: Any) -> None:
@@ -487,6 +488,7 @@ class CheckableCombo(QWidget):
         self._checkbox.setChecked(True)
         self._checkbox.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._combo = QComboBox()
+        disable_wheel_scroll(self._combo)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(5, 0, 0, 0)
         layout.addWidget(self._checkbox)
