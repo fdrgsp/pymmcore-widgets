@@ -7,7 +7,7 @@ import qtpy
 from qtpy import QtGui
 from qtpy.QtCore import QPoint, QPointF, Qt
 from qtpy.QtGui import QIcon, QWheelEvent
-from qtpy.QtWidgets import QApplication, QTabBar
+from qtpy.QtWidgets import QApplication, QStyleFactory, QTabBar
 
 from pymmcore_widgets.useq_widgets._axis_tabs import _AxisTabBar, _AxisTabButton
 
@@ -23,6 +23,10 @@ def test_pixel_scroll_keeps_tab_buttons_aligned(
 ) -> None:
     bar = _AxisTabBar()
     qtbot.addWidget(bar)
+    style = QStyleFactory.create("Fusion")
+    assert style is not None
+    style.setParent(bar)
+    bar.setStyle(style)
     bar.setLayoutDirection(direction)
     buttons = []
     for title in ("Channels", "Positions", "Z Stack", "Time Series", "Grid/Tiles"):
