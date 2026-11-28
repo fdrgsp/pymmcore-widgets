@@ -38,6 +38,11 @@ if TYPE_CHECKING:
 
     from pymmcore_plus.mda import SupportsFrameReady
 
+AF_NO_AXIS = (
+    "'Autofocus' is checked, but no axis is selected in 'On Axis', so it would "
+    "never run.\n\nSelect an axis, or uncheck 'Autofocus'."
+)
+
 
 class _CoreConnectedPositionTable(CoreConnectedPositionTable):
     def __init__(
@@ -272,6 +277,12 @@ class MDAWidget(MDASequenceWidget):
         """
         # in case the user does not press enter after editing the save name.
         self.save_info.save_name.editingFinished.emit()
+
+        # autofocus switched on for no axis would silently never run
+        af = self.af_axis
+        if af.isChecked() and af.isEnabled() and not af.value():
+            QMessageBox.warning(self, "Autofocus", AF_NO_AXIS)
+            return False
 
         # if autofocus has been requested, but the autofocus device is not engaged,
         # and position-specific offsets haven't been set, show a warning

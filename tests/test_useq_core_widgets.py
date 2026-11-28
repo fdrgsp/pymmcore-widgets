@@ -15,6 +15,7 @@ from pymmcore_widgets._util import get_next_available_path
 from pymmcore_widgets.mda import MDAWidget
 from pymmcore_widgets.mda._core_channels import CoreConnectedChannelTable
 from pymmcore_widgets.mda._core_grid import CoreConnectedGridPlanWidget
+from pymmcore_widgets.mda._core_mda import AF_NO_AXIS
 from pymmcore_widgets.mda._core_positions import (
     AF_UNAVAILABLE,
     CoreConnectedPositionTable,
@@ -478,6 +479,20 @@ def test_run_mda_af_warning(qtbot: QtBot):
             wdg.control_btns.run_btn.click()
         with qtbot.waitSignal(wdg._mmc.mda.events.sequenceFinished):
             assert wdg._mmc.mda.is_running()
+
+
+def test_run_mda_af_without_axis(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    wdg.af_axis.setChecked(True)
+
+    with patch.object(QMessageBox, "warning") as warning:
+        assert wdg.prepare_mda() is False
+    warning.assert_called_once_with(wdg, "Autofocus", AF_NO_AXIS)
+
+    # nothing to warn about with autofocus switched off
+    wdg.af_axis.setChecked(False)
+    assert wdg.prepare_mda() is None
 
 
 def test_af_per_position_enabled_after_run(
