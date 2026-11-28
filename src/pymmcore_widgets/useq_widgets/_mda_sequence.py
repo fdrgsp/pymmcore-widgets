@@ -9,6 +9,7 @@ from weakref import WeakMethod
 import useq
 from qtpy.QtCore import QEvent, Qt, Signal
 from qtpy.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -682,6 +683,7 @@ class MDASequenceWidget(QWidget):
 
     def save(self, file: str | Path | None = None) -> None:
         """Save the current [`useq.MDASequence`][] to a file."""
+        self._commit_editors()
         if not isinstance(file, (str, Path)):
             file, _ = QFileDialog.getSaveFileName(
                 self,
@@ -732,6 +734,16 @@ class MDASequenceWidget(QWidget):
         self.setValue(mda_seq)
 
     # -------------- Private API --------------
+
+    def _commit_editors(self) -> None:
+        """Take the value being typed in this widget's focused editor, if any.
+
+        A table's spin box takes a typed value on Enter or on losing the focus, and
+        on macOS clicking a button leaves it the focus.
+        """
+        focused = QApplication.focusWidget()
+        if focused is not None and self.isAncestorOf(focused):
+            focused.clearFocus()
 
     def _settings_extensions(self) -> str:
         """Returns the available extensions for MDA settings save/load."""

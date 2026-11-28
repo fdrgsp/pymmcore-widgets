@@ -481,6 +481,41 @@ def test_run_mda_af_warning(qtbot: QtBot):
             assert wdg._mmc.mda.is_running()
 
 
+def test_run_and_save_take_what_is_being_typed(
+    global_mmcore: CMMCorePlus, qtbot: QtBot, tmp_path: Path
+) -> None:
+    """Without Enter: on macOS, clicking Run or Save leaves the editor its focus."""
+    wdg = MDAWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.show()
+    wdg.activateWindow()
+    qtbot.waitExposed(wdg)
+    qtbot.wait(100)
+    if not wdg.isActiveWindow():  # pragma: no cover
+        pytest.skip("focus needs the window to be active, which CI cannot always do")
+    wdg.setValue(useq.MDASequence(time_plan={"interval": 1, "loops": 5}))
+    table = wdg.time_plan.table()
+
+    def type_loops(text: str) -> None:
+        spin = table.cellWidget(0, table.indexOf(wdg.time_plan.LOOPS))
+        spin.setFocus()
+        qtbot.keyClick(
+            spin.lineEdit(), Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier
+        )
+        qtbot.keyClicks(spin.lineEdit(), text)
+
+    # still the old value while typing: this is what would otherwise run
+    type_loops("30")
+    assert wdg.value().time_plan.loops == 5
+    wdg.prepare_mda()
+    assert wdg.value().time_plan.loops == 30
+
+    type_loops("40")
+    dest = tmp_path / "seq.yaml"
+    wdg.save(dest)
+    assert useq.MDASequence.from_file(dest).time_plan.loops == 40
+
+
 def test_run_mda_af_without_axis(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
     wdg = MDAWidget()
     qtbot.addWidget(wdg)
