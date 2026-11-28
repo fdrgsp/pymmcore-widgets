@@ -7,7 +7,9 @@ from typing import TYPE_CHECKING
 import pint
 import pytest
 import useq
-from qtpy.QtCore import Qt, QTimer
+from qtpy.QtCore import QPoint, Qt, QTimer
+from qtpy.QtGui import QColor, QFont, QPalette
+from qtpy.QtWidgets import QLabel, QWidget
 
 import pymmcore_widgets
 from pymmcore_widgets.useq_widgets import (
@@ -31,6 +33,7 @@ from pymmcore_widgets.useq_widgets._column_info import (
 from pymmcore_widgets.useq_widgets._positions import MDAButton, QFileDialog, _MDAPopup
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from pytestqt.qtbot import QtBot
@@ -737,3 +740,182 @@ def test_mda_popup_with_polygon(qtbot: QtBot) -> None:
     assert gp._mode_btn_group.checkedButton().text() == "Polygon"
     assert gp.polygon_wdg.scene is not None
     assert gp.polygon_wdg.scene.items()
+
+
+def test_grid_plan_mode_radios(qtbot: QtBot) -> None:
+    """The mode is picked from radio buttons; Polygon only shows once set."""
+    wdg = GridPlanWidget()
+    qtbot.addWidget(wdg)
+    assert wdg.mode() is _grid.Mode.NUMBER
+    assert wdg._mode_radios[_grid.Mode.POLYGON].isHidden()
+    with qtbot.waitSignal(wdg.valueChanged):
+        wdg._mode_radios[_grid.Mode.BOUNDS].click()
+    assert wdg.mode() is _grid.Mode.BOUNDS
+    assert isinstance(wdg.value(), useq.GridFromEdges)
+
+
+def test_grid_plan_order_buttons(qtbot: QtBot) -> None:
+    """Each order is a button; picking one sets the plan's order."""
+    wdg = GridPlanWidget()
+    qtbot.addWidget(wdg)
+    assert wdg.order.currentEnum() is _grid.OrderMode.row_wise_snake
+    with qtbot.waitSignal(wdg.valueChanged):
+        wdg.order._buttons[_grid.OrderMode.column_wise].click()
+    assert wdg.value().mode == useq.OrderMode.column_wise
+    # exclusive: clicking the selected button keeps it selected
+    wdg.order._buttons[_grid.OrderMode.column_wise].click()
+    assert wdg.order.currentEnum() is _grid.OrderMode.column_wise
+
+
+def test_grid_plan_mode_icons_follow_the_palette(qtbot: QtBot) -> None:
+    """The mode icons are drawn in the text color, not left black."""
+    wdg = GridPlanWidget()
+    qtbot.addWidget(wdg)
+    palette = wdg.palette()
+    palette.setColor(QPalette.ColorRole.Text, QColor("#ff0000"))
+    wdg.setPalette(palette)
+    for radio in wdg._mode_radios.values():
+        image = radio.icon().pixmap(16, 16).toImage()
+        opaque = {
+            image.pixelColor(x, y).name()
+            for x in range(image.width())
+            for y in range(image.height())
+            if image.pixelColor(x, y).alpha() == 255
+        }
+        assert opaque == {"#ff0000"}
+
+
+def test_grid_plan_summary(qtbot: QtBot) -> None:
+    """The summary states the tiles, rows x columns and size it can know."""
+    wdg = GridPlanWidget()
+    qtbot.addWidget(wdg)
+    times = _grid._TIMES
+
+    # rows and columns are known without a field of view; the size is not
+    wdg.setValue(useq.GridRowsColumns(rows=3, columns=4))
+    assert wdg._summary.text() == f"12 tiles · 3 {times} 4"
+
+    wdg.setFovWidth(400)
+    wdg.setFovHeight(300)
+    assert wdg._summary.text() == f"12 tiles · 3 {times} 4 · 1.60 {times} 0.90 mm"
+
+    # an area's tiles depend on the field of view
+    wdg.setValue(useq.GridWidthHeight(width=1000, height=600))
+    assert wdg._summary.text() == f"6 tiles · 2 {times} 3 · 1.20 {times} 0.60 mm"
+    wdg._fov_width = wdg._fov_height = None
+    wdg.setMode("bounds")
+    assert wdg._summary.text() == "Set the pixel size to compute the tiles."
+
+
+def test_grid_plan_label_column_shrinks_with_the_font(qtbot: QtBot) -> None:
+    """The aligned label column follows a smaller font, not only a larger one.
+
+    Regression test: a QLabel's sizeHint() never reports less than its
+    minimum width, so re-measuring labels still pinned by the previous
+    alignment could only ever widen the column -- after zooming out, the
+    labels kept the larger zoom's width.
+    """
+    wdg = GridPlanWidget()
+    qtbot.addWidget(wdg)
+    label = wdg.row_col_wdg.layout().labelForField(wdg.row_col_wdg.rows)
+    assert isinstance(label, QLabel)
+    labels = wdg.findChildren(QLabel)
+    small = QFont(label.font())
+    big = QFont(small)
+    big.setPointSizeF(small.pointSizeF() * 2)
+
+    # what changeEvent does on a font/style change (e.g. an app zoom), with
+    # the labels' fonts set directly: they don't inherit one set on `wdg`
+    for font in (big, small):
+        for lbl in labels:
+            lbl.setFont(font)
+        wdg._align_label_columns()
+        if font is big:
+            wide = label.minimumWidth()
+    assert label.minimumWidth() == label.maximumWidth() < wide * 0.75
+
+
+@pytest.mark.parametrize(
+    "mode, field",
+    [
+        ("number", lambda w: w.row_col_wdg.rows),
+        ("area", lambda w: w.width_height_wdg.area_width),
+        ("bounds", lambda w: w.bounds_wdg.top),
+    ],
+)
+def test_grid_plan_fields_fill_the_width(
+    qtbot: QtBot, mode: str, field: Callable[[GridPlanWidget], QWidget]
+) -> None:
+    wdg = GridPlanWidget()
+    qtbot.addWidget(wdg)
+    wdg.setMode(mode)
+    wdg.resize(1000, 300)
+    wdg.show()
+    qtbot.waitExposed(wdg)
+
+    margin = wdg.layout().contentsMargins().right()
+    right = field(wdg).mapTo(wdg, QPoint()).x() + field(wdg).width()
+    assert right == wdg.width() - margin
+
+
+@pytest.mark.parametrize(
+    "plan",
+    [
+        useq.GridRowsColumns(rows=2, columns=3, relative_to="top_left"),
+        useq.GridWidthHeight(
+            width=30, height=30, fov_width=10, fov_height=10, relative_to="top_left"
+        ),
+    ],
+)
+def test_grid_plan_set_value_keeps_relative_to(
+    qtbot: QtBot, plan: useq.GridRowsColumns | useq.GridWidthHeight
+) -> None:
+    """Regression test: "top_left" did not match the combo's "top left" text."""
+    wdg = GridPlanWidget()
+    qtbot.addWidget(wdg)
+
+    wdg.setValue(plan)
+
+    assert wdg.value() == plan
+    assert wdg.relative_to.currentEnum() is _grid.RelativeTo.top_left
+
+
+def test_grid_plan_mode_row_does_not_set_the_width(qtbot: QtBot) -> None:
+    """The gaps between the mode radios give way before the fields below do.
+
+    Regression test: with a style that widens the radios, the fixed gaps made the
+    row wider than the fields, so the widget could not shrink to fit them.
+    """
+    wdg = GridPlanWidget()
+    qtbot.addWidget(wdg)
+    mode_row = wdg.layout().itemAt(0).layout()
+    assert mode_row.minimumSize().width() <= mode_row.sizeHint().width() - 50
+
+
+def test_z_plan_lays_out_again_after_a_font_change(qtbot: QtBot) -> None:
+    """Regression test: after a zoom, the first mode switch resized the widget."""
+    wdg = ZPlanWidget()
+    qtbot.addWidget(wdg)
+    wdg.show()
+    font = wdg.font()
+    font.setPointSizeF(font.pointSizeF() * 1.5)
+    wdg.setFont(font)
+    qtbot.wait(10)
+    height = wdg._viz.height()
+
+    wdg.setMode(wdg.mode())
+    assert wdg._viz.height() == height
+
+
+def test_z_plan_controls_fill_the_width(qtbot: QtBot) -> None:
+    wdg = ZPlanWidget()
+    qtbot.addWidget(wdg)
+    wdg.resize(1000, 300)
+    wdg.show()
+    qtbot.waitExposed(wdg)
+
+    box = wdg._controls_box
+    margin = wdg.layout().contentsMargins().right()
+    assert box.mapTo(wdg, QPoint()).x() + box.width() == wdg.width() - margin
+    # the box's fields take the spare width, not a gap inside the box
+    assert wdg.step.width() > 300

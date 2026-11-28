@@ -9,6 +9,7 @@ from pymmcore_plus import CMMCorePlus
 from qtpy.QtCore import QEvent, QMarginsF, QObject, Qt
 from qtpy.QtGui import QPainter, QPaintEvent, QPen, QResizeEvent
 from qtpy.QtWidgets import (
+    QAbstractSpinBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -234,6 +235,22 @@ def disable_wheel_scroll(widget: QWidget) -> None:
     # referenced, so that its Python override is not collected
     widget._wheel_blocker = blocker = _WheelBlocker(widget)
     widget.installEventFilter(blocker)
+
+
+def disable_wheel_scroll_recursive(widget: QWidget) -> None:
+    """Apply `disable_wheel_scroll` to the combo and spin boxes in `widget`."""
+    targets: list[QWidget] = []
+    if isinstance(widget, (QComboBox, QAbstractSpinBox)):
+        targets.append(widget)
+    targets.extend(widget.findChildren(QComboBox))
+    targets.extend(widget.findChildren(QAbstractSpinBox))
+    for target in targets:
+        disable_wheel_scroll(target)
+
+
+# Qt's default (unset) maximum widget size: PyQt has QtWidgets.QWIDGETSIZE_MAX,
+# PySide does not
+QWIDGETSIZE_MAX = (1 << 24) - 1
 
 
 class ResizingGraphicsView(QGraphicsView):

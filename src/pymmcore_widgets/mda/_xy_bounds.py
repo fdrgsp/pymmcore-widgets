@@ -9,12 +9,17 @@ from qtpy.QtCore import QSize, Qt
 from qtpy.QtGui import QTransform
 from qtpy.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QDoubleSpinBox,
     QGridLayout,
     QHBoxLayout,
+    QLabel,
     QPushButton,
+    QRadioButton,
     QSizePolicy,
+    QStackedWidget,
+    QVBoxLayout,
     QWidget,
 )
 from superqt.iconify import QIconifyIcon
@@ -29,7 +34,6 @@ if TYPE_CHECKING:
 
 FIXED_POLICY = (QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 CTR = Qt.AlignmentFlag.AlignCenter
-RADIUS = 4
 ICON_SIZE = TRANSLATE_ICON = 24
 if os.name != "nt":
     TRANSLATE_ICON *= 2
@@ -43,14 +47,14 @@ def _rotate(deg: int, size_x: int, size_y: int) -> QTransform:
 
 
 ICONS_GO: dict[str, str] = {
-    "top": "mdi:arrow-up-thick",
-    "left": "mdi:arrow-left-thick",
-    "right": "mdi:arrow-right-thick",
-    "bottom": "mdi:arrow-down-thick",
-    "top_left": "mdi:arrow-top-left-thick",
-    "top_right": "mdi:arrow-top-right-thick",
-    "bottom_left": "mdi:arrow-bottom-left-thick",
-    "bottom_right": "mdi:arrow-bottom-right-thick",
+    "top": "mingcute:arrow-up-fill",
+    "left": "mingcute:arrow-left-fill",
+    "right": "mingcute:arrow-right-fill",
+    "bottom": "mingcute:arrow-down-fill",
+    "top_left": "mingcute:arrow-left-up-fill",
+    "top_right": "mingcute:arrow-right-up-fill",
+    "bottom_left": "mingcute:arrow-left-down-fill",
+    "bottom_right": "mingcute:arrow-right-down-fill",
 }
 ICONS_MARK: dict[str, tuple[str, Flip | None]] = {
     "top": ("mdi:border-top-variant", None),
@@ -63,35 +67,26 @@ ICONS_MARK: dict[str, tuple[str, Flip | None]] = {
     "bottom_right": ("mdi:border-style", "horizontal,vertical"),
 }
 
-BTN_STYLE = f"""
-QPushButton {{
-    border-radius: {RADIUS}px;
-    border: 0.5px solid #DCDCDC;
-    background-color: #FFF;
-    padding: 2px 6px;
-}}
-QPushButton:hover {{
-    background-color: #EEE;
-}}
-QPushButton:pressed {{
-    background-color: #AAA;
-}}
-"""
-# styles for paired buttons
-SS = """
-QPushButton {{
-    border-top-{side}-radius: {radius}px;
-    border-bottom-{side}-radius: {radius}px;
-    border: 1px solid #A3A3A3;
-    padding: 2px 6px;
-}}
-QPushButton:hover {{
-    background-color: #ABABAB;
-}}
-QPushButton:pressed {{
-    background-color: #8C8C8C;
-}}
-"""
+
+# Short row labels of the compact layout; the full name is the label's tooltip.
+BOUND_LABELS: dict[str, str] = {
+    "top": "Top",
+    "bottom": "Bottom",
+    "left": "Left",
+    "right": "Right",
+    "top_left": "Top L",
+    "top_right": "Top R",
+    "bottom_left": "Bottom L",
+    "bottom_right": "Bottom R",
+}
+# (field, edge, corner) of each compact row: the bound field it shows, and the
+# bound its Mark/Move buttons act on in Edges and in Corners mode
+_COMPACT_ROWS = (
+    ("top", "top", "top_left"),
+    ("bottom", "bottom", "bottom_left"),
+    ("left", "left", "top_right"),
+    ("right", "right", "bottom_right"),
+)
 
 
 class XYBoundsControl(QWidget):
@@ -111,38 +106,190 @@ class XYBoundsControl(QWidget):
         self.btn_bottom_left = _MarkVisitButton("bottom_left")
         self.btn_bottom_right = _MarkVisitButton("bottom_right")
 
+        # Separate, always-visible Mark and Move buttons for each bound in the
+        # compact layout (see _make_compact_widget), keyed by bound name.
+        self.mark_buttons: dict[str, QPushButton] = {}
+        self.visit_buttons: dict[str, QPushButton] = {}
+
         self.go_middle = QCheckBox("Move")
         self.go_middle.setSizePolicy(*FIXED_POLICY)
         self.go_middle.toggled.connect(self._update_buttons_icon)
 
-        grid = QWidget()
-        grid.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        grid_layout = QGridLayout(grid)
-        grid_layout.setSpacing(10)
-        grid_layout.setContentsMargins(0, 0, 0, 0)
-        grid_layout.addWidget(self.btn_top, 0, 2, CTR)
-        grid_layout.addWidget(self.btn_left, 1 if compact_layout else 2, 0, CTR)
-        grid_layout.addWidget(self.btn_right, 1 if compact_layout else 2, 4, CTR)
-        grid_layout.addWidget(self.btn_bottom, 4, 2, CTR)
-
-        grid_layout.addWidget(self.btn_top_left, 0, 0, CTR)
-        grid_layout.addWidget(self.btn_top_right, 0, 4, CTR)
-        grid_layout.addWidget(self.btn_bottom_left, 4, 0, CTR)
-        grid_layout.addWidget(self.btn_bottom_right, 4, 4, CTR)
-
-        grid_layout.addWidget(self.go_middle, 2, 2, CTR)
-
         self._bounds_wdg = _BoundsWidget()
+        self._bounds_wdg.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
 
         top_layout = QHBoxLayout()
         top_layout.setContentsMargins(0, 0, 0, 0)
-        top_layout.setSpacing(15)
-        top_layout.addWidget(grid)
-        top_layout.addWidget(self._bounds_wdg)
+        if compact_layout:
+            top_layout.addWidget(self._make_compact_widget(), 1)
+            # The compact layout has its own Mark and Move buttons, so neither
+            # the direction pad's buttons nor its Move toggle are placed in a
+            # layout, and _bounds_wdg only donates its field widgets to the
+            # compact grid. Give them a parent so they don't end up as
+            # permanent, invisible top-level widgets.
+            for widget in (
+                self.go_middle,
+                self._bounds_wdg,
+                self.btn_top,
+                self.btn_left,
+                self.btn_right,
+                self.btn_bottom,
+                self.btn_top_left,
+                self.btn_top_right,
+                self.btn_bottom_left,
+                self.btn_bottom_right,
+            ):
+                widget.setParent(self)
+                widget.hide()
+        else:
+            top_layout.setSpacing(15)
+            top_layout.addWidget(
+                self._make_direction_pad(), 0, Qt.AlignmentFlag.AlignVCenter
+            )
+            top_layout.addWidget(self._bounds_wdg, 0, Qt.AlignmentFlag.AlignVCenter)
+        top_layout.addStretch()
 
-        self.setLayout(top_layout)
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        main_layout.addLayout(top_layout, int(compact_layout))
+        if not compact_layout:
+            main_layout.addStretch()
+        self.setLayout(main_layout)
         self.setWindowTitle("Mark XY Boundaries")
-        self.show()
+
+    def _make_direction_pad(self) -> QWidget:
+        buttons_widget = QWidget()
+        buttons_widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        grid = QGridLayout(buttons_widget)
+        grid.setSpacing(10)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.addWidget(self.btn_top, 0, 2, CTR)
+        grid.addWidget(self.btn_left, 2, 0, CTR)
+        grid.addWidget(self.btn_right, 2, 4, CTR)
+        grid.addWidget(self.btn_bottom, 4, 2, CTR)
+        grid.addWidget(self.btn_top_left, 0, 0, CTR)
+        grid.addWidget(self.btn_top_right, 0, 4, CTR)
+        grid.addWidget(self.btn_bottom_left, 4, 0, CTR)
+        grid.addWidget(self.btn_bottom_right, 4, 4, CTR)
+        grid.addWidget(self.go_middle, 2, 2, CTR)
+        return buttons_widget
+
+    def _make_compact_widget(self) -> QWidget:
+        """Lay out each bound's field with its Mark and Move buttons side by side.
+
+        Edges/Corners picks what the four rows' buttons act on: each row's edge
+        (Top, Bottom, Left, Right), or a corner (Top Left, Bottom Left, Top
+        Right, Bottom Right), marking or visiting two edges at once. Each row's
+        label names whichever bound its buttons act on. Mark and Move are both
+        always visible, as in the Z Stack's Top/Bottom rows.
+        """
+        compact_widget = QWidget()
+        compact_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
+        main = QVBoxLayout(compact_widget)
+        main.setContentsMargins(0, 0, 0, 0)
+        main.setSpacing(4)
+
+        self._edge_mode = QRadioButton("Edges")
+        self._corner_mode = QRadioButton("Corners")
+        mode_group = QButtonGroup(compact_widget)
+        mode_group.addButton(self._edge_mode)
+        mode_group.addButton(self._corner_mode)
+        # The Edges/Corners row is a widget of its own, above the fields, so a
+        # host can move it elsewhere (the Grid editor puts it in its left
+        # column) without leaving an empty row in the grid below.
+        self._bounds_by_label = QLabel("Bounds by")
+        self._bounds_by = QWidget()
+        mode_row = QHBoxLayout(self._bounds_by)
+        mode_row.setContentsMargins(0, 0, 0, 0)
+        mode_row.setSpacing(10)
+        mode_row.addWidget(self._edge_mode)
+        mode_row.addWidget(self._corner_mode)
+        mode_row.addStretch()
+        bounds_by_row = QHBoxLayout()
+        bounds_by_row.setContentsMargins(0, 0, 0, 0)
+        bounds_by_row.setSpacing(10)
+        bounds_by_row.addWidget(self._bounds_by_label)
+        bounds_by_row.addWidget(self._bounds_by, 1)
+        main.addLayout(bounds_by_row)
+
+        layout = QGridLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setHorizontalSpacing(10)
+        layout.setVerticalSpacing(4)
+        # the fields take any spare width, keeping the buttons at the right edge
+        layout.setColumnStretch(1, 1)
+        main.addLayout(layout)
+        main.addStretch()
+
+        rows = [
+            (getattr(self._bounds_wdg, field), edge, corner)
+            for field, edge, corner in _COMPACT_ROWS
+        ]
+        # (label, edge_text, corner_text): _set_corner_mode renames each row
+        # after the bound its buttons currently act on (e.g. "Top" <-> "Top Left")
+        self._compact_field_labels: list[tuple[QLabel, str, str]] = []
+        self._compact_action_stacks: list[QStackedWidget] = []
+        for row, (field, edge, corner) in enumerate(rows):
+            edge_text, corner_text = BOUND_LABELS[edge], BOUND_LABELS[corner]
+            label = QLabel(edge_text)
+            self._compact_field_labels.append((label, edge_text, corner_text))
+            layout.addWidget(label, row, 0)
+            layout.addWidget(field, row, 1)
+            stack = QStackedWidget()
+            stack.addWidget(self._mark_visit_buttons(edge))
+            stack.addWidget(self._mark_visit_buttons(corner))
+            stack.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            self._compact_action_stacks.append(stack)
+            layout.addWidget(stack, row, 2)
+
+        # Wide enough for both sets of names, so switching between edges and
+        # corners does not move the fields and buttons beside the labels. The
+        # "Bounds by" label shares the width, so the radios line up with them.
+        metrics = self.fontMetrics()
+        texts = (*BOUND_LABELS.values(), self._bounds_by_label.text())
+        width = max(metrics.horizontalAdvance(text) for text in texts)
+        for label in (
+            self._bounds_by_label,
+            *(label for label, *_ in self._compact_field_labels),
+        ):
+            label.setFixedWidth(width + 4)
+        self._corner_mode.toggled.connect(self._set_corner_mode)
+        self._edge_mode.setChecked(True)
+        self._set_corner_mode(False)
+        return compact_widget
+
+    def _mark_visit_buttons(self, name: str) -> QWidget:
+        label = name.replace("_", " ")
+        glyph, flip = ICONS_MARK[name]
+        mark = self.mark_buttons[name] = _bound_button(
+            QIconifyIcon(glyph, flip=flip), f"Mark the {label} bound."
+        )
+        visit = self.visit_buttons[name] = _bound_button(
+            QIconifyIcon(ICONS_GO[name]), f"Move to the {label} bound."
+        )
+        pair = QWidget()
+        row = QHBoxLayout(pair)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        row.addWidget(mark)
+        row.addWidget(visit)
+        return pair
+
+    def _set_corner_mode(self, corners: bool) -> None:
+        for stack in self._compact_action_stacks:
+            stack.setCurrentIndex(int(corners))
+        for (label, edge_text, corner_text), (_, edge, corner) in zip(
+            self._compact_field_labels, _COMPACT_ROWS, strict=True
+        ):
+            label.setText(corner_text if corners else edge_text)
+            bound = corner if corners else edge
+            kind = "corner" if "_" in bound else "edge"
+            label.setToolTip(f"The {bound.replace('_', ' ')} {kind}.")
 
     def _update_buttons_icon(self, state: bool) -> None:
         """Switch the icon of the buttons between `mark` and `visit`."""
@@ -163,11 +310,20 @@ class CoreXYBoundsControl(XYBoundsControl):
         super().__init__(compact_layout, parent)
         self._mmc = core or CMMCorePlus.instance()
         self._device = device
+        # Raw (uncorrected) centers marked this session, keyed by "top",
+        # "bottom", "left", "right" -- see _mark_axis. Each lasts until its
+        # field next changes, as it no longer describes that field's value.
+        self._raw_marks: dict[str, float] = {}
 
         self.top = self._bounds_wdg.top
         self.left = self._bounds_wdg.left
         self.right = self._bounds_wdg.right
         self.bottom = self._bounds_wdg.bottom
+        for key in ("top", "bottom", "left", "right"):
+            getattr(self, key).valueChanged.connect(
+                lambda _=0.0, k=key: self._raw_marks.pop(k, None)
+            )
+        self._bound_fields = (self.top, self.bottom, self.left, self.right)
 
         self.btn_top.clicked.connect(lambda: self._mark_or_visit(top=True))
         self.btn_left.clicked.connect(lambda: self._mark_or_visit(left=True))
@@ -177,6 +333,22 @@ class CoreXYBoundsControl(XYBoundsControl):
         self.btn_top_right.clicked.connect(lambda: self._mark_or_visit(True, False))
         self.btn_bottom_left.clicked.connect(lambda: self._mark_or_visit(False, True))
         self.btn_bottom_right.clicked.connect(lambda: self._mark_or_visit(False, False))
+        # (top, left) of each bound: True/False picks the side, None leaves that
+        # axis alone -- the arguments _mark and _visit take.
+        sides = {
+            "top": (True, None),
+            "bottom": (False, None),
+            "left": (None, True),
+            "right": (None, False),
+            "top_left": (True, True),
+            "top_right": (True, False),
+            "bottom_left": (False, True),
+            "bottom_right": (False, False),
+        }
+        for name, button in self.mark_buttons.items():
+            button.clicked.connect(lambda _=False, s=sides[name]: self._mark(*s))
+        for name, button in self.visit_buttons.items():
+            button.clicked.connect(lambda _=False, s=sides[name]: self._visit(*s))
 
     def value(self) -> dict[str, float]:
         """Return the current value of the grid plan widget."""
@@ -185,29 +357,95 @@ class CoreXYBoundsControl(XYBoundsControl):
     def setValue(self, plan: useq.GridFromEdges) -> None:
         """Set the value of the grid plan widget."""
         self._bounds_wdg.setValue(plan)
+        # These marks belong to whatever region was previously being defined
+        # interactively; a freshly loaded plan should not anchor future marks
+        # to them.
+        self._raw_marks.clear()
 
     def _mark_or_visit(self, top: bool | None = None, left: bool | None = None) -> None:
         self._visit(top, left) if self.go_middle.isChecked() else self._mark(top, left)
 
+    def _fov_size(self) -> tuple[float, float]:
+        """Return the (width, height) of the FOV in µm, zero if it is not known."""
+        if px := self._mmc.getPixelSizeUm():
+            *_, width, height = self._mmc.getROI()
+            return width * px, height * px
+        return 0.0, 0.0
+
     def _mark(self, top: bool | None = None, left: bool | None = None) -> None:
         device = self._device or self._mmc.getXYStageDevice()
+        fov_w, fov_h = self._fov_size()
         if top is not None:
-            wdg = self.top if top else self.bottom
-            wdg.setValue(self._mmc.getYPosition(device))
+            y = self._mmc.getYPosition(device)
+            key, other_key = ("top", "bottom") if top else ("bottom", "top")
+            wdg, other_wdg = (self.top, self.bottom) if top else (self.bottom, self.top)
+            self._mark_axis(y, key, other_key, wdg, other_wdg, fov_h)
         if left is not None:
-            wdg = self.left if left else self.right
-            wdg.setValue(self._mmc.getXPosition(device))
+            x = self._mmc.getXPosition(device)
+            key, other_key = ("left", "right") if left else ("right", "left")
+            wdg, other_wdg = (
+                (self.left, self.right) if left else (self.right, self.left)
+            )
+            self._mark_axis(x, key, other_key, wdg, other_wdg, fov_w)
+
+    def _mark_axis(
+        self,
+        raw: float,
+        key: str,
+        other_key: str,
+        wdg: QDoubleSpinBox,
+        other_wdg: QDoubleSpinBox,
+        extent: float,
+    ) -> None:
+        """Record *raw* for *key* and push both ends of this axis outward.
+
+        GridFromEdges uses outer image edges. Compare the marked centers to find
+        the outward direction, independently of the stage's axis orientation.
+        """
+        exact_other_raw = self._raw_marks.get(other_key)
+        # Until both centers are marked, infer direction from the other field.
+        reference = other_wdg.value() if exact_other_raw is None else exact_other_raw
+        outward = extent / 2 if raw >= reference else -extent / 2
+        wdg.setValue(raw + outward)
+        if exact_other_raw is not None:
+            # Correct the first mark's direction now that both centers are known.
+            other_wdg.setValue(exact_other_raw - outward)
+            self._raw_marks[other_key] = exact_other_raw
+        # after setting the fields, which drops the marks of those that changed
+        self._raw_marks[key] = raw
+
+    def _bound_center(
+        self, key: str, wdg: QDoubleSpinBox, other_wdg: QDoubleSpinBox, extent: float
+    ) -> float:
+        """Return where to center the FOV to visit the bound *key*.
+
+        That is where it was marked or, if it was not, half an *extent* inside
+        the field, which holds the outer image edge (see _mark_axis). With both
+        ends of the axis at one value, there is no inside to tell.
+        """
+        if (raw := self._raw_marks.get(key)) is not None:
+            return raw
+        value: float = wdg.value()
+        other: float = other_wdg.value()
+        if value == other:
+            return value
+        return value - extent / 2 if value > other else value + extent / 2
 
     def _visit(self, top: bool | None = None, left: bool | None = None) -> None:
         device = self._device or self._mmc.getXYStageDevice()
+        fov_w, fov_h = self._fov_size()
         if top is None:
             y = self._mmc.getYPosition(device)
+        elif top:
+            y = self._bound_center("top", self.top, self.bottom, fov_h)
         else:
-            y = self.top.value() if top else self.bottom.value()
+            y = self._bound_center("bottom", self.bottom, self.top, fov_h)
         if left is None:
             x = self._mmc.getXPosition(device)
+        elif left:
+            x = self._bound_center("left", self.left, self.right, fov_w)
         else:
-            x = self.left.value() if left else self.right.value()
+            x = self._bound_center("right", self.right, self.left, fov_w)
 
         self._mmc.setXYPosition(device, x, y)
         self._mmc.waitForDevice(device)
@@ -216,13 +454,14 @@ class CoreXYBoundsControl(XYBoundsControl):
 # -------- helpers --------
 
 
-class _PositionSpinBox(QDoubleSpinBox):
-    def __init__(self) -> None:
-        super().__init__()
-        self.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
-        self.setRange(-99999999, 99999999)
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setSuffix(" µm")
+def _bound_button(icon: QIconifyIcon, tooltip: str) -> QPushButton:
+    button = QPushButton()
+    button.setIcon(icon)
+    button.setIconSize(QSize(16, 16))
+    button.setFixedSize(30, 26)
+    button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    button.setToolTip(tooltip)
+    return button
 
 
 class _MarkVisitButton(QPushButton):
@@ -232,35 +471,35 @@ class _MarkVisitButton(QPushButton):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._name = name
-        self._visit_icon = QIconifyIcon(ICONS_GO[self._name])
-        glyph, flip = ICONS_MARK[self._name]
+        self._label = name.replace("_", " ")
+        self._visit_icon = QIconifyIcon(ICONS_GO[name])
+        glyph, flip = ICONS_MARK[name]
         self._mark_icon = QIconifyIcon(glyph, flip=flip)
 
         self.setIcon(self._mark_icon)
         self.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setStyleSheet(BTN_STYLE)
-        self.setToolTip(f"Mark the {self._name} bound.")
+        self.setToolTip(f"Mark the {self._label} bound.")
 
     def setMark(self) -> None:
         """Set the icon to the mark icon."""
         self.setIcon(self._mark_icon)
-        self.setToolTip(f"Mark the {self._name} bound.")
+        self.setToolTip(f"Mark the {self._label} bound.")
 
     def setVisit(self) -> None:
         """Set the icon to the visit icon."""
         self.setIcon(self._visit_icon)
-        self.setToolTip(f"Move to the {self._name} bound.")
+        self.setToolTip(f"Move to the {self._label} bound.")
 
 
 class MarkVisit(QWidget):
+    """A Mark button and a Move button, e.g. for the top of a Z stack."""
+
     def __init__(
         self,
         mark_glyph: str,
         mark_text: str = "",
         icon_size: int = ICON_SIZE,
-        radius: int = RADIUS,
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
@@ -276,14 +515,9 @@ class MarkVisit(QWidget):
         self.visit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.visit.setToolTip(f"Move to {mode}.")
 
-        left_style = SS.format(side="left", radius=radius)
-        right_style = SS.format(side="right", radius=radius)
-
         layout = QHBoxLayout(self)
-        layout.setSpacing(0)
+        layout.setSpacing(4)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.mark.setStyleSheet(left_style)
-        self.visit.setStyleSheet(right_style)
         layout.addWidget(self.mark)
         layout.addWidget(self.visit)
 

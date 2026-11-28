@@ -31,7 +31,7 @@ class CoreConnectedGridPlanWidget(GridPlanWidget):
         self, mmcore: CMMCorePlus | None = None, parent: QWidget | None = None
     ) -> None:
         self._mmc = mmcore or CMMCorePlus.instance()
-        self._core_xy_bounds = CoreXYBoundsControl(core=self._mmc)
+        self._core_xy_bounds = CoreXYBoundsControl(core=self._mmc, compact_layout=True)
 
         super().__init__(parent)
 
@@ -43,6 +43,28 @@ class CoreConnectedGridPlanWidget(GridPlanWidget):
         self.bounds_wdg.hide()
         # add CoreXYBoundsControl widget to GridPlanWidget
         self._stack.addWidget(self._core_xy_bounds)
+        # the base class connected the bounds_wdg replaced above
+        self._core_xy_bounds._bounds_wdg.valueChanged.connect(self._on_change)
+        field_width = self.row_col_wdg.rows.minimumWidth()
+        for field in self._core_xy_bounds._bound_fields:
+            field.setMinimumWidth(field_width)
+        # Edges/Corners goes in the left column, above the summary, which keeps
+        # the bounds page to its four rows like the other modes
+        self._core_xy_bounds._bounds_by_label.hide()
+        self._add_mode_option(Mode.BOUNDS, "Bounds by", self._core_xy_bounds._bounds_by)
+        # and its fields line up with the other modes' fields
+        self._extra_aligned_labels.extend(
+            (label, (edge_text, corner_text))
+            for label, edge_text, corner_text in (
+                self._core_xy_bounds._compact_field_labels
+            )
+        )
+        self._align_label_columns()
+        self._stack.setStableWidgets(
+            self.row_col_wdg,
+            self.width_height_wdg,
+            self._core_xy_bounds,
+        )
 
         self._mmc.events.systemConfigurationLoaded.connect(self._update_fov_size)
         self._mmc.events.pixelSizeChanged.connect(self._update_fov_size)

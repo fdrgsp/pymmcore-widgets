@@ -7,8 +7,8 @@ from unittest.mock import Mock, patch
 import pytest
 import useq
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtCore import Qt, QTimer
-from qtpy.QtWidgets import QMessageBox
+from qtpy.QtCore import QEvent, QPoint, Qt, QTimer
+from qtpy.QtWidgets import QApplication, QMessageBox, QWidget
 
 from pymmcore_widgets import HCSWizard
 from pymmcore_widgets._util import get_next_available_path
@@ -22,6 +22,8 @@ from pymmcore_widgets.mda._core_positions import (
 )
 from pymmcore_widgets.mda._core_z import CoreConnectedZPlanWidget
 from pymmcore_widgets.mda._save_widget import OME_TIFF, OME_ZARR, WRITERS
+from pymmcore_widgets.mda._xy_bounds import CoreXYBoundsControl
+from pymmcore_widgets.useq_widgets._grid import Mode
 from pymmcore_widgets.useq_widgets._mda_sequence import (
     AF_AXIS_TOOLTIP,
     AF_DISABLED_TOOLTIP,
@@ -1519,3 +1521,497 @@ def test_save_name_counts_up_after_multi_position_ome_tiff_runs(
         # ome-writers writes one file per position into a folder
         assert (tmp_path / expected).is_dir()
         mda_wdg._on_mda_finished(mda_wdg.value())
+
+
+def _xy_bounds_at(
+    qtbot: QtBot, mmc: CMMCorePlus, x: float, y: float
+) -> CoreXYBoundsControl:
+    """A compact control, with a 100 x 200 um FOV and the stage at (x, y)."""
+    mmc.setROI(0, 0, 100, 200)  # fov_width=100um, fov_height=200um @ px=1.0
+    wdg = CoreXYBoundsControl(core=mmc, compact_layout=True)
+    qtbot.addWidget(wdg)
+    device = mmc.getXYStageDevice()
+    mmc.setXYPosition(device, x, y)
+    mmc.waitForDevice(device)
+    return wdg
+
+
+def test_z_modes_keep_one_height_after_rescaling(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Regression test: a zoom that resized the buttons made the modes' heights differ.
+
+    An app zoom rescales the widgets' pixel sizes, as done here; the rows' heights
+    and the reserved height used to stay as measured when the widget was built.
+    """
+    wdg = CoreConnectedZPlanWidget(global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.show()
+    for buttons in (wdg.top_btn, wdg.bottom_btn):
+        buttons.mark.setFixedSize(45, 40)
+    for button in (wdg.top_btn.visit, wdg.bottom_btn.visit):
+        button.setMinimumHeight(40)
+    controls = wdg._controls_widget
+    controls.setMinimumHeight(controls.minimumHeight() * 3 // 2)
+    qtbot.wait(10)
+
+    heights = set()
+    # Symmetric first: it is the shortest without the reserved height
+    for mode in ("range_around", "above_below", "top_bottom", "range_around"):
+        wdg.setMode(mode)
+        qtbot.wait(10)
+        heights.add(wdg.minimumSizeHint().height())
+    assert len(heights) == 1
+
+
+def test_xy_bounds_mark_uses_outer_edge(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    # GridFromEdges expects each bound to be the *outer* edge of the image at
+    # that position (including the field of view), not the camera-center
+    # stage position -- marking a bound must expand the span by one full FOV
+    # (half on each end) once both ends of an axis are known.
+    mmc = global_mmcore
+    mmc.setROI(0, 0, 100, 200)  # fov_width=100um, fov_height=200um @ px=1.0
+
+    wdg = CoreXYBoundsControl(core=mmc)
+    qtbot.addWidget(wdg)
+
+    device = mmc.getXYStageDevice()
+    mmc.setXYPosition(device, 10.0, 20.0)
+    mmc.waitForDevice(device)
+    wdg.btn_top.click()
+    wdg.btn_left.click()
+
+    mmc.setXYPosition(device, 30.0, 40.0)
+    mmc.waitForDevice(device)
+    wdg.btn_bottom.click()
+    wdg.btn_right.click()
+
+    # top/bottom marked at Y=20 and Y=40 respectively: span expands from the
+    # raw 20um to 20 + fov_height(200) = 220um, however that 220 splits
+    # between the two fields.
+    assert abs(wdg.top.value() - wdg.bottom.value()) == pytest.approx(220.0, abs=0.01)
+    assert max(wdg.top.value(), wdg.bottom.value()) == pytest.approx(
+        40.0 + 100.0, abs=0.01
+    )
+    assert min(wdg.top.value(), wdg.bottom.value()) == pytest.approx(
+        20.0 - 100.0, abs=0.01
+    )
+    # left/right marked at X=10 and X=30 respectively: span expands from the
+    # raw 20um to 20 + fov_width(100) = 120um.
+    assert abs(wdg.left.value() - wdg.right.value()) == pytest.approx(120.0, abs=0.01)
+    assert max(wdg.left.value(), wdg.right.value()) == pytest.approx(
+        30.0 + 50.0, abs=0.01
+    )
+    assert min(wdg.left.value(), wdg.right.value()) == pytest.approx(
+        10.0 - 50.0, abs=0.01
+    )
+
+
+def test_xy_bounds_mark_is_independent_of_stage_axis_orientation(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """The marked span expands correctly even if "top" ends up the smaller Y.
+
+    Regression test: not every XY stage reports Y increasing toward the
+    physical "top" -- some report the opposite (a Transpose/Mirror setting on
+    the stage device). Marking must expand the region outward either way,
+    rather than only working when "top" happens to be the numerically larger
+    value -- which previously produced a *smaller* region than requested
+    (each end shifted inward by half a FOV) when that assumption didn't hold.
+    """
+    mmc = global_mmcore
+    mmc.setROI(0, 0, 100, 200)  # fov_width=100um, fov_height=200um @ px=1.0
+
+    wdg = CoreXYBoundsControl(core=mmc)
+    qtbot.addWidget(wdg)
+
+    device = mmc.getXYStageDevice()
+    # "Top" marked at a *smaller* raw Y than "bottom" -- the opposite of the
+    # useq/Cartesian assumption that top = max(Y).
+    mmc.setXYPosition(device, 10.0, 5.0)
+    mmc.waitForDevice(device)
+    wdg.btn_top.click()
+
+    mmc.setXYPosition(device, 10.0, 105.0)
+    mmc.waitForDevice(device)
+    wdg.btn_bottom.click()
+
+    raw_span = 105.0 - 5.0
+    assert abs(wdg.top.value() - wdg.bottom.value()) == pytest.approx(
+        raw_span + 200.0, abs=0.01
+    )
+
+
+def test_xy_bounds_mark_corners_expand_region(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Marking two opposite corners in one click each still expands correctly."""
+    mmc = global_mmcore
+    mmc.setROI(0, 0, 100, 200)  # fov_width=100um, fov_height=200um @ px=1.0
+
+    wdg = CoreXYBoundsControl(core=mmc)
+    qtbot.addWidget(wdg)
+
+    device = mmc.getXYStageDevice()
+    mmc.setXYPosition(device, 10.0, 40.0)
+    mmc.waitForDevice(device)
+    wdg.btn_top_left.click()
+
+    mmc.setXYPosition(device, 30.0, 20.0)
+    mmc.waitForDevice(device)
+    wdg.btn_bottom_right.click()
+
+    assert abs(wdg.top.value() - wdg.bottom.value()) == pytest.approx(
+        20.0 + 200.0, abs=0.01
+    )
+    assert abs(wdg.left.value() - wdg.right.value()) == pytest.approx(
+        20.0 + 100.0, abs=0.01
+    )
+
+
+def test_xy_bounds_compact_mark_and_move_buttons(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """The compact layout's separate Mark and Move buttons mark and visit."""
+    mmc = global_mmcore
+    mmc.setROI(0, 0, 100, 200)  # fov_width=100um, fov_height=200um @ px=1.0
+
+    wdg = CoreXYBoundsControl(core=mmc, compact_layout=True)
+    qtbot.addWidget(wdg)
+    wdg._corner_mode.setChecked(True)
+
+    device = mmc.getXYStageDevice()
+    mmc.setXYPosition(device, 10.0, 40.0)
+    mmc.waitForDevice(device)
+    wdg.mark_buttons["top_left"].click()
+
+    mmc.setXYPosition(device, 30.0, 20.0)
+    mmc.waitForDevice(device)
+    wdg.mark_buttons["bottom_right"].click()
+
+    assert abs(wdg.top.value() - wdg.bottom.value()) == pytest.approx(
+        20.0 + 200.0, abs=0.01
+    )
+    assert abs(wdg.left.value() - wdg.right.value()) == pytest.approx(
+        20.0 + 100.0, abs=0.01
+    )
+
+    # Move returns to the marked positions, one axis or both at once
+    mmc.setXYPosition(device, 999.0, 999.0)
+    mmc.waitForDevice(device)
+    wdg.visit_buttons["top_left"].click()
+    assert mmc.getXPosition(device) == pytest.approx(10.0, abs=0.01)
+    assert mmc.getYPosition(device) == pytest.approx(40.0, abs=0.01)
+
+    wdg._edge_mode.setChecked(True)
+    wdg.visit_buttons["right"].click()
+    assert mmc.getXPosition(device) == pytest.approx(30.0, abs=0.01)
+    assert mmc.getYPosition(device) == pytest.approx(40.0, abs=0.01)
+
+    # marking one edge leaves the other axis alone
+    left = wdg.left.value()
+    mmc.setXYPosition(device, 30.0, 100.0)
+    mmc.waitForDevice(device)
+    wdg.mark_buttons["top"].click()
+    assert wdg.left.value() == left
+    assert wdg.top.value() == pytest.approx(100.0 + 100.0, abs=0.01)
+
+
+def test_xy_bounds_set_value_clears_raw_marks(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Loading a saved plan must not anchor a later mark to a stale region."""
+    mmc = global_mmcore
+    mmc.setROI(0, 0, 100, 200)
+
+    wdg = CoreXYBoundsControl(core=mmc)
+    qtbot.addWidget(wdg)
+
+    device = mmc.getXYStageDevice()
+    mmc.setXYPosition(device, 0.0, 0.0)
+    mmc.waitForDevice(device)
+    wdg.btn_top.click()
+    assert "top" in wdg._raw_marks
+
+    wdg.setValue(useq.GridFromEdges(top=500, bottom=100, left=100, right=500))
+    assert wdg._raw_marks == {}
+
+
+def test_xy_bounds_visit_returns_to_marked_position(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Move-to-corner must return to the raw marked position, not its outer edge.
+
+    Regression test: _mark_axis pushes the *displayed* bound outward by half
+    a FOV so GridFromEdges gets the correct outer edge (see
+    test_xy_bounds_mark_uses_outer_edge) -- but _visit was feeding that
+    outward-pushed edge value straight to setXYPosition instead of undoing
+    the push, so "Move" to a marked corner overshot it by half a FOV.
+    """
+    mmc = global_mmcore
+    mmc.setROI(0, 0, 100, 200)  # fov_width=100um, fov_height=200um @ px=1.0
+
+    wdg = CoreXYBoundsControl(core=mmc)
+    qtbot.addWidget(wdg)
+
+    device = mmc.getXYStageDevice()
+    mmc.setXYPosition(device, 10.0, 40.0)
+    mmc.waitForDevice(device)
+    wdg.btn_top_left.click()
+
+    mmc.setXYPosition(device, 30.0, 20.0)
+    mmc.waitForDevice(device)
+    wdg.btn_bottom_right.click()
+
+    # sanity check: the displayed bound is NOT the raw marked position (it's
+    # pushed outward by half a FOV) -- otherwise "visit" landing there
+    # wouldn't be distinguishable from landing at the marked position.
+    assert wdg.top.value() != pytest.approx(40.0, abs=0.01)
+    assert wdg.left.value() != pytest.approx(10.0, abs=0.01)
+
+    wdg.go_middle.setChecked(True)
+    mmc.setXYPosition(device, 999.0, 999.0)
+    mmc.waitForDevice(device)
+    wdg.btn_top_left.click()
+
+    assert mmc.getXPosition(device) == pytest.approx(10.0, abs=0.01)
+    assert mmc.getYPosition(device) == pytest.approx(40.0, abs=0.01)
+
+
+def test_xy_bounds_visit_follows_an_edited_bound(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Regression test: a stale mark used to win over the value in the field."""
+    mmc = global_mmcore
+    wdg = _xy_bounds_at(qtbot, mmc, 10, 500)
+    device = mmc.getXYStageDevice()
+    wdg.mark_buttons["top"].click()
+    wdg.top.setValue(3000)
+
+    mmc.setXYPosition(device, 777.0, 0.0)
+    mmc.waitForDevice(device)
+    wdg.visit_buttons["top"].click()
+
+    assert mmc.getXPosition(device) == pytest.approx(777, abs=0.02)
+    assert mmc.getYPosition(device) == pytest.approx(3000 - 100, abs=0.02)
+
+
+def test_xy_bounds_mark_keeps_an_edited_bound(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Regression test: marking one end used to reset an edited other end."""
+    mmc = global_mmcore
+    wdg = _xy_bounds_at(qtbot, mmc, 0, 500)
+    device = mmc.getXYStageDevice()
+    wdg.mark_buttons["top"].click()
+    wdg.top.setValue(3000)
+
+    mmc.setXYPosition(device, 0.0, 0.0)
+    mmc.waitForDevice(device)
+    wdg.mark_buttons["bottom"].click()
+
+    assert wdg.top.value() == 3000
+    assert wdg.bottom.value() == pytest.approx(-100, abs=0.02)
+
+
+def test_xy_bounds_marks_survive_marking_the_other_end(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """Both ends stay visitable at their marks, though marking moves both fields."""
+    mmc = global_mmcore
+    wdg = _xy_bounds_at(qtbot, mmc, 0, 500)
+    device = mmc.getXYStageDevice()
+    wdg.mark_buttons["top"].click()
+    mmc.setXYPosition(device, 0.0, 700.0)
+    mmc.waitForDevice(device)
+    wdg.mark_buttons["bottom"].click()
+
+    assert wdg._raw_marks == {
+        "top": pytest.approx(500, abs=0.02),
+        "bottom": pytest.approx(700, abs=0.02),
+    }
+
+
+@pytest.mark.parametrize(
+    "plan, expected",
+    [
+        (
+            useq.GridFromEdges(top=1000, bottom=0, left=0, right=1000),
+            {"top": 900, "bottom": 100, "left": 50, "right": 950},
+        ),
+        # the top and bottom fields swapped, as marking on a flipped stage does
+        (
+            useq.GridFromEdges(top=0, bottom=1000, left=0, right=1000),
+            {"top": 100, "bottom": 900, "left": 50, "right": 950},
+        ),
+        # no inside to tell
+        (
+            useq.GridFromEdges(top=300, bottom=300, left=40, right=40),
+            {"top": 300, "bottom": 300, "left": 40, "right": 40},
+        ),
+    ],
+)
+def test_xy_bounds_visit_without_marks_stays_inside_the_bounds(
+    qtbot: QtBot,
+    global_mmcore: CMMCorePlus,
+    plan: useq.GridFromEdges,
+    expected: dict[str, float],
+) -> None:
+    mmc = global_mmcore
+    wdg = _xy_bounds_at(qtbot, mmc, 777, 888)
+    wdg.setValue(plan)
+    device = mmc.getXYStageDevice()
+
+    for name, position in expected.items():
+        wdg.visit_buttons[name].click()
+        get = mmc.getYPosition if name in ("top", "bottom") else mmc.getXPosition
+        assert get(device) == pytest.approx(position, abs=0.02)
+
+
+def test_xy_bounds_visit_lands_on_the_outermost_tiles(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """With bounds a whole number of tiles apart, Move shows the first/last tiles."""
+    mmc = global_mmcore
+    wdg = _xy_bounds_at(qtbot, mmc, 0, 0)
+    plan = useq.GridFromEdges(
+        top=1000, bottom=0, left=0, right=1000, fov_width=100, fov_height=200
+    )
+    wdg.setValue(plan)
+    xs, ys = [p.x for p in plan], [p.y for p in plan]
+    device = mmc.getXYStageDevice()
+
+    wdg.visit_buttons["top_left"].click()
+    assert mmc.getXPosition(device) == pytest.approx(min(xs), abs=0.02)
+    assert mmc.getYPosition(device) == pytest.approx(max(ys), abs=0.02)
+    wdg.visit_buttons["bottom_right"].click()
+    assert mmc.getXPosition(device) == pytest.approx(max(xs), abs=0.02)
+    assert mmc.getYPosition(device) == pytest.approx(min(ys), abs=0.02)
+
+
+def test_grid_plan_bounds_buttons_stay_at_the_right_edge(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """The fields take the spare width, not a gap to the right of the buttons."""
+    wdg = CoreConnectedGridPlanWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.setMode("bounds")
+    wdg.resize(1000, 400)
+    wdg.show()
+    qtbot.waitExposed(wdg)
+
+    bounds = wdg._core_xy_bounds
+    visit = bounds.visit_buttons["top"]
+    margin = wdg.layout().contentsMargins().right()
+    assert visit.mapTo(wdg, QPoint()).x() + visit.width() == wdg.width() - margin
+    assert bounds.top.width() > bounds.top.minimumWidth()
+
+
+def test_grid_plan_bounds_by_in_left_column(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = CoreConnectedGridPlanWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.show()
+    bounds = wdg._core_xy_bounds
+    bounds_by = bounds._bounds_by
+    fields = {
+        "number": wdg.row_col_wdg.rows,
+        "area": wdg.width_height_wdg.area_width,
+        "bounds": bounds.top,
+    }
+
+    # Edges/Corners sits in the left column, above the summary, shown only
+    # in bounds mode but keeping its space, so the summary never moves
+    assert wdg._common.isAncestorOf(bounds_by)
+    assert not bounds.isAncestorOf(bounds_by)
+    assert not bounds._bounds_by_label.isVisible()
+    summary_y: set[int] = set()
+    fields_pos: set[QPoint] = set()
+    for mode, field in fields.items():
+        wdg.setMode(mode)
+        assert bounds_by.isVisible() == (mode == "bounds")
+        assert (
+            bounds_by.mapTo(wdg, QPoint()).y() < wdg._summary.mapTo(wdg, QPoint()).y()
+        )
+        summary_y.add(wdg._summary.mapTo(wdg, QPoint()).y())
+        # every mode's first field sits at the same place, beside the overlap
+        fields_pos.add(field.mapTo(wdg, QPoint()))
+    assert len(summary_y) == 1
+    assert len(fields_pos) == 1
+    assert fields_pos.pop().y() == wdg.overlap.mapTo(wdg, QPoint()).y()
+
+    # the radios still drive the bounds rows
+    bounds._corner_mode.setChecked(True)
+    assert bounds.mark_buttons["top_left"].isVisible()
+    assert bounds.top.mapTo(wdg, QPoint()) == wdg.row_col_wdg.rows.mapTo(wdg, QPoint())
+    bounds._edge_mode.setChecked(True)
+
+    # each left row lines up with a bounds row: Overlap/Top, Order/Bottom,
+    # Bounds by/Left, and the summary/Right
+    def center_y(w: QWidget) -> float:
+        return w.mapTo(wdg, QPoint()).y() + w.height() / 2
+
+    left = (wdg.overlap, wdg.order, bounds_by, wdg._summary)
+    right = (bounds.top, bounds.bottom, bounds.left, bounds.right)
+    for left_wdg, right_wdg in zip(left, right, strict=True):
+        assert abs(center_y(left_wdg) - center_y(right_wdg)) <= 1
+
+
+def test_grid_plan_bounds_edit_updates_summary(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = CoreConnectedGridPlanWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.setFovWidth(512)
+    wdg.setFovHeight(512)
+    wdg.overlap.setValue(0)
+    wdg.setMode("bounds")
+    assert wdg._summary.text().startswith("1 tile ")
+
+    # the fields shown are the core bounds control's, not the base bounds_wdg's
+    with qtbot.waitSignal(wdg.valueChanged):
+        wdg._core_xy_bounds.right.setValue(1024)
+
+    assert wdg._summary.text().startswith("2 tiles ")
+
+
+def test_grid_plan_polygon_summary_is_tile_count_only(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    wdg = CoreConnectedGridPlanWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    plan = useq.GridFromPolygon(
+        vertices=[(0, 0), (3000, 0), (3000, 2000)], fov_width=512, fov_height=512
+    )
+    wdg.setValue(plan)
+
+    count = plan.num_positions()
+    assert count > 1
+    assert wdg._summary.text() == f"{count} tiles"
+
+
+def test_grid_mode_pages_reserve_their_current_size_after_a_style_change(
+    qtbot: QtBot, global_mmcore: CMMCorePlus
+) -> None:
+    """A style change must reach the bounds page while it is hidden.
+
+    Its fields sit in a nested layout that keeps its cached size until shown, so
+    the whole editor changed height on the first switch to Absolute Bounds.
+    """
+    wdg = CoreConnectedGridPlanWidget(mmcore=global_mmcore)
+    qtbot.addWidget(wdg)
+    wdg.show()
+    assert wdg.mode() is not Mode.BOUNDS
+    field = wdg._core_xy_bounds.top
+    before = wdg._stack.sizeHint().height()
+
+    field.setMinimumHeight(before)
+    QApplication.sendEvent(wdg._stack, QEvent(QEvent.Type.StyleChange))
+    assert wdg._stack.sizeHint().height() > before
+
+    field.setMinimumHeight(0)
+    QApplication.sendEvent(wdg._stack, QEvent(QEvent.Type.StyleChange))
+    assert wdg._stack.sizeHint().height() == before
