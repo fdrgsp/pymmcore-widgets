@@ -259,8 +259,14 @@ class MDATabs(CheckableTabWidget):
         return bool(self.isChecked(key))
 
     def usedAxes(self) -> tuple[str, ...]:
-        """Return a tuple of the axes currently used in the sequence."""
-        return tuple(k for k in ("tpgzc") if self.isAxisUsed(k))
+        """Return the axes used by the sequence or by any position sub-sequence."""
+        axes = {k for k in "tpgzc" if self.isAxisUsed(k)}
+        # sub-sequences are branches of the acquisition, ordered by its axis order
+        if "p" in axes:
+            for pos in self.stage_positions.value():
+                if pos.sequence:
+                    axes.update(pos.sequence.used_axes)
+        return tuple(k for k in "tpgzc" if k in axes)
 
     def value(self) -> useq.MDASequence:
         """Return the current sequence as a [`useq.MDASequence`][]."""
@@ -568,7 +574,7 @@ class MDASequenceWidget(QWidget):
 
         self.channels.valueChanged.connect(self.valueChanged)
         self.time_plan.valueChanged.connect(self.valueChanged)
-        self.stage_positions.valueChanged.connect(self.valueChanged)
+        self.stage_positions.valueChanged.connect(self._update_available_axis_orders)
         self.z_plan.valueChanged.connect(self._validate_af_with_z_plan)
         self.grid_plan.valueChanged.connect(self._on_grid_plan_value_changed)
         self.tab_wdg.tabChecked.connect(self._on_tab_checked)
@@ -830,12 +836,16 @@ class MDASequenceWidget(QWidget):
         Hide columns in the channels tab accordingly.
         """
         with signals_blocked(self.axis_order):
+            current = self.axis_order.currentText()
             self.axis_order.clear()
 
             # show allowed permutations of selected axes
             for p in permutations(self.tab_wdg.usedAxes()):
                 if (strp := "".join(p)) in ALLOWED_ORDERS:
                     self.axis_order.addItem(strp)
+            # keep the selected order if it is still allowed
+            if (idx := self.axis_order.findText(current)) >= 0:
+                self.axis_order.setCurrentIndex(idx)
 
             self.axis_order.setEnabled(self.axis_order.count() > 1)
 

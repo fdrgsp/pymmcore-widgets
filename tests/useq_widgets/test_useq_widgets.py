@@ -675,6 +675,24 @@ def test_autofocus_tab(qtbot: QtBot) -> None:
     assert not af.isChecked()
 
 
+def test_axis_order(qtbot: QtBot) -> None:
+    wdg = MDASequenceWidget()
+    qtbot.addWidget(wdg)
+    loops = useq.TIntervalLoops(interval=1, loops=2)
+    wdg.setValue(useq.MDASequence(channels=["DAPI"], time_plan=loops, axis_order="ct"))
+    assert wdg.value().axis_order == ("c", "t")
+
+    # a tab that adds no axis keeps the order
+    wdg.tab_wdg.setChecked(wdg.af_axis, True)
+    assert wdg.value().axis_order == ("c", "t")
+
+    # the axes of a position sub-sequence are in the order too
+    sub_seq = useq.MDASequence(z_plan=useq.ZRangeAround(range=2, step=1))
+    pos = useq.Position(x=0, y=0, sequence=sub_seq)
+    wdg.setValue(useq.MDASequence(stage_positions=[pos], axis_order="pz"))
+    assert wdg.value().axis_order == ("p", "z")
+
+
 def test_autofocus_plan_round_trip(qtbot: QtBot) -> None:
     """The fields of a loaded autofocus plan that the widget does not edit stay."""
     wdg = MDASequenceWidget()
