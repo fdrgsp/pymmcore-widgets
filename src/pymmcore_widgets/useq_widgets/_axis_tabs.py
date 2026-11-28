@@ -13,12 +13,15 @@ from qtpy.QtGui import (
     QPaintEvent,
     QPalette,
     QPen,
+    QWheelEvent,
 )
 from qtpy.QtWidgets import (
     QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QStyle,
+    QStyleOptionTab,
     QTabBar,
     QVBoxLayout,
     QWidget,
@@ -155,6 +158,19 @@ class _AxisTabBar(QTabBar):
 
     def minimumTabSizeHint(self, index: int) -> QSize:
         return self.tabSizeHint(index)
+
+    def wheelEvent(self, a0: QWheelEvent | None) -> None:
+        super().wheelEvent(a0)
+        # Qt's pixel-scroll path updates tab rectangles without moving tab buttons.
+        style = cast("QStyle", self.style())
+        for index in range(self.count()):
+            if button := self.tabButton(index, QTabBar.ButtonPosition.LeftSide):
+                option = QStyleOptionTab()
+                self.initStyleOption(option, index)
+                rect = style.subElementRect(
+                    QStyle.SubElement.SE_TabBarTabLeftButton, option, self
+                )
+                button.move(rect.topLeft())
 
     def event(self, a0: QEvent | None) -> bool:
         if a0 is not None:
