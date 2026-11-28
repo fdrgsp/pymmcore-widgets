@@ -287,90 +287,30 @@ class PlateCalibrationWidget(QWidget):
         rows_set = {r for r, _ in self._calibrated_wells}
         cols_set = {c for _, c in self._calibrated_wells}
 
+        plate = self._current_plate
         if len(rows_set) == 1 or len(cols_set) == 1:
             # Collinear: 2+ wells all in one row or one column
-            return self._fit_collinear(len(rows_set) == 1)
-
-        # Non-collinear: 3+ wells, use full affine transformation
-        try:
-            params = well_coords_affine(self._calibrated_wells)
-        except ValueError:
-            return None  # collinear points (e.g. diagonal)
-
-        a, b, ty, c, d, tx = params
-        unit_y = np.hypot(a, c) / 1000  # convert to mm
-        unit_x = np.hypot(b, d) / 1000  # convert to mm
-        rotation = round(np.rad2deg(np.arctan2(-c, a)), 2)
-
-        return (round(tx, 4), round(ty, 4)), (unit_x, unit_y), rotation
-
-    def _fit_collinear(
-        self, is_single_row: bool
-    ) -> tuple[tuple[float, float], tuple[float, float], float] | None:
-        """Fit calibration parameters when all calibrated wells are collinear.
-
-        Uses a reduced linear model (4 parameters) for the varying axis, and derives
-        the missing axis parameters from the plate spec assuming a rigid plate
-        (orthogonal axes).
-
-        Parameters
-        ----------
-        is_single_row : bool
-            True if all calibrated wells share the same row (varying column),
-            False if they share the same column (varying row).
-        """
-        plate = self._current_plate
-        if plate is None:  # pragma: no cover
-            return None
-
-        indices = list(self._calibrated_wells.keys())
-        centers = np.array(list(self._calibrated_wells.values()))
-
-        # Build the varying-axis indices and identify the fixed-axis index
-        if is_single_row:  # varying column, fixed row
-            varying = np.array([c for _, c in indices], dtype=float)
-            fixed_idx = indices[0][0]
-            other_spacing = plate.well_spacing[1]
-        else:  # varying row, fixed column
-            varying = np.array([-r for r, _ in indices], dtype=float)
-            fixed_idx = indices[0][1]
-            other_spacing = plate.well_spacing[0]
-
-        # Fit linear model: x = slope_x * v + tx,  y = slope_y * v + ty
-        design = np.column_stack([varying, np.ones(len(varying))])
-        coefficients, *_ = np.linalg.lstsq(design, centers, rcond=None)
-        (slope_x, slope_y), (tx, ty) = coefficients
-
-        # Measured spacing along the varying axis
-        measured_spacing = np.hypot(slope_y, slope_x) / 1000  # mm
-        if measured_spacing < 1e-6:
-            return None  # wells are coincident
-
-        # Compute rotation and assign spacings per axis
-        if is_single_row:
-            # Column axis direction is (slope_x, slope_y) in world (x, y)
-            rot_rad = np.arctan2(slope_y, slope_x)
-            unit_x, unit_y = measured_spacing, max(other_spacing, 0.0)
-
-            # Extrapolate A1 center to row=0
-            if fixed_idx != 0:
-                other_um = other_spacing * 1000
-                ty += other_um * np.cos(rot_rad) * fixed_idx
-                tx -= other_um * np.sin(rot_rad) * fixed_idx
+            is_single_row = len(rows_set) == 1
+            measured = collinear_spacing(self._calibrated_wells, is_single_row)
+            if measured < 1e-6:
+                return None  # wells are coincident
+            spacing = (
+                (measured, plate.well_spacing[1])
+                if is_single_row
+                else (plate.well_spacing[0], measured)
+            )
         else:
-            # Row axis direction is (slope_x, slope_y) in world (x, y)
-            rot_rad = np.arctan2(-slope_x, slope_y)
-            unit_x, unit_y = max(other_spacing, 0.0), measured_spacing
+            # Non-collinear: 3+ wells, use full affine transformation
+            try:
+                a, b, _, c, d, _ = well_coords_affine(self._calibrated_wells)
+            except ValueError:
+                return None  # collinear points (e.g. diagonal)
+            spacing = (np.hypot(b, d) / 1000, np.hypot(a, c) / 1000)  # mm
 
-            # Extrapolate A1 center to col=0
-            if fixed_idx != 0:
-                other_um = other_spacing * 1000
-                tx -= other_um * np.cos(rot_rad) * fixed_idx
-                ty -= other_um * np.sin(rot_rad) * fixed_idx
-
-        rotation = round(float(np.rad2deg(rot_rad)), 2)
-
-        return (round(float(tx), 4), round(float(ty), 4)), (unit_x, unit_y), rotation
+        # the plan lays wells out at the plate's nominal spacing, so A1 and rotation
+        # are fitted at that spacing; the measured spacing is only reported
+        origin, rotation = fit_plate_pose(self._calibrated_wells, plate.well_spacing)
+        return origin, spacing, rotation
 
     def _get_or_create_well_calibration_widget(
         self, idx: tuple[int, int]
@@ -506,3 +446,41 @@ def well_coords_affine(
         raise ValueError("Underdetermined system of equations. Are points collinear?")
 
     return tuple(params)
+
+
+def collinear_spacing(
+    index_coordinates: Mapping[tuple[int, int], tuple[float, float]],
+    is_single_row: bool,
+) -> float:
+    """Return the measured spacing (mm) of wells in a single row or column."""
+    varying = [c if is_single_row else -r for r, c in index_coordinates]
+    design = np.column_stack([varying, np.ones(len(varying))])
+    centers = np.array(list(index_coordinates.values()))
+    (slope, _), *_ = np.linalg.lstsq(design, centers, rcond=None)
+    return float(np.linalg.norm(slope) / 1000)
+
+
+def fit_plate_pose(
+    index_coordinates: Mapping[tuple[int, int], tuple[float, float]],
+    well_spacing: tuple[float, float],
+) -> tuple[tuple[float, float], float]:
+    """Return the least-squares A1 center (µm) and rotation (deg) at a fixed spacing.
+
+    Uses the `useq.WellPlatePlan` model, where well (row, col) is at
+    A1 + R(rotation) @ (col * spacing_x, -row * spacing_y), with spacing in mm.
+    """
+    indices = np.array(list(index_coordinates), dtype=float)
+    measured = np.array(list(index_coordinates.values()), dtype=float)
+    nominal = np.column_stack(
+        [indices[:, 1] * well_spacing[0], -indices[:, 0] * well_spacing[1]]
+    )
+    nominal *= 1000  # mm -> µm
+    u, q = nominal - nominal.mean(axis=0), measured - measured.mean(axis=0)
+    # 2D Procrustes: the angle that best rotates the nominal onto the measured offsets
+    cross = np.sum(u[:, 0] * q[:, 1] - u[:, 1] * q[:, 0])
+    rotation = round(float(np.rad2deg(np.arctan2(cross, np.sum(u * q)))), 2)
+    # place A1 for the rounded angle that the plan will use
+    theta = np.deg2rad(rotation)
+    rot = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+    tx, ty = measured.mean(axis=0) - rot @ nominal.mean(axis=0)
+    return (round(float(tx), 4), round(float(ty), 4)), rotation

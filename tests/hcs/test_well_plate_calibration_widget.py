@@ -53,6 +53,8 @@ def test_plate_calibration(global_mmcore: CMMCorePlus, qtbot) -> None:
     assert not wdg._tab_wdg.isTabEnabled(1)
 
     ORIGIN = (10, 20)
+    # centers on the plate's nominal grid (rows go down in stage Y)
+    dx, dy = (v * 1000 for v in wdg.value().plate.well_spacing)
     # first well
     wdg._plate_view.setSelectedIndices({(0, 0)})
     with qtbot.waitSignal(wdg.calibrationChanged) as sig:
@@ -64,7 +66,7 @@ def test_plate_calibration(global_mmcore: CMMCorePlus, qtbot) -> None:
     # second well
     wdg._plate_view.setSelectedIndices({(0, 1)})
     with qtbot.waitSignal(wdg.calibrationChanged) as sig:
-        wdg._current_calibration_widget().setWellCenter((ORIGIN[0] + 100, ORIGIN[1]))
+        wdg._current_calibration_widget().setWellCenter((ORIGIN[0] + dx, ORIGIN[1]))
         assert sig.args == [False]
         assert not wdg._origin_spacing_rotation()
         assert not wdg._tab_wdg.isTabEnabled(1)
@@ -73,12 +75,12 @@ def test_plate_calibration(global_mmcore: CMMCorePlus, qtbot) -> None:
     wdg._plate_view.setSelectedIndices({(1, 1)})
     with qtbot.waitSignal(wdg.calibrationChanged) as sig:
         wdg._current_calibration_widget().setWellCenter(
-            (ORIGIN[0] + 100, ORIGIN[1] + 100)
+            (ORIGIN[0] + dx, ORIGIN[1] - dy)
         )
         assert sig.args == [True]
         assert wdg._tab_wdg.isTabEnabled(1)
     assert wdg._origin_spacing_rotation() is not None
-    assert wdg.value().a1_center_xy == (ORIGIN)
+    assert wdg.value().a1_center_xy == pytest.approx(ORIGIN)
 
     # clear third well, show that it becomes uncalibrated
     with qtbot.waitSignal(wdg.calibrationChanged) as sig:
@@ -352,7 +354,7 @@ def test_diagonal_collinear_returns_none(qtbot) -> None:
 
 
 def test_coincident_wells_collinear_returns_none(qtbot) -> None:
-    """_fit_collinear returns None when calibrated wells are coincident (spacing ~0)."""
+    """Collinear calibration returns None when the wells are coincident (spacing ~0)."""
     wdg = PlateCalibrationWidget()
     qtbot.addWidget(wdg)
 
@@ -398,7 +400,7 @@ def test_collinear_nonzero_fixed_index_extrapolation(
     is_single_row: bool,
     expected_origin: tuple[float, float],
 ) -> None:
-    """_fit_collinear extrapolates A1 center when the fixed row/col index is not 0."""
+    """Collinear calibration finds A1 when the fixed row/col index is not 0."""
     wdg = PlateCalibrationWidget()
     qtbot.addWidget(wdg)
 
@@ -447,3 +449,41 @@ def test_rotated_plate_calibration_recovers_plan(qtbot, rotation, indices) -> No
     assert origin == pytest.approx(plan.a1_center_xy, abs=1e-3)
     assert spacing == pytest.approx(plate.well_spacing)
     assert fitted_rotation == pytest.approx(rotation)
+
+
+@pytest.mark.parametrize(
+    "indices",
+    [((0, 0), (0, 1), (1, 0), (1, 1)), ((1, 0), (1, 1), (1, 2))],
+    ids=["block", "row"],
+)
+def test_calibration_fits_a1_at_nominal_spacing(qtbot, indices) -> None:
+    """A1/rotation are fitted at the spacing the plan uses; spacing is reported."""
+    plate = useq.WellPlate(rows=3, columns=3, well_size=6, well_spacing=9)
+    truth = useq.WellPlatePlan(plate=plate, a1_center_xy=(100, 200), rotation=0.5)
+    positions = truth.all_well_positions
+    centers = {
+        (r, c): (positions[r * 3 + c].x, positions[r * 3 + c].y) for r, c in indices
+    }
+    # one well 100 µm off: a free-spacing fit moved A1, and so every well
+    x, y = centers[indices[-1]]
+    centers[indices[-1]] = (x + 100, y)
+    wdg = PlateCalibrationWidget()
+    qtbot.addWidget(wdg)
+    wdg.setValue(plate)
+    wdg._calibrated_wells = centers
+
+    result = wdg._origin_spacing_rotation()
+    assert result is not None
+    origin, spacing, rotation = result
+    assert spacing[0] > 9.02  # the measured spacing still shows the outlier
+    plan = useq.WellPlatePlan(plate=plate, a1_center_xy=origin, rotation=rotation)
+    fitted = plan.all_well_positions
+    residuals = np.array(
+        [
+            (fitted[r * 3 + c].x - x, fitted[r * 3 + c].y - y)
+            for (r, c), (x, y) in centers.items()
+        ]
+    )
+    # least squares at the plan's spacing: the residuals balance out
+    assert np.abs(residuals.sum(axis=0)).max() < 1
+    assert np.hypot(*residuals.T).max() < 100 * (1 - 1 / len(indices)) + 1
