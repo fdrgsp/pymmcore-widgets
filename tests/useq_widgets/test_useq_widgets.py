@@ -3,13 +3,11 @@ from __future__ import annotations
 import enum
 from datetime import timedelta
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 
 import pint
 import pytest
 import useq
 from qtpy.QtCore import Qt, QTimer
-from qtpy.QtWidgets import QMessageBox
 
 import pymmcore_widgets
 from pymmcore_widgets.useq_widgets import (
@@ -598,36 +596,83 @@ def test_autofocus_with_z_plans(qtbot: QtBot) -> None:
     wdg.tab_wdg.setChecked(wdg.stage_positions, True)
 
     assert not wdg.tab_wdg.isChecked(wdg.z_plan)
+    assert wdg.z_plan.mode() == _z.Mode.TOP_BOTTOM
     assert wdg.af_axis.isEnabled()
     assert wdg.stage_positions.af_per_position.isEnabled()
     wdg.af_axis.setValue(("p", "t"))
     assert wdg.af_axis.value() == ("p", "t")
 
-    def _qmsgbox(*args, **kwargs):
-        return True
+    # autofocus rules the absolute Z mode out: checking Z keeps autofocus
+    assert wdg.z_plan.mode() == _z.Mode.RANGE_AROUND
+    assert wdg.z_plan.isModeBlocked(_z.Mode.TOP_BOTTOM)
+    wdg.tab_wdg.setChecked(wdg.z_plan, True)
+    assert wdg.af_axis.value() == ("p", "t")
 
-    with patch.object(QMessageBox, "warning", _qmsgbox):
-        wdg.tab_wdg.setChecked(wdg.z_plan, True)
-
-    assert wdg.z_plan.mode() == _z.Mode.TOP_BOTTOM
+    # set from code, an absolute Z plan wins and rules autofocus out
+    wdg.z_plan.setValue(useq.ZTopBottom(top=1, bottom=0, step=0.5))
     assert not wdg.af_axis.isEnabled()
     assert not wdg.stage_positions.af_per_position.isEnabled()
     assert wdg.af_axis.value() == ()
+    assert not wdg.z_plan.isModeBlocked(_z.Mode.TOP_BOTTOM)
 
-    with patch.object(QMessageBox, "warning", _qmsgbox):
-        wdg.tab_wdg.setChecked(wdg.z_plan, False)
+    wdg.tab_wdg.setChecked(wdg.z_plan, False)
+    assert wdg.af_axis.isEnabled()
+    assert wdg.stage_positions.af_per_position.isEnabled()
+    assert wdg.af_axis.value() == ("p", "t")
 
+    wdg.tab_wdg.setChecked(wdg.z_plan, True)
+    wdg.z_plan.setValue(useq.ZRangeAround(range=4, step=0.2))
     assert wdg.af_axis.isEnabled()
     assert wdg.stage_positions.af_per_position.isEnabled()
 
-    with patch.object(QMessageBox, "warning", _qmsgbox):
-        wdg.tab_wdg.setChecked(wdg.z_plan, True)
 
-    with patch.object(QMessageBox, "warning", _qmsgbox):
-        wdg.z_plan.setValue(useq.ZRangeAround(range=4, step=0.2))
+def test_absolute_z_plan_loads_with_autofocus_on(qtbot: QtBot) -> None:
+    """A loaded TOP_BOTTOM plan is not turned into a relative one by autofocus."""
+    wdg = MDASequenceWidget()
+    qtbot.addWidget(wdg)
+    wdg.af_axis.setValue(("p",))
 
-    assert wdg.af_axis.isEnabled()
-    assert wdg.stage_positions.af_per_position.isEnabled()
+    z_plan = useq.ZTopBottom(top=1, bottom=0, step=0.5)
+    wdg.setValue(useq.MDASequence(z_plan=z_plan))
+    assert wdg.value().z_plan == z_plan
+    assert not wdg.af_axis.isEnabled()
+    assert not wdg.value().autofocus_plan
+
+
+def test_autofocus_tab(qtbot: QtBot) -> None:
+    wdg = MDASequenceWidget()
+    qtbot.addWidget(wdg)
+    tabs, af = wdg.tab_wdg, wdg.af_axis
+    button = tabs._autofocus_button()
+
+    assert not tabs.isChecked(af)
+    assert not af.use_af_p.isEnabled()
+
+    # the tab's checkbox switches autofocus, and the other way around
+    tabs.setChecked(af, True)
+    assert af.isChecked()
+    assert af.use_af_p.isEnabled()
+    af.setValue(("t",))
+    assert wdg.value().autofocus_plan == useq.AxesBasedAF(axes=("t",))
+    af.setChecked(False)
+    assert not tabs.isChecked(af)
+    assert wdg.value().autofocus_plan is None
+
+    # setting axes switches it on, without leaving the current tab
+    tabs.setCurrentWidget(wdg.channels)
+    af.setValue(("p",))
+    assert tabs.isChecked(af)
+    assert tabs.currentWidget() is wdg.channels
+
+    # the checkbox follows whether autofocus can be used, and why not
+    af.setEnabled(False)
+    af.setToolTip("why not")
+    assert not button.isEnabled()
+    assert button.toolTip() == "why not"
+
+    # loading a sequence without autofocus switches it off
+    wdg.setValue(useq.MDASequence(time_plan=useq.TIntervalLoops(interval=1, loops=2)))
+    assert not af.isChecked()
 
 
 def test_mda_popup_with_polygon(qtbot: QtBot) -> None:

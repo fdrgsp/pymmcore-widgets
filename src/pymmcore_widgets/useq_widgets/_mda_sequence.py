@@ -4,25 +4,36 @@ from importlib.util import find_spec
 from itertools import permutations
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
+from weakref import WeakMethod
 
 import useq
-from qtpy.QtCore import Qt, Signal
+from qtpy.QtCore import QEvent, Qt, Signal
 from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
+    QTabBar,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
+from superqt.iconify import QIconifyIcon
 from superqt.utils import signals_blocked
 
 import pymmcore_widgets
 from pymmcore_widgets._humanize import humanize_time
+from pymmcore_widgets.useq_widgets._axis_tabs import (
+    MDA_ICONS,
+    _AxisTabBar,
+    _AxisTabButton,
+    _wrap_in_card,
+)
 from pymmcore_widgets.useq_widgets._channels import ChannelTable
 from pymmcore_widgets.useq_widgets._checkable_tabwidget_widget import CheckableTabWidget
 from pymmcore_widgets.useq_widgets._grid import GridPlanWidget
@@ -31,7 +42,7 @@ from pymmcore_widgets.useq_widgets._time import TimePlanWidget
 from pymmcore_widgets.useq_widgets._z import Mode, ZPlanWidget
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
 
 def _check_order(x: str, first: str, second: str) -> bool:
@@ -54,12 +65,21 @@ AF_AXIS_TOOLTIP = "Use Hardware Autofocus on the selected axes."
 AF_DISABLED_TOOLTIP = (
     "The hardware autofocus cannot be used with absolute Z positions (TOP_BOTTOM mode)."
 )
+AF_ON_AXIS_TOOLTIP = (
+    "When to autofocus: every time one of these axes changes.\n"
+    "\n"
+    "p - at every stage position\n"
+    "t - at every time point\n"
+    "g - at every tile of a grid"
+)
+TOP_BOTTOM_AF_TOOLTIP = "Cannot use while 'Autofocus' is in use."
 
 
 class MDATabs(CheckableTabWidget):
     """Checkable QTabWidget for editing a useq.MDASequence.
 
-    It contains a Tab for each of the MDASequence, axis (channels, positions, etc...).
+    It contains a Tab for each of the MDASequence, axis (channels, positions, etc...),
+    and one for the autofocus (see `add_autofocus`).
     """
 
     time_plan: TimePlanWidget
@@ -68,25 +88,141 @@ class MDATabs(CheckableTabWidget):
     z_plan: ZPlanWidget
     channels: ChannelTable
 
+    # (title, attribute) of every axis, in tab order
+    _AXES = (
+        ("Channels", "channels"),
+        ("Positions", "stage_positions"),
+        ("Z Stack", "z_plan"),
+        ("Time", "time_plan"),
+        ("Grid", "grid_plan"),
+    )
+    # inset of every page's content from the tab's edges
+    _PAGE_MARGIN = 9
+
     def __init__(self, parent: QWidget | None = None) -> None:
+        # the page wrapping each editor (see `_add_tab`)
+        self._page_for: dict[QWidget, QWidget] = {}
         super().__init__(parent)
-        # self.setMovable(True)
+        self.setTabBar(_AxisTabBar(self))
+        self.setDocumentMode(True)
         self.tabChecked.connect(self._on_tab_checked)
 
         self.create_subwidgets()
 
-        self.addTab(self.time_plan, "Time", checked=False)
-        self.addTab(self.stage_positions, "Positions", checked=False)
-        self.addTab(self.grid_plan, "Grid", checked=False)
-        self.addTab(self.z_plan, "Z Stack", checked=False)
-        self.addTab(self.channels, "Channels", checked=False)
-        self.setCurrentIndex(self.indexOf(self.channels))
+        for title, attr in self._AXES:
+            card = attr in ("grid_plan", "z_plan")
+            self._add_tab(getattr(self, attr), title, attr, card=card)
+        self.setCurrentWidget(self.channels)
 
         # we only show the DO_STACK and ACQUIRE_EVERY columns when the
         # corresponding tab is checked
         ch_table = self.channels.table()
         ch_table.hideColumn(ch_table.indexOf(self.channels.DO_STACK))
         ch_table.hideColumn(ch_table.indexOf(self.channels.ACQUIRE_EVERY))
+
+    def _add_tab(
+        self,
+        widget: QWidget,
+        title: str,
+        icon_key: str,
+        *,
+        checked: bool = False,
+        card: bool = False,
+        enables: bool = True,
+    ) -> None:
+        """Add a tab for `widget`, with an `_AxisTabButton` checkbox.
+
+        The checkbox enables `widget`, unless `enables` is False. `widget` is inset
+        in a page, inside a card in a scroll area with `card`: the methods taking a
+        widget resolve it to its page (see `indexOf`).
+        """
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        margin = self._PAGE_MARGIN
+        page_layout.setContentsMargins(margin, margin, margin, margin)
+        if card:
+            # the card is as tall as its content, at the top of the page
+            content = QWidget()
+            content_layout = QVBoxLayout(content)
+            content_layout.setContentsMargins(0, 0, 0, 0)
+            content_layout.addWidget(_wrap_in_card(widget))
+            content_layout.addStretch()
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setWidget(content)
+            page_layout.addWidget(scroll)
+        else:
+            page_layout.addWidget(widget)
+        self._page_for[widget] = page
+
+        index = int(QTabWidget.addTab(self, page, ""))
+        btn = _AxisTabButton(title, QIconifyIcon(MDA_ICONS[icon_key]), checked=checked)
+        # _AxisTabButton has the QCheckBox API used by CheckableTabWidget
+        self._cboxes.append(cast("QCheckBox", btn))
+        if enables:
+            widget.setEnabled(checked)
+            btn.toggled.connect(lambda c, w=widget: self._on_tab_checkbox_toggled(c, w))
+        else:
+            btn.toggled.connect(lambda c, w=widget: self._on_tab_switched(c, w))
+        if tab_bar := self.tabBar():
+            tab_bar.setTabButton(index, QTabBar.ButtonPosition.LeftSide, btn)
+            tab_bar.setTabToolTip(index, title)
+
+    def add_autofocus(self, autofocus: AutofocusAxis) -> None:
+        """Add the Autofocus tab after the axes, its checkbox switching `autofocus`.
+
+        Unlike an axis tab, it does not enable its widget: `autofocus` disables its
+        own controls when switched off, and its enabled state says whether it can
+        be used at all (e.g. not with an absolute Z plan), which the tab follows.
+        """
+        self._autofocus = autofocus
+        self._add_tab(
+            autofocus,
+            "Autofocus",
+            "autofocus",
+            checked=autofocus.isChecked(),
+            card=True,
+            enables=False,
+        )
+        self._autofocus_button().toggled.connect(autofocus.setChecked)
+        autofocus.setSwitch(self._check_autofocus)
+        autofocus.availabilityChanged.connect(self._update_autofocus_availability)
+        self._update_autofocus_availability()
+
+    def _autofocus_button(self) -> _AxisTabButton:
+        index = self.indexOf(self._autofocus)
+        left = QTabBar.ButtonPosition.LeftSide
+        return cast("_AxisTabButton", self.tabBar().tabButton(index, left))
+
+    def _check_autofocus(self, checked: bool) -> None:
+        # switched from code (e.g. by 'Set AF Offset per Position'): stay on this tab
+        jump, self.change_tab_on_check = self.change_tab_on_check, False
+        try:
+            self.setChecked(self._autofocus, checked)
+        finally:
+            self.change_tab_on_check = jump
+
+    def _update_autofocus_availability(self) -> None:
+        button = self._autofocus_button()
+        button.setEnabled(self._autofocus.isEnabled())
+        button.setToolTip(self._autofocus.toolTip())
+
+    def indexOf(self, widget: QWidget | None) -> int:
+        """Return the tab index for `widget`, resolving it to its page."""
+        page = self._page_for.get(widget, widget) if widget is not None else None
+        return int(QTabWidget.indexOf(self, page))
+
+    def setCurrentWidget(self, widget: QWidget | None) -> None:
+        """Select the tab for `widget`, resolving it to its page."""
+        if widget is not None:
+            QTabWidget.setCurrentWidget(self, self._page_for.get(widget, widget))
+
+    def currentWidget(self) -> QWidget | None:
+        """Return the editor of the current tab, not its page."""
+        page = QTabWidget.currentWidget(self)
+        return next((w for w, p in self._page_for.items() if p is page), page)
 
     def create_subwidgets(self) -> None:
         """Create the Tabs of the widget."""
@@ -180,35 +316,82 @@ class MDATabs(CheckableTabWidget):
 
 
 class AutofocusAxis(QWidget):
+    """Hardware autofocus settings: whether to use it, and on which axes.
+
+    `isChecked()` says whether autofocus is switched on; switched off, its axes are
+    disabled. The control that switches it, e.g. a tab's checkbox, belongs to its
+    container, which `setSwitch` keeps in step.
+    """
+
     valueChanged = Signal()
+    toggled = Signal(bool)
+    # whether it can be used, or why not (its enabled state or tooltip), changed
+    availabilityChanged = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._checked = False
+        # the setter of its switch (see `setSwitch`)
+        self._set_switch: WeakMethod[Callable[[bool], object]] | None = None
 
-        lbl = QLabel("Use Hardware Autofocus on Axis:")
         self.use_af_p = QCheckBox("p")
         self.use_af_t = QCheckBox("t")
         self.use_af_g = QCheckBox("g")
 
-        layout = QHBoxLayout(self)
+        # everything but the switch, which its container provides
+        self._body = QWidget()
+        self._body.setEnabled(False)
+        self._body.setToolTip(AF_ON_AXIS_TOOLTIP)
+        layout = QHBoxLayout(self._body)
         layout.setSpacing(10)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(lbl)
+        layout.addWidget(QLabel("On Axis:"))
         layout.addWidget(self.use_af_p)
         layout.addWidget(self.use_af_t)
         layout.addWidget(self.use_af_g)
         layout.addStretch()
+        QVBoxLayout(self).addWidget(self._body)
 
         self.use_af_p.toggled.connect(self.valueChanged)
         self.use_af_t.toggled.connect(self.valueChanged)
         self.use_af_g.toggled.connect(self.valueChanged)
+        self.toggled.connect(self.valueChanged)
 
         self.setToolTip(AF_AXIS_TOOLTIP)
 
+    def isChecked(self) -> bool:
+        """Whether autofocus is switched on."""
+        return self._checked
+
+    def setChecked(self, checked: bool) -> None:
+        """Switch autofocus on or off, along with its switch (see `setSwitch`)."""
+        if checked == self._checked:
+            return
+        self._checked = checked
+        self._body.setEnabled(checked)
+        if self._set_switch is not None and (set_switch := self._set_switch()):
+            set_switch(checked)
+        self.toggled.emit(checked)
+
+    def setSwitch(self, set_checked: Callable[[bool], object]) -> None:
+        """Keep the control that switches autofocus in step, with `set_checked`.
+
+        It is a method, kept weakly so that its owner can be freed.
+        """
+        self._set_switch = WeakMethod(set_checked)
+
+    def event(self, event: QEvent | None) -> bool:
+        if event is not None and event.type() in (
+            QEvent.Type.EnabledChange,
+            QEvent.Type.ToolTipChange,
+        ):
+            self.availabilityChanged.emit()
+        return bool(super().event(event))
+
     def value(self) -> tuple[str, ...]:
-        """Return the autofocus axes."""
+        """Return the autofocus axes, or `()` if autofocus is off."""
         af_axis: tuple[str, ...] = ()
-        if not self.isEnabled():
+        if not self.isEnabled() or not self.isChecked():
             return af_axis
         if self.use_af_p.isChecked():
             af_axis += ("p",)
@@ -219,10 +402,12 @@ class AutofocusAxis(QWidget):
         return af_axis
 
     def setValue(self, value: tuple[str, ...]) -> None:
-        """Set widget value from a tuple of autofocus axes."""
+        """Set widget value from a tuple of autofocus axes, switching it on for any."""
         self.use_af_p.setChecked("p" in value)
         self.use_af_t.setChecked("t" in value)
         self.use_af_g.setChecked("g" in value)
+        if value:
+            self.setChecked(True)
 
 
 class KeepShutterOpen(QWidget):
@@ -307,39 +492,57 @@ class MDASequenceWidget(QWidget):
         self._duration_label.setWordWrap(True)
 
         self._save_button = QPushButton("Save Settings")
+        self._save_button.setIcon(QIconifyIcon("mdi:content-save-outline"))
         self._save_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._save_button.clicked.connect(self.save)
         self._load_button = QPushButton("Load Settings")
+        self._load_button.setIcon(QIconifyIcon("mdi:folder-open-outline"))
         self._load_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._load_button.clicked.connect(self.load)
 
         # -------------- Main Layout --------------
 
-        top_row = QHBoxLayout()
-        top_row.addWidget(QLabel("Axis Order:"))
-        top_row.addWidget(self.axis_order)
-        top_row.addStretch()
-
         self.keep_shutter_open = KeepShutterOpen()
         self.af_axis = AutofocusAxis()
-        cbox_row = QVBoxLayout()
-        cbox_row.setContentsMargins(0, 0, 0, 0)
-        cbox_row.setSpacing(5)
-        cbox_row.addWidget(self.keep_shutter_open)
-        cbox_row.addWidget(self.af_axis)
-        cbox_row.addStretch()
+        self.tab_wdg.add_autofocus(self.af_axis)
 
-        bot_row = QHBoxLayout()
-        bot_row.addWidget(self._time_warning)
-        bot_row.addWidget(self._duration_label)
-        bot_row.addWidget(self._save_button)
-        bot_row.addWidget(self._load_button)
+        # settings that always apply, so they are not in a tab
+        settings = QWidget()
+        settings_layout = QVBoxLayout(settings)
+        settings_layout.setContentsMargins(5, 5, 5, 5)
+        settings_layout.setSpacing(5)
+        axis_row = QHBoxLayout()
+        axis_row.addWidget(QLabel("Axis Order:"))
+        axis_row.addWidget(self.axis_order)
+        axis_row.addStretch()
+        settings_layout.addLayout(axis_row)
+        settings_layout.addWidget(self.keep_shutter_open)
+        self._settings_box = _wrap_in_card(settings)
+        # in line with the tab pages
+        margin = MDATabs._PAGE_MARGIN
+        settings_row = QVBoxLayout()
+        settings_row.setContentsMargins(margin, 0, margin, 0)
+        settings_row.addWidget(self._settings_box)
+
+        footer = QWidget()
+        footer_layout = QVBoxLayout(footer)
+        footer_layout.setContentsMargins(margin, 0, margin, margin)
+        estimate_row = QHBoxLayout()
+        estimate_row.addWidget(self._time_warning)
+        estimate_row.addWidget(self._duration_label, 1)
+        footer_layout.addLayout(estimate_row)
+        # a subclass adds its own actions (e.g. Run) after the stretch
+        self._actions_row = QHBoxLayout()
+        self._actions_row.addWidget(self._save_button)
+        self._actions_row.addWidget(self._load_button)
+        self._actions_row.addStretch()
+        footer_layout.addLayout(self._actions_row)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(top_row)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.tab_wdg, 1)
-        layout.addLayout(cbox_row)
-        layout.addLayout(bot_row)
+        layout.addLayout(settings_row)
+        layout.addWidget(footer)
 
         # -------------- Connections --------------
 
@@ -355,6 +558,7 @@ class MDASequenceWidget(QWidget):
         self.keep_shutter_open.valueChanged.connect(self.valueChanged)
         self.af_axis.valueChanged.connect(self.valueChanged)
         self.stage_positions.af_per_position.toggled.connect(self._on_af_toggled)
+        self.valueChanged.connect(self._update_z_modes)
 
         with signals_blocked(self):
             self.tab_wdg.setChecked(self.channels, True)
@@ -422,24 +626,33 @@ class MDASequenceWidget(QWidget):
         value : useq.MDASequence
             The [`useq.MDASequence`][] to set.
         """
-        self.tab_wdg.setValue(value)
+        # observers see only the restored sequence, and no conflicting setting is
+        # resolved against a half-restored one (see `_update_z_modes`)
+        with signals_blocked(self):
+            self.tab_wdg.setValue(value)
 
-        keep_shutter_open = value.keep_shutter_open_across
-        self.keep_shutter_open.setValue(keep_shutter_open)
+            keep_shutter_open = value.keep_shutter_open_across
+            self.keep_shutter_open.setValue(keep_shutter_open)
 
-        # update autofocus axes checkboxes
-        axis: set[str] = set()
-        # update from global autofocus plan
-        if value.autofocus_plan:
-            axis.update(value.autofocus_plan.axes)
-        # update from autofocus plans in each position sub-sequence
-        if value.stage_positions:
-            for pos in value.stage_positions:
-                if pos.sequence and pos.sequence.autofocus_plan:
-                    axis.update(pos.sequence.autofocus_plan.axes)
-        self.af_axis.setValue(tuple(axis))
-        axis_text = "".join(x for x in value.axis_order if x in self.tab_wdg.usedAxes())
-        self.axis_order.setCurrentText(axis_text)
+            # update autofocus axes checkboxes
+            axis: set[str] = set()
+            use_af = bool(value.autofocus_plan)
+            # update from global autofocus plan
+            if value.autofocus_plan:
+                axis.update(value.autofocus_plan.axes)
+            # update from autofocus plans in each position sub-sequence
+            if value.stage_positions:
+                for pos in value.stage_positions:
+                    if pos.sequence and pos.sequence.autofocus_plan:
+                        axis.update(pos.sequence.autofocus_plan.axes)
+                        use_af = True
+            self.af_axis.setValue(tuple(axis))
+            self.af_axis.setChecked(use_af)
+            axis_text = "".join(
+                x for x in value.axis_order if x in self.tab_wdg.usedAxes()
+            )
+            self.axis_order.setCurrentText(axis_text)
+        self.valueChanged.emit()
 
     def save(self, file: str | Path | None = None) -> None:
         """Save the current [`useq.MDASequence`][] to a file."""
@@ -522,28 +735,34 @@ class MDASequenceWidget(QWidget):
             self.stage_positions._on_af_per_position_toggled(True)
 
     def _validate_af_with_z_plan(self) -> None:
-        """Check if the autofocus plan can be used with the current Z Plan.
+        """Enable the autofocus settings unless an absolute Z plan is used.
 
-        If the Z Plan is set to TOP_BOTTOM, the autofocus plan cannot be used.
+        TOP_BOTTOM cannot be selected while autofocus is in use (see
+        `_update_z_modes`), but it can be set from code.
         """
-        if self.z_plan.mode() == Mode.TOP_BOTTOM:
-            # if any autofocus axis is selected, show a warning.
-            if self.af_axis.value() or self._use_af_per_position():
-                QMessageBox.warning(
-                    self,
-                    "Autofocus Plan Disabled",
-                    "The Hardware Autofocus cannot be used with a Z Plan with Absolute "
-                    "Z Positions (TOP_BOTTOM mode). It has been disabled.\n\n"
-                    "To re-enable it, select a Z Plan with Relative Positions"
-                    "(RANGE_AROUND or ABOVE_BELOW modes).",
-                    buttons=QMessageBox.StandardButton.Ok,
-                    defaultButton=QMessageBox.StandardButton.Ok,
-                )
-            self._enable_af(False)
-        else:
-            self._enable_af(True)
-
+        self._enable_af(not self._uses_absolute_z())
         self.valueChanged.emit()
+
+    def _uses_absolute_z(self) -> bool:
+        """Return whether an absolute (TOP_BOTTOM) Z plan is used."""
+        return bool(
+            self.tab_wdg.isChecked(self.z_plan)
+            and self.z_plan.mode() == Mode.TOP_BOTTOM
+        )
+
+    def _update_z_modes(self) -> None:
+        """Keep the absolute Z mode from being selected while autofocus is in use.
+
+        Set from code, an absolute Z plan wins instead: it disables autofocus (see
+        `_validate_af_with_z_plan`).
+        """
+        af_in_use = bool(self.af_axis.value()) or self._use_af_per_position()
+        z_plan = self.z_plan
+        if af_in_use and z_plan.mode() == Mode.TOP_BOTTOM:
+            # not used while the Z tab is unchecked, but it would be once checked
+            z_plan.setMode(Mode.RANGE_AROUND)
+        reason = TOP_BOTTOM_AF_TOOLTIP if af_in_use else ""
+        z_plan.setModeBlocked(Mode.TOP_BOTTOM, reason)
 
     def _use_af_per_position(self) -> bool:
         """Return True if autofocus per position is checked and enabled.
@@ -560,10 +779,7 @@ class MDASequenceWidget(QWidget):
     def _on_tab_checked(self, tab_idx: int) -> None:
         """Before updating autofocus axes, check if the autofocus plan can be used."""
         if tab_idx == self.tab_wdg.indexOf(self.z_plan):
-            if self.tab_wdg.isChecked(self.z_plan):
-                self._validate_af_with_z_plan()
-            else:
-                self._enable_af(True)
+            self._validate_af_with_z_plan()
 
         if tab_idx in (
             self.tab_wdg.indexOf(self.grid_plan),
@@ -582,9 +798,10 @@ class MDASequenceWidget(QWidget):
         self.valueChanged.emit()
 
     def _on_af_toggled(self) -> None:
-        # if the 'af_per_position' checkbox in the PositionTable is checked, set checked
-        # also the autofocus p axis checkbox.
+        # if the 'af_per_position' checkbox in the PositionTable is checked, switch
+        # autofocus on, on the p axis too.
         if self._use_af_per_position() and self.tab_wdg.isChecked(self.stage_positions):
+            self.af_axis.setChecked(True)
             self.af_axis.use_af_p.setChecked(True)
 
     def _update_available_axis_orders(self) -> None:

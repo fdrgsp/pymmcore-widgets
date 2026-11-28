@@ -545,9 +545,8 @@ def test_af_stays_disabled_after_run(
     qtbot.addWidget(wdg)
     wdg.af_axis.setValue(("t",))
     if trigger == "zplan":
-        with patch.object(QMessageBox, "warning", lambda *args, **kwargs: True):
-            # the z plan is in TOP_BOTTOM mode by default
-            wdg.tab_wdg.setChecked(wdg.z_plan, True)
+        wdg.tab_wdg.setChecked(wdg.z_plan, True)
+        wdg.z_plan.setValue(useq.ZTopBottom(top=1, bottom=0, step=1))
     else:
         with qtbot.waitSignal(mmc.events.propertyChanged):
             mmc.setProperty("Core", "AutoFocus", "")
@@ -627,8 +626,17 @@ def test_enable_core_tab(qtbot: QtBot):
     assert all(mda_tabs.tabBar().isTabEnabled(t) for t in range(mda_tabs.count()))
     # the tab checkboxes are disabled
     assert not any(cbox.isEnabled() for cbox in mda_tabs._cboxes)
-    # the the tabs content is enabled
-    assert not any(mda_tabs.widget(t).isEnabled() for t in range(mda_tabs.count()))
+    # the the tabs content is disabled
+    assert not any(
+        wdg.isEnabled()
+        for wdg in (
+            mda_tabs.time_plan,
+            mda_tabs.stage_positions,
+            mda_tabs.z_plan,
+            mda_tabs.grid_plan,
+            mda_tabs.channels,
+        )
+    )
 
     # the content of an unchecked tab stays disabled
     mda_tabs.setChecked(mda_tabs.time_plan, False)
@@ -1010,14 +1018,9 @@ def test_core_mda_autofocus_and_z_plan(
 
     # trigger the z plan tab TopBottom mode
     if trigger == "zplan":
-
-        def _qmsgbox(*args, **kwargs):
-            return True
-
-        # check the z plan tab: since z_plan defaults to TopBottom mode, we should get a
-        # warning since the autofocus options are active
-        with patch.object(QMessageBox, "warning", _qmsgbox):
-            wdg.tab_wdg.setChecked(wdg.z_plan, True)
+        # an absolute Z plan set from code rules autofocus out
+        wdg.tab_wdg.setChecked(wdg.z_plan, True)
+        wdg.z_plan.setValue(useq.ZTopBottom(top=1, bottom=0, step=1))
 
     # disable autofocus device
     elif trigger == "core":
@@ -1071,6 +1074,7 @@ def test_core_mda_autofocus_and_z_plan(
             mmc.setProperty("Core", "AutoFocus", "")
 
         wdg.tab_wdg.setChecked(wdg.z_plan, True)
+        wdg.z_plan.setValue(useq.ZTopBottom(top=1, bottom=0, step=1))
         assert not wdg.af_axis.isEnabled()
         assert wdg.af_axis.use_af_p.isChecked()
         assert not wdg.af_axis.value()

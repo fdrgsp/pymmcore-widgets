@@ -80,6 +80,13 @@ class ZPlanWidget(QWidget):
             "Range asymmetrically above/below reference."
         )
 
+        self._mode_buttons: dict[Mode, QRadioButton] = {
+            Mode.TOP_BOTTOM: self._btn_top_bot,
+            Mode.RANGE_AROUND: self._btn_range,
+            Mode.ABOVE_BELOW: self._button_above_below,
+        }
+        self._mode_tooltips = {m: b.toolTip() for m, b in self._mode_buttons.items()}
+
         self._mode_btn_group = QButtonGroup()
         self._mode_btn_group.addButton(self._btn_top_bot)
         self._mode_btn_group.addButton(self._btn_range)
@@ -306,6 +313,20 @@ class ZPlanWidget(QWidget):
             self._set_row_visible(ROW_ABOVE_BELOW, True)
 
         self._on_change()
+
+    def setModeBlocked(self, mode: Mode, reason: str) -> None:
+        """Keep `mode` from being selected for `reason`, or allow it with `""`.
+
+        For a setting elsewhere that rules the mode out: the mode's button is
+        disabled, with `reason` as its tooltip. It does not change the current mode.
+        """
+        button = self._mode_buttons[mode]
+        button.setEnabled(not reason)
+        button.setToolTip(reason or self._mode_tooltips[mode])
+
+    def isModeBlocked(self, mode: Mode) -> bool:
+        """Whether `mode` cannot be selected now (see `setModeBlocked`)."""
+        return not self._mode_buttons[mode].isEnabled()
 
     def mode(self) -> Mode:
         """Return the current mode.

@@ -81,9 +81,12 @@ class CoreMDATabs(MDATabs):
         # disable tab checkboxes
         for cbox in self._cboxes:
             cbox.setEnabled(enable)
-        # disable tabs contents (the content of an unchecked tab stays disabled)
-        for i in range(self.count()):
-            self.widget(i).setEnabled(enable and self.isChecked(i) is not False)
+        # disable tabs contents (the content of an unchecked tab stays disabled).
+        # Not the pages: a disabled page would keep its editor disabled once checked
+        for wdg in self._page_for:
+            # the autofocus is enabled when it can be used, not when it is checked
+            checked = wdg is self._autofocus or self.isChecked(wdg) is not False
+            wdg.setEnabled(enable and checked)
 
 
 class MDAWidget(MDASequenceWidget):
