@@ -3,7 +3,7 @@ from __future__ import annotations
 from importlib.util import find_spec
 from itertools import permutations
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 from weakref import WeakMethod
 
 import useq
@@ -336,6 +336,8 @@ class AutofocusAxis(QWidget):
         self._checked = False
         # the setter of its switch (see `setSwitch`)
         self._set_switch: WeakMethod[Callable[[bool], object]] | None = None
+        # the last plan set, for the fields this widget does not edit
+        self._plan: useq.AxesBasedAF | None = None
 
         self.use_af_p = QCheckBox("p")
         self.use_af_t = QCheckBox("t")
@@ -390,6 +392,21 @@ class AutofocusAxis(QWidget):
         ):
             self.availabilityChanged.emit()
         return bool(super().event(event))
+
+    def plan(self, axes: tuple[str, ...], **kwargs: Any) -> useq.AxesBasedAF:
+        """Return an autofocus plan for `axes`, with the other fields of `setPlan`'s.
+
+        `kwargs` are further fields (e.g. `autofocus_motor_offset`).
+        """
+        return (self._plan or useq.AxesBasedAF(axes=axes)).replace(axes=axes, **kwargs)
+
+    def setPlan(self, plan: useq.AxesBasedAF | None) -> None:
+        """Switch autofocus on, keeping the fields of `plan`, or off with `None`.
+
+        The axes are set with `setValue`.
+        """
+        self._plan = plan
+        self.setChecked(plan is not None)
 
     def value(self) -> tuple[str, ...]:
         """Return the autofocus axes, or `()` if autofocus is off."""
@@ -614,7 +631,7 @@ class MDASequenceWidget(QWidget):
             replace.update(self._simplify_af_offsets(val))
         elif af_axes := self.af_axis.value():
             # otherwise use selected af axes as global autofocus plan
-            replace["autofocus_plan"] = useq.AxesBasedAF(axes=af_axes)
+            replace["autofocus_plan"] = self.af_axis.plan(af_axes)
 
         if replace:
             val = val.replace(**replace)
@@ -639,18 +656,18 @@ class MDASequenceWidget(QWidget):
 
             # update autofocus axes checkboxes
             axis: set[str] = set()
-            use_af = bool(value.autofocus_plan)
+            af_plan = value.autofocus_plan
             # update from global autofocus plan
-            if value.autofocus_plan:
-                axis.update(value.autofocus_plan.axes)
+            if af_plan:
+                axis.update(af_plan.axes)
             # update from autofocus plans in each position sub-sequence
             if value.stage_positions:
                 for pos in value.stage_positions:
-                    if pos.sequence and pos.sequence.autofocus_plan:
-                        axis.update(pos.sequence.autofocus_plan.axes)
-                        use_af = True
+                    if pos.sequence and (pos_af := pos.sequence.autofocus_plan):
+                        axis.update(pos_af.axes)
+                        af_plan = af_plan or pos_af
             self.af_axis.setValue(tuple(axis))
-            self.af_axis.setChecked(use_af)
+            self.af_axis.setPlan(af_plan)
             axis_text = "".join(
                 x for x in value.axis_order if x in self.tab_wdg.usedAxes()
             )
@@ -870,8 +887,8 @@ class MDASequenceWidget(QWidget):
                 if pos.sequence == NULL_SEQUENCE:
                     pos = pos.replace(sequence=None)
             stage_positions.append(pos)
-        af_plan = useq.AxesBasedAF(
-            autofocus_motor_offset=af_offsets.pop(), axes=self.af_axis.value()
+        af_plan = self.af_axis.plan(
+            self.af_axis.value(), autofocus_motor_offset=af_offsets.pop()
         )
         return {"autofocus_plan": af_plan, "stage_positions": stage_positions}
 

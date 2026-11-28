@@ -675,6 +675,20 @@ def test_autofocus_tab(qtbot: QtBot) -> None:
     assert not af.isChecked()
 
 
+def test_autofocus_plan_round_trip(qtbot: QtBot) -> None:
+    """The fields of a loaded autofocus plan that the widget does not edit stay."""
+    wdg = MDASequenceWidget()
+    qtbot.addWidget(wdg)
+    plan = useq.AxesBasedAF(
+        axes=("p",), autofocus_device_name="Autofocus", autofocus_motor_offset=10
+    )
+    wdg.setValue(useq.MDASequence(stage_positions=[(0, 0, 0)], autofocus_plan=plan))
+    assert wdg.value().autofocus_plan == plan
+
+    wdg.af_axis.use_af_t.setChecked(True)
+    assert wdg.value().autofocus_plan == plan.replace(axes=("p", "t"))
+
+
 def test_mda_popup_with_polygon(qtbot: QtBot) -> None:
     polygon = useq.GridFromPolygon(
         vertices=[(-10, 0), (12, -5), (10, 20), (0, 10)],
