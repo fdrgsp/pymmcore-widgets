@@ -10,7 +10,7 @@ from ._channel_properties import (
 from ._collapsible_mda import (
     CollapsibleAcquisitionSection,
     CollapsibleCoreMDATabs,
-    MDAWidgetCollapsible,
+    CollapsibleMDAWidget,
     SectionMetrics,
 )
 from ._core_channels import CoreConnectedChannelTable
@@ -23,10 +23,10 @@ __all__ = [
     "ChannelProperty",
     "CollapsibleAcquisitionSection",
     "CollapsibleCoreMDATabs",
+    "CollapsibleMDAWidget",
     "CoreConnectedChannelTable",
     "CoreMDATabs",
     "MDAWidget",
-    "MDAWidgetCollapsible",
     "SectionMetrics",
     "channel_properties",
     "to_channel_properties_sequence",

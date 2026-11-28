@@ -63,7 +63,7 @@ class SectionMetrics:
 
     Defaults suit a standard Qt style; a downstream theme can supply scaled
     values (e.g. for a zoom level) via
-    :meth:`MDAWidgetCollapsible.set_section_metrics`.
+    :meth:`CollapsibleMDAWidget.set_section_metrics`.
     """
 
     header_height: int = 28
@@ -640,7 +640,7 @@ class CollapsibleCoreMDATabs(CoreMDATabs):
         self.saving_section.set_summary(summary)
 
 
-class MDAWidgetCollapsible(MDAWidget):
+class CollapsibleMDAWidget(MDAWidget):
     """`MDAWidget` that presents the acquisition axes as collapsible sections.
 
     Behaves exactly like [`MDAWidget`][pymmcore_widgets.MDAWidget] — same
@@ -657,7 +657,7 @@ class MDAWidgetCollapsible(MDAWidget):
         """Return the collapsible axis container."""
         tabs = self.tab_wdg
         if not isinstance(tabs, CollapsibleCoreMDATabs):  # pragma: no cover
-            raise RuntimeError("MDAWidgetCollapsible has the wrong axis container")
+            raise RuntimeError("CollapsibleMDAWidget has the wrong axis container")
         return tabs
 
     def set_section_metrics(self, metrics: SectionMetrics) -> None:
@@ -684,6 +684,6 @@ class MDAWidgetCollapsible(MDAWidget):
 __all__ = [
     "CollapsibleAcquisitionSection",
     "CollapsibleCoreMDATabs",
-    "MDAWidgetCollapsible",
+    "CollapsibleMDAWidget",
     "SectionMetrics",
 ]

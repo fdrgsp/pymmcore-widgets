@@ -15,7 +15,7 @@ from qtpy.QtWidgets import QApplication, QDialog, QMessageBox, QWidget
 from pymmcore_widgets import GridPlanWidget, HCSWizard, ZPlanWidget
 from pymmcore_widgets._models._core_functions import block_core
 from pymmcore_widgets._util import NO_PIXEL_SIZE, get_next_available_path
-from pymmcore_widgets.mda import MDAWidget, MDAWidgetCollapsible
+from pymmcore_widgets.mda import CollapsibleMDAWidget, MDAWidget
 from pymmcore_widgets.mda._channel_properties import (
     CHANNEL_PROPERTIES_KEY,
     ChannelPropertiesSequence,
@@ -320,7 +320,7 @@ def mock_getAutoFocusOffset(global_mmcore: CMMCorePlus):
         yield
 
 
-@pytest.mark.parametrize("cls", [MDASequenceWidget, MDAWidget, MDAWidgetCollapsible])
+@pytest.mark.parametrize("cls", [MDASequenceWidget, MDAWidget, CollapsibleMDAWidget])
 def test_mda_starts_empty_with_every_axis_off(
     qtbot: QtBot, cls: type[MDASequenceWidget]
 ) -> None:
@@ -1272,7 +1272,7 @@ def test_af_axes_kept_after_run_with_unchecked_positions(
     assert wdg.value().autofocus_plan.axes == ("t",)
 
 
-@pytest.mark.parametrize("widget_cls", [MDAWidget, MDAWidgetCollapsible])
+@pytest.mark.parametrize("widget_cls", [MDAWidget, CollapsibleMDAWidget])
 def test_unchecked_tab_usable_after_run(
     qtbot: QtBot, global_mmcore: CMMCorePlus, widget_cls: type[MDAWidget]
 ) -> None:

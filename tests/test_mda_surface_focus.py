@@ -11,8 +11,8 @@ from superqt.utils import signals_blocked
 
 from pymmcore_widgets._z_surface import ZSurface
 from pymmcore_widgets.mda import (
+    CollapsibleMDAWidget,
     MDAWidget,
-    MDAWidgetCollapsible,
     to_channel_properties_sequence,
 )
 from pymmcore_widgets.mda._core_positions import (
@@ -74,7 +74,7 @@ def _no_messages() -> Iterator[None]:
     warning.assert_not_called()
 
 
-@pytest.mark.parametrize("widget_cls", [MDAWidget, MDAWidgetCollapsible])
+@pytest.mark.parametrize("widget_cls", [MDAWidget, CollapsibleMDAWidget])
 def test_surface_focus_value_and_reload(
     qtbot: QtBot, widget_cls: type[MDAWidget]
 ) -> None:

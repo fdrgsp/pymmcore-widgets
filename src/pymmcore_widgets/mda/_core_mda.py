@@ -114,7 +114,7 @@ class MDAWidget(MDASequenceWidget):
     It keeps the `MDASequenceWidget` layout (axis tabs, Settings and Autofocus
     cards, footer) and adds a Saving tab after the axes and the Run/Pause/Cancel
     controls to the footer.
-    [`MDAWidgetCollapsible`][pymmcore_widgets.MDAWidgetCollapsible] keeps this
+    [`CollapsibleMDAWidget`][pymmcore_widgets.CollapsibleMDAWidget] keeps this
     layout and swaps only the axis container.
 
     Parameters

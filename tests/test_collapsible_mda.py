@@ -6,7 +6,7 @@ import useq
 from qtpy.QtCore import QPoint, Qt
 from qtpy.QtWidgets import QWidget
 
-from pymmcore_widgets import MDAWidget, MDAWidgetCollapsible
+from pymmcore_widgets import CollapsibleMDAWidget, MDAWidget
 from pymmcore_widgets.mda import CollapsibleCoreMDATabs, SectionMetrics
 from pymmcore_widgets.useq_widgets._mda_sequence import AF_DISABLED_TOOLTIP
 from pymmcore_widgets.useq_widgets._positions import _MDAPopup
@@ -42,7 +42,7 @@ MDA = useq.MDASequence(
 
 
 def test_collapsible_is_mda_widget(qtbot: QtBot) -> None:
-    wdg = MDAWidgetCollapsible()
+    wdg = CollapsibleMDAWidget()
     qtbot.addWidget(wdg)
     # It IS an MDAWidget: same behavior, different presentation.
     assert isinstance(wdg, MDAWidget)
@@ -77,7 +77,7 @@ def test_collapsible_settings_sit_between_the_sections_and_the_footer(
     reveal -- and keeping them out of the scrollable body means they stay
     visible however the sections are scrolled.
     """
-    wdg = MDAWidgetCollapsible()
+    wdg = CollapsibleMDAWidget()
     qtbot.addWidget(wdg)
     wdg.resize(500, 800)
     wdg.show()
@@ -102,7 +102,7 @@ def test_collapsible_value_parity_with_mda_widget(qtbot: QtBot) -> None:
     """The collapsible presentation must build the identical sequence."""
     ref = MDAWidget()
     qtbot.addWidget(ref)
-    wdg = MDAWidgetCollapsible()
+    wdg = CollapsibleMDAWidget()
     qtbot.addWidget(wdg)
 
     ref.setValue(MDA)
@@ -124,7 +124,7 @@ def test_collapsible_value_parity_with_mda_widget(qtbot: QtBot) -> None:
 
 
 def test_collapsible_hcs_positions_refresh_summary(qtbot: QtBot) -> None:
-    wdg = MDAWidgetCollapsible()
+    wdg = CollapsibleMDAWidget()
     qtbot.addWidget(wdg)
     wdg.tabs.setChecked("p", True)
     section = wdg.tabs.section("p")
@@ -143,7 +143,7 @@ def test_collapsible_hcs_positions_refresh_summary(qtbot: QtBot) -> None:
 
 
 def test_settings_file_actions_are_in_execution_footer(qtbot: QtBot) -> None:
-    wdg = MDAWidgetCollapsible()
+    wdg = CollapsibleMDAWidget()
     qtbot.addWidget(wdg)
     wdg.resize(800, 700)
     wdg.show()
@@ -178,7 +178,7 @@ def test_settings_file_actions_are_in_execution_footer(qtbot: QtBot) -> None:
 
 
 def test_unchecked_axis_summaries_only_show_off(qtbot: QtBot) -> None:
-    wdg = MDAWidgetCollapsible()
+    wdg = CollapsibleMDAWidget()
     qtbot.addWidget(wdg)
     wdg.setValue(MDA)
 
@@ -198,7 +198,7 @@ def test_unchecked_axis_summaries_only_show_off(qtbot: QtBot) -> None:
 def test_collapsible_position_subsequence_popup_only_exposes_grid(
     qtbot: QtBot,
 ) -> None:
-    wdg = MDAWidgetCollapsible()
+    wdg = CollapsibleMDAWidget()
     qtbot.addWidget(wdg)
     # every axis starts off, and the Channels section starts collapsed
     assert not wdg.tabs.section("c").expanded
@@ -231,7 +231,7 @@ def test_collapsible_position_subsequence_popup_only_exposes_grid(
 
 
 def test_collapsible_disables_editors_during_run(qtbot: QtBot) -> None:
-    wdg = MDAWidgetCollapsible()
+    wdg = CollapsibleMDAWidget()
     qtbot.addWidget(wdg)
     tabs = wdg.tabs
     # every axis starts off: turn them all on, so disabling them is visible
@@ -272,7 +272,7 @@ def test_collapsible_run_preserves_axis_order(qtbot: QtBot) -> None:
     checkbox itself losing its enabled state -- toggling that checkbox off and
     repopulating (and thus resetting) the axis-order combo as a side effect.
     """
-    wdg = MDAWidgetCollapsible()
+    wdg = CollapsibleMDAWidget()
     qtbot.addWidget(wdg)
     wdg.setValue(MDA)
 
@@ -289,7 +289,7 @@ def test_collapsible_run_preserves_axis_order(qtbot: QtBot) -> None:
 
 
 def test_collapsible_runs_acquisition(qtbot: QtBot) -> None:
-    wdg = MDAWidgetCollapsible()
+    wdg = CollapsibleMDAWidget()
     qtbot.addWidget(wdg)
     wdg.setValue(MDA)
 
@@ -302,7 +302,7 @@ def test_collapsible_runs_acquisition(qtbot: QtBot) -> None:
 
 
 def test_collapsible_section_metrics(qtbot: QtBot) -> None:
-    wdg = MDAWidgetCollapsible()
+    wdg = CollapsibleMDAWidget()
     qtbot.addWidget(wdg)
 
     wdg.set_section_metrics(SectionMetrics(header_height=44, disclosure_width=30))
@@ -312,7 +312,7 @@ def test_collapsible_section_metrics(qtbot: QtBot) -> None:
 
 
 def test_collapsible_sections_have_card_frame(qtbot: QtBot) -> None:
-    wdg = MDAWidgetCollapsible()
+    wdg = CollapsibleMDAWidget()
     qtbot.addWidget(wdg)
     for section in wdg.tabs.sections:
         # each section is wrapped in a bordered card so they read as distinct
@@ -322,7 +322,7 @@ def test_collapsible_sections_have_card_frame(qtbot: QtBot) -> None:
 def test_collapsible_table_editors_keep_min_height(qtbot: QtBot) -> None:
     """Row-based editors must not collapse to a single row when several sections
     are expanded together."""
-    wdg = MDAWidgetCollapsible()
+    wdg = CollapsibleMDAWidget()
     qtbot.addWidget(wdg)
     for axis in ("c", "p", "t"):  # channel / position / time tables
         table = wdg.tabs.section(axis).content_widget.table()
@@ -332,7 +332,7 @@ def test_collapsible_table_editors_keep_min_height(qtbot: QtBot) -> None:
 
 def test_collapsible_section_shrinks_with_resized_table(qtbot: QtBot) -> None:
     """Dragging a table's grip up shrinks its whole section, leaving no gaps."""
-    wdg = MDAWidgetCollapsible()
+    wdg = CollapsibleMDAWidget()
     qtbot.addWidget(wdg)
     wdg.resize(500, 900)
     wdg.show()
@@ -356,7 +356,7 @@ def test_collapsible_section_shrinks_with_resized_table(qtbot: QtBot) -> None:
 
 
 def test_autofocus_section_switches_autofocus(qtbot: QtBot) -> None:
-    wdg = MDAWidgetCollapsible()
+    wdg = CollapsibleMDAWidget()
     qtbot.addWidget(wdg)
     section, af = wdg.tabs.autofocus_section, wdg.af_axis
     assert section.summary == "Off"
