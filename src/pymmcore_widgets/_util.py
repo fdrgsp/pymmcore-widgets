@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from psygnal import SignalGroup, SignalInstance
 from pymmcore_plus import CMMCorePlus
-from qtpy.QtCore import QMarginsF, QObject, Qt
+from qtpy.QtCore import QEvent, QMarginsF, QObject, Qt
 from qtpy.QtGui import QPainter, QPaintEvent, QPen, QResizeEvent
 from qtpy.QtWidgets import (
     QComboBox,
@@ -197,14 +197,43 @@ def get_next_available_path(requested_path: Path | str, min_digits: int = 3) -> 
 
 
 class SeparatorWidget(QWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    """A 1 px gray line, horizontal by default."""
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        orientation: Qt.Orientation = Qt.Orientation.Horizontal,
+    ) -> None:
         super().__init__(parent)
-        self.setFixedHeight(1)
+        self._horizontal = orientation == Qt.Orientation.Horizontal
+        if self._horizontal:
+            self.setFixedHeight(1)
+        else:
+            self.setFixedWidth(1)
 
     def paintEvent(self, a0: QPaintEvent | None) -> None:
         painter = QPainter(self)
         painter.setPen(QPen(Qt.GlobalColor.gray, 1, Qt.PenStyle.SolidLine))
-        painter.drawLine(self.rect().topLeft(), self.rect().topRight())
+        rect = self.rect()
+        end = rect.topRight() if self._horizontal else rect.bottomLeft()
+        painter.drawLine(rect.topLeft(), end)
+
+
+class _WheelBlocker(QObject):
+    """Event filter that swallows mouse-wheel events."""
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        return a1 is not None and a1.type() == QEvent.Type.Wheel
+
+
+def disable_wheel_scroll(widget: QWidget) -> None:
+    """Keep the mouse wheel from changing `widget`'s value, e.g. a spin box's.
+
+    Scrolling a page past it would change it otherwise.
+    """
+    # referenced, so that its Python override is not collected
+    widget._wheel_blocker = blocker = _WheelBlocker(widget)
+    widget.installEventFilter(blocker)
 
 
 class ResizingGraphicsView(QGraphicsView):

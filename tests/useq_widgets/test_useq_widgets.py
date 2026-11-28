@@ -436,7 +436,6 @@ def test_z_plan_widget(qtbot: QtBot) -> None:
 
     assert wdg.isGoUp()
     wdg.setGoUp(False)
-    assert wdg._top_to_bottom.isChecked()
     assert not wdg.isGoUp()
 
     plan = useq.ZTopBottom(top=1, bottom=2, step=0.2)
@@ -705,6 +704,20 @@ def test_autofocus_plan_round_trip(qtbot: QtBot) -> None:
 
     wdg.af_axis.use_af_t.setChecked(True)
     assert wdg.value().autofocus_plan == plan.replace(axes=("p", "t"))
+
+
+def test_z_plan_graphic(qtbot: QtBot) -> None:
+    wdg = ZPlanWidget()
+    qtbot.addWidget(wdg)
+    viz = wdg._viz
+
+    wdg.setValue(useq.ZAboveBelow(above=1, below=3, step=1))
+    assert (viz._top, viz._bottom, viz._slices) == (1, -3, 5)
+    # the reference is a quarter of the way down
+    assert viz._center_fraction == 0.25
+
+    wdg.setValue(useq.ZTopBottom(top=10, bottom=4, step=2))
+    assert (viz._top, viz._bottom, viz._center_fraction) == (10, 4, 0.5)
 
 
 def test_mda_popup_with_polygon(qtbot: QtBot) -> None:

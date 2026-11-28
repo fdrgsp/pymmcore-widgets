@@ -4,7 +4,12 @@ from typing import TYPE_CHECKING, Literal
 
 from pymmcore_plus import CMMCorePlus
 
-from pymmcore_widgets.useq_widgets._z import ROW_TOP_BOTTOM, Mode, ZPlanWidget
+from pymmcore_widgets.useq_widgets._z import (
+    ROW_FIRST_BOUND,
+    ROW_SECOND_BOUND,
+    Mode,
+    ZPlanWidget,
+)
 
 from ._xy_bounds import MarkVisit
 
@@ -44,17 +49,26 @@ class CoreConnectedZPlanWidget(ZPlanWidget):
         self.bottom_btn.visit.clicked.connect(self._visit_bottom)
         self.top_btn.visit.clicked.connect(self._visit_top)
 
-        row = ROW_TOP_BOTTOM + 1  # --------------- Bottom / Top parameters
-        self._grid_layout.addWidget(self.bottom_btn, row, 1)
-        self._grid_layout.addWidget(self.top_btn, row, 4)
+        # beside the Top and Bottom fields
+        self._grid_layout.addWidget(self.top_btn, ROW_FIRST_BOUND, 2)
+        self._grid_layout.addWidget(self.bottom_btn, ROW_SECOND_BOUND, 2)
+        self.setMode(self._mode)
 
     def setMode(
         self,
         mode: Mode | Literal["top_bottom", "range_around", "above_below"],
     ) -> None:
+        absolute = Mode(mode) is Mode.TOP_BOTTOM
+        self.bottom_btn.setVisible(absolute)
+        self.top_btn.setVisible(absolute)
         super().setMode(mode)
-        self.bottom_btn.setVisible(self._mode == Mode.TOP_BOTTOM)
-        self.top_btn.setVisible(self._mode == Mode.TOP_BOTTOM)
+
+    def _sync_visual_height(self) -> None:
+        # the bound rows are as tall as the buttons, in every mode
+        height = max(self.top_btn.sizeHint().height(), self.top.sizeHint().height())
+        for row in (ROW_FIRST_BOUND, ROW_SECOND_BOUND):
+            self._grid_layout.setRowMinimumHeight(row, height)
+        super()._sync_visual_height()
 
     def _mark_bottom(self) -> None:
         self.bottom.setValue(self._mmc.getZPosition())
