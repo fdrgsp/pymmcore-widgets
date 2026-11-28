@@ -919,3 +919,33 @@ def test_z_plan_controls_fill_the_width(qtbot: QtBot) -> None:
     assert box.mapTo(wdg, QPoint()).x() + box.width() == wdg.width() - margin
     # the box's fields take the spare width, not a gap inside the box
     assert wdg.step.width() > 300
+
+
+def test_time_table_zero_interval_does_not_raise(qtbot: QtBot) -> None:
+    # https://github.com/pymmcore-plus/useq-schema TIntervalDuration.loops divides
+    # duration by interval, which raises ZeroDivisionError for a 0 interval.
+    wdg = TimePlanWidget()
+    qtbot.addWidget(wdg)
+    wdg.show()
+
+    wdg.setValue(useq.TIntervalDuration(interval=0, duration=5))
+
+    interval = wdg.table().cellWidget(0, wdg.table().indexOf(wdg.INTERVAL))
+    wdg.table().setCurrentCell(0, wdg.table().indexOf(wdg.INTERVAL))
+    interval.setText("0 s")
+    interval.textModified.emit("", "")
+
+
+def test_time_plan_set_value_selects_no_row(qtbot: QtBot) -> None:
+    wdg = TimePlanWidget()
+    qtbot.addWidget(wdg)
+    wdg.setValue(
+        useq.MultiPhaseTimePlan(
+            phases=[{"interval": 1, "loops": 2}, {"interval": 3, "loops": 4}]
+        )
+    )
+    table = wdg.table()
+    assert not table.selectedRanges()
+    # what `_resolve_duration` goes by
+    assert table.currentRow() == 1
+    assert table.currentColumn() == table.indexOf(wdg.LOOPS)
