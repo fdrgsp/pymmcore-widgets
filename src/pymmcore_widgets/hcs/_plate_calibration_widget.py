@@ -159,10 +159,7 @@ class PlateCalibrationWidget(QWidget):
         self._plate_view.drawPlate(plate)
 
         # Set minimum wells required based on plate size
-        if plate:
-            self._min_wells_required = min(3, plate.rows * plate.columns)
-        else:  # pragma: no cover
-            self._min_wells_required = 3
+        self._min_wells_required = min(3, plate.rows * plate.columns) if plate else 3
 
         # clear existing calibration widgets
         while self._calibration_widgets:
@@ -281,16 +278,14 @@ class PlateCalibrationWidget(QWidget):
         if self._current_plate is None:
             return None
 
-        n = len(self._calibrated_wells)
-        if n == 1:
+        if len(self._calibrated_wells) == 1:
             # Single well: use center, plate spacing, no rotation
             center = next(iter(self._calibrated_wells.values()))
             return center, self._current_plate.well_spacing, 0.0
 
         # Check if all calibrated wells are collinear (single row or column)
-        indices = list(self._calibrated_wells.keys())
-        rows_set = {r for r, _ in indices}
-        cols_set = {c for _, c in indices}
+        rows_set = {r for r, _ in self._calibrated_wells}
+        cols_set = {c for _, c in self._calibrated_wells}
 
         if len(rows_set) == 1 or len(cols_set) == 1:
             # Collinear: 2+ wells all in one row or one column
@@ -305,7 +300,7 @@ class PlateCalibrationWidget(QWidget):
         a, b, ty, c, d, tx = params
         unit_y = np.hypot(a, c) / 1000  # convert to mm
         unit_x = np.hypot(b, d) / 1000  # convert to mm
-        rotation = round(np.rad2deg(np.arctan2(c, a)), 2)
+        rotation = round(np.rad2deg(np.arctan2(-c, a)), 2)
 
         return (round(tx, 4), round(ty, 4)), (unit_x, unit_y), rotation
 
@@ -330,7 +325,6 @@ class PlateCalibrationWidget(QWidget):
 
         indices = list(self._calibrated_wells.keys())
         centers = np.array(list(self._calibrated_wells.values()))
-        xs, ys = centers[:, 0], centers[:, 1]
 
         # Build the varying-axis indices and identify the fixed-axis index
         if is_single_row:  # varying column, fixed row
@@ -344,8 +338,8 @@ class PlateCalibrationWidget(QWidget):
 
         # Fit linear model: x = slope_x * v + tx,  y = slope_y * v + ty
         design = np.column_stack([varying, np.ones(len(varying))])
-        (slope_x, tx), *_ = np.linalg.lstsq(design, xs, rcond=None)
-        (slope_y, ty), *_ = np.linalg.lstsq(design, ys, rcond=None)
+        coefficients, *_ = np.linalg.lstsq(design, centers, rcond=None)
+        (slope_x, slope_y), (tx, ty) = coefficients
 
         # Measured spacing along the varying axis
         measured_spacing = np.hypot(slope_y, slope_x) / 1000  # mm
@@ -362,18 +356,17 @@ class PlateCalibrationWidget(QWidget):
             if fixed_idx != 0:
                 other_um = other_spacing * 1000
                 ty += other_um * np.cos(rot_rad) * fixed_idx
-                tx += other_um * np.sin(rot_rad) * fixed_idx
+                tx -= other_um * np.sin(rot_rad) * fixed_idx
         else:
             # Row axis direction is (slope_x, slope_y) in world (x, y)
-            rot_rad = np.arctan2(slope_x, slope_y)
+            rot_rad = np.arctan2(-slope_x, slope_y)
             unit_x, unit_y = max(other_spacing, 0.0), measured_spacing
 
             # Extrapolate A1 center to col=0
             if fixed_idx != 0:
-                theta_col = rot_rad + np.pi / 2
                 other_um = other_spacing * 1000
-                ty -= other_um * np.cos(theta_col) * fixed_idx
-                tx -= other_um * np.sin(theta_col) * fixed_idx
+                tx -= other_um * np.cos(rot_rad) * fixed_idx
+                ty -= other_um * np.sin(rot_rad) * fixed_idx
 
         rotation = round(float(np.rad2deg(rot_rad)), 2)
 
