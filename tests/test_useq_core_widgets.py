@@ -645,6 +645,51 @@ def test_enable_core_tab(qtbot: QtBot):
     assert mda_tabs.stage_positions.isEnabled()
 
 
+def test_saving_tab(qtbot: QtBot) -> None:
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    tabs, save_info = wdg.tab_wdg, wdg.save_info
+
+    assert not tabs.isChecked(save_info)
+    save_info.setChecked(True)
+    assert tabs.isChecked(save_info)
+    tabs.setChecked(save_info, False)
+    assert not save_info.isChecked()
+    # its fields are disabled by the group box itself, not by the tab
+    assert save_info.isEnabled()
+
+
+def test_editors_locked_during_run(qtbot: QtBot, global_mmcore: CMMCorePlus) -> None:
+    """A run locks the editors, but not Pause/Cancel or switching tabs."""
+    mmc = global_mmcore
+    wdg = MDAWidget()
+    qtbot.addWidget(wdg)
+    wdg.show()
+    seq = useq.MDASequence(channels=["DAPI"], time_plan={"interval": 0.1, "loops": 50})
+    wdg.setValue(seq)
+    editors = (wdg.channels, wdg.time_plan, wdg.save_info, wdg.af_axis)
+    btns = wdg.control_btns
+
+    with qtbot.waitSignal(mmc.mda.events.sequenceStarted):
+        btns.run_btn.click()
+    assert not any(editor.isEnabled() for editor in editors)
+    assert not wdg._settings_box.isEnabled()
+    assert not wdg._load_button.isEnabled()
+    wdg.tab_wdg.setCurrentWidget(wdg.z_plan)
+    assert wdg.tab_wdg.currentWidget() is wdg.z_plan
+
+    # isEnabled() is False if any ancestor is disabled
+    assert btns.pause_btn.isEnabled()
+    assert btns.cancel_btn.isEnabled()
+    with qtbot.waitSignal(mmc.mda.events.sequenceFinished):
+        btns.cancel_btn.click()
+
+    assert all(editor.isEnabled() for editor in editors)
+    assert wdg._settings_box.isEnabled()
+    # the content of an unchecked tab stays disabled
+    assert not wdg.z_plan.isEnabled()
+
+
 def test_relative_z_with_no_include_z(global_mmcore: CMMCorePlus, qtbot: QtBot):
     wdg = MDAWidget()
     qtbot.addWidget(wdg)

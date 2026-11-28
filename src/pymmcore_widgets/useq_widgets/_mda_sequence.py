@@ -102,6 +102,8 @@ class MDATabs(CheckableTabWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         # the page wrapping each editor (see `_add_tab`)
         self._page_for: dict[QWidget, QWidget] = {}
+        # the editors not enabled by their tab's checkbox (see `_add_tab`)
+        self._self_enabled: set[QWidget] = set()
         super().__init__(parent)
         self.setTabBar(_AxisTabBar(self))
         self.setDocumentMode(True)
@@ -165,6 +167,7 @@ class MDATabs(CheckableTabWidget):
             widget.setEnabled(checked)
             btn.toggled.connect(lambda c, w=widget: self._on_tab_checkbox_toggled(c, w))
         else:
+            self._self_enabled.add(widget)
             btn.toggled.connect(lambda c, w=widget: self._on_tab_switched(c, w))
         if tab_bar := self.tabBar():
             tab_bar.setTabButton(index, QTabBar.ButtonPosition.LeftSide, btn)

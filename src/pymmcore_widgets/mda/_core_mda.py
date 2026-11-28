@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, cast
 from pymmcore_plus import CMMCorePlus, Keyword
 from qtpy.QtCore import QSize, Qt, Slot
 from qtpy.QtWidgets import (
-    QBoxLayout,
     QHBoxLayout,
     QMessageBox,
     QPushButton,
@@ -84,9 +83,31 @@ class CoreMDATabs(MDATabs):
         # disable tabs contents (the content of an unchecked tab stays disabled).
         # Not the pages: a disabled page would keep its editor disabled once checked
         for wdg in self._page_for:
-            # the autofocus is enabled when it can be used, not when it is checked
-            checked = wdg is self._autofocus or self.isChecked(wdg) is not False
+            checked = wdg in self._self_enabled or self.isChecked(wdg) is not False
             wdg.setEnabled(enable and checked)
+
+    def add_saving(self, save_info: SaveGroupBox) -> None:
+        """Add the Saving tab after the others, its checkbox in step with `save_info`.
+
+        Like the Autofocus tab, it does not enable `save_info`, which disables its
+        own fields when unchecked.
+        """
+        self._save_info = save_info
+        save_info.setFlat(True)
+        self._add_tab(
+            save_info,
+            "Saving",
+            "saving",
+            checked=save_info.isChecked(),
+            card=True,
+            enables=False,
+        )
+        self.tabChecked.connect(self._on_saving_tab_checked)
+        save_info.toggled.connect(lambda checked: self.setChecked(save_info, checked))
+
+    def _on_saving_tab_checked(self, index: int, checked: bool) -> None:
+        if index == self.indexOf(self._save_info):
+            self._save_info.setChecked(checked)
 
 
 class MDAWidget(MDASequenceWidget):
@@ -126,9 +147,8 @@ class MDAWidget(MDASequenceWidget):
 
         # ------------ layout ------------
 
-        layout = cast("QBoxLayout", self.layout())
-        layout.insertWidget(0, self.save_info)
-        layout.addWidget(self.control_btns)
+        cast("CoreMDATabs", self.tab_wdg).add_saving(self.save_info)
+        self._actions_row.addWidget(self.control_btns)
 
         # ------------ connect signals ------------
 
@@ -429,11 +449,14 @@ class MDAWidget(MDASequenceWidget):
         return bool(response == QMessageBox.StandardButton.Ok)
 
     def _enable_widgets(self, enable: bool) -> None:
-        for child in self.children():
-            if isinstance(child, CoreMDATabs):
-                child._enable_tabs(enable)
-            elif child is not self.control_btns and hasattr(child, "setEnabled"):
-                child.setEnabled(enable)
+        """Enable or disable the editors, e.g. during an acquisition.
+
+        Not all of this widget's children: the footer holds Pause/Cancel too.
+        """
+        cast("CoreMDATabs", self.tab_wdg)._enable_tabs(enable)
+        self._settings_box.setEnabled(enable)
+        self._save_button.setEnabled(enable)
+        self._load_button.setEnabled(enable)
 
     @Slot()
     def _on_mda_started(self) -> None:

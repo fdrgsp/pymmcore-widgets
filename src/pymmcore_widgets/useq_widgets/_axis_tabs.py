@@ -26,6 +26,7 @@ MDA_ICONS: dict[str, str] = {
     "z_plan": "mdi:arrow-up-down",
     "time_plan": "mdi:clock-time-four-outline",
     "autofocus": "mdi:focus-auto",
+    "saving": "mdi:content-save-outline",
 }
 
 
