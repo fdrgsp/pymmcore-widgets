@@ -36,7 +36,7 @@ from ._save_widget import SaveGroupBox
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from pymmcore_plus.mda import SupportsFrameReady
+    from pymmcore_plus.mda._runner import SingleOutput
 
 AF_NO_AXIS = (
     "'Autofocus' is checked, but no axis is selected in 'On Axis', so it would "
@@ -263,7 +263,7 @@ class MDAWidget(MDASequenceWidget):
         """
         return get_next_available_path(requested_path=requested_path)
 
-    def prepare_mda(self) -> bool | str | Path | None:
+    def prepare_mda(self) -> bool | SingleOutput | None:
         """Prepare the MDA sequence experiment.
 
         Returns
@@ -272,6 +272,9 @@ class MDAWidget(MDASequenceWidget):
             False if MDA to be cancelled due to autofocus issue.
         str | Path
             Preparation successful, save path to be used for saving and saving active
+        SupportsFrameReady | AcquisitionSettings (see `SingleOutput`)
+            Preparation successful, with an output to acquire into. Not returned
+            here, but a subclass may: it is passed to `execute_mda`.
         None
             Preparation successful, saving deactivated
         """
@@ -304,16 +307,7 @@ class MDAWidget(MDASequenceWidget):
         else:
             return None
 
-    def execute_mda(
-        self,
-        output: (
-            Path
-            | str
-            | SupportsFrameReady
-            | Sequence[Path | str | SupportsFrameReady]
-            | None
-        ),
-    ) -> None:
+    def execute_mda(self, output: SingleOutput | Sequence[SingleOutput] | None) -> None:
         """Execute the MDA experiment corresponding to the current value."""
         sequence = self.value()
         # run the MDA experiment asynchronously
